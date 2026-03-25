@@ -1,6 +1,7 @@
 import type { Connector } from '@compliance-engine/types';
 import { GitHubConnector } from './github.connector.js';
 import { OktaConnector } from './okta.connector.js';
+import { AwsConnector } from './aws.connector.js';
 
 interface ConnectorEnv {
   GITHUB_TOKEN?: string;
@@ -8,6 +9,9 @@ interface ConnectorEnv {
   MAX_REPOS?: string;
   OKTA_DOMAIN?: string;
   OKTA_TOKEN?: string;
+  AWS_ACCESS_KEY_ID?: string;
+  AWS_SECRET_ACCESS_KEY?: string;
+  AWS_REGION?: string;
 }
 
 /**
@@ -34,6 +38,17 @@ export function buildConnectorRegistry(env: ConnectorEnv): Map<string, Connector
       new OktaConnector({
         domain: env.OKTA_DOMAIN,
         token: env.OKTA_TOKEN,
+      }),
+    );
+  }
+
+  if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY) {
+    registry.set(
+      'aws',
+      new AwsConnector({
+        region: env.AWS_REGION ?? 'us-east-1',
+        accessKeyId: env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
       }),
     );
   }

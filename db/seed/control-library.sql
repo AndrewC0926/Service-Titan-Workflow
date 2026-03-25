@@ -144,3 +144,16 @@ ON CONFLICT (id) DO UPDATE SET
   description = EXCLUDED.description,
   tier = EXCLUDED.tier,
   test_once_ids = EXCLUDED.test_once_ids;
+
+-- Phase 2: additional ISO 27001 controls referenced by AWS connector
+INSERT INTO controls (id, framework, title, description, tier, test_once_ids)
+VALUES
+  ('ISO27001-A.12.4.1', 'ISO27001', 'Event Logging',
+   'Event logs recording user activities, exceptions, faults, and information security events shall be produced, kept, and regularly reviewed.',
+   1, ARRAY['SOC2-CC7.2', 'PCIDSS-REQ10.1']),
+
+  ('ISO27001-A.12.4.3', 'ISO27001', 'Administrator and Operator Logs',
+   'System administrator and system operator activities shall be logged and the logs protected and regularly reviewed.',
+   1, ARRAY['SOC2-CC7.2'])
+
+ON CONFLICT (id) DO NOTHING;

@@ -6,4 +6,6 @@ export { GitHubConnector } from './connectors/github.connector.js';
 export type { GitHubConnectorConfig } from './connectors/github.connector.js';
 export { OktaConnector } from './connectors/okta.connector.js';
 export type { OktaConnectorConfig } from './connectors/okta.connector.js';
+export { AwsConnector } from './connectors/aws.connector.js';
+export type { AwsConnectorConfig } from './connectors/aws.connector.js';
 export { buildConnectorRegistry } from './connectors/registry.js';

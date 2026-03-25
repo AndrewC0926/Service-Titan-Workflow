@@ -14,6 +14,8 @@
     "@compliance-engine/types": "workspace:*",
     "@compliance-engine/common": "workspace:*",
     "@compliance-engine/db": "workspace:*",
+    "@aws-sdk/client-cloudtrail": "^3.700.0",
+    "@aws-sdk/client-config-service": "^3.700.0",
     "bullmq": "^5.31.0",
     "neverthrow": "^8.1.1",
     "zod": "^3.24.2"
