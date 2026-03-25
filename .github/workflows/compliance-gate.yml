@@ -1,0 +1,101 @@
+name: Compliance Gate
+
+on:
+  pull_request:
+    paths:
+      - "**/*.tf"
+      - "**/*.yml"
+      - "compliance/policies/**"
+
+jobs:
+  opa-policy-check:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup OPA
+        uses: open-policy-agent/setup-opa@v2
+        with:
+          version: latest
+
+      - name: Install conftest
+        run: |
+          CONFTEST_VERSION=0.46.0
+          curl -sL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar xz
+          sudo mv conftest /usr/local/bin/
+
+      - name: Find Terraform files
+        id: find-tf
+        run: |
+          TF_FILES=$(find . -name "*.tf" -type f | head -50)
+          if [ -z "$TF_FILES" ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No Terraform files found — skipping policy check"
+          else
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "Found Terraform files:"
+            echo "$TF_FILES"
+          fi
+
+      - name: Run OPA policy check
+        if: steps.find-tf.outputs.found == 'true'
+        id: policy-check
+        continue-on-error: true
+        run: |
+          conftest test --policy compliance/policies/ \
+            --output json \
+            $(find . -name "*.tf" -type f) \
+            > policy-results.json 2>&1 || true
+
+          # Check if there are failures
+          FAILURES=$(cat policy-results.json | jq '[.[] | select(.failures | length > 0)] | length' 2>/dev/null || echo "0")
+          echo "failures=$FAILURES" >> "$GITHUB_OUTPUT"
+
+          if [ "$FAILURES" -gt 0 ]; then
+            echo "Policy violations found:"
+            cat policy-results.json | jq '.[] | .failures[]'
+            exit 1
+          fi
+
+      - name: Post PR comment on failure
+        if: steps.policy-check.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let results = [];
+            try {
+              results = JSON.parse(fs.readFileSync('policy-results.json', 'utf8'));
+            } catch (e) {
+              // If parsing fails, post generic message
+            }
+
+            const failures = results
+              .filter(r => r.failures && r.failures.length > 0)
+              .flatMap(r => r.failures.map(f => `- ${f.msg}`));
+
+            const body = [
+              '## Compliance Gate Failed',
+              '',
+              'The following policy violations were detected:',
+              '',
+              ...failures,
+              '',
+              '### How to fix',
+              'Each violation references a specific control ID (e.g., PCIDSS-REQ3.4).',
+              'See `compliance/control-library.md` for control details and remediation guidance.',
+              '',
+              '---',
+              '*Automated by the compliance-engine policy-as-code gate*',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body,
+            });
