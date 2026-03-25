@@ -4,4 +4,6 @@ export { createCollectionQueue, createCollectionWorker } from './scheduler/job-q
 export { AnecdotesClient } from './anecdotes/anecdotes.client.js';
 export { GitHubConnector } from './connectors/github.connector.js';
 export type { GitHubConnectorConfig } from './connectors/github.connector.js';
+export { OktaConnector } from './connectors/okta.connector.js';
+export type { OktaConnectorConfig } from './connectors/okta.connector.js';
 export { buildConnectorRegistry } from './connectors/registry.js';
