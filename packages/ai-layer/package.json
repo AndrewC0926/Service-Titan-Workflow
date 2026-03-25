@@ -7,15 +7,21 @@
   "scripts": {
     "build": "tsc -b",
     "dev": "tsc -b --watch",
-    "test": "echo \"No tests yet\""
+    "test": "jest --passWithNoTests"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "@compliance-engine/types": "workspace:*",
     "@compliance-engine/common": "workspace:*",
-    "@compliance-engine/db": "workspace:*"
+    "@compliance-engine/db": "workspace:*",
+    "postgres": "^3.4.5"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.0",
+    "@types/jest": "^29.5.0",
+    "nock": "^13.5.0",
     "typescript": "^5.7.0"
   }
 }
