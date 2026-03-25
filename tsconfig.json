@@ -1,0 +1,14 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/types" },
+    { "path": "packages/common" },
+    { "path": "packages/db" },
+    { "path": "packages/evidence-engine" },
+    { "path": "packages/ai-layer" },
+    { "path": "packages/policy-engine" },
+    { "path": "packages/api" },
+    { "path": "packages/ai-registry" },
+    { "path": "packages/dashboard" }
+  ]
+}

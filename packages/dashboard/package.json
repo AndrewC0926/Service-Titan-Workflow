@@ -1,0 +1,10 @@
+{
+  "name": "@compliance-engine/dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "echo \"Dashboard build — Next.js setup deferred\"",
+    "dev": "echo \"Dashboard dev — Next.js setup deferred\"",
+    "test": "echo \"No tests yet\""
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@compliance-engine/db",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "migrate": "node dist/migrate.js",
+    "seed": "node dist/seed.js",
+    "test": "echo \"No tests yet\""
+  },
+  "dependencies": {
+    "@compliance-engine/types": "workspace:*",
+    "drizzle-orm": "^0.38.0",
+    "postgres": "^3.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "drizzle-kit": "^0.30.0",
+    "typescript": "^5.7.0"
+  }
+}

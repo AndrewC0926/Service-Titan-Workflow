@@ -1,0 +1,21 @@
+{
+  "name": "@compliance-engine/ai-layer",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "test": "echo \"No tests yet\""
+  },
+  "dependencies": {
+    "@compliance-engine/types": "workspace:*",
+    "@compliance-engine/common": "workspace:*",
+    "@compliance-engine/db": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "typescript": "^5.7.0"
+  }
+}

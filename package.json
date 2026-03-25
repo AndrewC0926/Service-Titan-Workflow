@@ -1,0 +1,17 @@
+{
+  "name": "compliance-engine",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "pnpm -r run build",
+    "dev": "pnpm -r --parallel run dev",
+    "test": "pnpm -r run test",
+    "db:migrate": "pnpm --filter @compliance-engine/db run migrate",
+    "db:seed": "pnpm --filter @compliance-engine/db run seed",
+    "lint": "pnpm -r run lint"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}
