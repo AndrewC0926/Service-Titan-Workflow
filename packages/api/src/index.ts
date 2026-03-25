@@ -1,2 +1,1 @@
-// Placeholder — Express routes, middleware added later
-export {};
+export { createApp } from './app.js';
