@@ -3,6 +3,7 @@ import { requestLogger } from './middleware/request-logger.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { apiRateLimiter } from './middleware/rate-limit.js';
 import { trustRoutes } from './routes/trust.routes.js';
+import { dashboardRoutes } from './routes/dashboard.routes.js';
 
 export function createApp(): express.Express {
   const app = express();
@@ -19,6 +20,7 @@ export function createApp(): express.Express {
 
   // Routes
   app.use('/api/trust', trustRoutes);
+  app.use('/api/dashboard', dashboardRoutes);
 
   // 404 handler
   app.use((_req, res) => {
