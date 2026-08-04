@@ -1,0 +1,86 @@
+"""Adapter tests against recorded payloads (respx mocks) — no live sites hit."""
+import json
+
+import httpx
+import respx
+
+from app.http import PoliteClient
+from app.models import SignalType
+from app.sources.ats import AtsAdapter
+from app.sources.ceqanet import CeqanetAdapter
+from app.sources.edgar import EdgarAdapter
+from app.sources.legistar import LegistarAdapter
+
+
+def fast_client() -> PoliteClient:
+    return PoliteClient(interval=0, max_retries=0, respect_robots=False)
+
+
+@respx.mock
+def test_edgar_parses_hits(cfg, fixtures_dir):
+    payload = json.loads((fixtures_dir / "edgar_fts.json").read_text())
+    respx.get(url__startswith="https://efts.sec.gov/LATEST/search-index").mock(
+        return_value=httpx.Response(200, json=payload)
+    )
+    docs = list(EdgarAdapter().fetch(cfg, fast_client()))
+    # 2 hits x N queries, but source_uids repeat -> pipeline dedupes; check shape
+    assert docs
+    doc = docs[0]
+    assert doc.source == "edgar"
+    assert doc.source_uid == "0001193125-26-012345:d8k.htm"
+    assert "sec.gov/Archives/edgar/data/1710583" in doc.url
+    assert doc.meta["needs_body_fetch"] is True
+    assert doc.published_at.year == 2026
+    abs_docs = [d for d in docs if d.default_signal_type == SignalType.abs_issuance]
+    assert abs_docs, "424B2 should map to abs_issuance"
+
+
+@respx.mock
+def test_ceqanet_filters_and_parses(cfg, fixtures_dir):
+    csv_text = (fixtures_dir / "ceqanet_search.csv").read_text()
+    respx.get(url__startswith="https://ceqanet.lci.ca.gov/Search/DownloadCSV").mock(
+        return_value=httpx.Response(200, text=csv_text)
+    )
+    detail_html = "<html><body><h1>Meridian Data Center Campus</h1><p>APN 0110-111-22. 176 MW. Contact: Jane Doe (909) 555-0100</p></body></html>"
+    respx.get(url__startswith="https://ceqanet.lci.ca.gov/2026").mock(
+        return_value=httpx.Response(200, text=detail_html)
+    )
+    docs = list(CeqanetAdapter().fetch(cfg, fast_client()))
+    uids = {d.source_uid for d in docs}
+    # only the data center row passes the keyword filter; NOP row across all county/doctype queries
+    assert any(u.startswith("2026070456") for u in uids)
+    assert not any(u.startswith("2026070123") for u in uids)
+    dc = next(d for d in docs if d.source_uid.startswith("2026070456"))
+    assert dc.default_signal_type == SignalType.ceqa_nop
+    assert "APN 0110-111-22" in dc.raw_text
+    assert dc.meta["sch_number"] == "2026070456"
+
+
+@respx.mock
+def test_ats_greenhouse_geo_filter(cfg, fixtures_dir):
+    payload = json.loads((fixtures_dir / "greenhouse_jobs.json").read_text())
+    respx.get(url__startswith="https://boards-api.greenhouse.io/").mock(
+        return_value=httpx.Response(200, json=payload)
+    )
+    respx.get(url__startswith="https://api.lever.co/").mock(return_value=httpx.Response(404))
+    respx.get(url__startswith="https://api.ashbyhq.com/").mock(return_value=httpx.Response(404))
+    docs = list(AtsAdapter().fetch(cfg, fast_client()))
+    assert docs, "Reno posting should pass geo filter"
+    titles = " ".join(d.title for d in docs)
+    assert "Construction Manager" in titles
+    assert "Accountant" not in titles, "Denver posting must be filtered out"
+    assert all(d.default_signal_type == SignalType.job_posting for d in docs)
+
+
+@respx.mock
+def test_legistar_keyword_match(cfg, fixtures_dir):
+    payload = json.loads((fixtures_dir / "legistar_matters.json").read_text())
+    respx.get(url__startswith="https://webapi.legistar.com/v1/").mock(
+        return_value=httpx.Response(200, json=payload)
+    )
+    docs = list(LegistarAdapter().fetch(cfg, fast_client()))
+    assert docs
+    assert all("data center" in d.raw_text.lower() for d in docs)
+    assert not any("Sidewalk" in d.title for d in docs)
+    assert docs[0].default_signal_type == SignalType.planning_agenda
+    assert docs[0].source_uid.endswith(":55501")

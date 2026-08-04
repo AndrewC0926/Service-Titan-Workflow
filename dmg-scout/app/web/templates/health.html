@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Source Health{% endblock %}
+{% block content %}
+<h2>Source health — last run per adapter</h2>
+<table>
+<thead><tr><th>Source</th><th>Last run</th><th>Status</th><th class="num">Fetched</th><th class="num">New</th><th>Last success</th><th>Error</th></tr></thead>
+<tbody>
+{% for name, s in sources.items() %}
+<tr>
+  <td class="mono">{{ name }}</td>
+  <td class="num">{{ s.last.started_at.strftime('%Y-%m-%d %H:%M') }}</td>
+  <td>{% if s.last.ok %}<span class="ok">OK</span>{% elif s.last.ok == False %}<span class="bad">FAILED</span>{% else %}<span class="dim">running…</span>{% endif %}</td>
+  <td class="num">{{ s.last.records_fetched }}</td>
+  <td class="num">{{ s.last.records_new }}</td>
+  <td class="num">{{ s.last_ok.started_at.strftime('%Y-%m-%d %H:%M') if s.last_ok else (s.last.started_at.strftime('%Y-%m-%d %H:%M') if s.last.ok else '—') }}</td>
+  <td class="bad" style="max-width:420px;overflow-wrap:anywhere">{{ (s.last.error or '').split('\n')[0] }}</td>
+</tr>
+{% else %}
+<tr><td colspan="7" class="dim">No runs recorded yet.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+<h2>Recent runs</h2>
+<table>
+<thead><tr><th>Started</th><th>Source</th><th>Status</th><th class="num">Fetched</th><th class="num">New</th></tr></thead>
+<tbody>
+{% for run in recent_runs %}
+<tr><td class="num">{{ run.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+    <td class="mono">{{ run.source }}</td>
+    <td>{% if run.ok %}<span class="ok">ok</span>{% elif run.ok == False %}<span class="bad">fail</span>{% else %}<span class="dim">…</span>{% endif %}</td>
+    <td class="num">{{ run.records_fetched }}</td><td class="num">{{ run.records_new }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}

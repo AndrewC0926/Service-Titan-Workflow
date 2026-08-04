@@ -1,0 +1,102 @@
+"""EXTRACT: Sonnet structured extraction over triaged-relevant documents.
+One document can yield one signal (v1: one signal per document; the extraction
+JSON is stored in full so nothing is lost). EDGAR hits fetch the filing body
+first, since full-text search returns only metadata."""
+from __future__ import annotations
+
+import logging
+from datetime import datetime
+
+from sqlmodel import Session, select
+
+from app.config import Config
+from app.http import PoliteClient
+from app.llm import LLMUnavailable, extract
+from app.models import RawDocument, Signal, SignalType, Stage, TriageResult, utcnow
+
+log = logging.getLogger(__name__)
+
+MAX_BODY_BYTES = 2_000_000
+
+
+def _ensure_body(doc: RawDocument, client: PoliteClient) -> str:
+    """EDGAR (and similar) store metadata at fetch time; pull the real body once."""
+    if not doc.meta.get("needs_body_fetch"):
+        return doc.raw_text
+    try:
+        resp = client.get(doc.url)
+        body = resp.text[:MAX_BODY_BYTES]
+        if body.strip():
+            return doc.raw_text + "\n\n--- DOCUMENT BODY ---\n\n" + body
+    except Exception as exc:  # noqa: BLE001
+        log.warning("body fetch failed for doc %s (%s): %s", doc.id, doc.url, exc)
+    return doc.raw_text
+
+
+def run_extract(session: Session, cfg: Config, limit: int = 100) -> dict:
+    docs = session.exec(
+        select(RawDocument)
+        .where(RawDocument.triage_result == TriageResult.relevant,
+               RawDocument.processed_at.is_(None))
+        .order_by(RawDocument.fetched_at)
+        .limit(limit)
+    ).all()
+
+    stats = {"extracted": 0, "errors": 0}
+    with PoliteClient() as client:
+        for doc in docs:
+            text = _ensure_body(doc, client)
+            try:
+                data = extract(text, title=doc.title, source=doc.source, url=doc.url)
+            except LLMUnavailable:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                stats["errors"] += 1
+                log.warning("extract failed for doc %s: %s", doc.id, exc)
+                continue
+
+            event_date = None
+            if data.get("event_date"):
+                try:
+                    event_date = datetime.fromisoformat(data["event_date"])
+                except ValueError:
+                    pass
+
+            default_type = doc.meta.get("default_signal_type", SignalType.news_report.value)
+            try:
+                signal_type = SignalType(default_type)
+            except ValueError:
+                signal_type = SignalType.news_report
+
+            stage_val = data.get("stage") or "unknown"
+            try:
+                stage = Stage(stage_val)
+            except ValueError:
+                stage = Stage.unknown
+
+            # Idempotency: one signal per raw document; re-extraction replaces it.
+            existing = session.exec(
+                select(Signal).where(Signal.raw_document_id == doc.id)
+            ).first()
+            signal = existing or Signal(raw_document_id=doc.id, signal_type=signal_type)
+            signal.signal_type = signal_type
+            signal.event_date = event_date or doc.published_at
+            for f in ("project_name", "developer_or_owner", "jurisdiction", "county", "state",
+                      "street_address", "apn_parcel", "latitude", "longitude", "mw_it", "mw_total",
+                      "generator_count", "generator_hp_each", "generator_kw_each", "building_sqft",
+                      "acres", "building_count", "cooling_type", "water_acre_feet_per_year",
+                      "filing_type"):
+                setattr(signal, f, data.get(f))
+            signal.stage = stage
+            signal.summary_one_line = data.get("summary_one_line", "")
+            signal.confidence = data.get("confidence", 0.0)
+            signal.extraction_json = data.get("_raw", {})
+            signal.named_people = data.get("named_people", [])
+            signal.named_firms = data.get("named_firms", [])
+            session.add(signal)
+
+            doc.processed_at = utcnow()
+            session.add(doc)
+            session.commit()
+            stats["extracted"] += 1
+    return stats

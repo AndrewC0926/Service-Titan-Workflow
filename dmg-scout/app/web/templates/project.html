@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}{{ p.name }}{% endblock %}
+{% block content %}
+<h2>{{ p.name }} <span class="tag {{ p.window.value }}">{{ p.window.value }}</span>
+  <span class="scorechip" style="background:{{ score_color(p.score) }}">{{ '%.2f'|format(p.score) }}</span></h2>
+
+<table style="max-width:900px">
+<tr><th>Developer</th><td>{{ p.developer or '—' }}</td>
+    <th>County</th><td>{{ p.county or '?' }}{{ ', ' + p.state if p.state }}</td></tr>
+<tr><th>Stage</th><td>{{ p.stage.value }}</td>
+    <th>Days to est. bid</th><td class="num">{{ p.days_to_estimated_bid if p.days_to_estimated_bid is not none else '—' }}</td></tr>
+<tr><th>MW (IT / total)</th><td class="num">{{ p.mw_it or '—' }} / {{ p.mw_total or '—' }}</td>
+    <th>APN</th><td class="mono">{{ p.apn_parcel or '—' }}</td></tr>
+<tr><th>Est. tonnage</th>
+    <td class="num">{% if p.tons_estimate_low %}{{ '{:,.0f}'.format(p.tons_estimate_low) }}–{{ '{:,.0f}'.format(p.tons_estimate_high) }} tons{% else %}—{% endif %}</td>
+    <th>Basis</th><td>{{ p.estimate_basis or 'no size input yet' }}</td></tr>
+</table>
+
+<h2>Signal timeline</h2>
+<table>
+<thead><tr><th>Date</th><th>Type</th><th>Summary</th><th class="num">Conf</th><th>Match</th><th>Source</th></tr></thead>
+<tbody>
+{% for t in timeline %}
+<tr>
+  <td class="num">{{ (t.signal.event_date or t.signal.created_at).strftime('%Y-%m-%d') }}</td>
+  <td><span class="tag">{{ t.signal.signal_type.value }}</span></td>
+  <td>{{ t.signal.summary_one_line or t.doc.title if t.doc else t.signal.summary_one_line }}</td>
+  <td class="num">{{ '%.2f'|format(t.signal.confidence) }}</td>
+  <td class="dim">{{ t.link.match_method }} @ {{ '%.2f'|format(t.link.match_confidence) }}</td>
+  <td>{% if t.doc %}<a href="{{ t.doc.url }}" target="_blank" rel="noopener">{{ t.doc.source }} ↗</a>{% else %}—{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+
+<h2>Named people &amp; firms</h2>
+<table style="max-width:900px">
+<thead><tr><th>Name</th><th>Title / role</th><th>Org</th><th>Phone</th><th>Email</th></tr></thead>
+<tbody>
+{% for person in people %}
+<tr><td>{{ person.name }}</td><td>{{ person.title or '' }}</td><td>{{ person.org or '' }}</td>
+    <td class="mono">{{ person.phone or '' }}</td><td class="mono">{{ person.email or '' }}</td></tr>
+{% endfor %}
+{% for firm in firms %}
+<tr><td>{{ firm.name }}</td><td><span class="tag">{{ firm.role }}</span></td><td colspan="3"></td></tr>
+{% endfor %}
+{% if not people and not firms %}<tr><td colspan="5" class="dim">None extracted yet.</td></tr>{% endif %}
+</tbody>
+</table>
+
+<h2>Notes &amp; next action</h2>
+<form method="post" action="/project/{{ p.id }}/notes" style="max-width:900px">
+  <textarea name="notes" placeholder="Notes...">{{ p.notes }}</textarea>
+  <input name="next_action" placeholder="Next action" value="{{ p.next_action or '' }}" style="margin:8px 0">
+  <button>Save</button>
+</form>
+
+<h2>Outreach log</h2>
+<form method="post" action="/project/{{ p.id }}/outreach" class="grid" style="max-width:900px;margin-bottom:10px">
+  <select name="channel"><option>call</option><option>email</option><option>meeting</option><option>text</option><option>other</option></select>
+  <input name="notes" placeholder="What happened" required>
+  <input name="next_action" placeholder="Next action">
+  <button>Log</button>
+</form>
+<table style="max-width:900px">
+<thead><tr><th>Date</th><th>Channel</th><th>Notes</th><th>Next action</th></tr></thead>
+<tbody>
+{% for o in outreach %}
+<tr><td class="num">{{ o.date.strftime('%Y-%m-%d') }}</td><td>{{ o.channel }}</td>
+    <td>{{ o.notes }}</td><td>{{ o.next_action or '' }}</td></tr>
+{% else %}
+<tr><td colspan="4" class="dim">No outreach logged.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}

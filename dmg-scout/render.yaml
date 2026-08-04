@@ -1,0 +1,39 @@
+# Render blueprint: one web service, one daily cron, one Postgres.
+# Root directory is dmg-scout/ within the repo.
+databases:
+  - name: dmg-scout-db
+    plan: basic-256mb
+
+services:
+  - type: web
+    name: dmg-scout-web
+    runtime: docker
+    rootDir: dmg-scout
+    plan: starter
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase: {name: dmg-scout-db, property: connectionString}
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DASHBOARD_PASSWORD
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+
+  - type: cron
+    name: dmg-scout-pipeline
+    runtime: docker
+    rootDir: dmg-scout
+    plan: starter
+    schedule: "0 13 * * *"   # 13:00 UTC = 6am PT daily
+    dockerCommand: sh -c "alembic upgrade head && scout pipeline"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase: {name: dmg-scout-db, property: connectionString}
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DASHBOARD_PASSWORD
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false

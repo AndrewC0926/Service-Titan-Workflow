@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Review Queue{% endblock %}
+{% block content %}
+<h2>Uncertain entity matches — merge or reject</h2>
+<table>
+<thead><tr><th>Signal</th><th>Candidate project</th><th class="num">Similarity</th><th>LLM says</th><th>Decide</th></tr></thead>
+<tbody>
+{% for r in rows %}
+<tr id="mc-{{ r.mc.id }}">
+  <td>
+    <b>{{ r.signal.project_name or '(unnamed)' }}</b> — {{ r.signal.developer_or_owner or '?' }}<br>
+    <span class="dim">{{ r.signal.signal_type.value }} · {{ r.signal.county or '?' }} · {{ r.signal.summary_one_line }}</span>
+  </td>
+  <td><a href="/project/{{ r.project.id }}">{{ r.project.name }}</a> — {{ r.project.developer or '?' }}<br>
+      <span class="dim">{{ r.project.county or '?' }} · stage {{ r.project.stage.value }}</span></td>
+  <td class="num">{{ '%.2f'|format(r.mc.similarity) }}</td>
+  <td class="dim">{{ r.mc.llm_verdict or '—' }}{% if r.mc.llm_reasoning %}: {{ r.mc.llm_reasoning[:160] }}{% endif %}</td>
+  <td style="white-space:nowrap">
+    <button hx-post="/review/{{ r.mc.id }}/merge" hx-target="#mc-{{ r.mc.id }}" hx-swap="innerHTML">Merge</button>
+    <button class="warn" hx-post="/review/{{ r.mc.id }}/reject" hx-target="#mc-{{ r.mc.id }}" hx-swap="innerHTML">Reject</button>
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="5" class="dim">Queue is empty. Good.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}

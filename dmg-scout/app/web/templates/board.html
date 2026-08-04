@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Board{% endblock %}
+{% block content %}
+<h2>Projects — ranked by winnability</h2>
+<table>
+<thead><tr>
+  <th>#</th><th>Project</th><th>Developer</th><th>County</th>
+  <th class="num">Est. tons</th><th>Stage</th><th>Window</th>
+  <th class="num">Score</th><th class="num">Days to bid</th>
+  <th class="num">Last signal</th><th>Next action</th>
+</tr></thead>
+<tbody>
+{% for p in projects %}
+<tr>
+  <td class="num dim">{{ loop.index }}</td>
+  <td><a href="/project/{{ p.id }}">{{ p.name }}</a></td>
+  <td>{{ p.developer or '—' }}</td>
+  <td>{{ p.county or '?' }}{{ ', ' + p.state if p.state }}</td>
+  <td class="num">{% if p.tons_estimate_low %}{{ '{:,.0f}'.format(p.tons_estimate_low) }}–{{ '{:,.0f}'.format(p.tons_estimate_high) }}{% else %}<span class="dim">—</span>{% endif %}</td>
+  <td>{{ p.stage.value }}</td>
+  <td><span class="tag {{ p.window.value }}">{{ p.window.value }}</span></td>
+  <td class="num"><span class="scorechip" style="background:{{ score_color(p.score) }}">{{ '%.2f'|format(p.score) }}</span></td>
+  <td class="num">{{ p.days_to_estimated_bid if p.days_to_estimated_bid is not none else '—' }}</td>
+  <td class="num">{% if days_since[p.id] is not none %}{{ days_since[p.id] }}d{% else %}—{% endif %}</td>
+  <td>{{ p.next_action or '' }}</td>
+</tr>
+{% else %}
+<tr><td colspan="11" class="dim">No projects yet. Run the pipeline: <span class="mono">scout pipeline</span></td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,20 @@
+{
+  "jobs": [
+    {
+      "id": 900001,
+      "title": "Construction Manager, Data Center Development",
+      "updated_at": "2026-07-18T09:00:00-04:00",
+      "location": {"name": "Reno, Nevada"},
+      "absolute_url": "https://boards.greenhouse.io/vantagedatacenters/jobs/900001",
+      "content": "Vantage is seeking a Construction Manager to oversee ground-up hyperscale data center construction at our Storey County campus."
+    },
+    {
+      "id": 900002,
+      "title": "Accountant II",
+      "updated_at": "2026-07-19T09:00:00-04:00",
+      "location": {"name": "Denver, Colorado"},
+      "absolute_url": "https://boards.greenhouse.io/vantagedatacenters/jobs/900002",
+      "content": "Corporate accounting role at HQ."
+    }
+  ]
+}

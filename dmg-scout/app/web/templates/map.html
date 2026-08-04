@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Map{% endblock %}
+{% block content %}
+<h2>Projects — colored by score (cold → hot)</h2>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<div id="map" style="height:72vh;border:1px solid var(--line)"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const markers = {{ markers | tojson }};
+const map = L.map('map').setView([35.5, -117.0], 6);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  {attribution: '&copy; OpenStreetMap contributors'}).addTo(map);
+for (const m of markers) {
+  L.circleMarker([m.lat, m.lon], {radius: 9, color: m.color, fillColor: m.color, fillOpacity: 0.75})
+    .addTo(map)
+    .bindPopup(`<b><a href="/project/${m.id}">${m.name}</a></b><br>score ${m.score.toFixed(2)} · ${m.tons} tons`);
+}
+if (markers.length) map.fitBounds(markers.map(m => [m.lat, m.lon]), {padding: [40, 40]});
+</script>
+{% if not markers %}<p class="dim">No geocoded projects yet — coordinates come from extraction.</p>{% endif %}
+{% endblock %}

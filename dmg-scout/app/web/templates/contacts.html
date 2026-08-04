@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Contacts{% endblock %}
+{% block content %}
+<h2>Contacts</h2>
+<form method="get" class="grid" style="max-width:600px;margin-bottom:10px">
+  <select name="role" onchange="this.form.submit()">
+    <option value="">All roles</option>
+    {% for r in ['mep','gc','mech_contractor','developer','utility','ahj'] %}
+    <option value="{{ r }}" {{ 'selected' if role==r }}>{{ r }}</option>
+    {% endfor %}
+  </select>
+  <input name="territory" placeholder="Territory filter" value="{{ territory }}">
+  <button>Filter</button>
+</form>
+<table>
+<thead><tr><th>Name</th><th>Title</th><th>Company</th><th>Type</th><th>Territory</th><th>Phone</th><th>Email</th><th>Projects</th></tr></thead>
+<tbody>
+{% for c in contacts %}
+<tr>
+  <td>{{ c.name }}</td><td>{{ c.title or '' }}</td><td>{{ c.company or '' }}</td>
+  <td>{% if c.company_type %}<span class="tag">{{ c.company_type }}</span>{% endif %}</td>
+  <td>{{ c.territory or '' }}</td>
+  <td class="mono">{{ c.phone or '' }}</td><td class="mono">{{ c.email or '' }}</td>
+  <td class="dim">{{ proj_map[c.id]|join('; ') }}</td>
+</tr>
+{% else %}
+<tr><td colspan="8" class="dim">No contacts yet.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+<h2>Add contact</h2>
+<form method="post" action="/contacts" class="grid" style="max-width:1000px">
+  <input name="name" placeholder="Name *" required>
+  <input name="title" placeholder="Title">
+  <input name="company" placeholder="Company">
+  <select name="company_type"><option value="">type…</option>
+    {% for r in ['mep','gc','mech_contractor','developer','utility','ahj'] %}<option>{{ r }}</option>{% endfor %}
+  </select>
+  <input name="territory" placeholder="Territory">
+  <input name="phone" placeholder="Phone">
+  <input name="email" placeholder="Email">
+  <button>Add</button>
+</form>
+{% endblock %}

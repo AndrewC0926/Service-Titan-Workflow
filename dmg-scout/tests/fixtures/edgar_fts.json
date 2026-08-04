@@ -1,0 +1,29 @@
+{
+  "took": 12,
+  "timed_out": false,
+  "hits": {
+    "total": {"value": 2, "relation": "eq"},
+    "hits": [
+      {
+        "_id": "0001193125-26-012345:d8k.htm",
+        "_source": {
+          "ciks": ["0001710583"],
+          "display_names": ["Vantage Data Centers Issuer, LLC (CIK 0001710583)"],
+          "root_forms": ["8-K"],
+          "file_type": "8-K",
+          "file_date": "2026-07-15"
+        }
+      },
+      {
+        "_id": "0001193125-26-054321:d424b2.htm",
+        "_source": {
+          "ciks": ["0001710583"],
+          "display_names": ["Vantage Data Centers Issuer, LLC (CIK 0001710583)"],
+          "root_forms": ["424B2"],
+          "file_type": "424B2",
+          "file_date": "2026-07-20"
+        }
+      }
+    ]
+  }
+}

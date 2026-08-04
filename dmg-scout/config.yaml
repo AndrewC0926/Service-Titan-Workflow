@@ -1,0 +1,214 @@
+# DMG Scout configuration.
+# Everything tunable lives here: jurisdictions, keywords, companies, thresholds,
+# sizing assumptions. Never edit Python to add a county.
+
+user_agent: "DMGScout/0.1 (HVAC market research; contact: acrane988@gmail.com)"
+request_interval_seconds: 2.0     # per-domain politeness
+request_max_retries: 4
+
+llm:
+  triage_model: "claude-haiku-4-5-20251001"
+  extract_model: "claude-sonnet-4-6"
+  adjudicate_model: "claude-sonnet-4-6"
+  triage_max_chars: 6000          # chars of document text sent to triage
+  extract_max_chars: 60000
+
+territories:
+  california:
+    counties: [Los Angeles, Orange, San Bernardino, Riverside, San Diego, Imperial, Kern]
+  nevada:
+    counties: [Storey, Washoe, Clark, Lyon, Douglas, Carson City]
+  arizona:
+    counties: [Maricopa, Pinal]
+  baja_california:
+    counties: [Tijuana, Mexicali]
+
+keywords:
+  # Any of these marks a document as worth triaging.
+  data_center:
+    - data center
+    - datacenter
+    - data centre
+    - hyperscale
+    - colocation
+    - server farm
+    - mission critical facility
+    - technology campus
+  supporting:
+    - megawatt
+    - substation
+    - backup generator
+    - diesel generator
+    - cooling tower
+    - chiller
+
+# Companies watched on ATS job boards and in EDGAR full-text search.
+companies:
+  developers:
+    - {name: "Vantage Data Centers", greenhouse: "vantagedatacenters", edgar_terms: ["Vantage Data Centers"]}
+    - {name: "Tract", lever: "tract", edgar_terms: ["Tract Management"]}
+    - {name: "Prime Data Centers", edgar_terms: ["Prime Data Centers"]}
+    - {name: "PowerHouse Data Centers", edgar_terms: ["PowerHouse Data Centers"]}
+    - {name: "EdgeCore", edgar_terms: ["EdgeCore Digital Infrastructure"]}
+    - {name: "CyrusOne", greenhouse: "cyrusone", edgar_terms: ["CyrusOne"]}
+    - {name: "Aligned Data Centers", greenhouse: "aligneddatacenters", edgar_terms: ["Aligned Data Centers"]}
+    - {name: "STACK Infrastructure", edgar_terms: ["STACK Infrastructure"]}
+    - {name: "DataBank", edgar_terms: ["DataBank Holdings"]}
+    - {name: "Novva", edgar_terms: ["Novva Data Centers"]}
+    - {name: "Switch", edgar_terms: ["Switch, Inc.", "Switch Ltd"]}
+  gcs:
+    - {name: "Holder Construction", greenhouse: "holderconstruction"}
+    - {name: "Turner Construction", edgar_terms: []}
+    - {name: "DPR Construction", edgar_terms: []}
+    - {name: "McCarthy Building Companies", edgar_terms: []}
+    - {name: "Clark Construction", edgar_terms: []}
+  mep_firms:
+    - {name: "kW Mission Critical Engineering"}
+    - {name: "Syska Hennessy Group"}
+    - {name: "Salas O'Brien"}
+    - {name: "IDeAS"}
+    - {name: "DLB Associates"}
+    - {name: "ESD (Environmental Systems Design)"}
+    - {name: "Integrated Design Group"}
+    - {name: "Bala Consulting Engineers"}
+    - {name: "AHA Consulting Engineers"}
+
+sources:
+  ceqanet:
+    enabled: true
+    base_url: "https://ceqanet.lci.ca.gov"
+    counties: [Los Angeles, Orange, San Bernardino, Riverside, San Diego, Imperial, Kern]
+    # NOP earliest/most valuable; NOD means too late but still logged for stage tracking.
+    document_types: ["NOP", "EIR", "NEG", "MND", "NOD"]
+    lookback_days: 30
+  edgar:
+    enabled: true
+    base_url: "https://efts.sec.gov/LATEST/search-index"
+    forms: ["8-K", "424B2", "424B5", "10-K", "10-Q", "S-1"]
+    queries:
+      - '"data center" "Nevada"'
+      - '"data center" "California"'
+    lookback_days: 14
+  goed:
+    enabled: true
+    base_url: "https://goed.nv.gov"
+    notices_path: "/notices-agendas/"
+    # NRS 360.754 qualification thresholds, used to infer minimum size:
+    thresholds:
+      ten_year: {employees: 10, capex_usd: 25000000}
+      twenty_year: {employees: 50, capex_usd: 100000000}
+  legistar:
+    enabled: true
+    api_base: "https://webapi.legistar.com/v1"
+    clients:
+      - {client: "ontario", label: "City of Ontario, CA"}
+      - {client: "rc", label: "City of Rancho Cucamonga, CA"}
+      - {client: "fontana", label: "City of Fontana, CA"}
+      - {client: "moval", label: "City of Moreno Valley, CA"}
+      - {client: "rivco", label: "Riverside County, CA"}
+      - {client: "sanbernardino", label: "San Bernardino County, CA"}
+      - {client: "elsegundo", label: "City of El Segundo, CA"}
+      - {client: "storeycountynv", label: "Storey County, NV"}
+      - {client: "washoe", label: "Washoe County, NV"}
+      - {client: "clarkcountynv", label: "Clark County, NV"}
+      - {client: "reno", label: "City of Reno, NV"}
+      - {client: "sparks", label: "City of Sparks, NV"}
+    lookback_days: 21
+  rss:
+    enabled: true
+    feeds:
+      - {name: "Data Center Dynamics", url: "https://www.datacenterdynamics.com/rss/"}
+      - {name: "Data Center Frontier", url: "https://www.datacenterfrontier.com/rss.xml"}
+      - {name: "Nevada Current", url: "https://nevadacurrent.com/feed/"}
+      - {name: "The Nevada Independent", url: "https://thenevadaindependent.com/feed"}
+      - {name: "Northern Nevada Business Weekly", url: "https://www.nnbusinessview.com/feed/"}
+      - {name: "inewsource", url: "https://inewsource.org/feed/"}
+      - {name: "CalMatters", url: "https://calmatters.org/feed/"}
+      # Add Google Alerts RSS URLs here.
+  ats:
+    enabled: true
+    # boards resolved from companies section above (greenhouse/lever/ashby keys)
+    geo_terms: [Ontario, Rancho Cucamonga, Fontana, Moreno Valley, Riverside, San Bernardino,
+                El Segundo, Los Angeles, Orange County, San Diego, Irvine, Reno, Sparks,
+                Storey, Washoe, Las Vegas, Clark County, Henderson, North Las Vegas, Phoenix, Mesa]
+  air_permits:
+    enabled: false   # Tier 2: PDF-heavy; enable after Tier 1 proves out
+  utility_filings:
+    enabled: false   # Tier 2
+  faa_7460:
+    enabled: false   # Tier 2
+  water_districts:
+    enabled: false   # Tier 2
+  manual:
+    enabled: true
+
+sizing:
+  tons_per_mw_it: 284            # 1 MW IT: W*3.412 BTU/hr / 12000
+  tons_per_mw_installed_low: 300 # installed incl. non-IT heat + N+1
+  tons_per_mw_installed_high: 400
+  tons_per_mw_installed_default: 325
+  hp_to_kw: 0.7457
+  genset_mw_to_it_mw_divisor: 1.4
+  watts_per_sqft: 150            # used only when sqft is the only size input; low confidence
+  sqft_utilization: 0.5          # fraction of building sqft assumed to be white space
+
+scoring:
+  window_multipliers:
+    PRE_BOD: 1.0
+    IN_BOD: 0.7
+    POST_BOD: 0.15
+    OPERATING: 0.05
+  recency_halflife_days: 180     # no new signal in 180d ~ halves score
+  corroboration_bonus: 0.25      # added certainty per extra independent signal type (capped)
+  corroboration_cap: 2           # max extra types counted
+  min_digest_score: 0.15
+  # Certainty priors by signal type (0-1)
+  signal_certainty:
+    utility_load_request: 0.25
+    land_transfer: 0.45
+    abatement_application: 0.75
+    ceqa_nop: 0.75
+    planning_agenda: 0.55
+    job_posting: 0.45
+    air_permit_atc: 0.9
+    water_will_serve: 0.7
+    ceqa_deir: 0.75
+    engineer_move: 0.8
+    faa_7460: 0.9
+    abs_issuance: 0.8
+    news_report: 0.4
+    prequal_invite: 1.0
+    bid_invite: 1.0
+    manual_tip: 0.7
+  # Days from stage to estimated mechanical bid (midpoints of lead-time windows)
+  days_to_bid_by_stage:
+    concept: 900
+    entitlement: 540
+    design: 360
+    permitting: 270
+    procurement: 60
+    construction: 0
+    operating: -1
+
+resolution:
+  block_radius_km: 5
+  auto_merge_threshold: 0.88     # >= auto-merge
+  review_threshold: 0.55         # >= goes to LLM adjudication, then review queue if uncertain
+  # aliases seeded here; learned aliases are stored in DB
+  developer_aliases:
+    "Vantage Data Centers": ["Vantage Data Centers NV11, LLC", "Vantage Data Centers NV1", "Tech Core PY"]
+    "Switch": ["Switch Ltd", "Switch, Inc."]
+
+digest:
+  enabled: true
+  to: ["acrane988@gmail.com"]
+  from_addr: "scout@dmgscout.local"
+  subject_prefix: "[DMG Scout]"
+  # resend | smtp | console
+  transport: "console"
+  smtp: {host: "", port: 587, username: "", password_env: "SMTP_PASSWORD"}
+  resend: {api_key_env: "RESEND_API_KEY"}
+
+dashboard:
+  basic_auth_username: "andrew"
+  basic_auth_password_env: "DASHBOARD_PASSWORD"

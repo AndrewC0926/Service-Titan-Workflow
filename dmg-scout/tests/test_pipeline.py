@@ -1,0 +1,151 @@
+"""Pipeline logic tests: dedupe idempotency, resolution, size/score, digest dedupe."""
+from datetime import datetime
+
+from sqlmodel import select
+
+from app.models import (
+    DigestLog, MatchCandidate, Project, ProjectSignal, RawDocument, Signal, SignalType,
+    SourceRun, Stage, TriageResult, Window,
+)
+from app.pipeline.fetch import _store
+from app.pipeline.notify import build_digest
+from app.pipeline.resolve import apply_review_decision, pair_similarity, run_resolve
+from app.pipeline.size_score import run_size_score
+from app.sources.base import FetchedDoc
+
+
+def make_doc(uid="a1", text="hello data center", title="t") -> FetchedDoc:
+    return FetchedDoc(source="test", source_uid=uid, url="https://x/1", title=title, raw_text=text)
+
+
+def test_store_is_idempotent(db_session):
+    assert _store(db_session, make_doc()) == 1
+    db_session.commit()
+    assert _store(db_session, make_doc()) == 0  # same hash: no-op
+    assert _store(db_session, make_doc(text="changed content")) == 1  # changed: update + re-triage
+    db_session.commit()
+    docs = db_session.exec(select(RawDocument)).all()
+    assert len(docs) == 1
+    assert docs[0].triage_result == TriageResult.pending
+
+
+def _signal(db_session, **kw) -> Signal:
+    defaults = dict(signal_type=SignalType.ceqa_nop, stage=Stage.entitlement,
+                    confidence=0.9, summary_one_line="s")
+    defaults.update(kw)
+    s = Signal(**defaults)
+    db_session.add(s)
+    db_session.commit()
+    db_session.refresh(s)
+    return s
+
+
+def test_resolve_creates_and_links(db_session, cfg):
+    _signal(db_session, project_name="Meridian Data Center Campus", county="San Bernardino",
+            state="CA", developer_or_owner="Meridian DC Partners LLC", mw_total=176)
+    stats = run_resolve(db_session, cfg, use_llm=False)
+    assert stats["new_projects"] == 1
+
+    # Second signal, same name via SPE-style entity -> auto-links
+    _signal(db_session, project_name="Meridian Data Center Campus Phase II",
+            county="San Bernardino", state="CA", signal_type=SignalType.air_permit_atc,
+            developer_or_owner="Meridian DC Partners II, LLC", mw_total=180)
+    stats = run_resolve(db_session, cfg, use_llm=False)
+    assert stats["auto_linked"] == 1
+    projects = db_session.exec(select(Project)).all()
+    assert len(projects) == 1
+    links = db_session.exec(select(ProjectSignal)).all()
+    assert len(links) == 2
+    methods = {l.match_method for l in links}
+    assert "blocking+fuzzy" in methods  # audit trail on the link
+
+
+def test_resolve_queues_ambiguous_for_review(db_session, cfg):
+    _signal(db_session, project_name="Gateway Industrial Center", county="Storey", state="NV",
+            developer_or_owner="Tract Management")
+    run_resolve(db_session, cfg, use_llm=False)
+    # Similar-ish but different project in same county -> ambiguous band, no LLM -> review queue
+    _signal(db_session, project_name="Gateway Commerce Center", county="Storey", state="NV",
+            developer_or_owner="Gateway Partners LLC")
+    stats = run_resolve(db_session, cfg, use_llm=False)
+    assert stats["queued_review"] == 1
+    mc = db_session.exec(select(MatchCandidate)).one()
+    assert mc.status == "pending"
+
+    apply_review_decision(db_session, mc.id, "reject")
+    assert db_session.exec(select(Project)).all().__len__() == 2
+    db_session.refresh(mc)
+    assert mc.status == "rejected"
+
+
+def test_review_merge_learns_alias(db_session, cfg):
+    _signal(db_session, project_name="Reno Tech Park DC", county="Washoe", state="NV",
+            developer_or_owner="Vantage Data Centers")
+    run_resolve(db_session, cfg, use_llm=False)
+    s2 = _signal(db_session, project_name="Reno Technology Park Data Center", county="Washoe",
+                 state="NV", developer_or_owner="Tech Core PY B, LLC",
+                 signal_type=SignalType.abatement_application)
+    run_resolve(db_session, cfg, use_llm=False)
+    mcs = db_session.exec(select(MatchCandidate).where(MatchCandidate.status == "pending")).all()
+    if mcs:  # merge path learns the SPE alias
+        apply_review_decision(db_session, mcs[0].id, "merge")
+        from app.models import DeveloperAlias
+        aliases = db_session.exec(select(DeveloperAlias)).all()
+        assert any(a.alias == "Tech Core PY B, LLC" for a in aliases)
+    else:  # auto-linked via seeded config alias — equally acceptable
+        links = db_session.exec(select(ProjectSignal).where(ProjectSignal.signal_id == s2.id)).all()
+        assert links
+
+
+def test_size_score_end_to_end(db_session, cfg):
+    _signal(db_session, project_name="Meridian DC", county="San Bernardino", state="CA",
+            mw_it=224, stage=Stage.entitlement)
+    run_resolve(db_session, cfg, use_llm=False)
+    run_size_score(db_session, cfg)
+    p = db_session.exec(select(Project)).one()
+    assert 65_000 <= p.tons_estimate_low <= 70_000
+    assert p.estimate_basis and "224" in p.estimate_basis
+    assert p.window == Window.PRE_BOD
+    assert p.score > 0
+    assert p.days_to_estimated_bid == 540
+
+
+def test_scoring_integration_small_early_beats_big_late(db_session, cfg):
+    now = datetime.utcnow()
+    _signal(db_session, project_name="Big Late DC", county="Clark", state="NV",
+            mw_it=500, stage=Stage.construction, signal_type=SignalType.bid_invite,
+            event_date=now)
+    _signal(db_session, project_name="Small Early DC", county="Washoe", state="NV",
+            mw_it=40, stage=Stage.entitlement, signal_type=SignalType.ceqa_nop,
+            event_date=now)
+    run_resolve(db_session, cfg, use_llm=False)
+    run_size_score(db_session, cfg)
+    projects = {p.name: p for p in db_session.exec(select(Project)).all()}
+    assert projects["Small Early DC"].score > projects["Big Late DC"].score
+
+
+def test_digest_only_reports_new(db_session, cfg):
+    _signal(db_session, project_name="Meridian DC", county="San Bernardino", state="CA",
+            mw_it=100, stage=Stage.entitlement)
+    run_resolve(db_session, cfg, use_llm=False)
+    run_size_score(db_session, cfg)
+    db_session.add(SourceRun(source="ceqanet", ok=False, error="HTTP 500 boom"))
+    db_session.commit()
+
+    built = build_digest(db_session, cfg)
+    assert built is not None
+    body, stats = built
+    assert "Meridian DC" in body
+    assert "SOURCE FAILURES" in body and "ceqanet" in body
+    assert stats["new_projects"] == 1
+
+    # Second run: nothing new -> no digest
+    assert build_digest(db_session, cfg) is None
+    assert db_session.exec(select(DigestLog)).all()
+
+
+def test_pair_similarity_apn_dominates(db_session, cfg):
+    s = Signal(signal_type=SignalType.ceqa_nop, apn_parcel="0110-111-22",
+               project_name="Totally Different Name", summary_one_line="x")
+    p = Project(name="Meridian", apn_parcel="0110-111-22")
+    assert pair_similarity(s, p, 5) > 0.5
