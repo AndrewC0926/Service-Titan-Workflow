@@ -1,6 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Source Health{% endblock %}
 {% block content %}
+<h2>LLM spend</h2>
+<table style="max-width:640px;margin-bottom:14px">
+<tr><th>Today</th><th>Daily budget</th><th>This month</th><th>Status</th></tr>
+<tr>
+  <td class="num">${{ '%.2f'|format(budget.today_usd) }}</td>
+  <td class="num">${{ '%.2f'|format(budget.daily_budget_usd) }}</td>
+  <td class="num">${{ '%.2f'|format(budget.month_usd) }}</td>
+  <td>{% if budget.exhausted %}<span class="bad">EXHAUSTED — LLM stopped</span>
+      {% elif budget.warn %}<span class="bad">⚠ over {{ '%.0f'|format(80) }}% of daily budget</span>
+      {% else %}<span class="ok">within budget</span>{% endif %}</td>
+</tr>
+</table>
 <h2>Source health — last run per adapter</h2>
 <table>
 <thead><tr><th>Source</th><th>Last run</th><th>Status</th><th class="num">Fetched</th><th class="num">New</th><th>Last success</th><th>Error</th></tr></thead>

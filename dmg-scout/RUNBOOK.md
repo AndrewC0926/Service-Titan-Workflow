@@ -1,0 +1,146 @@
+# DMG Scout Runbook
+
+Written for me-in-six-months who has forgotten everything. Start at "Daily
+normal" to reorient, then jump to whatever's broken.
+
+## Daily normal
+
+The Render cron runs `scout pipeline` at 6am PT: fetch → triage → extract →
+resolve → score → notify. If it completed, healthchecks.io got a ping and the
+digest email (or cron log, if transport is `console`) has anything new. The
+dashboard is the web service; HTTP basic auth, password in the
+`DASHBOARD_PASSWORD` env var on Render.
+
+Quick health read, in order:
+1. Phone got no healthchecks.io alert → the cron ran.
+2. Dashboard → Source Health → every adapter green within 36h, LLM spend sane.
+3. Board has PRE_BOD rows. A red "ZERO PRE-BOD" banner means the early-signal
+   sources (CEQAnet NOP, GOED) have stopped producing — that's a fetch problem,
+   not a scoring problem.
+4. `scout doctor` from a shell on the web service runs all of these checks at once.
+
+## How to add things
+
+All in `config.yaml`. Never edit Python for these.
+
+| Want to add | Where | Notes |
+|---|---|---|
+| A county | `sources.ceqanet.counties`, and `territory.CA/NV/AZ` if it's mine | CEQAnet list drives fetching; territory list drives the board filter |
+| A keyword | `keywords.data_center` (triggers) or `keywords.supporting` | keyword gate runs before the LLM, so missing keywords = invisible documents |
+| A news feed / Google Alert | `sources.rss.feeds` | name + RSS url; Google Alerts → create alert → deliver to RSS → paste url |
+| A company's job board | `companies.developers/gcs/mep_firms` with `greenhouse:`/`lever:`/`ashby:` slug | slug is the token in their careers URL |
+| An EDGAR search | `sources.edgar.queries` or `edgar_terms` on a company | quoted phrases; boolean AND/OR supported |
+| A Legistar city | `sources.legistar.clients` | slug is the subdomain of `<slug>.legistar.com`; verify with `scout verify-sources` |
+| A firm to the roster | `roster.<type>` in config **or** the Add-firm form on Contacts | dashboard adds land in the DB only; config survives DB loss — prefer config for permanent rosters |
+| A jurisdiction's watch words, thresholds, sizing constants | `scoring.*`, `sizing.*` | see "Config knobs" below |
+
+After config changes: commit, push, Render redeploys. Nothing else to do.
+
+## When an adapter breaks
+
+Symptoms: Source Health shows FAILED, digest lists it under SOURCE FAILURES,
+or a source is green but fetching 0 records for days (suspicious — check it).
+
+Diagnose from the archive: every request of every run is in the `http_log`
+table (Source Health page shows the last error; for detail,
+`SELECT * FROM http_log WHERE source_run_id = <id> ORDER BY ts`).
+
+Tell the failure modes apart:
+
+| Pattern in http_log | It's probably | Do |
+|---|---|---|
+| 429s, or 503s that recover on retry | Rate limit | Raise `request_interval_seconds`, confirm backoff worked; SEC blocks ~10 min after bursts — wait it out |
+| 403 on every request, immediately | Block (UA or IP) | Check `user_agent` still identifies us with email; from a new IP it usually clears; do NOT rotate UAs to evade — if a site means to block us, remove the adapter |
+| 404 on listing/CSV endpoints | Site redesign / moved paths | Open the site in a browser, find the new path, update the adapter's URL construction; `scout verify-sources` confirms |
+| 200s but 0 documents parsed | Schema drift (renamed CSV columns, changed HTML) | Compare a live response against `tests/fixtures/`; update parser + fixture together |
+| Connection errors only | Network/DNS/their outage | Wait a day before touching code |
+
+`scout verify-sources` after any fix — it fetches one real record per adapter.
+
+If robots.txt starts disallowing a path we use: the client already refuses it
+(RobotsDisallowed surfaces in Source Health). Disable the adapter in config and
+note it here; we don't work around robots.
+
+## Backfill
+
+```
+scout backfill --source ceqanet --since 2024-08-01     # chunked + checkpointed
+scout backfill --source goed    --since 2024-08-01
+scout backfill --source edgar   --since 2024-08-01
+scout backfill --source X --since ... --estimate       # price the LLM pass BEFORE triage
+scout triage --limit 200 && scout extract --limit 100  # repeat until drained
+```
+A crash resumes at the first incomplete chunk. `--reset` refetches everything
+(dedupe makes that safe, just slow). The daily LLM budget applies to backfill
+too — a big backfill either raises `llm.daily_budget_usd` temporarily or
+drains over several days. That's a feature.
+
+## Restore from backup
+
+Backups: nightly `pg_dump` custom-format to `$BACKUP_S3_URI/scout-YYYY-MM-DD.dump`,
+30-day retention (`scripts/backup.sh` on the dmg-scout-backup cron).
+
+```
+aws s3 ls "$BACKUP_S3_URI/"                                   # pick a dump
+aws s3 cp "$BACKUP_S3_URI/scout-2026-08-03.dump" /tmp/r.dump
+pg_restore --clean --if-exists --no-owner -d "$DATABASE_URL" /tmp/r.dump
+```
+Test this quarterly against a scratch Postgres (Render lets you spin one up):
+restore there first, `SELECT count(*) FROM projects;`, then trust it.
+The irreplaceable data is `match_candidates`/`project_signals` (my hand merges),
+`outcome_events`, `outreach`, and `contacts` — everything else refetches.
+
+## Rotate the API key
+
+1. console.anthropic.com → create new key.
+2. Render → both services (web + pipeline cron) → env → replace `ANTHROPIC_API_KEY`.
+3. Redeploy, then `scout doctor` — the key check calls the API.
+4. Delete the old key at Anthropic. Same procedure for `DASHBOARD_PASSWORD`
+   (web only) and `RESEND_API_KEY`.
+
+## Config knobs and sane ranges
+
+| Knob | Default | Sane range | What it does |
+|---|---|---|---|
+| `request_interval_seconds` | 2.0 | 1–5 | per-domain politeness; SEC needs ≤10 req/s, we're far under |
+| `llm.daily_budget_usd` | 15 | 5–50 | hard stop for LLM spend/day; kill switch `SCOUT_LLM_DISABLED=1` |
+| `llm.budget_warn_fraction` | 0.8 | 0.5–0.9 | digest/dashboard warning threshold |
+| `sizing.tons_per_mw_installed_default` | 325 | 300–400 | tons per MW IT, installed |
+| `sizing.band_by_basis.*` | .10/.18/.28/.45 | keep the ordering | estimate band half-width per basis; must widen as input gets more indirect |
+| `sizing.watts_per_sqft` | 150 | 100–300 | only used when sqft is the sole input (flagged LOW CONF) |
+| `scoring.window_multipliers` | 1.0/0.7/0.15/0.05 | keep monotonic | the winnability core — POST_BOD near zero is the whole point |
+| `scoring.signal_certainty.*` | table | 0–1 | priors per signal type; retune from `scout outcomes` once ≥20 closed outcomes |
+| `scoring.corroboration_bonus` | 0.25 | 0.1–0.3 | added certainty per extra independent signal type |
+| `scoring.recency_halflife_days` | 180 | 90–365 | score halves per this many quiet days |
+| `resolution.auto_merge_threshold` | 0.88 | 0.85–0.95 | below it, LLM adjudication; too low = bad auto-merges |
+| `resolution.review_threshold` | 0.55 | 0.4–0.7 | below it, new project without asking |
+| `scoring.min_digest_score` | 0.15 | 0.05–0.5 | digest noise floor |
+
+## Monthly maintenance checklist
+
+- [ ] `scout doctor` clean.
+- [ ] Review queue at zero (dashboard → Review Queue).
+- [ ] Skim `scout backfill --estimate` output vs actual month spend on Source Health.
+- [ ] Spot-check 3 extractions against their source URLs (project detail → source links).
+- [ ] `scout golden report` still zero fabrications; add ~5 fresh docs to the
+      golden set (`scout golden collect --limit 5 && scout golden review`).
+- [ ] Confirm last night's backup object exists; quarterly: test restore.
+- [ ] `scout outcomes` — once ≥20 closed outcomes, consider retuning
+      `scoring.signal_certainty` toward what actually converts.
+- [ ] Prune watch list (`/watchlist`): archive anything not worth tracking.
+- [ ] Check Anthropic model deprecations; model IDs live in `llm.*` config.
+
+## Data posture
+
+This system fetches only public data: state environmental clearinghouse
+filings (CEQAnet), SEC EDGAR, Nevada GOED board materials, municipal agendas
+(Legistar), public RSS news feeds, public ATS job boards (Greenhouse/Lever/
+Ashby JSON), and PDFs those pages link. It identifies itself with a descriptive
+User-Agent including a contact email, respects robots.txt (refusals surface as
+errors rather than workarounds), rate-limits to one request per domain per 2
+seconds, and backs off on 429/5xx. It does not scrape LinkedIn or any
+authenticated service. It stores names, titles, and contact details of people
+**as they appear in public government filings and press**, for sales research
+use. Raw documents and the request log are retained indefinitely by default;
+if that changes, add a retention job and note it here. Backups live in
+`$BACKUP_S3_URI` with 30-day retention.

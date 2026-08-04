@@ -124,6 +124,36 @@ def test_scoring_integration_small_early_beats_big_late(db_session, cfg):
     assert projects["Small Early DC"].score > projects["Big Late DC"].score
 
 
+def test_nop_with_no_design_activity_is_pre_bod(db_session, cfg):
+    """Gate 3a: a CEQA Notice of Preparation with no later-stage signals must
+    classify PRE_BOD — that's the entire reason this system exists."""
+    _signal(db_session, project_name="Early Bird DC", county="Riverside", state="CA",
+            mw_total=80, stage=Stage.entitlement, signal_type=SignalType.ceqa_nop,
+            filing_type="NOP")
+    run_resolve(db_session, cfg, use_llm=False)
+    run_size_score(db_session, cfg)
+    p = db_session.exec(select(Project)).one()
+    assert p.window == Window.PRE_BOD
+    assert p.score > 0
+
+
+def test_nop_project_advances_to_in_bod_only_with_design_signal(db_session, cfg):
+    """The demo's IN_BOD ranking was correct behavior: an air permit application
+    means design is underway. Verify the transition is signal-driven."""
+    _signal(db_session, project_name="Two Stage DC", county="Washoe", state="NV",
+            mw_total=100, stage=Stage.entitlement, signal_type=SignalType.ceqa_nop,
+            filing_type="NOP")
+    run_resolve(db_session, cfg, use_llm=False)
+    run_size_score(db_session, cfg)
+    assert db_session.exec(select(Project)).one().window == Window.PRE_BOD
+
+    _signal(db_session, project_name="Two Stage DC", county="Washoe", state="NV",
+            signal_type=SignalType.air_permit_atc, stage=Stage.permitting)
+    run_resolve(db_session, cfg, use_llm=False)
+    run_size_score(db_session, cfg)
+    assert db_session.exec(select(Project)).one().window == Window.IN_BOD
+
+
 def test_digest_only_reports_new(db_session, cfg):
     _signal(db_session, project_name="Meridian DC", county="San Bernardino", state="CA",
             mw_it=100, stage=Stage.entitlement)

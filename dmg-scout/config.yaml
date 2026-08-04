@@ -12,6 +12,13 @@ llm:
   adjudicate_model: "claude-sonnet-4-6"
   triage_max_chars: 6000          # chars of document text sent to triage
   extract_max_chars: 60000
+  # $/MTok, used for spend logging and backfill estimates. Update if pricing changes.
+  prices:
+    "claude-haiku-4-5-20251001": {in: 1.0, out: 5.0}
+    "claude-sonnet-4-6": {in: 3.0, out: 15.0}
+  assumed_triage_pass_rate: 0.3   # for cost estimates only
+  daily_budget_usd: 15.0          # hard kill switch: LLM calls stop past this
+  budget_warn_fraction: 0.8       # digest + dashboard warning threshold
 
 territories:
   california:
@@ -41,6 +48,59 @@ keywords:
     - diesel generator
     - cooling tower
     - chiller
+
+# Firm roster: extracted named_firms resolve against this instead of spawning
+# duplicate company rows. Seed with `scout seed-firms`; add more from the dashboard.
+roster:
+  mep:
+    - {name: "kW Mission Critical Engineering", aliases: ["kW MCE", "kW Engineering Mission Critical"]}
+    - {name: "Syska Hennessy Group", aliases: ["Syska", "Syska Hennessy"]}
+    - {name: "Salas O'Brien", aliases: ["Salas OBrien"]}
+    - {name: "IDeAS", aliases: ["Integrated Data Center Engineering and Sustainability"]}
+    - {name: "DLB Associates", aliases: []}
+    - {name: "ESD", aliases: ["Environmental Systems Design", "ESD Global"]}
+    - {name: "Integrated Design Group", aliases: ["ID Group"]}
+    - {name: "Bala Consulting Engineers", aliases: ["Bala"]}
+    - {name: "AHA Consulting Engineers", aliases: ["AHA"]}
+    - {name: "Jacobs", aliases: ["Jacobs Engineering"]}
+    - {name: "AECOM", aliases: []}
+    - {name: "Arup", aliases: ["Ove Arup"]}
+    - {name: "WSP", aliases: ["WSP USA"]}
+    - {name: "Glumac", aliases: []}
+  mech_contractor:
+    - {name: "Southland Industries", aliases: ["Southland"]}
+    - {name: "ACCO Engineered Systems", aliases: ["ACCO"]}
+    - {name: "Murray Company", aliases: ["Murray Co"]}
+    - {name: "Critchfield Mechanical", aliases: ["Critchfield", "CMI"]}
+    - {name: "University Mechanical", aliases: ["University Mechanical & Engineering Contractors", "UMEC"]}
+    - {name: "Pan-Pacific Mechanical", aliases: ["Pan Pacific"]}
+    - {name: "Kinetics", aliases: ["Kinetic Systems"]}
+    - {name: "Limbach", aliases: ["Limbach Company"]}
+  gc:
+    - {name: "Holder Construction", aliases: ["Holder"]}
+    - {name: "Turner Construction", aliases: ["Turner"]}
+    - {name: "DPR Construction", aliases: ["DPR"]}
+    - {name: "McCarthy Building Companies", aliases: ["McCarthy"]}
+    - {name: "Clark Construction", aliases: ["Clark Construction Group"]}
+  developer:
+    - {name: "Vantage Data Centers", aliases: ["Vantage"]}
+    - {name: "Tract", aliases: ["Tract Management", "Fleet Data Centers"]}
+    - {name: "Prime Data Centers", aliases: ["Prime"]}
+    - {name: "PowerHouse Data Centers", aliases: ["PowerHouse"]}
+    - {name: "EdgeCore", aliases: ["EdgeCore Digital Infrastructure"]}
+    - {name: "CyrusOne", aliases: []}
+    - {name: "Aligned Data Centers", aliases: ["Aligned"]}
+    - {name: "STACK Infrastructure", aliases: ["STACK"]}
+    - {name: "DataBank", aliases: []}
+    - {name: "Novva", aliases: ["Novva Data Centers"]}
+    - {name: "Switch", aliases: ["Switch Ltd", "Switch Inc"]}
+
+# Hard territory boundary: the board only shows projects here; everything else
+# lands on the watch list.
+territory:
+  CA: [Los Angeles, Orange, San Bernardino, Riverside, San Diego, Imperial, Kern]
+  NV: [Storey, Washoe, Clark, Lyon, Douglas, Carson City]
+  AZ: [Maricopa, Pinal]
 
 # Companies watched on ATS job boards and in EDGAR full-text search.
 companies:
@@ -147,6 +207,13 @@ sizing:
   tons_per_mw_installed_low: 300 # installed incl. non-IT heat + N+1
   tons_per_mw_installed_high: 400
   tons_per_mw_installed_default: 325
+  # Band half-width around the midpoint, per estimate basis. The uncertainty of
+  # the estimate comes from HOW we know the size, not a fixed ratio:
+  band_by_basis:
+    stated_it: 0.10       # a filing states IT MW — tightest
+    stated_total: 0.18    # total/utility MW, IT share inferred
+    gensets: 0.28         # MW reverse-engineered from generator fleet
+    sqft: 0.45            # square footage only — widest, flagged low-confidence
   hp_to_kw: 0.7457
   genset_mw_to_it_mw_divisor: 1.4
   watts_per_sqft: 150            # used only when sqft is the only size input; low confidence

@@ -22,11 +22,13 @@ log = logging.getLogger(__name__)
 class LegistarAdapter(SourceAdapter):
     name = "legistar"
 
-    def fetch(self, cfg: Config, client: PoliteClient) -> Iterator[FetchedDoc]:
+    def fetch(self, cfg: Config, client: PoliteClient,
+              since: datetime | None = None) -> Iterator[FetchedDoc]:
         src = cfg.source(self.name)
         api_base = src.get("api_base", "https://webapi.legistar.com/v1").rstrip("/")
-        lookback = int(src.get("lookback_days", 21))
-        since = (datetime.utcnow() - timedelta(days=lookback)).strftime("%Y-%m-%dT00:00:00")
+        if since is None:
+            since = datetime.utcnow() - timedelta(days=int(src.get("lookback_days", 21)))
+        since = since.strftime("%Y-%m-%dT00:00:00")
 
         clients = src.get("clients", [])
         failures = 0

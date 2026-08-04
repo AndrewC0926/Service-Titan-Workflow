@@ -84,8 +84,11 @@ def _client() -> anthropic.Anthropic:
     return anthropic.Anthropic(api_key=key)
 
 
-def _tool_call(model: str, system: str, tool: dict, user_content: str, max_tokens: int = 2048) -> dict:
+def _tool_call(model: str, system: str, tool: dict, user_content: str,
+               max_tokens: int = 2048, stage: str = "unknown") -> dict:
+    from app.spend import check_budget, record
     client = _client()
+    check_budget()  # raises BudgetExceeded past the daily cap
     resp = client.messages.create(
         model=model,
         max_tokens=max_tokens,
@@ -94,6 +97,7 @@ def _tool_call(model: str, system: str, tool: dict, user_content: str, max_token
         tool_choice={"type": "tool", "name": tool["name"]},
         messages=[{"role": "user", "content": user_content}],
     )
+    record(stage, model, resp.usage.input_tokens, resp.usage.output_tokens)
     for block in resp.content:
         if block.type == "tool_use" and block.name == tool["name"]:
             return dict(block.input)
@@ -106,7 +110,7 @@ def triage(text: str, title: str = "", source: str = "") -> dict:
     model = cfg.get("llm.triage_model")
     max_chars = cfg.get("llm.triage_max_chars", 6000)
     content = f"Source: {source}\nTitle: {title}\n\nDocument text (may be truncated):\n{text[:max_chars]}"
-    return _tool_call(model, TRIAGE_SYSTEM, TRIAGE_TOOL, content, max_tokens=512)
+    return _tool_call(model, TRIAGE_SYSTEM, TRIAGE_TOOL, content, max_tokens=512, stage="triage")
 
 
 def extract(text: str, title: str = "", source: str = "", url: str = "") -> dict:
@@ -118,7 +122,7 @@ def extract(text: str, title: str = "", source: str = "", url: str = "") -> dict
         f"Source: {source}\nURL: {url}\nTitle: {title}\n\n"
         f"Document text (may be truncated):\n{text[:max_chars]}"
     )
-    raw = _tool_call(model, EXTRACT_SYSTEM, EXTRACT_TOOL, content, max_tokens=4096)
+    raw = _tool_call(model, EXTRACT_SYSTEM, EXTRACT_TOOL, content, max_tokens=4096, stage="extract")
     out = coerce_extraction(raw)
     out["_raw"] = raw
     return out
@@ -132,4 +136,4 @@ def adjudicate(record_a: dict, record_b: dict) -> dict:
         "Record A:\n" + json.dumps(record_a, indent=2, default=str)
         + "\n\nRecord B:\n" + json.dumps(record_b, indent=2, default=str)
     )
-    return _tool_call(model, ADJUDICATE_SYSTEM, ADJUDICATE_TOOL, content, max_tokens=1024)
+    return _tool_call(model, ADJUDICATE_SYSTEM, ADJUDICATE_TOOL, content, max_tokens=1024, stage="adjudicate")

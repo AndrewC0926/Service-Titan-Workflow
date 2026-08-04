@@ -27,10 +27,18 @@ Anthropic API (Haiku triage, Sonnet extraction/adjudication) · Jinja2 + HTMX da
 make install                  # venv + deps
 cp .env.example .env          # fill in DATABASE_URL, ANTHROPIC_API_KEY, DASHBOARD_PASSWORD
 make migrate                  # alembic upgrade head
-.venv/bin/scout pipeline      # full run: fetch → … → notify
+.venv/bin/scout pipeline      # full run: fetch → … → notify (+ healthcheck ping)
 make run                      # dashboard at :8000 (HTTP basic auth)
-make test                     # 44 tests, no network needed
+make test                     # 87 tests, no network needed
 .venv/bin/scout verify-sources  # live smoke-test each adapter; catches URL drift
+.venv/bin/scout doctor          # DB, API key, disk, source freshness, budget, dead man's switch
+.venv/bin/scout backfill --source ceqanet --since 2024-08-01   # checkpointed history pull
+.venv/bin/scout backfill --source ceqanet --since 2024-08-01 --estimate  # price LLM pass first
+.venv/bin/scout golden collect && .venv/bin/scout golden review && .venv/bin/scout golden report
+.venv/bin/scout seed-firms      # load MEP/GC/mech-contractor/developer roster
+.venv/bin/scout brief 12        # one-page project brief (markdown)
+.venv/bin/scout outcome 12 specified --reason "our chillers in BOD"
+.venv/bin/scout outcomes        # signal types that convert vs die
 .venv/bin/scout add-signal engineer_move "Jane Doe left Syska for kW MCE" --person "Jane Doe" --org "kW MCE"
 ```
 

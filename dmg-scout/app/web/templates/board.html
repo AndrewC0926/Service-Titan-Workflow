@@ -1,7 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Board{% endblock %}
 {% block content %}
-<h2>Projects — ranked by winnability</h2>
+{% if projects and not has_pre_bod and not is_watchlist %}
+<div style="border:1px solid var(--bad);color:var(--bad);padding:10px 14px;margin-bottom:12px">
+  ⚠ ZERO PRE-BOD PROJECTS ON THE BOARD. Everything here is already in or past
+  basis of design — the early-signal pipeline is not surfacing winnable work.
+  Check Source Health and whether CEQAnet NOP / GOED fetches are running.
+</div>
+{% endif %}
+<h2>{% if is_watchlist %}Watch list — outside my territory{% else %}Projects — ranked by winnability{% endif %}
+  <a href="/export/board.csv{% if is_watchlist %}?watchlist=true{% endif %}" style="float:right;font-size:11px">⬇ CSV</a></h2>
 <table>
 <thead><tr>
   <th>#</th><th>Project</th><th>Developer</th><th>County</th>
@@ -16,7 +24,7 @@
   <td><a href="/project/{{ p.id }}">{{ p.name }}</a></td>
   <td>{{ p.developer or '—' }}</td>
   <td>{{ p.county or '?' }}{{ ', ' + p.state if p.state }}</td>
-  <td class="num">{% if p.tons_estimate_low %}{{ '{:,.0f}'.format(p.tons_estimate_low) }}–{{ '{:,.0f}'.format(p.tons_estimate_high) }}{% else %}<span class="dim">—</span>{% endif %}</td>
+  <td class="num">{% if p.tons_estimate_low %}{{ '{:,.0f}'.format(p.tons_estimate_low) }}–{{ '{:,.0f}'.format(p.tons_estimate_high) }}{% if p.estimate_low_confidence %} <span class="bad" title="sized from square footage only">⚠ LOW CONF</span>{% endif %}{% else %}<span class="dim">—</span>{% endif %}</td>
   <td>{{ p.stage.value }}</td>
   <td><span class="tag {{ p.window.value }}">{{ p.window.value }}</span></td>
   <td class="num"><span class="scorechip" style="background:{{ score_color(p.score) }}">{{ '%.2f'|format(p.score) }}</span></td>

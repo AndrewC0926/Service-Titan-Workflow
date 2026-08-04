@@ -18,9 +18,11 @@ from app.config import load_config
 from app.db import get_session
 from app.manual import add_manual_signal
 from app.models import (
-    Contact, MatchCandidate, Outreach, Project, ProjectContact, ProjectSignal,
-    RawDocument, Signal, SignalType, SourceRun, Stage, utcnow,
+    ACTIVE_STATUSES, OUTCOME_STATUSES, Contact, Firm, MatchCandidate, Outreach, Project,
+    ProjectContact, ProjectFirm, ProjectSignal, RawDocument, Signal, SignalType, SourceRun,
+    Stage, utcnow,
 )
+from app.normalize import normalize_name
 from app.pipeline.resolve import apply_review_decision
 
 app = FastAPI(title="DMG Scout")
@@ -73,16 +75,41 @@ def _title_block(session: Session) -> dict:
 @app.get("/", response_class=HTMLResponse)
 def board(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
     projects = session.exec(
-        select(Project).where(Project.status == "active").order_by(Project.score.desc())
+        select(Project).where(Project.status.in_(ACTIVE_STATUSES),
+                              Project.in_territory == True)  # noqa: E712
+        .order_by(Project.score.desc())
     ).all()
+    watch_count = session.exec(
+        select(func.count(Project.id)).where(Project.status.in_(ACTIVE_STATUSES),
+                                             Project.in_territory == False)).one()  # noqa: E712
     days_since = {}
     for p in projects:
         days_since[p.id] = (utcnow() - p.last_signal_at).days if p.last_signal_at else None
     review_count = session.exec(
         select(func.count(MatchCandidate.id)).where(MatchCandidate.status == "pending")).one()
+    # No PRE_BOD rows means the system has stopped doing its actual job — say so.
+    has_pre_bod = any(p.window.value == "PRE_BOD" for p in projects)
     return templates.TemplateResponse(request, "board.html", {
         "projects": projects, "days_since": days_since, "review_count": review_count,
+        "has_pre_bod": has_pre_bod, "watch_count": watch_count, "is_watchlist": False,
         "tb": _title_block(session), "active": "board",
+    })
+
+
+@app.get("/watchlist", response_class=HTMLResponse)
+def watchlist(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Out-of-territory projects — checked deliberately, never crowding the board."""
+    projects = session.exec(
+        select(Project).where(Project.status.in_(ACTIVE_STATUSES),
+                              Project.in_territory == False)  # noqa: E712
+        .order_by(Project.score.desc())
+    ).all()
+    days_since = {p.id: (utcnow() - p.last_signal_at).days if p.last_signal_at else None
+                  for p in projects}
+    return templates.TemplateResponse(request, "board.html", {
+        "projects": projects, "days_since": days_since, "review_count": 0,
+        "has_pre_bod": True, "watch_count": 0, "is_watchlist": True,
+        "tb": _title_block(session), "active": "watchlist",
     })
 
 
@@ -94,6 +121,11 @@ def project_detail(project_id: int, request: Request,
         raise HTTPException(404)
     links = session.exec(
         select(ProjectSignal).where(ProjectSignal.project_id == project_id)).all()
+    roster_links = session.exec(
+        select(ProjectFirm, Firm).where(ProjectFirm.project_id == project_id,
+                                        Firm.id == ProjectFirm.firm_id)).all()
+    resolved_firms = [{"name": f.name, "role": pf.role, "type": f.firm_type,
+                       "from_roster": f.added_from == "roster"} for pf, f in roster_links]
     timeline = []
     people, firms = [], []
     for link in links:
@@ -114,6 +146,7 @@ def project_detail(project_id: int, request: Request,
     ).all()
     return templates.TemplateResponse(request, "project.html", {
         "p": project, "timeline": timeline, "people": people, "firms": firms,
+        "resolved_firms": resolved_firms, "outcome_statuses": OUTCOME_STATUSES,
         "outreach": outreach, "contacts": contacts,
         "tb": _title_block(session), "active": "board",
     })
@@ -143,6 +176,112 @@ def log_outreach(project_id: int, channel: str = Form("call"), notes: str = Form
                          next_action=next_action or None))
     session.commit()
     return RedirectResponse(f"/project/{project_id}", status_code=303)
+
+
+@app.get("/project/{project_id}/brief", response_class=HTMLResponse)
+def project_brief(project_id: int, request: Request,
+                  session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.brief import build_brief
+    try:
+        b = build_brief(session, project_id)
+    except ValueError:
+        raise HTTPException(404)
+    return templates.TemplateResponse(request, "brief.html", {
+        "b": b, "p": b["project"], "tb": _title_block(session), "active": "board",
+    })
+
+
+@app.post("/project/{project_id}/outcome")
+def record_project_outcome(project_id: int, status: str = Form(...), reason: str = Form(""),
+                           session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.outcomes import record_outcome
+    try:
+        record_outcome(session, project_id, status, reason)
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc))
+    return RedirectResponse(f"/project/{project_id}", status_code=303)
+
+
+@app.post("/firms")
+def add_firm(name: str = Form(...), firm_type: str = Form("unknown"),
+             aliases: str = Form(""),
+             session: Session = Depends(get_session), _: str = Depends(auth)):
+    norm = normalize_name(name)
+    existing = session.exec(select(Firm).where(Firm.name_norm == norm)).first()
+    alias_list = [a.strip() for a in aliases.split(";") if a.strip()]
+    if existing:
+        existing.firm_type = firm_type
+        existing.aliases = sorted(set(existing.aliases) | set(alias_list))
+        session.add(existing)
+    else:
+        session.add(Firm(name=name, name_norm=norm, firm_type=firm_type,
+                         aliases=alias_list, added_from="dashboard"))
+    session.commit()
+    return RedirectResponse("/contacts", status_code=303)
+
+
+def _csv_response(filename: str, header: list[str], rows: list[list]) -> "Response":
+    import csv
+    import io
+
+    from fastapi import Response
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(header)
+    writer.writerows(rows)
+    return Response(buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@app.get("/export/board.csv")
+def export_board(watchlist: bool = False,
+                 session: Session = Depends(get_session), _: str = Depends(auth)):
+    projects = session.exec(
+        select(Project).where(Project.status.in_(ACTIVE_STATUSES),
+                              Project.in_territory == (not watchlist))
+        .order_by(Project.score.desc())).all()
+    rows = [[p.id, p.name, p.developer, p.county, p.state,
+             p.tons_estimate_low, p.tons_estimate_high,
+             "LOW_CONFIDENCE" if p.estimate_low_confidence else "",
+             p.estimate_basis, p.stage.value, p.window.value, p.score,
+             p.days_to_estimated_bid, p.status,
+             p.last_signal_at.isoformat() if p.last_signal_at else "", p.next_action or ""]
+            for p in projects]
+    name = "watchlist.csv" if watchlist else "board.csv"
+    return _csv_response(name,
+                         ["id", "project", "developer", "county", "state", "tons_low", "tons_high",
+                          "confidence_flag", "estimate_basis", "stage", "window", "score",
+                          "days_to_bid", "status", "last_signal", "next_action"], rows)
+
+
+@app.get("/export/contacts.csv")
+def export_contacts(session: Session = Depends(get_session), _: str = Depends(auth)):
+    contacts = session.exec(select(Contact)).all()
+    rows = [[c.id, c.name, c.title, c.company, c.company_type, c.territory, c.phone, c.email]
+            for c in contacts]
+    return _csv_response("contacts.csv",
+                         ["id", "name", "title", "company", "type", "territory", "phone", "email"],
+                         rows)
+
+
+@app.get("/export/firms.csv")
+def export_firms(session: Session = Depends(get_session), _: str = Depends(auth)):
+    firms = session.exec(select(Firm).order_by(Firm.firm_type, Firm.name)).all()
+    rows = [[f.id, f.name, f.firm_type, "; ".join(f.aliases or []), f.added_from] for f in firms]
+    return _csv_response("firms.csv", ["id", "name", "type", "aliases", "added_from"], rows)
+
+
+@app.get("/export/signals.csv")
+def export_signals(session: Session = Depends(get_session), _: str = Depends(auth)):
+    signals = session.exec(select(Signal)).all()
+    doc_urls = {d.id: d.url for d in session.exec(select(RawDocument)).all()}
+    rows = [[s.id, s.signal_type.value, s.project_name, s.developer_or_owner, s.county, s.state,
+             s.mw_it, s.mw_total, s.stage.value, s.summary_one_line, s.confidence,
+             doc_urls.get(s.raw_document_id, "")]
+            for s in signals]
+    return _csv_response("signals.csv",
+                         ["id", "type", "project", "developer", "county", "state", "mw_it",
+                          "mw_total", "stage", "summary", "confidence", "source_url"], rows)
 
 
 @app.get("/review", response_class=HTMLResponse)
@@ -184,8 +323,14 @@ def contacts_view(request: Request, role: str = "", territory: str = "",
             .where(ProjectContact.contact_id == c.id, Project.id == ProjectContact.project_id)
         ).all()
         proj_map[c.id] = [f"{proj.name} ({pc.role})" for pc, proj in links]
+    firms = session.exec(select(Firm).order_by(Firm.firm_type, Firm.name)).all()
+    firm_projects: dict[int, int] = {}
+    for f in firms:
+        firm_projects[f.id] = len(session.exec(
+            select(ProjectFirm).where(ProjectFirm.firm_id == f.id)).all())
     return templates.TemplateResponse(request, "contacts.html", {
         "contacts": contacts, "proj_map": proj_map, "role": role, "territory": territory,
+        "firms": firms, "firm_projects": firm_projects,
         "tb": _title_block(session), "active": "contacts",
     })
 
@@ -227,8 +372,9 @@ def source_health(request: Request, session: Session = Depends(get_session), _: 
         entry = sources.setdefault(run.source, {"last": run, "last_ok": None})
         if entry["last_ok"] is None and run.ok:
             entry["last_ok"] = run
+    from app.spend import budget_status
     return templates.TemplateResponse(request, "health.html", {
-        "sources": sources, "recent_runs": runs[:50],
+        "sources": sources, "recent_runs": runs[:50], "budget": budget_status(),
         "tb": _title_block(session), "active": "health",
     })
 

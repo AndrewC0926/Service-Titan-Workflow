@@ -31,7 +31,9 @@ def _geo_hit(text: str, geo_terms: list[str]) -> str | None:
 class AtsAdapter(SourceAdapter):
     name = "ats"
 
-    def fetch(self, cfg: Config, client: PoliteClient) -> Iterator[FetchedDoc]:
+    def fetch(self, cfg: Config, client: PoliteClient,
+              since=None) -> Iterator[FetchedDoc]:
+        # Job boards only expose current postings; `since` is ignored.
         src = cfg.source(self.name)
         geo_terms = src.get("geo_terms", [])
         companies = []

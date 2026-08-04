@@ -7,11 +7,30 @@ import logging
 from sqlmodel import Session, select
 
 from app.config import Config
-from app.models import Project, ProjectSignal, Signal, Window, utcnow
+from app.models import ACTIVE_STATUSES, Project, ProjectSignal, Signal, Window, utcnow
+from app.normalize import normalize_county
 from app.pipeline.scoring import classify_window, days_to_estimated_bid, priority_score
 from app.pipeline.sizing import estimate_tons
 
 log = logging.getLogger(__name__)
+
+
+def in_territory(cfg: Config, state: str | None, county: str | None) -> bool:
+    """Hard geography boundary. Unknown location stays on the board (in-territory)
+    rather than silently vanishing to the watch list."""
+    territory = cfg.get("territory") or {}
+    if not territory:
+        return True
+    if not state and not county:
+        return True
+    county_n = normalize_county(county)
+    if state:
+        counties = territory.get(state.strip().upper())
+        if counties is None:
+            return False
+        return county_n is None or county_n in [normalize_county(c) for c in counties]
+    return any(county_n in [normalize_county(c) for c in counties]
+               for counties in territory.values())
 
 
 def project_signals(session: Session, project_id: int) -> list[Signal]:
@@ -25,7 +44,7 @@ def project_signals(session: Session, project_id: int) -> list[Signal]:
 
 
 def run_size_score(session: Session, cfg: Config) -> dict:
-    projects = session.exec(select(Project).where(Project.status == "active")).all()
+    projects = session.exec(select(Project).where(Project.status.in_(ACTIVE_STATUSES))).all()
     stats = {"sized": 0, "scored": 0}
     for project in projects:
         signals = project_signals(session, project.id)
@@ -46,6 +65,7 @@ def run_size_score(session: Session, cfg: Config) -> dict:
         )
         project.tons_estimate_low, project.tons_estimate_high = est.low, est.high
         project.estimate_basis = est.basis
+        project.estimate_low_confidence = est.low_confidence
         if est.low is not None:
             stats["sized"] += 1
 
@@ -58,6 +78,7 @@ def run_size_score(session: Session, cfg: Config) -> dict:
             cfg, types, window, est.midpoint, project.last_signal_at
         )
         project.days_to_estimated_bid = days_to_estimated_bid(cfg, project.stage)
+        project.in_territory = in_territory(cfg, project.state, project.county)
         project.updated_at = utcnow()
         session.add(project)
         stats["scored"] += 1

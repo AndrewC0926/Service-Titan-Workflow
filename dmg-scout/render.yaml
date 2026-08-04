@@ -37,3 +37,28 @@ services:
         sync: false
       - key: RESEND_API_KEY
         sync: false
+      - key: HEALTHCHECK_URL   # healthchecks.io ping — dead man's switch
+        sync: false
+      - key: LOG_FORMAT
+        value: json
+
+  - type: cron
+    name: dmg-scout-backup
+    runtime: docker
+    rootDir: dmg-scout
+    plan: starter
+    schedule: "30 9 * * *"   # nightly, offset from the pipeline
+    dockerCommand: bash scripts/backup.sh
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase: {name: dmg-scout-db, property: connectionString}
+      - key: BACKUP_S3_URI
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_ENDPOINT_URL
+        sync: false
+      - key: BACKUP_HEALTHCHECK_URL
+        sync: false

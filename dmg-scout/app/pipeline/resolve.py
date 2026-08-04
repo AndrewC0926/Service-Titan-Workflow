@@ -139,6 +139,7 @@ def _project_record(project: Project) -> dict:
 
 
 def _link(session: Session, signal: Signal, project: Project, confidence: float, method: str) -> None:
+    from app.firms import resolve_signal_firms
     exists = session.exec(
         select(ProjectSignal).where(ProjectSignal.project_id == project.id,
                                     ProjectSignal.signal_id == signal.id)
@@ -148,6 +149,7 @@ def _link(session: Session, signal: Signal, project: Project, confidence: float,
                                   match_confidence=confidence, match_method=method))
     _absorb(project, signal)
     session.add(project)
+    resolve_signal_firms(session, project.id, signal.named_firms)
 
 
 def _absorb(project: Project, signal: Signal) -> None:
@@ -188,7 +190,9 @@ def _new_project(session: Session, signal: Signal) -> Project:
 
 
 def run_resolve(session: Session, cfg: Config, use_llm: bool = True) -> dict:
+    from app.firms import seed_firms
     seed_aliases(session, cfg)
+    seed_firms(session, cfg)
     radius = cfg.get("resolution.block_radius_km", 5)
     auto_t = cfg.get("resolution.auto_merge_threshold", 0.88)
     review_t = cfg.get("resolution.review_threshold", 0.55)

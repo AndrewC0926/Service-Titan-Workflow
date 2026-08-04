@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime  # noqa: F401 — used in signatures
 from typing import Iterator, Type
 
 from app.config import Config
@@ -52,9 +52,22 @@ class SourceAdapter(ABC):
             registry[cls.name] = cls
 
     @abstractmethod
-    def fetch(self, cfg: Config, client: PoliteClient) -> Iterator[FetchedDoc]:
-        """Yield new documents. Must be safe to re-run: yielding an already-seen
-        source_uid is fine (the pipeline dedupes); crashing on one is not."""
+    def fetch(self, cfg: Config, client: PoliteClient, since: "datetime | None" = None
+              ) -> Iterator[FetchedDoc]:
+        """Yield new documents. `since` overrides the configured lookback for
+        backfills; adapters without date filtering may ignore it. Must be safe
+        to re-run: yielding an already-seen source_uid is fine (the pipeline
+        dedupes); crashing on one is not."""
+
+    def backfill_chunks(self, cfg: Config, since: "datetime") -> list[dict]:
+        """Split a historical pull into resumable chunks. Each chunk dict needs
+        a stable 'key' plus whatever fetch_chunk() needs. Default: one chunk."""
+        return [{"key": f"{since:%Y-%m-%d}:all"}]
+
+    def fetch_chunk(self, cfg: Config, client: PoliteClient, since: "datetime",
+                    chunk: dict) -> Iterator[FetchedDoc]:
+        """Fetch one backfill chunk. Default: the whole range."""
+        return self.fetch(cfg, client, since=since)
 
     def verify(self, cfg: Config, client: PoliteClient) -> dict:
         """Live smoke-test: hit the source, return {ok, detail}. Used by

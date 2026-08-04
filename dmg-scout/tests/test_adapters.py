@@ -36,6 +36,28 @@ def test_edgar_parses_hits(cfg, fixtures_dir):
 
 
 @respx.mock
+def test_edgar_double_run_dedupes(db_session, cfg, fixtures_dir):
+    """Gate 3c: same filing hit by many queries must dedupe. In the first demo,
+    EDGAR reported 28 'new' for 2 unique filings because the matched query was
+    embedded in raw_text and changed the content hash. Two full runs: run 1 new
+    == unique filings, run 2 new == 0."""
+    from app.pipeline.fetch import _store
+    payload = json.loads((fixtures_dir / "edgar_fts.json").read_text())
+    respx.get(url__startswith="https://efts.sec.gov/LATEST/search-index").mock(
+        return_value=httpx.Response(200, json=payload)
+    )
+    docs1 = list(EdgarAdapter().fetch(cfg, fast_client()))
+    new1 = sum(_store(db_session, d) for d in docs1)
+    db_session.commit()
+    assert new1 == 2, f"expected 2 unique filings, got {new1} 'new' from {len(docs1)} yields"
+
+    docs2 = list(EdgarAdapter().fetch(cfg, fast_client()))
+    new2 = sum(_store(db_session, d) for d in docs2)
+    db_session.commit()
+    assert new2 == 0, "second identical run must report zero new"
+
+
+@respx.mock
 def test_ceqanet_filters_and_parses(cfg, fixtures_dir):
     csv_text = (fixtures_dir / "ceqanet_search.csv").read_text()
     respx.get(url__startswith="https://ceqanet.lci.ca.gov/Search/DownloadCSV").mock(

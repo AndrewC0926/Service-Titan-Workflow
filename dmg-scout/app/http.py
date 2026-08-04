@@ -25,12 +25,15 @@ class RobotsDisallowed(Exception):
 
 class PoliteClient:
     def __init__(self, user_agent: str | None = None, interval: float | None = None,
-                 max_retries: int | None = None, respect_robots: bool = True):
+                 max_retries: int | None = None, respect_robots: bool = True,
+                 recorder=None):
         cfg = load_config()
         self.user_agent = user_agent or cfg.get("user_agent")
         self.interval = interval if interval is not None else cfg.get("request_interval_seconds", 2.0)
         self.max_retries = max_retries if max_retries is not None else cfg.get("request_max_retries", 4)
         self.respect_robots = respect_robots
+        # recorder(url, status, ok, elapsed_ms, response_bytes, error) — request archive hook
+        self.recorder = recorder
         self._last_request: dict[str, float] = {}
         self._robots: dict[str, urllib.robotparser.RobotFileParser | None] = {}
         self._client = httpx.Client(
@@ -83,12 +86,16 @@ class PoliteClient:
         last_exc: Exception | None = None
         for attempt in range(self.max_retries + 1):
             self._throttle(host)
+            started = time.monotonic()
             try:
                 resp = self._client.get(url, **kwargs)
             except httpx.HTTPError as exc:
                 last_exc = exc
+                self._record(url, None, False, started, None, str(exc))
                 log.warning("GET %s failed (%s), attempt %d", url, exc, attempt + 1)
             else:
+                self._record(url, resp.status_code, resp.is_success, started,
+                             len(resp.content), None)
                 if resp.status_code not in RETRYABLE_STATUS:
                     resp.raise_for_status()
                     return resp
@@ -103,6 +110,16 @@ class PoliteClient:
                 time.sleep(delay)
                 delay *= 2
         raise last_exc  # type: ignore[misc]
+
+    def _record(self, url: str, status, ok: bool, started: float, nbytes, error) -> None:
+        if self.recorder is None:
+            return
+        try:
+            self.recorder(url=url, status=status, ok=ok,
+                          elapsed_ms=int((time.monotonic() - started) * 1000),
+                          response_bytes=nbytes, error=error[:300] if error else None)
+        except Exception as exc:  # noqa: BLE001 — archiving must never break a fetch
+            log.debug("http recorder failed: %s", exc)
 
     def get_json(self, url: str, **kwargs):
         return self.get(url, **kwargs).json()

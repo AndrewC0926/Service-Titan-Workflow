@@ -8,8 +8,10 @@ import typer
 
 from app.config import load_config
 from app.db import init_db, session_scope
+from app.ops import setup_logging
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+setup_logging()
+logging.getLogger(__name__)
 
 app = typer.Typer(help="DMG Scout: early-signal data center project intelligence.")
 
@@ -85,7 +87,12 @@ def notify() -> None:
 
 @app.command()
 def pipeline() -> None:
-    """Run the full pipeline: fetch → triage → extract → resolve → score → notify."""
+    """Run the full pipeline: fetch → triage → extract → resolve → score → notify.
+    Pings the dead man's switch (HEALTHCHECK_URL) on completion."""
+    from app.ops import ping_healthcheck
+    from app.spend import BudgetExceeded
+
+    failures = 0
     for step in (fetch, triage, extract, resolve, score, notify):
         typer.echo(f"--- {step.__name__} ---")
         try:
@@ -93,12 +100,36 @@ def pipeline() -> None:
                 step(source=None)
             elif step is resolve:
                 step(no_llm=False)
-            elif step in (triage, extract):
-                step()
             else:
                 step()
+        except BudgetExceeded as exc:
+            typer.echo(f"{step.__name__} STOPPED BY BUDGET: {exc}", err=True)
+            failures += 1
         except Exception as exc:  # noqa: BLE001 — later stages still run; failure is visible
             typer.echo(f"{step.__name__} FAILED: {exc}", err=True)
+            failures += 1
+    # The switch measures "the cron ran to completion", not "every source was
+    # healthy" — per-source failures already alert via digest + dashboard.
+    ping_healthcheck(success=True)
+    if failures:
+        raise typer.Exit(1)
+
+
+@app.command()
+def doctor() -> None:
+    """Health check: DB, API key, disk, per-source freshness, dead man's switch, budget."""
+    from app.ops import doctor as run_doctor
+    checks = run_doctor()
+    bad = 0
+    for name, ok, detail in checks:
+        mark = "OK  " if ok else "FAIL"
+        if not ok:
+            bad += 1
+        typer.echo(f"[{mark}] {name:24s} {detail}")
+    if bad:
+        typer.echo(f"{bad} check(s) failing")
+        raise typer.Exit(1)
+    typer.echo("all checks passing")
 
 
 @app.command("add-signal")
@@ -120,6 +151,98 @@ def add_signal(
                               mw_total=mw_total, stage=stage, person_name=person,
                               person_org=org, url=url)
         typer.echo(f"signal #{s.id} recorded ({s.signal_type.value}); run `scout resolve` to link it")
+
+
+@app.command()
+def backfill(
+    source: str = typer.Option(..., help="ceqanet | goed | edgar | legistar"),
+    since: str = typer.Option(..., help="YYYY-MM-DD start of historical window"),
+    estimate: bool = typer.Option(False, help="Estimate LLM cost of the pending corpus, run nothing"),
+    reset: bool = typer.Option(False, help="Discard checkpoints and refetch every chunk"),
+) -> None:
+    """Chunked, checkpointed historical pull. Fetch only — after it completes,
+    check the cost with --estimate, then run `scout triage` and `scout extract`
+    in batches. A crash resumes at the first incomplete chunk."""
+    from datetime import datetime as dt
+
+    from app.pipeline.backfill import estimate_cost, run_backfill
+    cfg = load_config()
+    if estimate:
+        with session_scope() as session:
+            typer.echo(json.dumps(estimate_cost(session, cfg), indent=2))
+        return
+    since_dt = dt.strptime(since, "%Y-%m-%d")
+    with session_scope() as session:
+        totals = run_backfill(session, cfg, source, since_dt, reset=reset)
+    typer.echo(json.dumps(totals))
+    typer.echo("Fetch done. Now run: scout backfill --source X --since ... --estimate "
+               "to price the LLM pass, then scout triage / scout extract.")
+
+
+golden_app = typer.Typer(help="Golden-set extraction evaluation (Gate 2).")
+app.add_typer(golden_app, name="golden")
+
+
+@golden_app.command("collect")
+def golden_collect(limit: int = 30) -> None:
+    """Snapshot extracted docs (weighted to CEQAnet NOP + GOED) for hand-verification."""
+    from app.golden import collect
+    with session_scope() as session:
+        added = collect(session, limit=limit)
+    typer.echo(f"{added} documents added to evals/golden.jsonl — now run: scout golden review")
+
+
+@golden_app.command("review")
+def golden_review() -> None:
+    """Hand-verify each document: model extraction next to source text."""
+    from app.golden import review
+    done = review()
+    typer.echo(f"{done} documents verified")
+
+
+@golden_app.command("report")
+def golden_report() -> None:
+    """Per-field precision/recall + fabrication list. Exit 1 on any fabrication."""
+    from app.golden import report_text, score
+    result = score()
+    typer.echo(report_text(result))
+    if result["fabrications"]:
+        raise typer.Exit(1)
+
+
+@app.command()
+def brief(project_id: int) -> None:
+    """Print the one-page project brief as markdown (pipe to a file for sharing)."""
+    from app.brief import brief_markdown, build_brief
+    with session_scope() as session:
+        typer.echo(brief_markdown(build_brief(session, project_id)))
+
+
+@app.command()
+def outcomes() -> None:
+    """Which signal types preceded conversions vs deaths. Needs closed outcomes."""
+    from app.outcomes import outcomes_report, report_text
+    with session_scope() as session:
+        typer.echo(report_text(outcomes_report(session)))
+
+
+@app.command("outcome")
+def outcome(project_id: int, status: str, reason: str = typer.Option("", help="Why")) -> None:
+    """Record an outcome: contacted | specified | bidding | won | lost | dead."""
+    from app.outcomes import record_outcome
+    with session_scope() as session:
+        ev = record_outcome(session, project_id, status, reason)
+        typer.echo(f"project {project_id} -> {ev.status} ({ev.reason or 'no reason given'})")
+
+
+@app.command("seed-firms")
+def seed_firms_cmd() -> None:
+    """Load the firm roster from config.yaml into the firms table."""
+    from app.firms import seed_firms
+    cfg = load_config()
+    with session_scope() as session:
+        added = seed_firms(session, cfg)
+    typer.echo(f"{added} firms added (existing rows updated in place)")
 
 
 @app.command("verify-sources")

@@ -26,7 +26,7 @@ def test_rss_total_outage_raises(cfg):
 def test_total_outage_marks_run_failed(db_session, cfg, monkeypatch):
     respx.get(url__regex=r".*").mock(return_value=httpx.Response(503))
     monkeypatch.setattr("app.pipeline.fetch.PoliteClient",
-                        lambda: fast_client())
+                        lambda **kw: fast_client())
     runs = run_fetch(db_session, cfg, only_source="rss")
     assert runs["rss"].ok is False
     assert "RSS feeds failed" in runs["rss"].error
@@ -44,7 +44,7 @@ def test_partial_outage_still_ok(db_session, cfg, fixtures_dir, monkeypatch):
     respx.get(url__startswith="https://www.datacenterdynamics.com/").mock(
         return_value=httpx.Response(200, text=rss_xml))
     respx.get(url__regex=r".*").mock(return_value=httpx.Response(503))
-    monkeypatch.setattr("app.pipeline.fetch.PoliteClient", lambda: fast_client())
+    monkeypatch.setattr("app.pipeline.fetch.PoliteClient", lambda **kw: fast_client())
     runs = run_fetch(db_session, cfg, only_source="rss")
     assert runs["rss"].ok is True
     assert runs["rss"].records_fetched == 1

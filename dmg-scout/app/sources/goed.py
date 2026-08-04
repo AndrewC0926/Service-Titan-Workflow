@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import io
 import logging
+import re
+from datetime import datetime
 from typing import Iterator
 
 import pdfplumber
@@ -23,7 +25,17 @@ from app.sources.base import FetchedDoc, SourceAdapter, SourceFailure
 log = logging.getLogger(__name__)
 
 MAX_LISTING_PAGES = 3
+MAX_LISTING_PAGES_BACKFILL = 40
 MAX_PDF_PAGES = 80  # board packets run long; cap parse cost
+
+_UPLOAD_DATE = re.compile(r"/wp-content/uploads/(\d{4})/(\d{2})/")
+
+
+def upload_month(url: str) -> datetime | None:
+    m = _UPLOAD_DATE.search(url)
+    if not m:
+        return None
+    return datetime(int(m.group(1)), int(m.group(2)), 1)
 
 
 def pdf_to_text(data: bytes, max_pages: int = MAX_PDF_PAGES) -> str:
@@ -37,13 +49,15 @@ def pdf_to_text(data: bytes, max_pages: int = MAX_PDF_PAGES) -> str:
 class GoedAdapter(SourceAdapter):
     name = "goed"
 
-    def fetch(self, cfg: Config, client: PoliteClient) -> Iterator[FetchedDoc]:
+    def fetch(self, cfg: Config, client: PoliteClient,
+              since: datetime | None = None) -> Iterator[FetchedDoc]:
         src = cfg.source(self.name)
         base = src.get("base_url", "https://goed.nv.gov").rstrip("/")
         notices_path = src.get("notices_path", "/notices-agendas/")
+        max_pages = MAX_LISTING_PAGES if since is None else MAX_LISTING_PAGES_BACKFILL
 
         pdf_links: dict[str, str] = {}
-        for page_no in range(1, MAX_LISTING_PAGES + 1):
+        for page_no in range(1, max_pages + 1):
             url = f"{base}{notices_path}" if page_no == 1 else f"{base}{notices_path}page/{page_no}/"
             try:
                 html = client.get_text(url)
@@ -53,12 +67,22 @@ class GoedAdapter(SourceAdapter):
                 log.warning("goed listing page %s failed: %s", url, exc)
                 break
             tree = HTMLParser(html)
+            page_months: list[datetime] = []
             for a in tree.css("a[href]"):
                 href = a.attributes.get("href") or ""
                 if "/wp-content/uploads/" in href and href.lower().endswith(".pdf"):
                     full = href if href.startswith("http") else f"{base}{href}"
+                    month = upload_month(full)
+                    if month:
+                        page_months.append(month)
+                    if since is not None and month is not None and month < since.replace(day=1):
+                        continue  # older than the backfill window
                     label = (a.text(strip=True) or full.rsplit("/", 1)[-1])[:200]
                     pdf_links.setdefault(full, label)
+            # Stop paging once an entire listing page predates the window.
+            if since is not None and page_months and all(
+                    m < since.replace(day=1) for m in page_months):
+                break
 
         for pdf_url, label in pdf_links.items():
             # Board packets and agendas only; skip unrelated uploads by name.

@@ -12,20 +12,35 @@ from sqlmodel import Session, select
 
 from app.config import Config
 from app.http import PoliteClient
-from app.models import RawDocument, SourceRun, TriageResult, utcnow
+from app.models import HttpLog, RawDocument, SourceRun, TriageResult, utcnow
 from app.sources import enabled_adapters, get_adapter
 
 log = logging.getLogger(__name__)
+
+MAX_HTTP_LOG_PER_RUN = 1000
+
+
+def _http_recorder(session: Session, run: SourceRun):
+    """Archive every request of a source run for after-the-fact debugging."""
+    count = {"n": 0}
+
+    def recorder(**kw) -> None:
+        if count["n"] >= MAX_HTTP_LOG_PER_RUN:
+            return
+        count["n"] += 1
+        session.add(HttpLog(source_run_id=run.id, **kw))
+
+    return recorder
 
 
 def run_fetch(session: Session, cfg: Config, only_source: str | None = None) -> dict[str, SourceRun]:
     names = [only_source] if only_source else enabled_adapters(cfg)
     runs: dict[str, SourceRun] = {}
-    with PoliteClient() as client:
-        for name in names:
-            run = SourceRun(source=name)
-            session.add(run)
-            session.commit()
+    for name in names:
+        run = SourceRun(source=name)
+        session.add(run)
+        session.commit()
+        with PoliteClient(recorder=_http_recorder(session, run)) as client:
             try:
                 adapter = get_adapter(name)
                 fetched = new = 0
@@ -39,10 +54,10 @@ def run_fetch(session: Session, cfg: Config, only_source: str | None = None) -> 
                 run.ok = False
                 run.error = f"{type(exc).__name__}: {exc}\n{traceback.format_exc(limit=5)}"
                 log.error("source %s failed: %s", name, exc)
-            run.finished_at = utcnow()
-            session.add(run)
-            session.commit()
-            runs[name] = run
+        run.finished_at = utcnow()
+        session.add(run)
+        session.commit()
+        runs[name] = run
     return runs
 
 

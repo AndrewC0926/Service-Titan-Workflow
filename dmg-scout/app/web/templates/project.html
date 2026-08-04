@@ -2,7 +2,9 @@
 {% block title %}{{ p.name }}{% endblock %}
 {% block content %}
 <h2>{{ p.name }} <span class="tag {{ p.window.value }}">{{ p.window.value }}</span>
-  <span class="scorechip" style="background:{{ score_color(p.score) }}">{{ '%.2f'|format(p.score) }}</span></h2>
+  <span class="scorechip" style="background:{{ score_color(p.score) }}">{{ '%.2f'|format(p.score) }}</span>
+  <span class="tag">{{ p.status }}</span>
+  <a href="/project/{{ p.id }}/brief" style="float:right;font-size:12px">📄 One-page brief</a></h2>
 
 <table style="max-width:900px">
 <tr><th>Developer</th><td>{{ p.developer or '—' }}</td>
@@ -12,7 +14,7 @@
 <tr><th>MW (IT / total)</th><td class="num">{{ p.mw_it or '—' }} / {{ p.mw_total or '—' }}</td>
     <th>APN</th><td class="mono">{{ p.apn_parcel or '—' }}</td></tr>
 <tr><th>Est. tonnage</th>
-    <td class="num">{% if p.tons_estimate_low %}{{ '{:,.0f}'.format(p.tons_estimate_low) }}–{{ '{:,.0f}'.format(p.tons_estimate_high) }} tons{% else %}—{% endif %}</td>
+    <td class="num">{% if p.tons_estimate_low %}{{ '{:,.0f}'.format(p.tons_estimate_low) }}–{{ '{:,.0f}'.format(p.tons_estimate_high) }} tons{% if p.estimate_low_confidence %} <span class="bad">⚠ LOW CONFIDENCE</span>{% endif %}{% else %}—{% endif %}</td>
     <th>Basis</th><td>{{ p.estimate_basis or 'no size input yet' }}</td></tr>
 </table>
 
@@ -32,6 +34,30 @@
 {% endfor %}
 </tbody>
 </table>
+
+<h2>Resolved firms (roster-matched)</h2>
+<table style="max-width:900px">
+<thead><tr><th>Firm</th><th>Role on project</th><th>Type</th><th>Roster</th></tr></thead>
+<tbody>
+{% for f in resolved_firms %}
+<tr><td>{{ f.name }}</td><td><span class="tag">{{ f.role }}</span></td><td>{{ f.type }}</td>
+    <td>{% if f.from_roster %}<span class="ok">✓ roster</span>{% else %}<span class="dim">from extraction</span>{% endif %}</td></tr>
+{% else %}
+<tr><td colspan="4" class="dim">No firms linked yet.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+<h2>Outcome</h2>
+<form method="post" action="/project/{{ p.id }}/outcome" class="grid" style="max-width:900px">
+  <select name="status" required>
+    {% for s in outcome_statuses %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+  </select>
+  <input name="reason" placeholder="Why (e.g. 'basis of design went to competitor X')">
+  <button>Record outcome</button>
+</form>
+<p class="dim">won/lost/dead close the project; contacted/specified/bidding keep it on the board.
+These feed the outcomes report that will eventually tune scoring from results, not assumptions.</p>
 
 <h2>Named people &amp; firms</h2>
 <table style="max-width:900px">

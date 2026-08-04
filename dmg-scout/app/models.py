@@ -13,6 +13,11 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+# Statuses still worth watching/scoring. Terminal: won | lost | dead | archived.
+ACTIVE_STATUSES = ("active", "contacted", "specified", "bidding")
+OUTCOME_STATUSES = ("contacted", "specified", "bidding", "won", "lost", "dead")
+
+
 class SignalType(str, enum.Enum):
     utility_load_request = "utility_load_request"
     land_transfer = "land_transfer"
@@ -129,14 +134,17 @@ class Project(SQLModel, table=True):
     tons_estimate_low: float | None = None
     tons_estimate_high: float | None = None
     estimate_basis: str | None = None  # which input drove the tonnage estimate
-    stage: Stage = Field(default=Stage.unknown)
+    estimate_low_confidence: bool = Field(default=False)
+    stage: Stage = Field(default=Stage.unknown, index=True)
     window: Window = Field(default=Window.PRE_BOD)
     score: float = Field(default=0.0, index=True)
     days_to_estimated_bid: int | None = None
-    status: str = Field(default="active")  # active | archived | lost | won
+    in_territory: bool = Field(default=True, index=True)
+    # active | contacted | specified | bidding | won | lost | dead | archived
+    status: str = Field(default="active", index=True)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
-    last_signal_at: datetime | None = None
+    last_signal_at: datetime | None = Field(default=None, index=True)
     notes: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
     next_action: str | None = None
     next_action_date: datetime | None = None
@@ -231,6 +239,86 @@ class SourceRun(SQLModel, table=True):
     records_fetched: int = 0
     records_new: int = 0
     error: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+
+
+class BackfillCheckpoint(SQLModel, table=True):
+    """One row per completed backfill chunk so a crash resumes, not restarts."""
+    __tablename__ = "backfill_checkpoints"
+    __table_args__ = (UniqueConstraint("source", "chunk_key", name="uq_backfill_chunk"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    source: str = Field(index=True)
+    chunk_key: str  # e.g. "2024-08-01:Riverside:NOP" or "2024-08-01:month:2025-03"
+    records_fetched: int = 0
+    records_new: int = 0
+    completed_at: datetime = Field(default_factory=utcnow)
+
+
+class TokenSpend(SQLModel, table=True):
+    """Per-call LLM spend. The daily budget kill switch sums this table."""
+    __tablename__ = "token_spend"
+
+    id: int | None = Field(default=None, primary_key=True)
+    ts: datetime = Field(default_factory=utcnow, index=True)
+    day: str = Field(index=True)  # YYYY-MM-DD (UTC) for cheap daily sums
+    stage: str  # triage | extract | adjudicate
+    model: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+
+
+class HttpLog(SQLModel, table=True):
+    """Request archive for every source fetch, for after-the-fact debugging."""
+    __tablename__ = "http_log"
+
+    id: int | None = Field(default=None, primary_key=True)
+    source_run_id: int | None = Field(default=None, foreign_key="source_runs.id", index=True)
+    ts: datetime = Field(default_factory=utcnow)
+    url: str
+    status: int | None = None
+    ok: bool = False
+    elapsed_ms: int | None = None
+    response_bytes: int | None = None
+    error: str | None = None
+
+
+class Firm(SQLModel, table=True):
+    """Company roster: MEP firms, mech contractors, GCs, developers. Extracted
+    named_firms resolve against this instead of spawning duplicate rows."""
+    __tablename__ = "firms"
+    __table_args__ = (UniqueConstraint("name_norm", name="uq_firm_norm"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+    name_norm: str = Field(index=True)
+    firm_type: str = "unknown"  # mep | mech_contractor | gc | developer | consultant | unknown
+    aliases: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
+    added_from: str = "roster"  # roster | extraction | dashboard
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class ProjectFirm(SQLModel, table=True):
+    __tablename__ = "project_firms"
+    __table_args__ = (UniqueConstraint("project_id", "firm_id", "role", name="uq_project_firm_role"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="projects.id", index=True)
+    firm_id: int = Field(foreign_key="firms.id", index=True)
+    role: str = "unknown"  # engineer_of_record | gc | mech_contractor | developer | consultant
+    linked_at: datetime = Field(default_factory=utcnow)
+
+
+class OutcomeEvent(SQLModel, table=True):
+    """Outcome feedback: what actually happened. Future scoring weights get
+    tuned from this, not from assumptions."""
+    __tablename__ = "outcome_events"
+
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="projects.id", index=True)
+    status: str  # contacted | specified | bidding | won | lost | dead
+    reason: str = ""
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class DigestLog(SQLModel, table=True):

@@ -14,7 +14,8 @@ from sqlmodel import Session, select
 
 from app.config import Config
 from app.models import (
-    Contact, DigestLog, MatchCandidate, Project, ProjectContact, SourceRun, Window, utcnow,
+    ACTIVE_STATUSES, Contact, DigestLog, MatchCandidate, Project, ProjectContact, SourceRun,
+    Window, utcnow,
 )
 
 log = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ def build_digest(session: Session, cfg: Config) -> tuple[str, dict] | None:
 
     # 1. New projects above threshold
     new_lines = []
-    for p in session.exec(select(Project).where(Project.status == "active",
+    for p in session.exec(select(Project).where(Project.status.in_(ACTIVE_STATUSES),
                                                 Project.score >= min_score)
                           .order_by(Project.score.desc())).all():
         if _already_sent(session, "new_project", p.id, "v1"):
@@ -59,7 +60,7 @@ def build_digest(session: Session, cfg: Config) -> tuple[str, dict] | None:
 
     # 2. Stage changes (window closing)
     stage_lines = []
-    for p in session.exec(select(Project).where(Project.status == "active")).all():
+    for p in session.exec(select(Project).where(Project.status.in_(ACTIVE_STATUSES))).all():
         fp = f"stage:{p.stage.value}"
         if _already_sent(session, "stage_change", p.id, fp):
             continue
@@ -111,6 +112,16 @@ def build_digest(session: Session, cfg: Config) -> tuple[str, dict] | None:
     if rec:
         sections.append("CALL THIS PERSON THIS WEEK\n" + rec)
 
+    # 6. LLM budget warning at the configured threshold
+    from app.spend import budget_status
+    st = budget_status()
+    if st["warn"] or st["exhausted"]:
+        state = "EXHAUSTED — LLM calls are stopped" if st["exhausted"] else "at warning threshold"
+        sections.append(
+            f"LLM BUDGET {state}\n  today ${st['today_usd']:.2f} of "
+            f"${st['daily_budget_usd']:.2f} daily budget; ${st['month_usd']:.2f} this month"
+        )
+
     if not any([new_lines, stage_lines, review_lines, fail_lines]):
         return None
     body = f"DMG Scout digest — {utcnow():%Y-%m-%d}\n\n" + "\n\n".join(sections) + "\n"
@@ -120,7 +131,7 @@ def build_digest(session: Session, cfg: Config) -> tuple[str, dict] | None:
 
 def _call_recommendation(session: Session) -> str | None:
     top = session.exec(
-        select(Project).where(Project.status == "active", Project.window == Window.PRE_BOD)
+        select(Project).where(Project.status.in_(ACTIVE_STATUSES), Project.window == Window.PRE_BOD)
         .order_by(Project.score.desc())
     ).all()
     for p in top:

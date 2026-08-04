@@ -70,6 +70,7 @@ form.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
 </div>
 <nav>
   <a href="/" class="{{ 'on' if active=='board' }}">Board</a>
+  <a href="/watchlist" class="{{ 'on' if active=='watchlist' }}">Watch List{% if watch_count %} <span class="badge">{{ watch_count }}</span>{% endif %}</a>
   <a href="/review" class="{{ 'on' if active=='review' }}">Review Queue{% if review_count %} <span class="badge">{{ review_count }}</span>{% endif %}</a>
   <a href="/contacts" class="{{ 'on' if active=='contacts' }}">Contacts</a>
   <a href="/map" class="{{ 'on' if active=='map' }}">Map</a>

@@ -46,29 +46,49 @@ def _detail_text(html: str) -> str:
 class CeqanetAdapter(SourceAdapter):
     name = "ceqanet"
 
-    def fetch(self, cfg: Config, client: PoliteClient) -> Iterator[FetchedDoc]:
+    def backfill_chunks(self, cfg: Config, since: datetime) -> list[dict]:
         src = cfg.source(self.name)
-        base = src.get("base_url", "https://ceqanet.lci.ca.gov").rstrip("/")
+        return [
+            {"key": f"{since:%Y-%m-%d}:{county}:{doc_type}", "county": county, "doc_type": doc_type}
+            for county in src.get("counties", [])
+            for doc_type in src.get("document_types", ["NOP"])
+        ]
+
+    def fetch_chunk(self, cfg: Config, client: PoliteClient, since: datetime,
+                    chunk: dict) -> Iterator[FetchedDoc]:
+        yield from self._fetch_pairs(cfg, client, since,
+                                     [(chunk["county"], chunk["doc_type"])])
+
+    def fetch(self, cfg: Config, client: PoliteClient,
+              since: datetime | None = None) -> Iterator[FetchedDoc]:
+        src = cfg.source(self.name)
         counties = src.get("counties", [])
         doc_types = src.get("document_types", ["NOP"])
-        lookback = int(src.get("lookback_days", 30))
-        start = (datetime.utcnow() - timedelta(days=lookback)).strftime("%m/%d/%Y")
+        if since is None:
+            since = datetime.utcnow() - timedelta(days=int(src.get("lookback_days", 30)))
+        yield from self._fetch_pairs(cfg, client, since,
+                                     [(c, d) for c in counties for d in doc_types])
+
+    def _fetch_pairs(self, cfg: Config, client: PoliteClient, since: datetime,
+                     pairs: list[tuple[str, str]]) -> Iterator[FetchedDoc]:
+        src = cfg.source(self.name)
+        base = src.get("base_url", "https://ceqanet.lci.ca.gov").rstrip("/")
+        start = since.strftime("%m/%d/%Y")
 
         attempts = failures = 0
-        for county in counties:
-            for doc_type in doc_types:
-                url = (
-                    f"{base}/Search/DownloadCSV"
-                    f"?County={county}&DocumentType={doc_type}&ReceivedStartDate={start}"
-                )
-                attempts += 1
-                try:
-                    text = client.get_text(url)
-                except Exception as exc:  # noqa: BLE001 — one county failing must not kill the run
-                    log.warning("ceqanet CSV fetch failed for %s/%s: %s", county, doc_type, exc)
-                    failures += 1
-                    continue
-                yield from self._parse_csv(text, base, county, doc_type, cfg, client)
+        for county, doc_type in pairs:
+            url = (
+                f"{base}/Search/DownloadCSV"
+                f"?County={county}&DocumentType={doc_type}&ReceivedStartDate={start}"
+            )
+            attempts += 1
+            try:
+                text = client.get_text(url)
+            except Exception as exc:  # noqa: BLE001 — one county failing must not kill the run
+                log.warning("ceqanet CSV fetch failed for %s/%s: %s", county, doc_type, exc)
+                failures += 1
+                continue
+            yield from self._parse_csv(text, base, county, doc_type, cfg, client)
         if attempts and failures == attempts:
             raise SourceFailure(f"all {attempts} CEQAnet CSV queries failed")
 

@@ -19,7 +19,9 @@ log = logging.getLogger(__name__)
 class RssAdapter(SourceAdapter):
     name = "rss"
 
-    def fetch(self, cfg: Config, client: PoliteClient) -> Iterator[FetchedDoc]:
+    def fetch(self, cfg: Config, client: PoliteClient,
+              since=None) -> Iterator[FetchedDoc]:
+        # RSS has no history; `since` is ignored.
         src = cfg.source(self.name)
         feeds = src.get("feeds", [])
         failures = 0

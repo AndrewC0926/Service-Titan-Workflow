@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Contacts{% endblock %}
 {% block content %}
-<h2>Contacts</h2>
+<h2>Contacts <a href="/export/contacts.csv" style="float:right;font-size:11px">⬇ CSV</a></h2>
 <form method="get" class="grid" style="max-width:600px;margin-bottom:10px">
   <select name="role" onchange="this.form.submit()">
     <option value="">All roles</option>
@@ -28,6 +28,29 @@
 {% endfor %}
 </tbody>
 </table>
+<h2>Firm roster <a href="/export/firms.csv" style="float:right;font-size:11px">⬇ CSV</a></h2>
+<table>
+<thead><tr><th>Firm</th><th>Type</th><th>Aliases</th><th>Source</th><th class="num">Projects</th></tr></thead>
+<tbody>
+{% for f in firms %}
+<tr><td>{{ f.name }}</td><td><span class="tag">{{ f.firm_type }}</span></td>
+    <td class="dim">{{ f.aliases|join('; ') }}</td><td class="dim">{{ f.added_from }}</td>
+    <td class="num">{{ firm_projects[f.id] }}</td></tr>
+{% else %}
+<tr><td colspan="5" class="dim">Roster empty — run <span class="mono">scout seed-firms</span>.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+<h2>Add firm</h2>
+<form method="post" action="/firms" class="grid" style="max-width:1000px;margin-bottom:16px">
+  <input name="name" placeholder="Firm name *" required>
+  <select name="firm_type">
+    {% for t in ['mep','mech_contractor','gc','developer','consultant','unknown'] %}<option>{{ t }}</option>{% endfor %}
+  </select>
+  <input name="aliases" placeholder="Aliases (semicolon-separated)">
+  <button>Add / update firm</button>
+</form>
+
 <h2>Add contact</h2>
 <form method="post" action="/contacts" class="grid" style="max-width:1000px">
   <input name="name" placeholder="Name *" required>

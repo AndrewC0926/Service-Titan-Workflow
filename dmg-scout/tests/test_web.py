@@ -92,6 +92,35 @@ def test_add_signal_form_creates_project(client, db_session, cfg):
     assert "Unnamed" in board or "Jane" in board
 
 
+def test_gate5_views_and_exports(client, db_session, cfg):
+    seed(db_session, cfg)
+    # brief page renders with traceable content
+    r = client.get("/project/1/brief", headers=AUTH)
+    assert r.status_code == 200 and "project brief" in r.text
+
+    # outcome form closes the project off the board
+    r = client.post("/project/1/outcome", headers=AUTH,
+                    data={"status": "dead", "reason": "cancelled"}, follow_redirects=False)
+    assert r.status_code == 303
+    assert "Meridian DC" not in client.get("/", headers=AUTH).text
+
+    # watchlist view + CSV exports
+    assert client.get("/watchlist", headers=AUTH).status_code == 200
+    for path in ("/export/board.csv", "/export/contacts.csv", "/export/firms.csv",
+                 "/export/signals.csv"):
+        r = client.get(path, headers=AUTH)
+        assert r.status_code == 200, path
+        assert "text/csv" in r.headers["content-type"]
+    assert client.get("/export/board.csv", headers=AUTH).text.startswith("id,project,developer")
+
+    # dashboard firm add + roster on contacts page
+    r = client.post("/firms", headers=AUTH,
+                    data={"name": "Test Firm Engineering", "firm_type": "mep",
+                          "aliases": "TFE; Test Firm"}, follow_redirects=False)
+    assert r.status_code == 303
+    assert "Test Firm Engineering" in client.get("/contacts", headers=AUTH).text
+
+
 def test_no_password_fails_closed(client, monkeypatch):
     monkeypatch.delenv("DASHBOARD_PASSWORD")
     assert client.get("/", headers=AUTH).status_code == 503

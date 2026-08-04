@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Brief: {{ p.name }}{% endblock %}
+{% block content %}
+<style>
+@media print {
+  body { background: #fff; color: #000; font-size: 11pt; }
+  .titleblock, nav, .noprint { display: none !important; }
+  main { border: none; background: #fff; margin: 0; padding: 0; }
+  a { color: #000; }
+  th, td { border-color: #999 !important; }
+  h2 { color: #000; }
+  .tag, .scorechip { border: 1px solid #000; background: none !important; color: #000 !important; }
+}
+</style>
+<p class="noprint"><button onclick="window.print()">🖨 Print / save PDF</button>
+  <a href="/project/{{ p.id }}" style="margin-left:12px">← back to project</a></p>
+
+<h2 style="font-size:18px">{{ p.name }} — project brief</h2>
+<p class="dim">DMG Scout — generated {{ b.generated_at.strftime('%Y-%m-%d %H:%M') }}Z.
+Every figure below traces to the public source URL in the timeline.</p>
+
+<table style="max-width:820px">
+<tr><th>Developer</th><td>{{ p.developer or 'unknown' }}</td>
+    <th>Location</th><td>{{ p.county or '?' }} County, {{ p.state or '?' }}</td></tr>
+<tr><th>Estimated cooling</th>
+    <td class="num">{% if p.tons_estimate_low %}{{ '{:,.0f}'.format(p.tons_estimate_low) }}–{{ '{:,.0f}'.format(p.tons_estimate_high) }} tons{% if p.estimate_low_confidence %} — LOW CONFIDENCE{% endif %}{% else %}unknown{% endif %}</td>
+    <th>Basis</th><td>{{ p.estimate_basis or '—' }}</td></tr>
+<tr><th>Stage / window</th><td>{{ p.stage.value }} / {{ p.window.value }}</td>
+    <th>Days to est. bid</th><td class="num">{{ p.days_to_estimated_bid if p.days_to_estimated_bid is not none else '—' }}</td></tr>
+<tr><th>Engineer of record</th><td>{{ b.engineer_of_record or 'not yet identified' }}</td>
+    <th>General contractor</th><td>{{ b.gc or 'not yet identified' }}</td></tr>
+<tr><th>Priority score</th><td class="num">{{ '%.2f'|format(p.score) }}</td>
+    <th>Status</th><td>{{ p.status }}</td></tr>
+</table>
+
+<h2>Signal timeline</h2>
+<table style="max-width:1000px">
+<thead><tr><th>Date</th><th>Type</th><th>Summary</th><th>Source URL</th></tr></thead>
+<tbody>
+{% for t in b.timeline %}
+<tr><td class="num">{{ t.date.strftime('%Y-%m-%d') }}</td>
+    <td>{{ t.type }}</td><td>{{ t.summary }}</td>
+    <td style="overflow-wrap:anywhere">{% if t.url %}<a href="{{ t.url }}">{{ t.url }}</a>{% else %}manual entry{% endif %}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+{% if b.people %}
+<h2>Named people</h2>
+<table style="max-width:820px">
+{% for person in b.people %}
+<tr><td>{{ person.name }}</td><td>{{ person.title or '' }}</td><td>{{ person.org or '' }}</td>
+    <td class="mono">{{ person.phone or '' }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+
+{% if b.firms %}
+<h2>Firms</h2>
+<table style="max-width:820px">
+{% for f in b.firms %}<tr><td>{{ f.name }}</td><td>{{ f.role }}</td><td>{{ f.type }}</td></tr>{% endfor %}
+</table>
+{% endif %}
+
+{% if p.notes %}<h2>Notes</h2><p>{{ p.notes }}</p>{% endif %}
+
+{% if b.outreach %}
+<h2>Outreach log</h2>
+<table style="max-width:820px">
+{% for o in b.outreach %}
+<tr><td class="num">{{ o.date.strftime('%Y-%m-%d') }}</td><td>{{ o.channel }}</td>
+    <td>{{ o.notes }}</td><td>{{ o.next_action or '' }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+{% endblock %}
