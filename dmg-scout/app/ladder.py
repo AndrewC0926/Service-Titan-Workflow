@@ -1,0 +1,173 @@
+"""Best-available-contact ladder (Step 8).
+
+Most CEQA/GOED filings never name the MEP engineer of record — they name the
+lead agency planner, the environmental consultant, sometimes the developer's
+rep. If the tool only surfaced EORs, most of the board would show no one to
+call. So every project gets a ladder, ranked by proximity to the mechanical
+specification decision:
+
+  1. mechanical engineer of record (named individual)
+  2. MEP firm named without an individual (firm-level target, work the roster)
+  3. design-build mechanical contractor on the project (they self-specify)
+  4. GC precon lead (person, else firm-level)
+  5. developer construction/MEP manager (person, else ATS-posting evidence)
+  6. environmental / land-use consultant on the filing
+  7. lead agency planner named in the filing (public, reachable, knows who is
+     submitting drawings)
+
+Every rung records where the name came from (source URL) so a call can open
+with the filing, not a cold guess.
+"""
+from __future__ import annotations
+
+import re
+from collections import Counter
+
+from sqlmodel import Session, select
+
+from app.models import (
+    ACTIVE_STATUSES, Firm, Project, ProjectFirm, ProjectSignal, RawDocument, Signal,
+)
+from app.normalize import normalize_name
+
+RUNG_LABELS = {
+    1: "mechanical EOR (named)",
+    2: "MEP firm (firm-level)",
+    3: "design-build mech contractor",
+    4: "GC precon",
+    5: "developer construction/MEP mgr",
+    6: "environmental/land-use consultant",
+    7: "lead agency planner",
+}
+
+_MECH_ENG = re.compile(r"\b(mechanical|mep)\b.*\b(engineer|principal|director)|\bP\.?E\.?\b", re.I)
+_PRECON = re.compile(r"\bpre.?con(struction)?\b|\bestimat", re.I)
+_DEV_CM = re.compile(r"\b(construction|mep|design|development)\s+(manager|director|lead)\b", re.I)
+_CONSULTANT = re.compile(r"\b(environmental|planning|land.?use)\b.*\b(consultant|analyst|manager)\b"
+                         r"|\bconsultant\b", re.I)
+_PLANNER = re.compile(r"\bplann(er|ing)\b|\bcommunity development\b|\bclearinghouse\b", re.I)
+
+
+def _firm_type_of_org(session: Session, org: str | None) -> str | None:
+    if not org:
+        return None
+    norm = normalize_name(org)
+    for firm in session.exec(select(Firm)).all():
+        if firm.name_norm == norm or any(normalize_name(a) == norm for a in firm.aliases or []):
+            return firm.firm_type
+    return None
+
+
+def _classify_person(session: Session, person: dict, doc_source: str,
+                     developer_norm: str | None) -> int | None:
+    title = person.get("title") or ""
+    org = person.get("org") or ""
+    org_type = _firm_type_of_org(session, org)
+
+    if org_type == "mep" or (_MECH_ENG.search(title) and org_type != "gc"):
+        return 1
+    if org_type == "gc" and _PRECON.search(title):
+        return 4
+    if developer_norm and normalize_name(org) == developer_norm and _DEV_CM.search(title):
+        return 5
+    if org_type == "consultant" or _CONSULTANT.search(title):
+        return 6
+    if _PLANNER.search(title) or (doc_source in ("ceqanet", "legistar", "goed")
+                                  and person.get("phone") and not org_type):
+        return 7
+    return None
+
+
+def build_ladder(session: Session, project: Project) -> list[dict]:
+    """All rungs available for a project, best (lowest rung) first."""
+    links = session.exec(
+        select(ProjectSignal).where(ProjectSignal.project_id == project.id)).all()
+    developer_norm = normalize_name(project.developer) if project.developer else None
+
+    rungs: list[dict] = []
+    seen: set[tuple] = set()
+
+    def add(rung: int, name: str, title: str | None, company: str | None,
+            source_url: str | None, kind: str) -> None:
+        key = (rung, normalize_name(name))
+        if key in seen:
+            return
+        seen.add(key)
+        rungs.append({"rung": rung, "rung_label": RUNG_LABELS[rung], "name": name,
+                      "title": title, "company": company, "source_url": source_url,
+                      "kind": kind})
+
+    # People named in filings
+    for link in links:
+        s = session.get(Signal, link.signal_id)
+        if not s:
+            continue
+        doc = session.get(RawDocument, s.raw_document_id) if s.raw_document_id else None
+        url = doc.url if doc else None
+        src = doc.source if doc else "manual"
+        for person in s.named_people or []:
+            name = (person.get("name") or "").strip()
+            if not name:
+                continue
+            rung = _classify_person(session, person, src, developer_norm)
+            if rung:
+                add(rung, name, person.get("title"), person.get("org"), url, "person")
+        # ATS postings = rung-5 evidence even without a named individual
+        if s.signal_type.value == "job_posting" and url:
+            company = (doc.meta or {}).get("company") if doc else None
+            if company and developer_norm and normalize_name(company) == developer_norm:
+                add(5, f"{company} (hiring in geo — see posting)", None, company, url, "evidence")
+
+    # Firms linked to the project fill firm-level rungs
+    firm_rows = session.exec(
+        select(ProjectFirm, Firm).where(ProjectFirm.project_id == project.id,
+                                        Firm.id == ProjectFirm.firm_id)).all()
+    firm_rung = {"mep": 2, "mech_contractor": 3, "gc": 4, "consultant": 6}
+    for pf, firm in firm_rows:
+        rung = 2 if pf.role == "engineer_of_record" else firm_rung.get(firm.firm_type)
+        if rung:
+            add(rung, firm.name, None, firm.name, None, "firm")
+    # Bare developer company name is a LAST resort only — a named consultant or
+    # planner from the filing is a better first call than a main line. It exists
+    # so no project ever shows zero rungs when a developer is known.
+    if not rungs and project.developer:
+        add(5, f"{project.developer} (no individual named — company-level)",
+            None, project.developer, None, "firm")
+
+    rungs.sort(key=lambda r: (r["rung"], 0 if r["kind"] == "person" else 1))
+    return rungs
+
+
+def best_contact(session: Session, project: Project) -> dict | None:
+    ladder = build_ladder(session, project)
+    return ladder[0] if ladder else None
+
+
+def ladder_distribution(session: Session) -> dict:
+    """The session's most important diagnostic: does this tool generate calls
+    or just reading? Distribution of best-available rung across the board."""
+    projects = session.exec(
+        select(Project).where(Project.status.in_(ACTIVE_STATUSES),
+                              Project.in_territory == True)).all()  # noqa: E712
+    counts: Counter = Counter()
+    per_project = []
+    for p in projects:
+        best = best_contact(session, p)
+        rung = best["rung"] if best else None
+        counts[rung] += 1
+        per_project.append({"project": p.name, "score": p.score, "window": p.window.value,
+                            "best_rung": rung,
+                            "best_name": best["name"] if best else None})
+    return {"counts": dict(counts), "n_projects": len(projects), "per_project": per_project}
+
+
+def distribution_text(dist: dict) -> str:
+    lines = [f"Contact ladder distribution — {dist['n_projects']} in-territory projects", ""]
+    for rung in list(range(1, 8)):
+        n = dist["counts"].get(rung, 0)
+        bar = "#" * n
+        lines.append(f"  rung {rung} {RUNG_LABELS[rung]:36s} {n:>3d} {bar}")
+    n_none = dist["counts"].get(None, 0)
+    lines.append(f"  NO CONTACT AT ANY RUNG                       {n_none:>3d} "
+                 f"{'<-- these projects are reading, not calls' if n_none else ''}")
+    return "\n".join(lines)

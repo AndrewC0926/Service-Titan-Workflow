@@ -130,11 +130,18 @@ def build_digest(session: Session, cfg: Config) -> tuple[str, dict] | None:
 
 
 def _call_recommendation(session: Session) -> str | None:
+    """Best contact from the ladder on the top PRE_BOD project — falls down the
+    rungs (EOR -> firm -> GC precon -> ... -> lead agency planner) rather than
+    returning empty when no EOR is named, which is most of the time."""
+    from app.ladder import best_contact
     top = session.exec(
-        select(Project).where(Project.status.in_(ACTIVE_STATUSES), Project.window == Window.PRE_BOD)
+        select(Project).where(Project.status.in_(ACTIVE_STATUSES),
+                              Project.window == Window.PRE_BOD,
+                              Project.in_territory == True)  # noqa: E712
         .order_by(Project.score.desc())
     ).all()
     for p in top:
+        # A CRM contact with a phone number still beats a ladder rung when present.
         links = session.exec(
             select(ProjectContact).where(ProjectContact.project_id == p.id,
                                          ProjectContact.role == "engineer_of_record")).all()
@@ -145,6 +152,14 @@ def _call_recommendation(session: Session) -> str | None:
                 return (f"  {c.name} ({c.title or 'EOR'}, {c.company or '?'}) — {reach}\n"
                         f"  re: {p.name} ({p.county} Co) — score {p.score:.2f}, "
                         f"{p.window.value}, ~{p.days_to_estimated_bid} days to bid")
+        best = best_contact(session, p)
+        if best:
+            src = f"\n  source: {best['source_url']}" if best.get("source_url") else ""
+            return (f"  {best['name']}"
+                    f"{' (' + best['title'] + ')' if best.get('title') else ''}"
+                    f" — rung {best['rung']}: {best['rung_label']}{src}\n"
+                    f"  re: {p.name} ({p.county} Co) — score {p.score:.2f}, "
+                    f"{p.window.value}, ~{p.days_to_estimated_bid} days to bid")
     return None
 
 

@@ -35,6 +35,31 @@
 </tbody>
 </table>
 
+<h2>Contact ladder — who to call, best rung first</h2>
+<table style="max-width:1000px">
+<thead><tr><th class="num">Rung</th><th>Name</th><th>Title</th><th>Company</th><th>Why this rung</th><th>Source</th></tr></thead>
+<tbody>
+{% for r in ladder %}
+<tr>
+  <td class="num">{{ r.rung }}</td>
+  <td><b>{{ r.name }}</b>{% if r.kind == 'firm' %} <span class="dim">(firm-level)</span>{% endif %}</td>
+  <td>{{ r.title or '' }}</td><td>{{ r.company or '' }}</td>
+  <td class="dim">{{ r.rung_label }}</td>
+  <td>{% if r.source_url %}<a href="{{ r.source_url }}" target="_blank" rel="noopener">filing ↗</a>{% else %}roster{% endif %}</td>
+</tr>
+{% else %}
+<tr><td colspan="6" class="bad">NO CONTACT AT ANY RUNG — this project is reading, not a call.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+<h2>Mark ranking as wrong</h2>
+<form class="grid" style="max-width:700px" hx-post="/project/{{ p.id }}/false-positive" hx-target="#fp-result" hx-swap="innerHTML">
+  <input name="reason" placeholder="Why this row should not rank here">
+  <button class="warn">Mark false positive</button>
+  <span id="fp-result"></span>
+</form>
+
 <h2>Resolved firms (roster-matched)</h2>
 <table style="max-width:900px">
 <thead><tr><th>Firm</th><th>Role on project</th><th>Type</th><th>Roster</th></tr></thead>

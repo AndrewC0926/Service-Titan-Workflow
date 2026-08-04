@@ -89,9 +89,12 @@ def board(request: Request, session: Session = Depends(get_session), _: str = De
         select(func.count(MatchCandidate.id)).where(MatchCandidate.status == "pending")).one()
     # No PRE_BOD rows means the system has stopped doing its actual job — say so.
     has_pre_bod = any(p.window.value == "PRE_BOD" for p in projects)
+    from app.coverage import pipeline_completeness
+    completeness = pipeline_completeness(session, load_config())
     return templates.TemplateResponse(request, "board.html", {
         "projects": projects, "days_since": days_since, "review_count": review_count,
         "has_pre_bod": has_pre_bod, "watch_count": watch_count, "is_watchlist": False,
+        "completeness": completeness,
         "tb": _title_block(session), "active": "board",
     })
 
@@ -144,9 +147,12 @@ def project_detail(project_id: int, request: Request,
         select(ProjectContact, Contact)
         .where(ProjectContact.project_id == project_id, Contact.id == ProjectContact.contact_id)
     ).all()
+    from app.ladder import build_ladder
+    ladder = build_ladder(session, project)
     return templates.TemplateResponse(request, "project.html", {
         "p": project, "timeline": timeline, "people": people, "firms": firms,
         "resolved_firms": resolved_firms, "outcome_statuses": OUTCOME_STATUSES,
+        "ladder": ladder,
         "outreach": outreach, "contacts": contacts,
         "tb": _title_block(session), "active": "board",
     })
@@ -200,6 +206,19 @@ def record_project_outcome(project_id: int, status: str = Form(...), reason: str
     except ValueError as exc:
         raise HTTPException(400, detail=str(exc))
     return RedirectResponse(f"/project/{project_id}", status_code=303)
+
+
+@app.post("/project/{project_id}/false-positive", response_class=HTMLResponse)
+def mark_false_positive(project_id: int, reason: str = Form(""),
+                        session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.models import FalsePositiveMark
+    p = session.get(Project, project_id)
+    if not p:
+        raise HTTPException(404)
+    session.add(FalsePositiveMark(project_id=project_id, reason=reason,
+                                  score_at_mark=p.score, window_at_mark=p.window.value))
+    session.commit()
+    return HTMLResponse('<span class="bad">marked FP ✓</span>')
 
 
 @app.post("/firms")

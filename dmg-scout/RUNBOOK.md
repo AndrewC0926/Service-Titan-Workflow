@@ -130,6 +130,51 @@ The irreplaceable data is `match_candidates`/`project_signals` (my hand merges),
 - [ ] Prune watch list (`/watchlist`): archive anything not worth tracking.
 - [ ] Check Anthropic model deprecations; model IDs live in `llm.*` config.
 
+## Session 3 live-run script (first deploy — run in order, stop on failure)
+
+Everything below was built and tested against recorded data; these are the
+steps that need live egress + the API key. Budget note: raise
+`llm.daily_budget_usd` to ~40 for backfill week, then drop it back to 15.
+
+```bash
+# Step 2 — deploy + verify
+scout doctor                       # DB, key, disk, dead man's switch armed
+scout verify-sources               # fix flagged adapters; GOED red = stop, see below
+
+# Step 3/4 — backfill (fetch is LLM-free)
+scout backfill --source ceqanet --since 2024-08-01
+scout backfill --source goed    --since 2024-08-01
+scout backfill --source edgar   --since 2024-08-01
+scout backfill --source ceqanet --since 2024-08-01 --estimate   # per-doctype token costs
+# >>> approve the number, then drain in batches:
+scout triage --limit 200 && scout extract --limit 100   # repeat until board banner clears
+scout resolve && scout score
+
+# Step 5 — blind spots
+scout coverage                     # any SUSPECTED BLIND county = adapter check first
+
+# Step 6 — extraction accuracy (hand-verify 30 docs)
+scout golden collect --limit 30 && scout golden review && scout golden report
+# zero fabrications required; note mw_it recall honestly
+
+# Step 7/8 — ranking + contacts
+scout audit                        # flags: SINGLE_SIGNAL / SQFT_BASIS / AGGRESSIVE_STAGE
+scout ladder                       # THE diagnostic: rung distribution
+
+# Step 9 — digest end to end (set digest.transport: resend first)
+scout notify
+
+# Step 10 — deliverables
+scout deliverables                 # output/call-list.csv, output/briefs/, output/baseline.json
+```
+
+**GOED contingency** (only if verify-sources fails for a real reason, not
+network): Legistar already covers Storey/Washoe/Clark/Reno/Sparks and RSS
+covers EDAWN + This Is Reno + NNBW; run `scout coverage` and read the Nevada
+rows — that's the coverage number. The remaining gap is PUCN dockets / NV
+Energy IRP (`sources.utility_filings`, currently disabled): building that
+adapter against the live PUCN docket search is the contingency work item.
+
 ## Data posture
 
 This system fetches only public data: state environmental clearinghouse

@@ -114,17 +114,34 @@ def triage(text: str, title: str = "", source: str = "") -> dict:
 
 
 def extract(text: str, title: str = "", source: str = "", url: str = "") -> dict:
-    """Returns the coerced extraction dict plus the raw model JSON under '_raw'."""
+    """Returns the coerced extraction dict plus the raw model JSON under '_raw'
+    and the section-chunking record under '_sections'.
+
+    Long documents are NOT truncated at the head: section-aware chunking pulls
+    the project description, utilities/energy, air quality, water, and noise
+    sections (where MW and generator specs live) — see app/sections.py.
+    """
+    from app.sections import select_relevant_text
     cfg = load_config()
     model = cfg.get("llm.extract_model")
-    max_chars = cfg.get("llm.extract_max_chars", 60000)
+    selection = select_relevant_text(text, cfg)
+    if selection.chunked:
+        log.info("section chunking: %d -> %d chars, sections=%s",
+                 selection.original_chars, selection.selected_chars,
+                 ",".join(selection.sections_found))
+    preface = ("Document text:" if not selection.chunked else
+               "Selected sections of a long document (head + targeted sections; "
+               "other sections omitted):")
     content = (
-        f"Source: {source}\nURL: {url}\nTitle: {title}\n\n"
-        f"Document text (may be truncated):\n{text[:max_chars]}"
+        f"Source: {source}\nURL: {url}\nTitle: {title}\n\n{preface}\n{selection.text}"
     )
     raw = _tool_call(model, EXTRACT_SYSTEM, EXTRACT_TOOL, content, max_tokens=4096, stage="extract")
     out = coerce_extraction(raw)
     out["_raw"] = raw
+    out["_sections"] = {"chunked": selection.chunked,
+                        "sections_found": selection.sections_found,
+                        "original_chars": selection.original_chars,
+                        "selected_chars": selection.selected_chars}
     return out
 
 

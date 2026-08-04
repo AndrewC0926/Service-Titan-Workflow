@@ -61,21 +61,29 @@ def seed_aliases(session: Session, cfg: Config) -> int:
 
 
 def pair_similarity(signal: Signal, project: Project, radius_km: float) -> float:
-    """0-1 similarity used for auto-merge / adjudication banding."""
+    """0-1 similarity used for auto-merge / adjudication banding.
+
+    Project-name similarity is the primary evidence; a shared developer is only
+    WEAK evidence (weight 0.75) — Vantage builds many campuses, and two
+    different projects by one developer must never auto-merge on the developer
+    string alone. A known-county mismatch actively penalizes.
+    """
     scores: list[tuple[float, float]] = []  # (weight, score)
 
     # APN match is close to dispositive.
     if signal.apn_parcel and project.apn_parcel:
         scores.append((3.0, 1.0 if signal.apn_parcel.strip() == project.apn_parcel.strip() else 0.0))
 
-    sig_names = [n for n in (signal.project_name, signal.developer_or_owner) if n]
-    proj_names = [n for n in (project.name, project.developer) if n]
-    if sig_names and proj_names:
-        best = max(
-            fuzz.token_sort_ratio(normalize_name(a), normalize_name(b)) / 100.0
-            for a in sig_names for b in proj_names
-        )
-        scores.append((2.0, best))
+    if signal.project_name and project.name and not project.name.startswith("Unnamed"):
+        scores.append((2.0, fuzz.token_sort_ratio(
+            normalize_name(signal.project_name), normalize_name(project.name)) / 100.0))
+    if signal.developer_or_owner and project.developer:
+        scores.append((0.75, fuzz.token_sort_ratio(
+            normalize_name(signal.developer_or_owner), normalize_name(project.developer)) / 100.0))
+
+    sig_county, proj_county = normalize_county(signal.county), normalize_county(project.county)
+    if sig_county and proj_county:
+        scores.append((1.5, 1.0 if sig_county == proj_county else 0.0))
 
     if None not in (signal.latitude, signal.longitude, project.latitude, project.longitude):
         d = haversine_km(signal.latitude, signal.longitude, project.latitude, project.longitude)

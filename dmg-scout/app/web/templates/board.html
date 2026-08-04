@@ -1,6 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Board{% endblock %}
 {% block content %}
+{% if completeness is defined and completeness and not completeness.complete %}
+<div style="border:1px solid #e0c341;color:#e0c341;padding:10px 14px;margin-bottom:12px">
+  ⚠ BOARD IS INCOMPLETE — do not treat this ranking as the full market.
+  {% if completeness.pending_triage %}{{ completeness.pending_triage }} documents awaiting triage. {% endif %}
+  {% if completeness.pending_extract %}{{ completeness.pending_extract }} relevant documents awaiting extraction. {% endif %}
+  {% if completeness.unresolved_signals %}{{ completeness.unresolved_signals }} signals not yet resolved to projects. {% endif %}
+  {% for bf in completeness.incomplete_backfills %}
+  Backfill {{ bf.source }} (since {{ bf.since }}): {{ bf.done }}/{{ bf.expected }} chunks done.
+  {% endfor %}
+  Likely cause: daily LLM budget cap mid-corpus — run <span class="mono">scout triage / scout extract / scout resolve</span> tomorrow or raise the cap.
+</div>
+{% endif %}
 {% if projects and not has_pre_bod and not is_watchlist %}
 <div style="border:1px solid var(--bad);color:var(--bad);padding:10px 14px;margin-bottom:12px">
   ⚠ ZERO PRE-BOD PROJECTS ON THE BOARD. Everything here is already in or past

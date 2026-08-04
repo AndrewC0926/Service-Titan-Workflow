@@ -321,6 +321,18 @@ class OutcomeEvent(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class FalsePositiveMark(SQLModel, table=True):
+    """Board rows I marked as wrongly ranked. Feeds future scoring tuning."""
+    __tablename__ = "false_positive_marks"
+
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="projects.id", index=True)
+    reason: str = ""
+    score_at_mark: float = 0.0
+    window_at_mark: str = ""
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class DigestLog(SQLModel, table=True):
     """What the digest already reported, so we only ever send new/changed items."""
     __tablename__ = "digest_log"

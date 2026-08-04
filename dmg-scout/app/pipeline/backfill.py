@@ -101,29 +101,57 @@ def estimate_cost(session: Session, cfg: Config, assumed_docs: dict[str, int] | 
     extract_chars = cfg.get("llm.extract_max_chars", 60000)
     pass_rate = cfg.get("llm.assumed_triage_pass_rate", 0.3)
 
-    pending = session.exec(
-        select(RawDocument).where(RawDocument.triage_result == TriageResult.pending)
-    ).all()
-    if pending:
-        n_docs = len(pending)
-        avg_triage_tokens = sum(min(len(d.raw_text), triage_chars) for d in pending) / n_docs / 4
-        avg_extract_tokens = sum(min(len(d.raw_text), extract_chars) for d in pending) / n_docs / 4
-        basis = f"measured from {n_docs} pending documents in DB"
-    else:
-        n_docs = sum((assumed_docs or {}).values()) or 1200
-        avg_triage_tokens = triage_chars / 4
-        avg_extract_tokens = 12000  # typical filing well under the cap
-        basis = f"paper estimate, {n_docs} assumed documents"
-
-    triage_in = n_docs * (avg_triage_tokens + 400)   # + system prompt overhead
-    triage_out = n_docs * 80
-    extract_docs = int(n_docs * pass_rate)
-    extract_in = extract_docs * (avg_extract_tokens + 700)
-    extract_out = extract_docs * 900
+    from app.sections import select_relevant_text
 
     def cost(model: str, tin: float, tout: float) -> float:
         p = prices.get(model, {"in": 3.0, "out": 15.0})
         return tin / 1e6 * p["in"] + tout / 1e6 * p["out"]
+
+    pending = session.exec(
+        select(RawDocument).where(RawDocument.triage_result == TriageResult.pending)
+    ).all()
+    if pending:
+        # Group by (source, document_type) and measure the ACTUAL chars that
+        # extraction would send after section-aware chunking — an EIR must show
+        # a different number than an NOP, or something is being discarded.
+        groups: dict[str, list[RawDocument]] = {}
+        for d in pending:
+            key = f"{d.source}:{(d.meta or {}).get('document_type') or '-'}"
+            groups.setdefault(key, []).append(d)
+        by_type = {}
+        n_docs = len(pending)
+        triage_in = extract_in = 0.0
+        for key, docs in sorted(groups.items()):
+            sample = docs[:50]  # regex pass only; sampling keeps this instant
+            avg_raw = sum(len(d.raw_text) for d in sample) / len(sample)
+            avg_selected = sum(select_relevant_text(d.raw_text, cfg).selected_chars
+                               for d in sample) / len(sample)
+            g_triage_in = len(docs) * (min(avg_raw, triage_chars) / 4 + 400)
+            g_extract_in = len(docs) * pass_rate * (avg_selected / 4 + 700)
+            triage_in += g_triage_in
+            extract_in += g_extract_in
+            by_type[key] = {
+                "docs": len(docs),
+                "avg_raw_chars": int(avg_raw),
+                "avg_chars_sent_to_sonnet": int(avg_selected),
+                "extract_tokens_per_doc": int(avg_selected / 4 + 700),
+                "est_cost_usd": round(
+                    cost(triage_model, g_triage_in, len(docs) * 80)
+                    + cost(extract_model, g_extract_in, len(docs) * pass_rate * 900), 2),
+            }
+        triage_out = n_docs * 80
+        extract_docs = int(n_docs * pass_rate)
+        extract_out = extract_docs * 900
+        basis = f"measured from {n_docs} pending documents in DB (section-aware)"
+    else:
+        n_docs = sum((assumed_docs or {}).values()) or 1200
+        triage_in = n_docs * (triage_chars / 4 + 400)
+        triage_out = n_docs * 80
+        extract_docs = int(n_docs * pass_rate)
+        extract_in = extract_docs * (12000 + 700)
+        extract_out = extract_docs * 900
+        by_type = {}
+        basis = f"paper estimate, {n_docs} assumed documents"
 
     triage_cost = cost(triage_model, triage_in, triage_out)
     extract_cost = cost(extract_model, extract_in, extract_out)
@@ -131,6 +159,7 @@ def estimate_cost(session: Session, cfg: Config, assumed_docs: dict[str, int] | 
         "basis": basis,
         "docs_to_triage": n_docs,
         "docs_to_extract_at_assumed_pass_rate": extract_docs,
+        "by_document_type": by_type,
         "triage_tokens_in": int(triage_in), "triage_tokens_out": int(triage_out),
         "extract_tokens_in": int(extract_in), "extract_tokens_out": int(extract_out),
         "triage_cost_usd": round(triage_cost, 2),

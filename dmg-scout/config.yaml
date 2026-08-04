@@ -11,7 +11,10 @@ llm:
   extract_model: "claude-sonnet-4-6"
   adjudicate_model: "claude-sonnet-4-6"
   triage_max_chars: 6000          # chars of document text sent to triage
-  extract_max_chars: 60000
+  extract_max_chars: 60000        # ceiling on chars sent to Sonnet per document
+  # Section-aware chunking for long docs (EIRs): head + targeted sections.
+  section_head_chars: 8000        # always include the document head
+  section_max_chars: 15000        # cap per captured section
   # $/MTok, used for spend logging and backfill estimates. Update if pricing changes.
   prices:
     "claude-haiku-4-5-20251001": {in: 1.0, out: 5.0}
@@ -184,6 +187,9 @@ sources:
       - {name: "Northern Nevada Business Weekly", url: "https://www.nnbusinessview.com/feed/"}
       - {name: "inewsource", url: "https://inewsource.org/feed/"}
       - {name: "CalMatters", url: "https://calmatters.org/feed/"}
+      # Nevada fallback coverage (GOED contingency — see RUNBOOK):
+      - {name: "EDAWN", url: "https://edawn.org/feed/"}
+      - {name: "This Is Reno", url: "https://thisisreno.com/feed/"}
       # Add Google Alerts RSS URLs here.
   ats:
     enabled: true

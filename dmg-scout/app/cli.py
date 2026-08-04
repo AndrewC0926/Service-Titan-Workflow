@@ -235,6 +235,54 @@ def outcome(project_id: int, status: str, reason: str = typer.Option("", help="W
         typer.echo(f"project {project_id} -> {ev.status} ({ev.reason or 'no reason given'})")
 
 
+@app.command()
+def deliverables(out: str = "output", top_briefs: int = 10) -> None:
+    """Produce output/: call-list.csv, top-N project briefs, baseline.json."""
+    from pathlib import Path
+
+    from app.deliverables import write_baseline, write_briefs, write_call_list
+    out_dir = Path(out)
+    with session_scope() as session:
+        n = write_call_list(session, out_dir / "call-list.csv")
+        briefs = write_briefs(session, out_dir / "briefs", top=top_briefs)
+        base = write_baseline(session, out_dir / "baseline.json")
+    typer.echo(f"call-list.csv: {n} PRE_BOD in-territory projects")
+    typer.echo(f"briefs: {len(briefs)} written to {out_dir}/briefs/")
+    typer.echo(f"baseline.json: {base['projects']} projects frozen")
+
+
+@app.command()
+def audit(top: int = 25) -> None:
+    """Board precision audit: why each top row scored there + ranking-failure flags."""
+    from app.audit import audit_board, audit_text
+    cfg = load_config()
+    with session_scope() as session:
+        typer.echo(audit_text(audit_board(session, cfg, top=top)))
+
+
+@app.command()
+def ladder() -> None:
+    """Contact ladder distribution: how many projects reach a callable human."""
+    from app.ladder import distribution_text, ladder_distribution
+    with session_scope() as session:
+        dist = ladder_distribution(session)
+        typer.echo(distribution_text(dist))
+        typer.echo("\nPer-project best contact:")
+        for row in sorted(dist["per_project"], key=lambda r: -r["score"]):
+            rung = row["best_rung"] if row["best_rung"] else "—"
+            typer.echo(f"  [{rung}] {row['project'][:44]:44s} {row['window']:8s} "
+                       f"{row['score']:5.2f}  {row['best_name'] or 'NO CONTACT'}")
+
+
+@app.command()
+def coverage() -> None:
+    """Per-county coverage: projects, stages, sources, latest signal, blind spots."""
+    from app.coverage import coverage_report, coverage_text
+    cfg = load_config()
+    with session_scope() as session:
+        typer.echo(coverage_text(coverage_report(session, cfg)))
+
+
 @app.command("seed-firms")
 def seed_firms_cmd() -> None:
     """Load the firm roster from config.yaml into the firms table."""

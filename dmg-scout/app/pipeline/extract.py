@@ -90,7 +90,8 @@ def run_extract(session: Session, cfg: Config, limit: int = 100) -> dict:
             signal.stage = stage
             signal.summary_one_line = data.get("summary_one_line", "")
             signal.confidence = data.get("confidence", 0.0)
-            signal.extraction_json = data.get("_raw", {})
+            signal.extraction_json = {"raw": data.get("_raw", {}),
+                                      "sections": data.get("_sections", {})}
             signal.named_people = data.get("named_people", [])
             signal.named_firms = data.get("named_firms", [])
             session.add(signal)
