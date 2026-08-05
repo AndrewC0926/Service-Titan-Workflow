@@ -26,6 +26,16 @@ EXTRACTION_JSON_SCHEMA: dict = {
             "enum": ["air_cooled", "water_cooled", "evaporative", "closed_loop", "liquid", "unknown", None],
         },
         "water_acre_feet_per_year": {"type": ["number", "null"]},
+        # Drives the sqft-per-ton band for industrial buildings, where load is
+        # envelope and process rather than IT. The spread across these types is
+        # 50x — a cleanroom and a distribution warehouse of identical area are not
+        # remotely the same job — so guessing it is worse than leaving it null.
+        "facility_type": {
+            "type": ["string", "null"],
+            "enum": ["distribution_fulfillment", "warehouse_conditioned",
+                     "light_manufacturing", "heavy_manufacturing", "cleanroom",
+                     "office_rnd", "data_center", "unknown", None],
+        },
         "stage": {
             "type": ["string", "null"],
             "enum": ["concept", "entitlement", "design", "permitting", "procurement",
@@ -76,7 +86,7 @@ NUMERIC_FIELDS = [
 INT_FIELDS = ["generator_count", "building_count"]
 STR_FIELDS = [
     "project_name", "developer_or_owner", "jurisdiction", "county", "state", "street_address",
-    "apn_parcel", "cooling_type", "filing_type",
+    "apn_parcel", "cooling_type", "filing_type", "facility_type",
 ]
 
 

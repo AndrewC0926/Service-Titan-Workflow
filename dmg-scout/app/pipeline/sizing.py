@@ -14,10 +14,14 @@ shown on the dashboard can be defended.
 """
 from __future__ import annotations
 
+import logging
+import math
 from dataclasses import dataclass
 
 from app.config import Config
-from app.models import Category
+from app.models import Category, FacilityType
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -32,9 +36,21 @@ class TonsEstimate:
 
     @property
     def midpoint(self) -> float | None:
+        """Geometric mean, not arithmetic — these bands span orders of magnitude.
+
+        `size_factor` is log10-scaled, so the geometric mean is the matching centre.
+        With the arithmetic mean, an unknown-type band of 222-11,101 tons centred on
+        5,661 and Elsinore Heights jumped from 0.396 to 0.673 and took the top of the
+        industrial board purely because its type was unstated. Not knowing must never
+        outrank knowing. Geometrically that band centres on 1,570.
+
+        For narrow bands the two agree to within a percent, so nothing else moves.
+        """
         if self.low is None or self.high is None:
             return None
-        return (self.low + self.high) / 2
+        if self.low <= 0:
+            return (self.low + self.high) / 2
+        return math.sqrt(self.low * self.high)
 
 
 def hp_to_kw(hp: float, cfg: Config) -> float:
@@ -87,6 +103,7 @@ def estimate_tons(
     generator_kw_each: float | None = None,
     building_sqft: float | None = None,
     category: Category = Category.data_center,
+    facility_type: FacilityType = FacilityType.unknown,
 ) -> TonsEstimate:
     """Best available input wins, in order of reliability:
     stated IT MW > stated total MW > generator fleet > square footage.
@@ -104,7 +121,7 @@ def estimate_tons(
 
     if category is Category.industrial:
         if building_sqft:
-            return _industrial_from_sqft(cfg, building_sqft)
+            return _industrial_from_sqft(cfg, building_sqft, facility_type)
         # No area stated: an industrial building has no electrical shortcut worth
         # trusting, so report unknown rather than borrow data-center physics.
         return TonsEstimate(None, None, None)
@@ -154,23 +171,46 @@ def estimate_tons(
     return TonsEstimate(None, None, None)
 
 
-def _industrial_from_sqft(cfg: Config, building_sqft: float) -> TonsEstimate:
-    """Industrial cooling load from floor area.
+FALLBACK_SQFT_PER_TON = {"low": 50, "high": 2500}
 
-    Rule-of-thumb sqft-per-ton, not IT watts. The default spans manufacturing
-    through warehouse; it is a starting point for ranking, not a takeoff, and is
-    flagged low-confidence for exactly that reason. Retune
-    `sizing.industrial_sqft_per_ton_*` against jobs actually quoted.
+
+def _industrial_from_sqft(cfg: Config, building_sqft: float,
+                          facility_type: FacilityType) -> TonsEstimate:
+    """Industrial cooling load from floor area, banded by what the building does.
+
+    Rule-of-thumb sqft-per-ton, not IT watts, and the type is the whole story: a
+    cleanroom is 50-150 sqft/ton and a fulfillment centre 1,000-2,500, so the same
+    1,000,000 sqft is 6,700-20,000 tons or 400-1,000 tons depending only on which
+    it is. Sizing every industrial building on one band made a Crocs distribution
+    centre look like a factory.
+
+    An unstated type takes the full span across all of them rather than a
+    convenient middle — see the note in config.yaml. Every result is flagged
+    low-confidence: this ranks jobs, it does not quote them.
     """
-    low_sqft_per_ton = cfg.get("sizing.industrial_sqft_per_ton_low", 350)
-    high_sqft_per_ton = cfg.get("sizing.industrial_sqft_per_ton_high", 1000)
+    # A data_center facility_type under the industrial category is a contradiction:
+    # triage already ruled this building is not a computing facility, and the
+    # industrial table has no data_center row by design. Name it rather than let a
+    # dict miss quietly decide.
+    if facility_type is FacilityType.data_center:
+        log.info("industrial project reports facility_type=data_center; treating as "
+                 "unknown for sizing (category and facility type disagree)")
+        facility_type = FacilityType.unknown
+
+    table = cfg.get("sizing.industrial_sqft_per_ton_by_type", {}) or {}
+    band = table.get(facility_type.value) or table.get("unknown") or FALLBACK_SQFT_PER_TON
+    low_sqft_per_ton = band.get("low", FALLBACK_SQFT_PER_TON["low"])
+    high_sqft_per_ton = band.get("high", FALLBACK_SQFT_PER_TON["high"])
     # Fewer sqft per ton = denser load = MORE tons, so low/high invert here.
     high = building_sqft / low_sqft_per_ton
     low = building_sqft / high_sqft_per_ton
+    known = facility_type is not FacilityType.unknown
+    label = facility_type.value if known else "type not stated"
     return TonsEstimate(
         low=low, high=high,
-        basis=f"{building_sqft:,.0f} sqft industrial @ {low_sqft_per_ton:,.0f}-"
+        basis=f"{building_sqft:,.0f} sqft {label} @ {low_sqft_per_ton:,.0f}-"
               f"{high_sqft_per_ton:,.0f} sqft/ton -> {low:,.0f}-{high:,.0f} tons "
-              f"(LOW CONFIDENCE, rule of thumb)",
+              f"(LOW CONFIDENCE, rule of thumb"
+              f"{'' if known else '; full span because type is unknown'})",
         basis_key="industrial_sqft", mw_it=None, low_confidence=True,
     )

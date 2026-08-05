@@ -25,9 +25,20 @@ def test_record_and_budget_flow(db_session, cfg):
     check_budget()  # under budget: no raise
 
 
+def _input_tokens_for(cfg, dollars: float, model: str = "claude-sonnet-4-6") -> int:
+    """Input tokens that cost roughly `dollars` on `model`.
+
+    Derived from config rather than hardcoded: these tests used fixed amounts tied
+    to a $15 cap and broke the moment the cap moved to $40, which tested the
+    constant instead of the kill switch.
+    """
+    per_mtok = cfg.get("llm.prices", {}).get(model, {}).get("in", 3.0)
+    return int(dollars / per_mtok * 1_000_000)
+
+
 def test_budget_kill_switch(db_session, cfg):
-    # Blow past the $15 daily budget with one giant recorded call
-    record("extract", "claude-sonnet-4-6", 6_000_000, 0)  # $18
+    budget = cfg.get("llm.daily_budget_usd", 15.0)
+    record("extract", "claude-sonnet-4-6", _input_tokens_for(cfg, budget * 1.2), 0)
     with pytest.raises(BudgetExceeded):
         check_budget()
     assert budget_status()["exhausted"]
@@ -40,7 +51,11 @@ def test_manual_kill_switch(db_session, monkeypatch):
 
 
 def test_warn_threshold(db_session, cfg, caplog):
-    record("extract", "claude-sonnet-4-6", 4_100_000, 0)  # $12.30 of $15 = 82%
+    budget = cfg.get("llm.daily_budget_usd", 15.0)
+    warn_at = cfg.get("llm.budget_warn_fraction", 0.8)
+    # Between the warn threshold and the cap, wherever those currently sit.
+    spend = budget * (warn_at + (1.0 - warn_at) / 2)
+    record("extract", "claude-sonnet-4-6", _input_tokens_for(cfg, spend), 0)
     with caplog.at_level("WARNING"):
         check_budget()
     assert any("daily budget" in r.message for r in caplog.records)

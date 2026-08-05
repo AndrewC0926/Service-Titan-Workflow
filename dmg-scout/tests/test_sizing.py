@@ -1,6 +1,6 @@
 import pytest
 
-from app.models import Category
+from app.models import Category, FacilityType
 from app.pipeline.sizing import estimate_tons, genset_mw_to_it_mw, hp_to_kw
 
 
@@ -89,14 +89,14 @@ def test_no_input_returns_nulls(cfg):
 
 
 def test_industrial_sized_from_floor_area_not_it_watts(cfg):
-    """A 1,000,000 sqft warehouse is ~1,000-2,900 tons, not the ~24,000 that
-    data-center watts-per-sqft would produce. Getting this wrong would put every
-    industrial row above every real data center."""
-    est = estimate_tons(cfg, building_sqft=1_000_000, category=Category.industrial)
+    """A 1,000,000 sqft conditioned warehouse is ~667-1,250 tons, not the ~24,000
+    that data-center watts-per-sqft would produce."""
+    est = estimate_tons(cfg, building_sqft=1_000_000, category=Category.industrial,
+                        facility_type=FacilityType.warehouse_conditioned)
     assert est.basis_key == "industrial_sqft"
     assert est.low_confidence is True
-    assert 500 <= est.low <= 1_500
-    assert 2_000 <= est.high <= 3_500
+    assert 600 <= est.low <= 700
+    assert 1_200 <= est.high <= 1_300
     dc = estimate_tons(cfg, building_sqft=1_000_000, category=Category.data_center)
     assert dc.high > est.high * 5  # the two paths must not be comparable
 
@@ -105,9 +105,10 @@ def test_industrial_ignores_stated_mw(cfg):
     """Industrial load is envelope + ventilation. A stated MW is a service size or
     a process rating, and must not drive tonnage."""
     est = estimate_tons(cfg, mw_total=500, building_sqft=73_000,
-                        category=Category.industrial)
+                        category=Category.industrial,
+                        facility_type=FacilityType.light_manufacturing)
     assert est.basis_key == "industrial_sqft"
-    assert est.high < 1_000
+    assert est.high < 1_000          # 73,000/300 = 243, nowhere near 500 MW of load
 
 
 def test_industrial_with_no_area_is_unknown_not_guessed(cfg):
@@ -155,3 +156,109 @@ def test_rejected_mw_falls_back_to_sqft_and_says_so(cfg):
     assert est.basis_key == "sqft"
     assert est.low_confidence is True
     assert "900,000 W/sqft" in est.basis and "fell back to" in est.basis
+
+
+# --- facility type drives the industrial band ------------------------------
+
+
+def test_crocs_fulfillment_centre_is_not_sized_like_a_factory(cfg):
+    """A 1,000,000 sqft fulfillment centre at 1,000-2,500 sqft/ton is 400-1,000
+    tons. Sized on one shared industrial band it read 1,000-2,857, and under
+    data-center watts it read 13,406-35,344."""
+    est = estimate_tons(cfg, building_sqft=1_000_000, category=Category.industrial,
+                        facility_type=FacilityType.distribution_fulfillment)
+    assert 380 <= est.low <= 420
+    assert 950 <= est.high <= 1050
+    assert "distribution_fulfillment" in est.basis
+    assert est.low_confidence is True
+
+
+@pytest.mark.parametrize("ftype,lo,hi", [
+    (FacilityType.distribution_fulfillment, 40, 100),
+    (FacilityType.warehouse_conditioned, 67, 125),
+    (FacilityType.light_manufacturing, 167, 333),
+    (FacilityType.heavy_manufacturing, 333, 1000),
+    (FacilityType.cleanroom, 667, 2000),
+    (FacilityType.office_rnd, 250, 333),
+])
+def test_each_facility_type_uses_its_own_band(cfg, ftype, lo, hi):
+    """100,000 sqft, one type at a time. Cleanroom must be ~20x a fulfillment
+    centre of identical area — that spread is the whole reason the field exists."""
+    est = estimate_tons(cfg, building_sqft=100_000, category=Category.industrial,
+                        facility_type=ftype)
+    assert round(est.low) == lo and round(est.high) == hi
+
+
+def test_unknown_type_spans_every_band(cfg):
+    """Not knowing the type is a real answer and gets the full span rather than a
+    convenient middle — and says so in the basis."""
+    est = estimate_tons(cfg, building_sqft=100_000, category=Category.industrial,
+                        facility_type=FacilityType.unknown)
+    assert round(est.low) == 40 and round(est.high) == 2000
+    assert "type is unknown" in est.basis
+    assert est.low_confidence is True
+
+    # The unknown band must contain every typed band for the same area.
+    for ftype in (FacilityType.distribution_fulfillment, FacilityType.cleanroom,
+                  FacilityType.heavy_manufacturing, FacilityType.office_rnd):
+        typed = estimate_tons(cfg, building_sqft=100_000, category=Category.industrial,
+                              facility_type=ftype)
+        assert est.low <= typed.low and typed.high <= est.high
+
+
+def test_facility_type_does_not_affect_data_centers(cfg):
+    """Data centers size off IT load, not the industrial sqft/ton table."""
+    a = estimate_tons(cfg, mw_it=40, category=Category.data_center,
+                      facility_type=FacilityType.cleanroom)
+    b = estimate_tons(cfg, mw_it=40, category=Category.data_center,
+                      facility_type=FacilityType.unknown)
+    assert a.low == b.low and a.high == b.high and a.basis_key == "stated_it"
+
+
+def test_unknown_type_sits_among_the_typed_bands_not_above_them(cfg):
+    """Regression: with an arithmetic midpoint the unknown band centred on 5,661
+    tons — denser than a cleanroom — so Elsinore Heights leapt from 0.396 to 0.673
+    and took the top of the industrial board purely because nobody stated its type.
+    Not knowing must not pay.
+
+    The geometric centre lands it among the real types rather than above all of
+    them, which is what an unstated type should mean. It stays wider than any of
+    them in both directions."""
+    area = 555_060
+    unknown = estimate_tons(cfg, building_sqft=area, category=Category.industrial,
+                            facility_type=FacilityType.unknown)
+    typed = {ft: estimate_tons(cfg, building_sqft=area, category=Category.industrial,
+                               facility_type=ft)
+             for ft in (FacilityType.distribution_fulfillment,
+                        FacilityType.warehouse_conditioned,
+                        FacilityType.light_manufacturing,
+                        FacilityType.heavy_manufacturing,
+                        FacilityType.cleanroom,
+                        FacilityType.office_rnd)}
+    mids = [e.midpoint for e in typed.values()]
+    assert min(mids) < unknown.midpoint < max(mids)
+    # The arithmetic centre put it 3.6x higher — that inflation is what moved the
+    # board, and the geometric mean is what removes it.
+    assert (unknown.low + unknown.high) / 2 > unknown.midpoint * 3
+    # Still the widest band in both directions: wider, not bigger.
+    for e in typed.values():
+        assert unknown.low <= e.low and e.high <= unknown.high
+
+
+def test_industrial_facility_type_of_data_center_is_a_contradiction(cfg):
+    """Triage already ruled this is not a computing facility. Fall to unknown
+    deliberately rather than by a dict miss."""
+    est = estimate_tons(cfg, building_sqft=555_060, category=Category.industrial,
+                        facility_type=FacilityType.data_center)
+    same = estimate_tons(cfg, building_sqft=555_060, category=Category.industrial,
+                         facility_type=FacilityType.unknown)
+    assert est.low == same.low and est.high == same.high
+    assert "type is unknown" in est.basis
+
+
+def test_geometric_midpoint_barely_moves_narrow_bands(cfg):
+    """The change must not quietly reprice every data center: a stated-IT band is
+    +/-10%, where geometric and arithmetic agree to well under a percent."""
+    est = estimate_tons(cfg, mw_it=100)
+    arithmetic = (est.low + est.high) / 2
+    assert abs(est.midpoint - arithmetic) / arithmetic < 0.01

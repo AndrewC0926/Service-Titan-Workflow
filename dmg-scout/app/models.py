@@ -94,6 +94,24 @@ class Category(str, enum.Enum):
     other = "other"
 
 
+class FacilityType(str, enum.Enum):
+    """What the building does, at the resolution sizing needs.
+
+    Industrial tonnage comes from floor area, and the sqft-per-ton figure varies
+    50x across these — a 100,000 sqft cleanroom and a 100,000 sqft distribution
+    warehouse are 700 tons apart. `unknown` is a real answer and gets the full
+    span rather than a convenient middle.
+    """
+    distribution_fulfillment = "distribution_fulfillment"
+    warehouse_conditioned = "warehouse_conditioned"
+    light_manufacturing = "light_manufacturing"
+    heavy_manufacturing = "heavy_manufacturing"
+    cleanroom = "cleanroom"
+    office_rnd = "office_rnd"
+    data_center = "data_center"
+    unknown = "unknown"
+
+
 class RawDocument(SQLModel, table=True):
     __tablename__ = "raw_documents"
     __table_args__ = (UniqueConstraint("source", "source_uid", name="uq_source_uid"),)
@@ -120,6 +138,7 @@ class Signal(SQLModel, table=True):
     raw_document_id: int | None = Field(default=None, foreign_key="raw_documents.id", index=True)
     signal_type: SignalType = Field(index=True)
     category: Category = Field(default=Category.other, index=True)
+    facility_type: FacilityType = Field(default=FacilityType.unknown, index=True)
     created_at: datetime = Field(default_factory=utcnow)
     event_date: datetime | None = None
     # Extracted fields (null = not stated in source; never inferred)

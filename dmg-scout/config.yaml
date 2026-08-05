@@ -36,7 +36,9 @@ llm:
     "claude-haiku-4-5-20251001": {in: 1.0, out: 5.0}
     "claude-sonnet-4-6": {in: 3.0, out: 15.0}
   assumed_triage_pass_rate: 0.3   # for cost estimates only
-  daily_budget_usd: 15.0          # hard kill switch: LLM calls stop past this
+  daily_budget_usd: 40.0          # hard kill switch: LLM calls stop past this
+                                  # raised from 15 for the CEQAnet re-backfill;
+                                  # drop back to 15 once backfill week is over
   budget_warn_fraction: 0.8       # digest + dashboard warning threshold
 
 territories:
@@ -401,11 +403,23 @@ sizing:
   watts_per_sqft: 150            # used only when sqft is the only size input; low confidence
   sqft_utilization: 0.5          # fraction of building sqft assumed to be white space
   # Industrial buildings are sized from floor area, not IT watts — their load is
-  # envelope + ventilation, not servers. Range spans manufacturing (dense) to
-  # warehouse (sparse). Rule of thumb for RANKING, not a takeoff. Retune against
-  # jobs actually quoted; these two numbers set every industrial tonnage shown.
-  industrial_sqft_per_ton_low: 350    # dense: manufacturing, cleanroom, process
-  industrial_sqft_per_ton_high: 1000  # sparse: warehouse, distribution, cold storage
+  # envelope + ventilation + process, not servers. Square feet per ton by what the
+  # building actually does; extraction reports `facility_type` and sizing branches
+  # on it. These are Andrew's numbers, not defaults — the spread across types is
+  # 50x, so type matters more than area.
+  #
+  # NOTE on `unknown`: spans every type above, because that is what not knowing
+  # actually means. A 100,000 sqft building of unstated type is 40-2,000 tons, and
+  # saying so is more useful than a confident middle. Narrow it if you would rather
+  # assume light manufacturing.
+  industrial_sqft_per_ton_by_type:
+    distribution_fulfillment: {low: 1000, high: 2500}
+    warehouse_conditioned:    {low: 800,  high: 1500}
+    light_manufacturing:      {low: 300,  high: 600}
+    heavy_manufacturing:      {low: 100,  high: 300}   # with process load
+    cleanroom:                {low: 50,   high: 150}
+    office_rnd:               {low: 300,  high: 400}
+    unknown:                  {low: 50,   high: 2500}  # the full span, deliberately
   # Ceiling on watts-per-sqft implied by a STATED MW figure. Above this the stated
   # number is treated as a misread (a product rating, an annual output, a utility
   # service size) and discarded rather than trusted — see the Amperesand case in

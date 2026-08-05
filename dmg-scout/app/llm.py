@@ -52,6 +52,19 @@ The kind of document never decides the category on its own. A tax abatement appl
 is relevant only if it concerns a real building, and its category depends on what that
 building DOES — not on how technical the applicant sounds.
 
+Classify the FACILITY THIS DOCUMENT DESCRIBES, never the company's line of business.
+An AI cloud provider leasing 20,000 sqft of headquarters space with $1M of equipment is
+an office, and belongs in `industrial` — the fact that it operates GPUs somewhere else
+is not evidence about this building. Read the numbers: staff counts, lease rate and
+capital equipment give the use away. A data hall has almost no staff and costs tens of
+millions to fit out. If the document contains an explicit facility-type field (GOED's
+application form has one: Headquarters / Manufacturing / Distribution / R&D / Back
+Office), that field decides it.
+
+Equipment work at an existing building is `other`, not a project: transformer or
+switchgear replacement, electrical service upgrades, generator swaps, re-roofing,
+tenant improvements. Adding no new conditioned space means there is nothing to sell.
+
 Never guess. If the document does not make clear that a specific building is involved,
 the category is other."""
 
@@ -86,7 +99,25 @@ Rules — these are absolute:
   "megawatts" figure goes in mw_total.
 - named_people: only people named in the document with a role related to the project.
 - confidence reflects how clearly the document supports the extracted fields overall.
-- summary_one_line: one factual sentence, no speculation."""
+- summary_one_line: one factual sentence, no speculation.
+
+facility_type — what the building DOES, which sets its cooling load per square
+foot. Report it only when the document makes the use clear; null or "unknown" is
+correct otherwise, and far better than a guess, because the sqft-per-ton figure
+varies 50x across these:
+- distribution_fulfillment: distribution centre, fulfillment, logistics, cross-dock
+- warehouse_conditioned: conditioned storage or cold storage
+- light_manufacturing: assembly, packaging, fabrication, food production
+- heavy_manufacturing: process load — foundry, chemical, steel, plastics extrusion,
+  anything with furnaces, ovens, kilns, reactors or heavy motor load
+- cleanroom: semiconductor, pharmaceutical, medical device, controlled environment
+- office_rnd: office, headquarters, R&D, laboratory, engineering space
+- data_center: the building operates computing equipment at scale
+A building with several uses takes the one covering the most floor area.
+If the document has an explicit facility-type field, use it: GOED's application form
+asks "Type of Facility: Headquarters / Service Provider / Technology / Distribution /
+Fulfillment / Back Office / Manufacturing / Research & Development", and that answer
+beats any inference from the company's description of itself."""
 
 EXTRACT_TOOL = {
     "name": "record_extraction",

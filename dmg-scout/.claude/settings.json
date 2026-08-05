@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/scout *)",
+      "Bash(.venv/bin/python *)",
+      "Bash(make *)",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(tail *)",
+      "Bash(ps *)"
+    ],
+    "deny": [
+      "Bash(*purge-source*)",
+      "Bash(*--reset*)",
+      "Bash(*--force*)",
+      "Bash(rm -rf *)",
+      "Bash(git push --force*)"
+    ]
+  }
+}

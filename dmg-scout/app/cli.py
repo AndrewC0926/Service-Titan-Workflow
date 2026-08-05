@@ -448,31 +448,58 @@ def purge_source(
     source: str = typer.Option(..., help="Source name whose documents to delete"),
     yes: bool = typer.Option(False, "--yes", help="Required; deletion is irreversible"),
 ) -> None:
-    """Delete every raw document for one source, plus its backfill checkpoints.
+    """Delete every raw document for one source, plus everything derived from it.
 
     For when a source's stored corpus is wrong rather than merely stale — e.g.
-    EDGAR's 3,016 keyword-match stubs, which had to go once the query was
-    narrowed. Signals already derived from those documents are left alone; this
-    only clears the fetch layer so a re-backfill starts clean.
+    EDGAR's 3,016 keyword-match stubs, which had to go once the query was narrowed.
+
+    Signals derived from those documents go too, and that is deliberate. This used
+    to claim it left them alone, which was impossible: signals.raw_document_id is a
+    foreign key with NO ACTION, so the bulk delete raised a ForeignKeyViolation the
+    moment any purged document had been extracted. It never fired on EDGAR because
+    those stubs were never extracted. Beyond the constraint, a signal whose source
+    document no longer exists breaks the one guarantee this schema makes — every
+    extracted field traces back to a raw_document row with a URL — so keeping it
+    would be worse than deleting it.
+
+    Projects are left in place; re-run `scout resolve` after the re-backfill to
+    rebuild them from whatever signals survive.
     """
     from sqlalchemy import delete, func
 
-    from app.models import BackfillCheckpoint, RawDocument
+    from app.models import (
+        BackfillCheckpoint, MatchCandidate, ProjectSignal, RawDocument, Signal,
+    )
     with session_scope() as session:
         n_docs = session.exec(select(func.count(RawDocument.id))
                               .where(RawDocument.source == source)).one()
         n_cps = session.exec(select(func.count(BackfillCheckpoint.id))
                              .where(BackfillCheckpoint.source == source)).one()
+        doc_ids = select(RawDocument.id).where(RawDocument.source == source)
+        sig_ids = select(Signal.id).where(Signal.raw_document_id.in_(doc_ids))
+        n_sigs = session.exec(select(func.count(Signal.id))
+                              .where(Signal.raw_document_id.in_(doc_ids))).one()
+        n_links = session.exec(select(func.count(ProjectSignal.id))
+                               .where(ProjectSignal.signal_id.in_(sig_ids))).one()
         if not yes:
-            typer.echo(f"would delete {n_docs} documents and {n_cps} checkpoints "
+            typer.echo(f"would delete {n_docs} documents, {n_sigs} signals and "
+                       f"{n_links} project links plus {n_cps} checkpoints "
                        f"for {source!r}; re-run with --yes")
             return
+
+        # Children first: the FK is NO ACTION, so order is load-bearing.
+        session.exec(delete(MatchCandidate).where(MatchCandidate.signal_id.in_(sig_ids)))
+        session.exec(delete(ProjectSignal).where(ProjectSignal.signal_id.in_(sig_ids)))
+        session.exec(delete(Signal).where(Signal.raw_document_id.in_(doc_ids)))
         # Bulk DELETE, not per-row ORM deletes: thousands of round trips to a
         # remote Postgres takes minutes for what the server does in one statement.
         session.exec(delete(RawDocument).where(RawDocument.source == source))
         session.exec(delete(BackfillCheckpoint).where(BackfillCheckpoint.source == source))
         session.commit()
-    typer.echo(f"deleted {n_docs} documents and {n_cps} checkpoints for {source!r}")
+    typer.echo(f"deleted {n_docs} documents, {n_sigs} signals, {n_links} project links "
+               f"and {n_cps} checkpoints for {source!r}")
+    if n_sigs:
+        typer.echo("run `scout resolve && scout score` to rebuild projects")
 
 
 @app.command()

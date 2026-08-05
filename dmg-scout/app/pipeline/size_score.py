@@ -7,7 +7,9 @@ import logging
 from sqlmodel import Session, select
 
 from app.config import Config
-from app.models import ACTIVE_STATUSES, Project, ProjectSignal, Signal, Window, utcnow
+from app.models import (
+    ACTIVE_STATUSES, FacilityType, Project, ProjectSignal, Signal, Window, utcnow,
+)
 from app.normalize import normalize_county
 from app.pipeline.scoring import classify_window, days_to_estimated_bid, priority_score
 from app.pipeline.sizing import estimate_tons
@@ -43,6 +45,20 @@ def project_signals(session: Session, project_id: int) -> list[Signal]:
     return list(session.exec(select(Signal).where(Signal.id.in_(ids))).all())
 
 
+def _facility_type(signals: list[Signal]) -> FacilityType:
+    """The most specific facility type any linked signal states.
+
+    A packet that mentions a building in passing yields `unknown`; the abatement
+    application for the same project states it outright. Taking the first stated
+    value means one good filing settles the type for the project, rather than a
+    vague later signal dragging it back to the full 50-2500 band.
+    """
+    for s in signals:
+        if s.facility_type is not FacilityType.unknown:
+            return s.facility_type
+    return FacilityType.unknown
+
+
 def run_size_score(session: Session, cfg: Config) -> dict:
     projects = session.exec(select(Project).where(Project.status.in_(ACTIVE_STATUSES))).all()
     stats = {"sized": 0, "scored": 0}
@@ -63,6 +79,7 @@ def run_size_score(session: Session, cfg: Config) -> dict:
             generator_kw_each=best("generator_kw_each"),
             building_sqft=best("building_sqft"),
             category=project.category,
+            facility_type=_facility_type(signals),
         )
         if est.rejected_inputs:
             log.warning("project %s (%s): discarded implausible size input(s): %s",

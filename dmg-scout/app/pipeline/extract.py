@@ -14,6 +14,7 @@ from app.http import PoliteClient
 from app.llm import LLMUnavailable, extract
 from app.models import (
     Category,
+    FacilityType,
     RawDocument,
     Signal,
     SignalType,
@@ -97,6 +98,10 @@ def run_extract(session: Session, cfg: Config, limit: int = 100) -> dict:
             signal = existing or Signal(raw_document_id=doc.id, signal_type=signal_type)
             signal.signal_type = signal_type
             signal.category = category
+            try:
+                signal.facility_type = FacilityType(data.get("facility_type"))
+            except ValueError:
+                signal.facility_type = FacilityType.unknown
             signal.event_date = event_date or doc.published_at
             for f in ("project_name", "developer_or_owner", "jurisdiction", "county", "state",
                       "street_address", "apn_parcel", "latitude", "longitude", "mw_it", "mw_total",

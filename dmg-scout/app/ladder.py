@@ -145,29 +145,55 @@ def best_contact(session: Session, project: Project) -> dict | None:
 
 def ladder_distribution(session: Session) -> dict:
     """The session's most important diagnostic: does this tool generate calls
-    or just reading? Distribution of best-available rung across the board."""
+    or just reading? Distribution of best-available rung across the board.
+
+    Split by category, because the two boards are answered by different filings.
+    A CEQA document names a lead agency planner and an environmental consultant; a
+    GOED abatement application names an economic-development officer. Neither names
+    a mechanical EOR, and a pooled number would hide which board is worse.
+    """
     projects = session.exec(
         select(Project).where(Project.status.in_(ACTIVE_STATUSES),
                               Project.in_territory == True)).all()  # noqa: E712
     counts: Counter = Counter()
+    by_category: dict[str, Counter] = {}
     per_project = []
     for p in projects:
         best = best_contact(session, p)
         rung = best["rung"] if best else None
         counts[rung] += 1
+        by_category.setdefault(p.category.value, Counter())[rung] += 1
         per_project.append({"project": p.name, "score": p.score, "window": p.window.value,
-                            "best_rung": rung,
+                            "category": p.category.value, "best_rung": rung,
                             "best_name": best["name"] if best else None})
-    return {"counts": dict(counts), "n_projects": len(projects), "per_project": per_project}
+    return {"counts": dict(counts), "n_projects": len(projects),
+            "by_category": {k: dict(v) for k, v in by_category.items()},
+            "per_project": per_project}
 
 
 def distribution_text(dist: dict) -> str:
+    cats = sorted(dist.get("by_category", {}))
     lines = [f"Contact ladder distribution — {dist['n_projects']} in-territory projects", ""]
-    for rung in list(range(1, 8)):
-        n = dist["counts"].get(rung, 0)
-        bar = "#" * n
-        lines.append(f"  rung {rung} {RUNG_LABELS[rung]:36s} {n:>3d} {bar}")
+    header = f"  {'rung':<40}" + "".join(f"{c[:12]:>13}" for c in cats) + f"{'TOTAL':>8}"
+    lines += [header, "  " + "-" * (len(header) - 2)]
+    for rung in range(1, 8):
+        cells = "".join(f"{dist['by_category'][c].get(rung, 0):>13}" for c in cats)
+        total = dist["counts"].get(rung, 0)
+        lines.append(f"  {rung}. {RUNG_LABELS[rung]:<37}{cells}{total:>8}")
+    cells = "".join(f"{dist['by_category'][c].get(None, 0):>13}" for c in cats)
     n_none = dist["counts"].get(None, 0)
-    lines.append(f"  NO CONTACT AT ANY RUNG                       {n_none:>3d} "
-                 f"{'<-- these projects are reading, not calls' if n_none else ''}")
+    lines.append(f"  {'NO CONTACT AT ANY RUNG':<40}{cells}{n_none:>8}")
+    lines += ["  " + "-" * (len(header) - 2)]
+    totals = "".join(f"{sum(dist['by_category'][c].values()):>13}" for c in cats)
+    lines.append(f"  {'projects':<40}{totals}{dist['n_projects']:>8}")
+
+    reachable = dist["n_projects"] - n_none
+    lines += ["", f"  callable at some rung: {reachable}/{dist['n_projects']} "
+                  f"({reachable / max(dist['n_projects'], 1):.0%})"]
+    rung1 = dist["counts"].get(1, 0)
+    lines.append(f"  mechanical EOR named:  {rung1}/{dist['n_projects']} "
+                 f"({rung1 / max(dist['n_projects'], 1):.0%})")
+    if n_none:
+        lines.append(f"  {n_none} projects have no callable human — those rows are "
+                     f"reading, not calls")
     return "\n".join(lines)
