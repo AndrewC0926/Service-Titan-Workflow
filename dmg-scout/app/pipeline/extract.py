@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 
 from app.config import Config
 from app.http import PoliteClient
+from app.grounding import reject_ungrounded_numbers
 from app.llm import LLMUnavailable, extract
 from app.models import (
     Category,
@@ -51,7 +52,8 @@ def run_extract(session: Session, cfg: Config, limit: int = 100) -> dict:
         .limit(limit)
     ).all()
 
-    stats = {"extracted": 0, "errors": 0}
+    stats = {"extracted": 0, "errors": 0, "rejected_numbers": 0,
+             "flagged_signals": 0}
     with PoliteClient() as client:
         for doc in docs:
             text = _ensure_body(doc, client)
@@ -91,6 +93,17 @@ def run_extract(session: Session, cfg: Config, limit: int = 100) -> dict:
             except ValueError:
                 category = Category.other
 
+            # Unit guard, before anything downstream can see the value. Checked
+            # against the FULL document, not the chunk the model was shown: a value
+            # grounded anywhere in the filing is grounded, and being stricter than
+            # that would reject good numbers on long documents.
+            data, rejected = reject_ungrounded_numbers(data, text)
+            if rejected:
+                stats["rejected_numbers"] += len(rejected)
+                for r in rejected:
+                    log.warning("doc %s: rejected %s=%g — %s",
+                                doc.id, r["field"], r["value"], r["reason"])
+
             # Idempotency: one signal per raw document; re-extraction replaces it.
             existing = session.exec(
                 select(Signal).where(Signal.raw_document_id == doc.id)
@@ -112,8 +125,13 @@ def run_extract(session: Session, cfg: Config, limit: int = 100) -> dict:
             signal.stage = stage
             signal.summary_one_line = data.get("summary_one_line", "")
             signal.confidence = data.get("confidence", 0.0)
+            # Kept on the signal so the rejection is auditable later, and so the
+            # review queue can show what was thrown away rather than only a null.
             signal.extraction_json = {"raw": data.get("_raw", {}),
-                                      "sections": data.get("_sections", {})}
+                                      "sections": data.get("_sections", {}),
+                                      "rejected_numeric": rejected}
+            if rejected:
+                stats["flagged_signals"] += 1
             signal.named_people = data.get("named_people", [])
             signal.named_firms = data.get("named_firms", [])
             session.add(signal)

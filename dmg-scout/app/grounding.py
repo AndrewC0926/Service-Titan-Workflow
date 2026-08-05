@@ -34,6 +34,90 @@ NUMERIC_FIELDS = [
 # a bare match proves nothing. Report them, but do not call them grounded evidence.
 LOW_SIGNAL_BELOW = 10
 
+# Fields where the number is meaningless without its unit, and where a wrong value
+# is expensive. A dollar amount and a megawatt figure are both just digits; only the
+# neighbouring token tells them apart, which is how Blue Owl's $163,355,xxx became
+# 163.355 MW and 44,748 tons.
+#
+# Guarded by (?<![a-z]) rather than a leading \b. Bare "sf" and "mw" are real
+# abbreviations but also live inside ordinary words ("tran-sf-er"), so the unit must
+# not follow a LETTER. It may follow a digit, because filings glue the two together
+# constantly -- "16MW", "8-12MW", "6MW" -- and a leading \b fails on every one of
+# those, since there is no boundary between "6" and "M". That bug rejected Colovore's
+# stated 16 MW, the second row on the data center board.
+UNIT_TOKENS: dict[str, str] = {
+    "mw_total": r"(?<![a-z])(?:mw|megawatts?)\b",
+    "mw_it": r"(?<![a-z])(?:mw|megawatts?)\b",
+    "generator_kw_each": r"(?<![a-z])(?:kw|kilowatts?)\b",
+    "building_sqft": r"(?<![a-z])(?:sq\.?\s?ft\.?|sqft|sf|square[\s-]f(?:ee|oo)t)\b",
+    "acres": r"(?<![a-z])acres?\b",
+}
+# How far from the matched digits the unit may sit. Wide enough for a flattened
+# table row, where the column header carries the unit and the value sits several
+# cells later: GOED board packets render as
+#   "Year Land Cost Building SqFt | Cost Purchase Amount | Year-1 | ... 91,000"
+# and a 40-char window rejected three real square-footage values on that layout
+# alone. Widening cannot resurrect the cases this guard exists for — Blue Owl's
+# filing contains no MW token at any distance, and FAAC's 84,800 appears nowhere at
+# all — so the window trades no precision for real recall.
+UNIT_PROXIMITY_CHARS = 120
+
+_UNIT_RE: dict[str, re.Pattern] = {
+    f: re.compile(p, re.I) for f, p in UNIT_TOKENS.items()
+}
+
+
+def unit_grounded(field: str, value: float, text: str) -> bool:
+    """True if the value appears in the text with its unit close by.
+
+    Grounding alone is not enough for these fields: a filing full of dollar figures
+    in the 160-million range makes "163.355" findable in spirit and meaningless in
+    fact. Requiring the unit token nearby is what separates 99 in "99 MW" from 99 in
+    "$99,000,000".
+    """
+    pattern = _UNIT_RE.get(field)
+    if pattern is None:
+        return True                      # not a unit-bearing field; nothing to check
+    lower = text.lower()
+    for variant in _variants(value):
+        for m in _value_pattern(variant.lower()).finditer(lower):
+            lo = max(0, m.start() - UNIT_PROXIMITY_CHARS)
+            hi = m.end() + UNIT_PROXIMITY_CHARS
+            if pattern.search(lower[lo:hi]):
+                return True
+    return False
+
+
+def reject_ungrounded_numbers(data: dict, text: str) -> tuple[dict, list[dict]]:
+    """Null out unit-bearing numbers the document does not support, and say why.
+
+    Rejects rather than downgrades. The whole pattern behind Amperesand and Blue Owl
+    is that a bad number outranks a null everywhere downstream: it is "stated", so it
+    beats the low-confidence flag, drives sizing, and lands on the board looking like
+    the best-evidenced row there. A null costs an estimate; a confident wrong megawatt
+    figure costs the credibility of every number beside it.
+    """
+    rejections: list[dict] = []
+    for fname in UNIT_TOKENS:
+        value = data.get(fname)
+        if value is None:
+            continue
+        try:
+            fval = float(value)
+        except (TypeError, ValueError):
+            continue
+        if unit_grounded(fname, fval, text):
+            continue
+        data[fname] = None
+        rejections.append({
+            "field": fname, "value": fval,
+            "reason": f"{fval:g} does not appear in the source document with a "
+                      f"{fname.split('_')[-1]} unit within "
+                      f"{UNIT_PROXIMITY_CHARS} characters",
+            "nearest": _numbers_near(text, len(_variants(fval)[0])),
+        })
+    return data, rejections
+
 
 @dataclass
 class Finding:
@@ -68,6 +152,17 @@ def _variants(value: float) -> list[str]:
     return [v for v in out if v]
 
 
+def _value_pattern(variant: str) -> re.Pattern:
+    """Match a number as a number, not as a run of digits inside a bigger one.
+
+    Plain substring search grounds "3" against the 3 in "$30,183,000" and "16"
+    against "163" — so every small value grounds trivially and the guard silently
+    stops guarding. Digit boundaries fix that while still allowing a unit to be glued
+    on the right ("16MW"), since a letter is not a digit.
+    """
+    return re.compile(rf"(?<![\d.]){re.escape(variant)}(?![\d])")
+
+
 def _numbers_near(text: str, needle_len: int) -> list[str]:
     """A sample of numbers that ARE in the document, for the report."""
     found = re.findall(r"\b\d[\d,]*(?:\.\d+)?\b", text)
@@ -84,7 +179,7 @@ def audit_signal(signal: Signal, doc: RawDocument) -> list[Finding]:
         if value is None:
             continue
         variants = _variants(float(value))
-        grounded = any(v.lower() in lower for v in variants)
+        grounded = any(_value_pattern(v.lower()).search(lower) for v in variants)
         weak = grounded and abs(float(value)) < LOW_SIGNAL_BELOW
         out.append(Finding(
             doc_id=doc.id, signal_id=signal.id, source=doc.source,

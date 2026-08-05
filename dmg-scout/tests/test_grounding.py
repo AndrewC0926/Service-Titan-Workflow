@@ -1,4 +1,5 @@
 """The grounding audit catches invented numbers, which is the failure that matters."""
+import pytest
 from app.grounding import _variants, audit_signal, audit_text, audit_corpus
 from app.models import Category, RawDocument, Signal, SignalType, Stage, TriageResult
 
@@ -77,3 +78,191 @@ def test_clean_corpus_says_what_it_does_not_prove(db_session):
 def test_variants_cover_how_filings_write_numbers():
     v = _variants(1100000.0)
     assert "1100000" in v and "1,100,000" in v and "1.1 million" in v
+
+
+# --- the unit guard: rejection at extraction time -------------------------
+
+from app.grounding import reject_ungrounded_numbers, unit_grounded  # noqa: E402
+
+# Both fixtures are reductions of real documents that produced real bad numbers.
+BLUE_OWL = (
+    "Blue Owl Digital Infrastructure Trust 8-K. The Operating Partnership acquired "
+    "interests valued at $160,775,472, with subsequent adjustments of $161,697,926 "
+    "and a final determination of $164,946,388 as of the closing date. No power "
+    "capacity is described in this filing."
+)
+FAAC = (
+    "We currently occupy six adjacent facilities with a total of 26K sqft. under "
+    "roof with 94K sqft. when you include out of doors inventory and fabrication "
+    "areas. Our expansion will provide 109K sqft with modern manufacturing space."
+)
+VERNON = (
+    "GIC Vernon LLC is applying for a Small Power Plant Exemption for the Vernon "
+    "Backup Generating Facility, a 99 MW emergency only power system supporting the "
+    "Goodman Energy Park data center. NOC Development Type: Power (-)(Megawatts 99). "
+    "The project includes forty (40) diesel generators with thirty eight (38) 3 MW "
+    "units dedicated to data center critical loads, and two 1 MW house generators. "
+    "Location Total Acres: 11.55"
+)
+
+
+def test_blue_owl_dollar_figure_is_rejected_as_megawatts():
+    """The live failure: 163.355 MW off dollar amounts in a filing containing no MW
+    or megawatt token anywhere. It sized that project at 31,096-44,748 tons."""
+    data, rej = reject_ungrounded_numbers({"mw_total": 163.355}, BLUE_OWL)
+    assert data["mw_total"] is None, "the fabricated megawatt figure survived"
+    assert len(rej) == 1 and rej[0]["field"] == "mw_total"
+    assert "163.355" in rej[0]["reason"]
+    assert any("160,775,472" in n for n in rej[0]["nearest"])
+
+
+def test_a_dollar_amount_matching_the_digits_is_still_rejected():
+    """Proximity, not mere presence: 161.697926 would 'appear' inside $161,697,926
+    but has no unit beside it."""
+    assert unit_grounded("mw_total", 161.0, BLUE_OWL) is False
+
+
+def test_faac_square_footage_is_rejected():
+    """The filing says 26K, 94K and 109K sqft. 84,800 is none of them."""
+    data, rej = reject_ungrounded_numbers({"building_sqft": 84800.0}, FAAC)
+    assert data["building_sqft"] is None
+    assert rej[0]["field"] == "building_sqft"
+
+
+def test_vernon_keeps_the_numbers_that_are_really_there():
+    """The guard must not cost us the best row on the board. 99 MW appears twice,
+    once as 'Megawatts 99' with the unit BEFORE the value."""
+    data, rej = reject_ungrounded_numbers(
+        {"mw_total": 99.0, "acres": 11.55}, VERNON)
+    assert data["mw_total"] == 99.0
+    assert data["acres"] == 11.55
+    assert rej == []
+
+
+def test_vernon_converted_generator_value_is_rejected():
+    """The document says '3 MW'; extraction stored 3000 kW. Arithmetically right,
+    but the prompt forbids unit conversion and 3000 is nowhere in the source, so it
+    becomes a null and a flag rather than a number nobody can trace."""
+    data, rej = reject_ungrounded_numbers({"generator_kw_each": 3000.0}, VERNON)
+    assert data["generator_kw_each"] is None
+    assert rej[0]["field"] == "generator_kw_each"
+
+
+def test_unit_before_or_after_the_value_both_count():
+    assert unit_grounded("mw_total", 99.0, "a 99 MW emergency system") is True
+    assert unit_grounded("mw_total", 99.0, "NOC Development Type: Megawatts 99") is True
+
+
+def test_non_unit_fields_are_untouched():
+    """generator_count and building_count carry no unit; the guard must not null
+    them, since the plain grounding audit already reports on them."""
+    data, rej = reject_ungrounded_numbers(
+        {"generator_count": 40, "building_count": 2}, VERNON)
+    assert data["generator_count"] == 40 and data["building_count"] == 2
+    assert rej == []
+
+
+def test_rejection_nulls_rather_than_downgrades():
+    """A rejected field must be indistinguishable from 'not stated' downstream. The
+    Amperesand pattern is that a bad number outranks a null everywhere."""
+    data, _ = reject_ungrounded_numbers({"mw_total": 163.355}, BLUE_OWL)
+    assert "mw_total" in data and data["mw_total"] is None
+
+
+# --- wired into the pipeline ---------------------------------------------
+
+
+def test_extract_nulls_a_fabricated_number_end_to_end(db_session, cfg, monkeypatch):
+    """The guard has to fire inside run_extract, not just as a helper — that is the
+    only point before the value becomes a project, a tonnage and a board row."""
+    import app.pipeline.extract as ex
+    from app.models import TriageResult
+    from app.pipeline.extract import run_extract
+
+    doc = RawDocument(source="edgar", source_uid="bo1", url="https://x/bo1",
+                      title="8-K", raw_text=BLUE_OWL, content_hash="bo1",
+                      triage_result=TriageResult.relevant,
+                      meta={"triage_category": "data_center"})
+    db_session.add(doc); db_session.commit()
+
+    monkeypatch.setattr(ex, "extract", lambda *a, **k: {
+        "project_name": "Blue Owl DC", "mw_total": 163.355, "county": "Loudoun",
+        "state": "VA", "stage": "operating", "confidence": 0.9,
+        "named_people": [], "named_firms": [], "_raw": {}, "_sections": {}})
+
+    stats = run_extract(db_session, cfg, limit=5)
+    assert stats["extracted"] == 1
+    assert stats["rejected_numbers"] == 1 and stats["flagged_signals"] == 1
+
+    from sqlmodel import select as sel
+    sig = db_session.exec(sel(Signal).where(Signal.raw_document_id == doc.id)).one()
+    assert sig.mw_total is None, "fabricated megawatt figure reached the signal"
+    rej = sig.extraction_json["rejected_numeric"]
+    assert rej and rej[0]["field"] == "mw_total" and rej[0]["value"] == 163.355
+
+
+def test_a_rejected_number_cannot_drive_sizing(db_session, cfg, monkeypatch):
+    """The consequence that matters: 163.355 MW sized Blue Owl at 31,096-44,748
+    tons. With the field nulled there is nothing left to size from."""
+    import app.pipeline.extract as ex
+    from app.models import TriageResult
+    from app.pipeline.extract import run_extract
+    from app.pipeline.resolve import run_resolve
+    from app.pipeline.size_score import run_size_score
+    from sqlmodel import select as sel
+
+    doc = RawDocument(source="edgar", source_uid="bo2", url="https://x/bo2",
+                      title="8-K", raw_text=BLUE_OWL, content_hash="bo2",
+                      triage_result=TriageResult.relevant,
+                      meta={"triage_category": "data_center"})
+    db_session.add(doc); db_session.commit()
+    monkeypatch.setattr(ex, "extract", lambda *a, **k: {
+        "project_name": "Blue Owl DC", "mw_total": 163.355, "county": "Clark",
+        "state": "NV", "stage": "operating", "confidence": 0.9,
+        "named_people": [], "named_firms": [], "_raw": {}, "_sections": {}})
+    run_extract(db_session, cfg, limit=5)
+    run_resolve(db_session, cfg, use_llm=False)
+    run_size_score(db_session, cfg)
+
+    from app.models import Project
+    proj = db_session.exec(sel(Project)).one()
+    assert proj.tons_estimate_low is None and proj.tons_estimate_high is None
+
+
+@pytest.mark.parametrize("text,expect,why", [
+    ("Modular 8-12MW blocks; a 16MW deployment", True, "unit glued to the digits"),
+    ("a 16 MW deployment", True, "unit spaced"),
+    ("NOC Development Type: Power (-)(Megawatts 16)", True, "unit before the value"),
+])
+def test_glued_units_are_grounded(text, expect, why):
+    """Filings write '16MW' constantly, and a leading \\b cannot match there — there
+    is no boundary between '6' and 'M'. That bug rejected Colovore's stated 16 MW,
+    the second row on the data center board."""
+    assert unit_grounded("mw_total", 16.0, text) is expect, why
+
+
+def test_unit_must_not_follow_a_letter():
+    """'sf' lives inside 'transfer'. A unit that follows a letter is part of a word,
+    not a unit."""
+    assert unit_grounded("building_sqft", 5000.0, "the transfer of 5,000 units") is False
+    assert unit_grounded("building_sqft", 5000.0, "5,000 SF of space") is True
+
+
+def test_table_column_header_carries_the_unit():
+    """GOED packets flatten to 'Building SqFt | ... | 91,000' with the unit in the
+    column header, ~90 characters from the value."""
+    row = ("Year Land Cost Building SqFt | Cost Purchase Amount | "
+           "Year-1 | $6,627,000 $30,183,000 n/a n/a 91,000")
+    assert unit_grounded("building_sqft", 91000.0, row) is True
+
+
+@pytest.mark.parametrize("value,text,expect,why", [
+    (3.0,  "Reactors QC Tanks 10 MW Substation $30,183,000", False, "3 inside 30,183,000"),
+    (3.0,  "a 3 MW substation", True, "a real 3 MW"),
+    (16.0, "a 163.355 MW figure", False, "16 inside 163.355"),
+    (16.0, "a 16MW deployment", True, "real 16MW"),
+])
+def test_values_match_as_numbers_not_digit_runs(value, text, expect, why):
+    """Substring search grounded '3' against the 3 in '$30,183,000', so every small
+    value grounded trivially and the guard silently stopped guarding."""
+    assert unit_grounded("mw_total", value, text) is expect, why

@@ -94,13 +94,21 @@ def pipeline() -> None:
     from app.spend import BudgetExceeded
 
     failures = 0
-    for step in (fetch, triage, extract, resolve, score, notify):
+    # grounding sits between extract and resolve on purpose: it is the last point
+    # where a fabricated number can be caught before it becomes a project, a
+    # tonnage estimate and a row someone quotes.
+    for step in (fetch, triage, extract, grounding, resolve, score, notify):
         typer.echo(f"--- {step.__name__} ---")
         try:
             if step is fetch:
                 step(source=None)
             elif step is resolve:
                 step(no_llm=False)
+            elif step is grounding:
+                # Report, never halt the run: the unit guard has already nulled
+                # what it could prove wrong, and anything still flagged is for a
+                # human to look at, not a reason to skip scoring.
+                step(strict=False)
             else:
                 step()
         except BudgetExceeded as exc:

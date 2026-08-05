@@ -340,8 +340,19 @@ def review_queue(request: Request, session: Session = Depends(get_session), _: s
     for mc in pending:
         rows.append({"mc": mc, "signal": session.get(Signal, mc.signal_id),
                      "project": session.get(Project, mc.project_id)})
+    # Second queue on the same page: numbers the unit guard threw away. They are
+    # already null everywhere downstream, so nothing is waiting on a decision —
+    # this is here so a rejection is visible rather than a silent hole, and so a
+    # pattern of rejections on one source gets noticed.
+    flagged = []
+    for s in session.exec(select(Signal)).all():
+        for r in (s.extraction_json or {}).get("rejected_numeric") or []:
+            doc = session.get(RawDocument, s.raw_document_id)
+            flagged.append({"signal": s, "doc": doc, "rej": r})
+    flagged.sort(key=lambda f: -abs(f["rej"].get("value") or 0))
     return templates.TemplateResponse(request, "review.html", {
-        "rows": rows, "tb": _title_block(session), "active": "review",
+        "rows": rows, "flagged": flagged,
+        "tb": _title_block(session), "active": "review",
     })
 
 
