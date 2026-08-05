@@ -28,13 +28,64 @@ All in `config.yaml`. Never edit Python for these.
 | A county | `sources.ceqanet.counties`, and `territory.CA/NV/AZ` if it's mine | CEQAnet list drives fetching; territory list drives the board filter |
 | A keyword | `keywords.data_center` (triggers) or `keywords.supporting` | keyword gate runs before the LLM, so missing keywords = invisible documents |
 | A news feed / Google Alert | `sources.rss.feeds` | name + RSS url; Google Alerts → create alert → deliver to RSS → paste url |
-| A company's job board | `companies.developers/gcs/mep_firms` with `greenhouse:`/`lever:`/`ashby:` slug | slug is the token in their careers URL |
+| A company's job board | `companies.developers/gcs/mep_firms` with `greenhouse:`/`lever:`/`ashby:`/`workday:` | **Never guess the token** — see "Adding a job board" below |
 | An EDGAR search | `sources.edgar.queries` or `edgar_terms` on a company | quoted phrases; boolean AND/OR supported |
-| A Legistar city | `sources.legistar.clients` | slug is the subdomain of `<slug>.legistar.com`; verify with `scout verify-sources` |
+| A Legistar city | `sources.legistar.clients` | **Never guess the slug** — see "Adding a Legistar client" below |
 | A firm to the roster | `roster.<type>` in config **or** the Add-firm form on Contacts | dashboard adds land in the DB only; config survives DB loss — prefer config for permanent rosters |
 | A jurisdiction's watch words, thresholds, sizing constants | `scoring.*`, `sizing.*` | see "Config knobs" below |
 
 After config changes: commit, push, Render redeploys. Nothing else to do.
+
+### Adding a Legistar client
+
+Slugs are **not** derivable from the city name, and `<slug>.legistar.com`
+returns 200 for every subdomain, so that is not a valid test. Confirmed live:
+Clark County is `clark` (not `clarkcountynv`), Washoe County is `washoe-nv`,
+Riverside County is `riversidecountyca`. Guessing scored 2/12.
+
+```bash
+# 1. Does the Web API know this client? 200 + real body names = yes.
+curl -s "https://webapi.legistar.com/v1/<slug>/bodies?\$top=5" | head -c 300
+# 2. Is the InSite tenant real? A nonexistent slug returns a ~19-byte body;
+#    a real one returns 200KB with "<Jurisdiction> - Calendar" in <title>.
+curl -s "https://<slug>.legistar.com/Calendar.aspx" | wc -c
+```
+
+`HTTP 500` with `LegistarConnectionString setting is not set up in InSite for
+client: X` means **the slug does not exist** — it is a permanent config error
+wearing a 5xx costume. Do not retry it, do not leave it in config.
+
+If no slug resolves, the jurisdiction probably is not a Legistar customer at
+all. Check what its agenda portal actually is (Granicus `ViewPublisher`,
+PrimeGov, eScribe, CivicPlus `AgendaCenter`) and record it in the removed-clients
+comment block in `config.yaml` rather than leaving a dead slug behind.
+
+### Adding a job board
+
+Board tokens are opaque vendor strings. Two failure modes, and the second is
+worse than a 404:
+
+1. **404** — no such board.
+2. **A real board owned by a different company**, which silently poisons the
+   pipeline. `greenhouse/aligned` is alignedup.com (sales SaaS), not Aligned
+   Data Centers. `ashby/vantage` is vantage.sh (cloud costs), not Vantage Data
+   Centers. Both return 200.
+
+So always eyeball the job titles and apply URLs before adding a board:
+
+```bash
+curl -s "https://boards-api.greenhouse.io/v1/boards/<token>/jobs" | head -c 400
+curl -s "https://api.lever.co/v0/postings/<slug>?mode=json"        | head -c 400
+curl -s "https://api.ashbyhq.com/posting-api/job-board/<name>"     | head -c 400
+```
+
+Workday boards are POST-only and configured as a mapping, not a string —
+find the tenant/site in the careers-page link
+(`https://<tenant>.wdN.myworkdayjobs.com/<site>`):
+
+```yaml
+workday: {host: "vantagedc.wd1.myworkdayjobs.com", tenant: "vantagedc", site: "Vantage"}
+```
 
 ## When an adapter breaks
 
@@ -50,12 +101,22 @@ Tell the failure modes apart:
 | Pattern in http_log | It's probably | Do |
 |---|---|---|
 | 429s, or 503s that recover on retry | Rate limit | Raise `request_interval_seconds`, confirm backoff worked; SEC blocks ~10 min after bursts — wait it out |
-| 403 on every request, immediately | Block (UA or IP) | Check `user_agent` still identifies us with email; from a new IP it usually clears; do NOT rotate UAs to evade — if a site means to block us, remove the adapter |
-| 404 on listing/CSV endpoints | Site redesign / moved paths | Open the site in a browser, find the new path, update the adapter's URL construction; `scout verify-sources` confirms |
+| **Intermittent** 403s that appear mid-run and then clear | Rate limit, not a block | CEQAnet does this: a 12-request burst returns 403 around requests 9-10. 403 is in `THROTTLE_STATUS` and retried with backoff. Reduce request count (one CSV per county, not per county x doctype) before touching the UA |
+| 403 on **every** request, immediately | Block (UA or IP) | Check `user_agent` still identifies us with email; from a new IP it usually clears; do NOT rotate UAs to evade — if a site means to block us, remove the adapter |
+| 404 on listing/CSV endpoints | Site redesign / moved paths, **or an endpoint that never existed** | Open the site, find the real form, read its `action` and field `name`s. CEQAnet's `/Search/DownloadCSV` was invented; the real one is `GET /Search?...&OutputFormat=CSV`, discovered from `/Search/Advanced`. 404s are never retried |
+| 500 with a message naming the client/tenant | Config error, not an outage | Legistar returns 500 for unknown client slugs. Fix or remove the slug; 5xx is retried only twice for exactly this reason |
 | 200s but 0 documents parsed | Schema drift (renamed CSV columns, changed HTML) | Compare a live response against `tests/fixtures/`; update parser + fixture together |
+| 200s but mojibake / `UnicodeDecodeError` | Response is not UTF-8 | CEQAnet's CSV is cp1252 with no charset header. Read bytes and decode explicitly; do not trust `.text` |
 | Connection errors only | Network/DNS/their outage | Wait a day before touching code |
 
-`scout verify-sources` after any fix — it fetches one real record per adapter.
+Retry budgets (`config.yaml`): throttles and transport errors get
+`request_max_retries` (4) because waiting helps; 5xx gets
+`request_max_retries_5xx` (2) because a 5xx is often deterministic; 404 and other
+definitive 4xx get **zero** — `NEVER_RETRY_STATUS` in `app/http.py`.
+
+`scout verify-sources` after any fix. **OK means documents came back**; WARN means
+reachable-but-empty or a dead sub-target; FAIL exits 1. Use `--only <adapter>` to
+scope it while iterating.
 
 If robots.txt starts disallowing a path we use: the client already refuses it
 (RobotsDisallowed surfaces in Source Health). Disable the adapter in config and

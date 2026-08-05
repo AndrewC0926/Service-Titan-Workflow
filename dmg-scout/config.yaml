@@ -4,7 +4,9 @@
 
 user_agent: "DMGScout/0.1 (HVAC market research; contact: acrane988@gmail.com)"
 request_interval_seconds: 2.0     # per-domain politeness
-request_max_retries: 4
+request_max_retries: 4            # throttles (403/429) and transport errors — waiting helps
+request_max_retries_5xx: 2        # 5xx is often deterministic (Legistar 500 = unknown client)
+                                  # 404 and other definitive 4xx are never retried
 
 llm:
   triage_model: "claude-haiku-4-5-20251001"
@@ -106,15 +108,27 @@ territory:
   AZ: [Maricopa, Pinal]
 
 # Companies watched on ATS job boards and in EDGAR full-text search.
+#
+# ATS board identifiers are opaque vendor strings — never guess them. Every one
+# below was confirmed live AND checked to belong to the right company. Two
+# plausible-looking guesses were real boards owned by unrelated firms:
+# greenhouse "aligned" = alignedup.com (sales SaaS), ashby "vantage" =
+# vantage.sh (cloud costs). Verify job titles before adding a board.
 companies:
   developers:
-    - {name: "Vantage Data Centers", greenhouse: "vantagedatacenters", edgar_terms: ["Vantage Data Centers"]}
-    - {name: "Tract", lever: "tract", edgar_terms: ["Tract Management"]}
+    # Workday, not Greenhouse (greenhouse "vantagedatacenters" does not exist).
+    - {name: "Vantage Data Centers", edgar_terms: ["Vantage Data Centers"],
+       workday: {host: "vantagedc.wd1.myworkdayjobs.com", tenant: "vantagedc", site: "Vantage"}}
+    # Greenhouse, not Lever (lever "tract" does not exist).
+    - {name: "Tract", greenhouse: "tract", edgar_terms: ["Tract Management"]}
     - {name: "Prime Data Centers", edgar_terms: ["Prime Data Centers"]}
     - {name: "PowerHouse Data Centers", edgar_terms: ["PowerHouse Data Centers"]}
     - {name: "EdgeCore", edgar_terms: ["EdgeCore Digital Infrastructure"]}
-    - {name: "CyrusOne", greenhouse: "cyrusone", edgar_terms: ["CyrusOne"]}
-    - {name: "Aligned Data Centers", greenhouse: "aligneddatacenters", edgar_terms: ["Aligned Data Centers"]}
+    - {name: "CyrusOne", edgar_terms: ["CyrusOne"],
+       workday: {host: "cyrusone.wd1.myworkdayjobs.com", tenant: "cyrusone", site: "CyrusOneCareerPortal"}}
+    # NB: greenhouse "aligned" is a DIFFERENT company (alignedup.com) — do not use.
+    - {name: "Aligned Data Centers", edgar_terms: ["Aligned Data Centers"],
+       workday: {host: "aligneddc.wd12.myworkdayjobs.com", tenant: "aligneddc", site: "aligneddc"}}
     - {name: "STACK Infrastructure", edgar_terms: ["STACK Infrastructure"]}
     - {name: "DataBank", edgar_terms: ["DataBank Holdings"]}
     - {name: "Novva", edgar_terms: ["Novva Data Centers"]}
@@ -141,8 +155,17 @@ sources:
     enabled: true
     base_url: "https://ceqanet.lci.ca.gov"
     counties: [Los Angeles, Orange, San Bernardino, Riverside, San Diego, Imperial, Kern]
-    # NOP earliest/most valuable; NOD means too late but still logged for stage tracking.
-    document_types: ["NOP", "EIR", "NEG", "MND", "NOD"]
+    # Document-type allowlist, using CEQAnet's real 3-letter codes (NOP, EIR,
+    # MND, NEG, NOD, NOE, ...). Empty = accept every type.
+    #
+    # Deliberately empty: over a 12-month live sample of all 7 counties, 8 of
+    # the 10 data-center filings were NOE (Notice of Exemption) — including two
+    # city data-center moratoria and a county IT-department contract. The old
+    # NOP/EIR/NEG/MND/NOD allowlist would have discarded those 8. The keyword
+    # filter already cuts 10,651 rows to ~10, so an allowlist buys nothing and
+    # costs real signal. Restrict only if a type turns out to be pure noise.
+    document_types: []
+    fetch_detail: true   # pull the detail page for keyword-matched rows
     lookback_days: 30
   edgar:
     enabled: true
@@ -163,20 +186,39 @@ sources:
   legistar:
     enabled: true
     api_base: "https://webapi.legistar.com/v1"
+    # Every slug below was verified live against webapi.legistar.com — each one
+    # returns 200 and real body names. Slugs are NOT derivable from the city
+    # name, so do not guess: add a candidate, run `scout verify-sources --only
+    # legistar`, and keep it only if it reports ok. A 500 carrying
+    # "LegistarConnectionString setting is not set up" means the slug does not
+    # exist.
     clients:
-      - {client: "ontario", label: "City of Ontario, CA"}
-      - {client: "rc", label: "City of Rancho Cucamonga, CA"}
       - {client: "fontana", label: "City of Fontana, CA"}
-      - {client: "moval", label: "City of Moreno Valley, CA"}
-      - {client: "rivco", label: "Riverside County, CA"}
       - {client: "sanbernardino", label: "San Bernardino County, CA"}
-      - {client: "elsegundo", label: "City of El Segundo, CA"}
-      - {client: "storeycountynv", label: "Storey County, NV"}
-      - {client: "washoe", label: "Washoe County, NV"}
-      - {client: "clarkcountynv", label: "Clark County, NV"}
-      - {client: "reno", label: "City of Reno, NV"}
-      - {client: "sparks", label: "City of Sparks, NV"}
+      - {client: "riversidecountyca", label: "Riverside County, CA"}       # was "rivco"
+      - {client: "lacounty", label: "County of Los Angeles, CA"}           # has Plans and Zoning Committee
+      - {client: "clark", label: "Clark County, NV"}                       # was "clarkcountynv"
+      - {client: "washoe-nv", label: "Washoe County, NV"}                  # was "washoe"
     lookback_days: 21
+    # REMOVED — these jurisdictions are not Legistar tenants at all (verified:
+    # no slug variant resolves on webapi.legistar.com, and each publishes
+    # agendas on a different platform). Leaving them here as dead slugs is what
+    # produced ten HTTP 500s per run. Each needs its own adapter to recover:
+    #
+    #   City of Ontario, CA        Granicus ViewPublisher  ontarioca.granicus.com
+    #   Rancho Cucamonga, CA       Granicus ViewPublisher  ranchocucamonga.granicus.com
+    #   Moreno Valley, CA          eScribe                 pub-morenovalley.escribemeetings.com
+    #   City of El Segundo, CA     Granicus ViewPublisher  elsegundo.granicus.com
+    #   City of Reno, NV           PrimeGov                reno.primegov.com
+    #   City of Sparks, NV         Granicus ViewPublisher  sparks.granicus.com
+    #   Storey County, NV          CivicPlus AgendaCenter  storeycounty.org/AgendaCenter
+    #
+    # NEVADA COVERAGE GAP: Legistar now covers only Clark and Washoe counties.
+    # Storey County (Tahoe Reno Industrial Center) is the highest-value Nevada
+    # jurisdiction and is CivicPlus-only, and Nevada has no CEQA equivalent —
+    # so until a CivicPlus/PrimeGov adapter exists, Storey/Reno/Sparks local
+    # signal comes only from GOED plus the northern-Nevada RSS feeds below.
+    # Las Vegas, Henderson, and North Las Vegas were also probed: not Legistar.
   rss:
     enabled: true
     feeds:

@@ -59,8 +59,9 @@ def test_edgar_double_run_dedupes(db_session, cfg, fixtures_dir):
 
 @respx.mock
 def test_ceqanet_filters_and_parses(cfg, fixtures_dir):
+    # Real endpoint is GET /Search?...&OutputFormat=CSV — /Search/DownloadCSV 404s.
     csv_text = (fixtures_dir / "ceqanet_search.csv").read_text()
-    respx.get(url__startswith="https://ceqanet.lci.ca.gov/Search/DownloadCSV").mock(
+    respx.get(url__startswith="https://ceqanet.lci.ca.gov/Search").mock(
         return_value=httpx.Response(200, text=csv_text)
     )
     detail_html = "<html><body><h1>Meridian Data Center Campus</h1><p>APN 0110-111-22. 176 MW. Contact: Jane Doe (909) 555-0100</p></body></html>"
@@ -69,13 +70,58 @@ def test_ceqanet_filters_and_parses(cfg, fixtures_dir):
     )
     docs = list(CeqanetAdapter().fetch(cfg, fast_client()))
     uids = {d.source_uid for d in docs}
-    # only the data center row passes the keyword filter; NOP row across all county/doctype queries
+    # only the data center rows pass the keyword filter
     assert any(u.startswith("2026070456") for u in uids)
     assert not any(u.startswith("2026070123") for u in uids)
+    assert not any(u.startswith("2026070789") for u in uids)
     dc = next(d for d in docs if d.source_uid.startswith("2026070456"))
     assert dc.default_signal_type == SignalType.ceqa_nop
-    assert "APN 0110-111-22" in dc.raw_text
     assert dc.meta["sch_number"] == "2026070456"
+    # Canonical URL comes from the CSV's own Document Portal URL column.
+    assert dc.url == "https://ceqanet.lci.ca.gov/2026070456"
+    # Rich CSV columns are carried into meta rather than re-scraped.
+    assert dc.meta["acres"] == "88.5"
+    assert dc.meta["parcel_number"] == "0110-111-22"
+    assert dc.meta["contact_email"] == "jdoe@ontarioca.gov"
+    # Contact appears in raw_text so extraction can place it on the ladder.
+    assert "Jane Doe" in dc.raw_text and "(909) 555-0100" in dc.raw_text
+    assert "APN 0110-111-22" in dc.raw_text  # detail page appended
+
+
+@respx.mock
+def test_ceqanet_accepts_document_types_beyond_the_old_allowlist(cfg, fixtures_dir):
+    """The old NOP/EIR/NEG/MND/NOD allowlist discarded NOEs, which is where most
+    real data center filings actually showed up in a 12-month live sample."""
+    csv_text = (fixtures_dir / "ceqanet_search.csv").read_text()
+    respx.get(url__startswith="https://ceqanet.lci.ca.gov/Search").mock(
+        return_value=httpx.Response(200, text=csv_text)
+    )
+    respx.get(url__startswith="https://ceqanet.lci.ca.gov/2026").mock(
+        return_value=httpx.Response(200, text="<html><body>detail</body></html>")
+    )
+    docs = list(CeqanetAdapter().fetch(cfg, fast_client()))
+    noe = [d for d in docs if d.meta["document_type"] == "NOE"]
+    assert noe, "NOE colocation filing must not be filtered out"
+
+
+@respx.mock
+def test_ceqanet_decodes_cp1252(cfg):
+    """CEQAnet serves cp1252 with no charset header; en-dashes must not explode."""
+    # U+2013 EN DASH encodes to the single byte 0x96 in cp1252, which is exactly
+    # the byte that makes a naive UTF-8 decode of a live response blow up.
+    header = "SCH Number,Document Title,Project Title,Document Type,Received,Document Description,Document Portal URL\n"
+    body = ("2026070001,Data Center – Phase II,Data Center – Phase II,NOP,"
+            "7/1/2026,A 90 MW data center,https://ceqanet.lci.ca.gov/2026070001\n")
+    assert (header + body).encode("cp1252").find(b"\x96") > 0
+    respx.get(url__startswith="https://ceqanet.lci.ca.gov/Search").mock(
+        return_value=httpx.Response(200, content=(header + body).encode("cp1252"))
+    )
+    respx.get(url__startswith="https://ceqanet.lci.ca.gov/2026").mock(
+        return_value=httpx.Response(200, text="<html><body>detail</body></html>")
+    )
+    docs = list(CeqanetAdapter().fetch(cfg, fast_client()))
+    assert docs, "cp1252 row must decode and pass the keyword filter"
+    assert "–" in docs[0].title, "en-dash should round-trip, not become U+FFFD"
 
 
 @respx.mock
@@ -86,6 +132,11 @@ def test_ats_greenhouse_geo_filter(cfg, fixtures_dir):
     )
     respx.get(url__startswith="https://api.lever.co/").mock(return_value=httpx.Response(404))
     respx.get(url__startswith="https://api.ashbyhq.com/").mock(return_value=httpx.Response(404))
+    # Workday boards are POST-only; leaving them unmocked would fail a majority
+    # of boards and (correctly) raise SourceFailure.
+    respx.post(url__regex=r"https://.*\.myworkdayjobs\.com/.*").mock(
+        return_value=httpx.Response(200, json={"total": 0, "jobPostings": []})
+    )
     docs = list(AtsAdapter().fetch(cfg, fast_client()))
     assert docs, "Reno posting should pass geo filter"
     titles = " ".join(d.title for d in docs)

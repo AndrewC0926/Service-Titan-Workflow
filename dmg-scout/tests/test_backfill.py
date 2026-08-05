@@ -8,14 +8,23 @@ from app.models import BackfillCheckpoint, RawDocument
 from app.pipeline.backfill import estimate_cost, run_backfill
 from app.sources.ceqanet import CeqanetAdapter
 from app.sources.edgar import EdgarAdapter
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
-def test_ceqanet_chunks_are_county_doctype_pairs(cfg):
+def test_ceqanet_chunks_are_county_months(cfg):
+    """One CSV request per county per month. Not per county x document type:
+    that shape cost 5x the requests and tripped CEQAnet's 403 throttle, and the
+    CSV export returns every type in one call anyway."""
     chunks = CeqanetAdapter().backfill_chunks(cfg, datetime(2024, 8, 1))
     keys = [c["key"] for c in chunks]
-    assert "2024-08-01:Riverside:NOP" in keys
-    assert len(chunks) == 7 * 5  # 7 counties x 5 document types
+    assert "Riverside:2024-08" in keys
+    counties = cfg.source("ceqanet")["counties"]
+    months = {k.split(":")[1] for k in keys}
+    assert len(chunks) == len(counties) * len(months)
+    assert "2024-08" in months and len(months) >= 24
+    first = next(c for c in chunks if c["key"] == "Riverside:2024-08")
+    assert first["start"].startswith("2024-08-01")   # partial first month honored
+    assert first["end"].startswith("2024-08-31")
 
 
 def test_edgar_chunks_are_months(cfg):
@@ -40,28 +49,33 @@ def fast_client(monkeypatch):
 @respx.mock
 def test_backfill_checkpoints_and_resumes(db_session, cfg, fixtures_dir, fast_client):
     csv_text = (fixtures_dir / "ceqanet_search.csv").read_text()
-    csv_route = respx.get(url__startswith="https://ceqanet.lci.ca.gov/Search/DownloadCSV").mock(
+    csv_route = respx.get(url__startswith="https://ceqanet.lci.ca.gov/Search").mock(
         return_value=httpx.Response(200, text=csv_text))
     respx.get(url__startswith="https://ceqanet.lci.ca.gov/2026").mock(
         return_value=httpx.Response(200, text="<html><body>detail</body></html>"))
 
-    since = datetime(2024, 8, 1)
+    # Short window keeps the chunk count small; the exact count is derived from
+    # the adapter so this does not drift as the calendar moves.
+    since = datetime.utcnow().replace(day=1) - timedelta(days=40)
+    n_chunks = len(CeqanetAdapter().backfill_chunks(cfg, since))
+    assert n_chunks > 0
+
     totals = run_backfill(db_session, cfg, "ceqanet", since)
-    assert totals["chunks_run"] == 35
+    assert totals["chunks_run"] == n_chunks
     assert totals["chunks_skipped"] == 0
     cps = db_session.exec(select(BackfillCheckpoint)).all()
-    assert len(cps) == 35
+    assert len(cps) == n_chunks
     first_calls = csv_route.call_count
 
     # Resume: every chunk checkpointed -> zero requests, zero chunks run
     totals2 = run_backfill(db_session, cfg, "ceqanet", since)
     assert totals2["chunks_run"] == 0
-    assert totals2["chunks_skipped"] == 35
+    assert totals2["chunks_skipped"] == n_chunks
     assert csv_route.call_count == first_calls
 
     # Reset refetches
     totals3 = run_backfill(db_session, cfg, "ceqanet", since, reset=True)
-    assert totals3["chunks_run"] == 35
+    assert totals3["chunks_run"] == n_chunks
     assert totals3["new"] == 0  # all content already stored -> dedupe holds
 
 
@@ -75,17 +89,20 @@ def test_failed_chunk_not_checkpointed(db_session, cfg, fast_client):
             raise httpx.ConnectError("boom", request=request)
         return httpx.Response(200, text="SCH Number,Title\n")
 
-    respx.get(url__startswith="https://ceqanet.lci.ca.gov/Search/DownloadCSV").mock(side_effect=flaky)
-    since = datetime(2024, 8, 1)
+    respx.get(url__startswith="https://ceqanet.lci.ca.gov/Search").mock(side_effect=flaky)
+    since = datetime.utcnow().replace(day=1) - timedelta(days=40)
+    n_chunks = len(CeqanetAdapter().backfill_chunks(cfg, since))
+    assert n_chunks > 3
+
     totals = run_backfill(db_session, cfg, "ceqanet", since)
     assert totals["chunk_errors"] == 3
     cps = db_session.exec(select(BackfillCheckpoint)).all()
-    assert len(cps) == 32  # failed chunks are NOT checkpointed
+    assert len(cps) == n_chunks - 3  # failed chunks are NOT checkpointed
 
     # Next run retries exactly the 3 failed chunks
     totals2 = run_backfill(db_session, cfg, "ceqanet", since)
-    assert totals2["chunks_run"] == 3 and totals2["chunks_skipped"] == 32
-    assert len(db_session.exec(select(BackfillCheckpoint)).all()) == 35
+    assert totals2["chunks_run"] == 3 and totals2["chunks_skipped"] == n_chunks - 3
+    assert len(db_session.exec(select(BackfillCheckpoint)).all()) == n_chunks
 
 
 def test_estimate_paper_mode(db_session, cfg):

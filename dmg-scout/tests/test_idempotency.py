@@ -44,7 +44,7 @@ def test_pipeline_twice_identical_state(db_session, cfg, fixtures_dir, monkeypat
         return_value=httpx.Response(200, json=json.loads((fixtures_dir / "legistar_matters.json").read_text())))
     respx.get(url__startswith="https://boards-api.greenhouse.io/").mock(
         return_value=httpx.Response(200, json=json.loads((fixtures_dir / "greenhouse_jobs.json").read_text())))
-    respx.get(url__startswith="https://ceqanet.lci.ca.gov/Search/DownloadCSV").mock(
+    respx.get(url__startswith="https://ceqanet.lci.ca.gov/Search").mock(
         return_value=httpx.Response(200, text=(fixtures_dir / "ceqanet_search.csv").read_text()))
     respx.get(url__regex=r"https://ceqanet\.lci\.ca\.gov/\d+").mock(
         return_value=httpx.Response(200, text="<html><body>Meridian Data Center Campus, 176 MW</body></html>"))

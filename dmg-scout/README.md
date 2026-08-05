@@ -58,14 +58,29 @@ and idempotent — re-running never duplicates or corrupts.
 | air permits, utility filings, FAA 7460, water districts | | | Tier 2, config-stubbed off |
 | `manual` | CLI + dashboard form: engineer moves, prequal/bid invites, tips | first-class | enabled |
 
-**Source-verification note (2026-08-04):** built in a sandbox whose egress policy
-blocks non-registry domains, so adapters were written against the documented API
-shapes (EDGAR FTS params, Legistar OData, GOED WordPress upload paths, CEQAnet
-CSV export confirmed via search) and tested against recorded payloads. **Run
-`scout verify-sources` immediately after deploy** — it live-hits every enabled
-adapter and reports which ones need URL/column adjustments (most likely: CEQAnet
-CSV param names and Legistar client slugs). This is a first-deploy checklist item,
-not an afterthought; the same command catches future drift.
+**Source verification (first live run 2026-08-04, then fixed).** The adapters
+were originally written in a sandbox with no egress, against *guessed* endpoint
+shapes. The first live `verify-sources` showed how badly that goes: CEQAnet's
+CSV endpoint and every parameter name were invented (all 35 queries failed),
+ten of twelve Legistar client slugs did not exist, and four of five ATS board
+tokens were wrong. All are now confirmed against the live services — see the
+comments in `config.yaml` for what each identifier is and how it was verified.
+
+`scout verify-sources` reports three states, and **OK requires documents**:
+
+| State | Meaning |
+|---|---|
+| `OK` | Returned at least one document |
+| `WARN` | Every request succeeded but nothing survived filtering, **or** some configured sub-target (Legistar client, ATS board) is dead |
+| `FAIL` | Source unusable, or a majority of its sub-targets failed. Exits 1. |
+
+There is deliberately no "reachable" state: conflating reachable with working is
+what let ten broken Legistar slugs report OK while returning zero documents. The
+output separates *records scanned* (raw, pre-filter) from *matched* (post-filter)
+so an empty result is attributable — 0 records means the endpoint moved, while 0
+matched from many records just means the keyword filter is selective.
+
+Run it after any config or adapter change; `--only <adapter>` scopes it.
 
 ## Deploy (Render)
 

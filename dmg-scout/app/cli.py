@@ -294,16 +294,29 @@ def seed_firms_cmd() -> None:
 
 
 @app.command("verify-sources")
-def verify_sources() -> None:
-    """Live smoke-test every enabled adapter; reports URL-structure drift."""
+def verify_sources(
+    only: str = typer.Option("", help="Comma-separated adapter names; default all enabled"),
+) -> None:
+    """Live smoke-test every enabled adapter; reports URL-structure drift.
+
+    OK only means documents came back. WARN means every request succeeded but
+    nothing survived filtering, or some configured sub-target is dead. FAIL
+    means the source is unusable. Exits 1 if anything FAILs.
+    """
     from app.http import PoliteClient
     from app.sources import enabled_adapters, get_adapter
     cfg = load_config()
+    names = [n.strip() for n in only.split(",") if n.strip()] or enabled_adapters(cfg)
+    counts: dict[str, int] = {}
     with PoliteClient() as client:
-        for name in enabled_adapters(cfg):
+        for name in names:
             result = get_adapter(name).verify(cfg, client)
-            mark = "OK " if result["ok"] else "FAIL"
-            typer.echo(f"[{mark}] {name}: {result['detail']}")
+            status = result.get("status", "fail")
+            counts[status] = counts.get(status, 0) + 1
+            typer.echo(f"[{status.upper():4}] {name}: {result['detail']}")
+    typer.echo("  ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "no adapters run")
+    if counts.get("fail"):
+        raise typer.Exit(1)
 
 
 @app.command()
