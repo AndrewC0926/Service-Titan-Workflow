@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.config import Config
@@ -24,10 +25,54 @@ log = logging.getLogger(__name__)
 BACKFILLABLE = ("ceqanet", "goed", "edgar", "legistar", "civicplus", "primegov")
 
 
+class ConcurrentBackfill(RuntimeError):
+    """Another backfill of the same source is still running."""
+
+
+def _checkpoint(session: Session, source: str, chunk_key: str,
+                fetched: int, new: int) -> None:
+    """Record a completed chunk, tolerating one that is already recorded.
+
+    (source, chunk_key) is unique, and a plain INSERT of a duplicate aborts the
+    transaction and takes the whole backfill down with it — observed for real when
+    two backfill processes overlapped on the same source. A chunk being
+    checkpointed twice is harmless; crashing 20 chunks in is not.
+    """
+    try:
+        with session.begin_nested():
+            session.add(BackfillCheckpoint(source=source, chunk_key=chunk_key,
+                                           records_fetched=fetched, records_new=new))
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        log.warning("chunk %s for %s was already checkpointed (concurrent run?)",
+                    chunk_key, source)
+
+
+def _running_backfill(session: Session, source: str) -> SourceRun | None:
+    """An unfinished backfill run for this source, if one exists."""
+    return session.exec(
+        select(SourceRun)
+        .where(SourceRun.source == f"{source}:backfill",
+               SourceRun.finished_at.is_(None))
+        .order_by(SourceRun.id.desc())
+    ).first()
+
+
 def run_backfill(session: Session, cfg: Config, source: str, since: datetime,
-                 reset: bool = False) -> dict:
+                 reset: bool = False, force: bool = False) -> dict:
     if source not in BACKFILLABLE:
         raise ValueError(f"source {source!r} does not support backfill; choose from {BACKFILLABLE}")
+
+    # Two concurrent backfills of one source duplicate every request, race on the
+    # checkpoint table, and make the totals meaningless. Refuse by default.
+    inflight = _running_backfill(session, source)
+    if inflight is not None and not force:
+        raise ConcurrentBackfill(
+            f"backfill for {source!r} already running (source_run #{inflight.id}, "
+            f"started {inflight.started_at:%Y-%m-%d %H:%M:%S}Z). Wait for it, or "
+            f"pass force=True / --force if you are sure it is dead.")
+
     adapter = get_adapter(source)
     chunks = adapter.backfill_chunks(cfg, since)
 
@@ -51,6 +96,8 @@ def run_backfill(session: Session, cfg: Config, source: str, since: datetime,
     totals = {"chunks_run": 0, "chunks_skipped": len(chunks) - len(todo),
               "fetched": 0, "new": 0, "chunk_errors": 0, "doc_errors": 0}
     first_error = None
+    run_ok: bool | None = None
+    run_error: str | None = None
     try:
         with PoliteClient() as client:
             for chunk in todo:
@@ -79,32 +126,45 @@ def run_backfill(session: Session, cfg: Config, source: str, since: datetime,
                               "(those are kept): %s", chunk["key"], fetched, exc)
                     session.rollback()   # clear the failed fetch, not the stored docs
                     continue             # no checkpoint: the chunk is incomplete
-                session.add(BackfillCheckpoint(source=source, chunk_key=chunk["key"],
-                                               records_fetched=fetched, records_new=new))
-                session.commit()
+                _checkpoint(session, source, chunk["key"], fetched, new)
                 totals["chunks_run"] += 1
                 totals["fetched"] += fetched
                 totals["new"] += new
                 totals["doc_errors"] += doc_errors
-        run.ok = totals["chunk_errors"] == 0 and totals["doc_errors"] == 0
         problems = []
         if totals["chunk_errors"]:
             problems.append(f"{totals['chunk_errors']} chunks failed; re-run to retry them")
         if totals["doc_errors"]:
             problems.append(f"{totals['doc_errors']} documents failed to store; "
                             f"first: {first_error}")
-        if problems:
-            run.error = "; ".join(problems)
+        run_ok = not problems
+        run_error = "; ".join(problems) or None
     except Exception as exc:  # noqa: BLE001
-        run.ok = False
-        run.error = f"{type(exc).__name__}: {exc}"
+        run_ok = False
+        run_error = f"{type(exc).__name__}: {exc}"
         raise
     finally:
-        run.records_fetched = totals["fetched"]
-        run.records_new = totals["new"]
-        run.finished_at = utcnow()
-        session.add(run)
-        session.commit()
+        # The outcome is held in locals, not written to `run` directly, because
+        # the rollback below would revert pending attribute changes on a
+        # persistent object — and the rollback is required: if the run died on a
+        # database error the session is in a failed transaction, so recording the
+        # outcome would raise PendingRollbackError and destroy the very report
+        # that explains what happened. That is what left two runs stuck at
+        # ok=None with no error after a duplicate checkpoint insert.
+        try:
+            session.rollback()
+        except Exception:  # noqa: BLE001 — best effort; recording matters more
+            log.debug("rollback before recording backfill outcome failed")
+        try:
+            run.records_fetched = totals["fetched"]
+            run.records_new = totals["new"]
+            run.finished_at = utcnow()
+            run.ok = run_ok
+            run.error = run_error
+            session.add(run)
+            session.commit()
+        except Exception as exc:  # noqa: BLE001
+            log.error("could not record backfill outcome for %s: %s", source, exc)
     return totals
 
 

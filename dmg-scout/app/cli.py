@@ -163,6 +163,8 @@ def backfill(
     since: str = typer.Option(..., help="YYYY-MM-DD start of historical window"),
     estimate: bool = typer.Option(False, help="Estimate LLM cost of the pending corpus, run nothing"),
     reset: bool = typer.Option(False, help="Discard checkpoints and refetch every chunk"),
+    force: bool = typer.Option(False, help="Start even if a backfill of this source looks "
+                                          "still running (use only if that run is dead)"),
 ) -> None:
     """Chunked, checkpointed historical pull, one source after another.
 
@@ -177,7 +179,9 @@ def backfill(
     """
     from datetime import datetime as dt
 
-    from app.pipeline.backfill import BACKFILLABLE, estimate_cost, run_backfill
+    from app.pipeline.backfill import (
+        BACKFILLABLE, ConcurrentBackfill, estimate_cost, run_backfill,
+    )
     cfg = load_config()
     if estimate:
         with session_scope() as session:
@@ -197,8 +201,16 @@ def backfill(
     summary: dict[str, dict] = {}
     for name in sources:
         typer.echo(f"--- backfill {name} since {since}")
-        with session_scope() as session:
-            summary[name] = run_backfill(session, cfg, name, since_dt, reset=reset)
+        try:
+            with session_scope() as session:
+                summary[name] = run_backfill(session, cfg, name, since_dt,
+                                             reset=reset, force=force)
+        except ConcurrentBackfill as exc:
+            # Skip this source, keep going: the point is to avoid two processes
+            # racing on it, not to abandon the other sources on the command line.
+            typer.echo(f"[SKIP] {name}: {exc}")
+            summary[name] = {"skipped": "already running"}
+            continue
         typer.echo(json.dumps({name: summary[name]}))
     if len(sources) > 1:
         typer.echo(json.dumps(summary))

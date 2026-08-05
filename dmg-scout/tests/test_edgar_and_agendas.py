@@ -284,8 +284,9 @@ def test_civicplus_backfill_chunks_are_jurisdiction_category_year():
 def test_backfill_source_option_is_repeatable(monkeypatch):
     """`--source a --source b --source c` used to silently run only c."""
     ran = []
+    # **kwargs so this stub survives new run_backfill options (e.g. force=).
     monkeypatch.setattr("app.pipeline.backfill.run_backfill",
-                        lambda session, cfg, name, since, reset=False:
+                        lambda session, cfg, name, since, **kw:
                             (ran.append(name) or {"chunks_run": 0}))
     result = CliRunner().invoke(cli_app, [
         "backfill", "--source", "ceqanet", "--source", "goed", "--source", "edgar",
@@ -296,8 +297,9 @@ def test_backfill_source_option_is_repeatable(monkeypatch):
 
 def test_backfill_source_accepts_comma_separated_and_dedupes(monkeypatch):
     ran = []
+    # **kwargs so this stub survives new run_backfill options (e.g. force=).
     monkeypatch.setattr("app.pipeline.backfill.run_backfill",
-                        lambda session, cfg, name, since, reset=False:
+                        lambda session, cfg, name, since, **kw:
                             (ran.append(name) or {"chunks_run": 0}))
     result = CliRunner().invoke(cli_app, [
         "backfill", "--source", "ceqanet,goed", "--source", "ceqanet",

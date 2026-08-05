@@ -179,3 +179,57 @@ def test_backfill_resume_after_partial_chunk_refetches_but_dedupes(
 
     second = run_backfill(db_session, flaky_cfg, "flaky", since)
     assert second["chunks_skipped"] == 1 and second["chunks_run"] == 0
+
+
+# ---- concurrency + checkpoint idempotency ---------------------------------
+
+def test_second_backfill_of_same_source_is_refused(db_session, flaky_cfg, fast_client):
+    """Two concurrent backfills duplicate every request and race on the
+    checkpoint table. Observed for real: a second run collided on the checkpoint
+    insert and took the whole pass down 20 chunks in."""
+    from app.models import SourceRun
+    from app.pipeline.backfill import ConcurrentBackfill
+
+    db_session.add(SourceRun(source="flaky:backfill"))   # finished_at is None
+    db_session.commit()
+
+    with pytest.raises(ConcurrentBackfill, match="already running"):
+        run_backfill(db_session, flaky_cfg, "flaky", datetime(2024, 8, 1))
+
+    # ...and --force overrides it for a run known to be dead.
+    totals = run_backfill(db_session, flaky_cfg, "flaky", datetime(2024, 8, 1), force=True)
+    assert totals["chunks_run"] == 1
+
+
+def test_duplicate_checkpoint_does_not_kill_the_run(db_session, flaky_cfg, fast_client):
+    """A chunk already checkpointed by a concurrent run must be tolerated."""
+    from app.pipeline.backfill import _checkpoint
+
+    _checkpoint(db_session, "flaky", "only-chunk", 1, 1)
+    _checkpoint(db_session, "flaky", "only-chunk", 1, 1)   # must not raise
+    assert len(db_session.exec(select(BackfillCheckpoint)).all()) == 1
+    # Session still usable afterwards.
+    assert run_backfill(db_session, flaky_cfg, "flaky",
+                        datetime(2024, 8, 1))["chunks_skipped"] == 1
+
+
+def test_database_failure_still_records_the_run_outcome(db_session, flaky_cfg,
+                                                       fast_client, monkeypatch):
+    """The failure handler must not fail. A DB error left the session in a failed
+    transaction, so recording the outcome raised PendingRollbackError and the run
+    stayed at ok=None with no error — the exact opposite of failing loud."""
+    from app.models import SourceRun
+    import app.pipeline.backfill as bf
+
+    def boom(*a, **k):
+        raise RuntimeError("checkpoint exploded")
+
+    monkeypatch.setattr(bf, "_checkpoint", boom)
+    with pytest.raises(RuntimeError, match="checkpoint exploded"):
+        run_backfill(db_session, flaky_cfg, "flaky", datetime(2024, 8, 1))
+
+    run = db_session.exec(
+        select(SourceRun).where(SourceRun.source == "flaky:backfill")).all()[-1]
+    assert run.ok is False, "a crashed run must never be left at ok=None"
+    assert run.finished_at is not None
+    assert "checkpoint exploded" in run.error
