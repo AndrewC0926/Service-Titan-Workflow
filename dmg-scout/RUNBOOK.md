@@ -168,6 +168,52 @@ A crash resumes at the first incomplete chunk. `--reset` refetches everything
 too — a big backfill either raises `llm.daily_budget_usd` temporarily or
 drains over several days. That's a feature.
 
+## How much of a document each stage reads
+
+Triage used to read `text[:6000]`. That meant **144 of 204 documents were classified
+on their first few pages, and 86% of all stored text never reached triage at all.**
+An 82,724-char Storey County commission packet was ruled "no specific building
+project" on its first 7% — in the county that holds the Tahoe Reno Industrial
+Center. Re-triaging the 48 `other` documents over 20,000 chars with a full read
+flipped **11 of them (23%)**, seven being Storey County packets naming Vantage NV12,
+a data center campus, PR TX 1, Redwood Battery Materials, and Asia Union.
+
+So triage now reads the whole document up to `llm.triage_max_chars` (60,000) and
+above that takes the head plus evenly spaced excerpts through to the last character.
+Deliberately **not** extraction's section matcher: that targets EIR and SEC
+headings, which a county agenda has none of, so it falls to head+tail and leaves
+the middle — where agenda items live — just as invisible.
+
+Coverage cannot be complete at a fixed budget (a 400,000-char prospectus gets
+~15%), so every document records `meta['triage_coverage']`, and `run_triage`
+returns `irrelevant_partial_read`. A negative verdict reached on 15% of a filing is
+a weaker claim than one reached on all of it, and the row carries the difference:
+
+```sql
+-- dropped documents that were only partly read: the ones worth revisiting
+SELECT id, source, length(raw_text), meta->>'triage_coverage', title
+FROM raw_documents WHERE triage_result='irrelevant'
+  AND (meta->>'triage_coverage')::float < 1.0 ORDER BY length(raw_text) DESC;
+```
+
+`scout doc-stats --fallbacks` lists documents where extraction's heading match
+found nothing.
+
+**Extraction had the same disease, one layer down.** Heading matching would stop
+early and leave most of its budget unspent — 8,716 chars of a 65,291-char packet
+against a 60,000 ceiling, 13%, while triage read 95% of the same file and correctly
+reported a data center campus in it. It now tops up with a spanning sample whenever
+matching fills less than `llm.section_topup_below_fraction` of the budget, which
+took those documents to 74-99%. Unused budget is not a saving; it is a dropped
+project.
+
+**What remains is architectural, not a reading problem.** A county agenda packet
+holds many projects and a signal holds one, so on a packet naming several the
+extractor correctly returns nulls rather than picking one — three of the recovered
+Storey packets still produce no project name at 85-99% coverage. Fixing that means
+letting one document yield several signals, which is a schema change, not a prompt
+change.
+
 ## Two boards, one pipeline
 
 Triage classifies rather than filters. Every document comes back `data_center`,

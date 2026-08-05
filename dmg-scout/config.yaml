@@ -12,11 +12,25 @@ llm:
   triage_model: "claude-haiku-4-5-20251001"
   extract_model: "claude-sonnet-4-6"
   adjudicate_model: "claude-sonnet-4-6"
-  triage_max_chars: 6000          # chars of document text sent to triage
+  # Triage reads the WHOLE document up to this, then falls to a spanning sample.
+  # Was 6000, which meant 144 of 204 documents were classified on their first few
+  # pages and 86% of all stored text never reached triage at all — an 82,724-char
+  # Storey County packet was ruled "no building project" on its first 7%. Relevance
+  # is a question about the whole document, so this is deliberately as wide as the
+  # extraction budget; Haiku at $1/MTok makes that affordable.
+  triage_max_chars: 60000
+  triage_head_chars: 8000              # always-included head, when sampling kicks in
+  triage_sample_window_chars: 2000     # size of each evenly spaced excerpt
   extract_max_chars: 60000        # ceiling on chars sent to Sonnet per document
   # Section-aware chunking for long docs (EIRs): head + targeted sections.
   section_head_chars: 8000        # always include the document head
   section_max_chars: 15000        # cap per captured section
+  # If heading matching fills less than this fraction of extract_max_chars, top the
+  # rest up with excerpts spanning the document. The patterns target EIR and SEC
+  # headings, so a county agenda packet matched almost nothing and extraction sent
+  # 13% of a document triage had read 95% of. Unused budget is a dropped project.
+  section_topup_below_fraction: 0.8
+  section_topup_window_chars: 2500
   # $/MTok, used for spend logging and backfill estimates. Update if pricing changes.
   prices:
     "claude-haiku-4-5-20251001": {in: 1.0, out: 5.0}

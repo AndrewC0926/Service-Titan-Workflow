@@ -146,12 +146,32 @@ def _tool_call(model: str, system: str, tool: dict, user_content: str,
 
 
 def triage(text: str, title: str = "", source: str = "") -> dict:
-    """Returns {relevant, names_location, reason}. Cheap Haiku call."""
+    """Returns {category, names_location, reason}. Cheap Haiku call.
+
+    Reads the whole document where it fits and a spanning sample where it does
+    not — never just the head. See app.sections.select_triage_text: a relevance
+    question is about the whole document, and truncating to the first 6,000 chars
+    silently answered it for 144 of 204 documents on a fraction of the text.
+    """
+    from app.sections import select_triage_text
     cfg = load_config()
     model = cfg.get("llm.triage_model")
-    max_chars = cfg.get("llm.triage_max_chars", 6000)
-    content = f"Source: {source}\nTitle: {title}\n\nDocument text (may be truncated):\n{text[:max_chars]}"
-    return _tool_call(model, TRIAGE_SYSTEM, TRIAGE_TOOL, content, max_tokens=512, stage="triage")
+    selection = select_triage_text(text, cfg)
+    if selection.chunked:
+        log.info("triage sampling: %d -> %d chars spanning the document",
+                 selection.original_chars, selection.selected_chars)
+    preface = ("Document text:" if not selection.chunked else
+               "Evenly spaced excerpts spanning a long document (the head, then samples "
+               "through to the end). Judge on what these show; do not assume the gaps "
+               "are empty:")
+    content = f"Source: {source}\nTitle: {title}\n\n{preface}\n{selection.text}"
+    out = _tool_call(model, TRIAGE_SYSTEM, TRIAGE_TOOL, content, max_tokens=512, stage="triage")
+    # Handed back so the caller can record how much of the document this verdict
+    # was actually based on. A negative call on 15% of a filing is not the same
+    # claim as one on all of it, and the difference has to survive to the row.
+    out["_coverage"] = round(selection.coverage, 3)
+    out["_original_chars"] = selection.original_chars
+    return out
 
 
 def extract(text: str, title: str = "", source: str = "", url: str = "") -> dict:

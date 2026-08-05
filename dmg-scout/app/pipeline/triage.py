@@ -26,7 +26,8 @@ def run_triage(session: Session, cfg: Config, limit: int = 200) -> dict:
         .limit(limit)
     ).all()
 
-    stats = {"data_center": 0, "industrial": 0, "irrelevant": 0, "error": 0, "skipped": 0}
+    stats = {"data_center": 0, "industrial": 0, "irrelevant": 0, "error": 0, "skipped": 0,
+             "irrelevant_partial_read": 0}
     for doc in pending:
         if doc.meta.get("skip_triage"):
             doc.triage_result = TriageResult.relevant
@@ -65,8 +66,14 @@ def run_triage(session: Session, cfg: Config, limit: int = 200) -> dict:
         relevant = category is not Category.other
         doc.triage_result = TriageResult.relevant if relevant else TriageResult.irrelevant
         doc.triage_reason = str(verdict.get("reason", ""))[:500]
-        doc.meta = {**(doc.meta or {}), "triage_category": category.value}
+        coverage = verdict.get("_coverage", 1.0)
+        doc.meta = {**(doc.meta or {}), "triage_category": category.value,
+                    "triage_coverage": coverage}
         stats[category.value if relevant else "irrelevant"] += 1
+        # A dropped document that was only partly read is the one worth revisiting,
+        # so make it countable instead of leaving it to be rediscovered by hand.
+        if not relevant and coverage < 1.0:
+            stats["irrelevant_partial_read"] += 1
         session.add(doc)
         session.commit()
     session.commit()
