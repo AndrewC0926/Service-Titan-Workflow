@@ -41,7 +41,7 @@ from selectolax.parser import HTMLParser
 
 from app.config import Config
 from app.http import PoliteClient
-from app.models import SignalType
+from app.models import SignalType, utcnow
 from app.sources.base import (
     FetchedDoc, SourceAdapter, SourceFailure, TargetResult, fanout_verify, keyword_match,
 )
@@ -171,7 +171,7 @@ class CeqanetAdapter(SourceAdapter):
     def backfill_chunks(self, cfg: Config, since: datetime) -> list[dict]:
         """One chunk per county per calendar month — bounded responses and a
         stable resume key."""
-        until = datetime.utcnow()
+        until = utcnow()
         return [
             {
                 "key": f"{county}:{start:%Y-%m}",
@@ -195,7 +195,7 @@ class CeqanetAdapter(SourceAdapter):
               since: datetime | None = None) -> Iterator[FetchedDoc]:
         src = cfg.source(self.name)
         if since is None:
-            since = datetime.utcnow() - timedelta(days=int(src.get("lookback_days", 30)))
+            since = utcnow() - timedelta(days=int(src.get("lookback_days", 30)))
         yield from self._fetch_counties(cfg, client, since, None, self._counties(cfg))
 
     def _fetch_counties(self, cfg: Config, client: PoliteClient, since: datetime,
@@ -228,7 +228,7 @@ class CeqanetAdapter(SourceAdapter):
         legitimately empty — but 0 rows scanned means the endpoint moved again."""
         src = cfg.source(self.name)
         base = src.get("base_url", "https://ceqanet.lci.ca.gov").rstrip("/")
-        since = datetime.utcnow() - timedelta(days=int(src.get("lookback_days", 30)))
+        since = utcnow() - timedelta(days=int(src.get("lookback_days", 30)))
         wanted = self._wanted_types(cfg)
 
         results = []

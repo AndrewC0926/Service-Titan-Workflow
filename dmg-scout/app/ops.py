@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import shutil
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import httpx
 from sqlmodel import select
@@ -38,7 +38,7 @@ def ping_healthcheck(success: bool = True) -> bool:
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         entry = {
-            "ts": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "ts": utcnow().isoformat(timespec="seconds") + "Z",
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),

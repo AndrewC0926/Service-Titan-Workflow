@@ -16,7 +16,7 @@ from sqlmodel import Session, select
 from app.config import Config
 from app.http import PoliteClient
 from app.models import BackfillCheckpoint, SourceRun, TriageResult, RawDocument, utcnow
-from app.pipeline.fetch import _store
+from app.pipeline.fetch import store_document
 from app.sources import get_adapter
 
 log = logging.getLogger(__name__)
@@ -49,31 +49,52 @@ def run_backfill(session: Session, cfg: Config, source: str, since: datetime,
     session.add(run)
     session.commit()
     totals = {"chunks_run": 0, "chunks_skipped": len(chunks) - len(todo),
-              "fetched": 0, "new": 0, "chunk_errors": 0}
+              "fetched": 0, "new": 0, "chunk_errors": 0, "doc_errors": 0}
+    first_error = None
     try:
         with PoliteClient() as client:
             for chunk in todo:
-                fetched = new = 0
+                fetched = new = doc_errors = 0
+                # Each document lands in its own committed transaction, so a
+                # chunk that dies halfway keeps everything it already fetched.
+                # GOED is the worst case: its whole crawl is one chunk, and the
+                # old shared transaction meant a single NUL-carrying PDF rolled
+                # back the entire pass while the run still reported progress.
                 try:
                     for doc in adapter.fetch_chunk(cfg, client, since, chunk):
                         fetched += 1
-                        new += _store(session, doc)
-                        if fetched % 25 == 0:
-                            session.commit()
-                except Exception as exc:  # noqa: BLE001 — chunk fails, others continue, no checkpoint
+                        stored, err = store_document(session, doc)
+                        new += stored
+                        if err:
+                            doc_errors += 1
+                            first_error = first_error or f"{doc.source_uid}: {err}"
+                            log.warning("backfill chunk %s: document %s failed to store: %s",
+                                        chunk["key"], doc.source_uid, err)
+                except Exception as exc:  # noqa: BLE001 — chunk fails, others continue
                     totals["chunk_errors"] += 1
-                    log.error("backfill chunk %s failed: %s", chunk["key"], exc)
-                    session.rollback()
-                    continue
+                    totals["fetched"] += fetched
+                    totals["new"] += new
+                    totals["doc_errors"] += doc_errors
+                    log.error("backfill chunk %s failed after %d documents "
+                              "(those are kept): %s", chunk["key"], fetched, exc)
+                    session.rollback()   # clear the failed fetch, not the stored docs
+                    continue             # no checkpoint: the chunk is incomplete
                 session.add(BackfillCheckpoint(source=source, chunk_key=chunk["key"],
                                                records_fetched=fetched, records_new=new))
                 session.commit()
                 totals["chunks_run"] += 1
                 totals["fetched"] += fetched
                 totals["new"] += new
-        run.ok = totals["chunk_errors"] == 0
+                totals["doc_errors"] += doc_errors
+        run.ok = totals["chunk_errors"] == 0 and totals["doc_errors"] == 0
+        problems = []
         if totals["chunk_errors"]:
-            run.error = f"{totals['chunk_errors']} chunks failed; re-run to retry them"
+            problems.append(f"{totals['chunk_errors']} chunks failed; re-run to retry them")
+        if totals["doc_errors"]:
+            problems.append(f"{totals['doc_errors']} documents failed to store; "
+                            f"first: {first_error}")
+        if problems:
+            run.error = "; ".join(problems)
     except Exception as exc:  # noqa: BLE001
         run.ok = False
         run.error = f"{type(exc).__name__}: {exc}"

@@ -33,7 +33,7 @@ from selectolax.parser import HTMLParser
 
 from app.config import Config
 from app.http import PoliteClient
-from app.models import SignalType
+from app.models import SignalType, utcnow
 from app.sources.base import (
     FetchedDoc, SourceAdapter, SourceFailure, TargetResult, fanout_verify, keyword_match,
 )
@@ -74,7 +74,7 @@ class PrimeGovAdapter(SourceAdapter):
         archived = client.get_json(
             f"{base}/api/v2/PublicPortal/ListArchivedMeetings", params={"year": year})
         meetings = list(archived) if isinstance(archived, list) else []
-        if year == datetime.utcnow().year:
+        if year == utcnow().year:
             upcoming = client.get_json(f"{base}/api/v2/PublicPortal/ListUpcomingMeetings")
             if isinstance(upcoming, list):
                 seen = {m.get("id") for m in meetings}
@@ -82,7 +82,7 @@ class PrimeGovAdapter(SourceAdapter):
         return meetings
 
     def _years(self, since: datetime) -> list[int]:
-        return list(range(since.year, datetime.utcnow().year + 1))
+        return list(range(since.year, utcnow().year + 1))
 
     def backfill_chunks(self, cfg: Config, since: datetime) -> list[dict]:
         return [
@@ -102,7 +102,7 @@ class PrimeGovAdapter(SourceAdapter):
               since: datetime | None = None) -> Iterator[FetchedDoc]:
         src = cfg.source(self.name)
         if since is None:
-            since = datetime.utcnow() - timedelta(days=int(src.get("lookback_days", 60)))
+            since = utcnow() - timedelta(days=int(src.get("lookback_days", 60)))
 
         results: list[TargetResult] = []
         for juris in self._jurisdictions(cfg):
@@ -193,7 +193,7 @@ class PrimeGovAdapter(SourceAdapter):
         a usable agenda template — a portal that lists meetings but exposes no
         templates would otherwise look healthy while yielding nothing."""
         results: list[TargetResult] = []
-        year = datetime.utcnow().year
+        year = utcnow().year
         for juris in self._jurisdictions(cfg):
             base = juris["base_url"].rstrip("/")
             wanted = self._committee_filter(juris)

@@ -43,13 +43,25 @@ def run_fetch(session: Session, cfg: Config, only_source: str | None = None) -> 
         with PoliteClient(recorder=_http_recorder(session, run)) as client:
             try:
                 adapter = get_adapter(name)
-                fetched = new = 0
+                fetched = new = doc_errors = 0
+                first_error = None
                 for doc in adapter.fetch(cfg, client):
                     fetched += 1
-                    new += _store(session, doc)
-                    if fetched % 25 == 0:
-                        session.commit()
-                run.records_fetched, run.records_new, run.ok = fetched, new, True
+                    stored, err = store_document(session, doc)
+                    new += stored
+                    if err:
+                        doc_errors += 1
+                        first_error = first_error or f"{doc.source_uid}: {err}"
+                        log.warning("source %s: document %s failed to store: %s",
+                                    name, doc.source_uid, err)
+                run.records_fetched, run.records_new = fetched, new
+                # Unstorable documents are a real defect (bad bytes, oversized
+                # field), and they are almost always deterministic — so surface
+                # them loudly rather than letting a green run hide them.
+                run.ok = doc_errors == 0
+                if doc_errors:
+                    run.error = (f"{doc_errors}/{fetched} documents failed to store; "
+                                 f"first: {first_error}")
             except Exception as exc:  # noqa: BLE001 — recorded, surfaced in digest + dashboard
                 run.ok = False
                 run.error = f"{type(exc).__name__}: {exc}\n{traceback.format_exc(limit=5)}"
@@ -59,6 +71,32 @@ def run_fetch(session: Session, cfg: Config, only_source: str | None = None) -> 
         session.commit()
         runs[name] = run
     return runs
+
+
+def store_document(session: Session, doc) -> tuple[int, str | None]:
+    """Store one document in its own savepoint, committing immediately.
+
+    Returns (1 if new/changed else 0, error string or None).
+
+    One malformed document must cost exactly one document. The old loop stored
+    into a shared transaction and committed every 25, then called
+    session.rollback() when anything raised — so a single PDF carrying NUL bytes
+    discarded up to 24 healthy siblings, and because GOED's whole crawl is one
+    chunk it discarded the entire pass. The run still looked alive the whole time.
+
+    A SAVEPOINT is what makes this recoverable rather than merely smaller-grained:
+    once Postgres rejects a statement the transaction is aborted and every later
+    statement fails too, so the bad document has to be rolled back individually
+    before the loop can continue.
+    """
+    try:
+        with session.begin_nested():
+            n = _store(session, doc)
+        session.commit()
+        return n, None
+    except Exception as exc:  # noqa: BLE001 — one bad document, not one bad run
+        session.rollback()
+        return 0, f"{type(exc).__name__}: {exc}"
 
 
 def _store(session: Session, doc) -> int:

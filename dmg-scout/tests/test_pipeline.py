@@ -1,11 +1,10 @@
 """Pipeline logic tests: dedupe idempotency, resolution, size/score, digest dedupe."""
-from datetime import datetime
 
 from sqlmodel import select
 
 from app.models import (
     DigestLog, MatchCandidate, Project, ProjectSignal, RawDocument, Signal, SignalType,
-    SourceRun, Stage, TriageResult, Window,
+    SourceRun, Stage, TriageResult, Window, utcnow,
 )
 from app.pipeline.fetch import _store
 from app.pipeline.notify import build_digest
@@ -111,7 +110,7 @@ def test_size_score_end_to_end(db_session, cfg):
 
 
 def test_scoring_integration_small_early_beats_big_late(db_session, cfg):
-    now = datetime.utcnow()
+    now = utcnow()
     _signal(db_session, project_name="Big Late DC", county="Clark", state="NV",
             mw_it=500, stage=Stage.construction, signal_type=SignalType.bid_invite,
             event_date=now)

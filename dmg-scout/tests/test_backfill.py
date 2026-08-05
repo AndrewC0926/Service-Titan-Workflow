@@ -4,7 +4,7 @@ import pytest
 import respx
 from sqlmodel import select
 
-from app.models import BackfillCheckpoint, RawDocument
+from app.models import BackfillCheckpoint, RawDocument, utcnow
 from app.pipeline.backfill import estimate_cost, run_backfill
 from app.sources.ceqanet import CeqanetAdapter
 from app.sources.edgar import EdgarAdapter
@@ -56,7 +56,7 @@ def test_backfill_checkpoints_and_resumes(db_session, cfg, fixtures_dir, fast_cl
 
     # Short window keeps the chunk count small; the exact count is derived from
     # the adapter so this does not drift as the calendar moves.
-    since = datetime.utcnow().replace(day=1) - timedelta(days=40)
+    since = utcnow().replace(day=1) - timedelta(days=40)
     n_chunks = len(CeqanetAdapter().backfill_chunks(cfg, since))
     assert n_chunks > 0
 
@@ -90,7 +90,7 @@ def test_failed_chunk_not_checkpointed(db_session, cfg, fast_client):
         return httpx.Response(200, text="SCH Number,Title\n")
 
     respx.get(url__startswith="https://ceqanet.lci.ca.gov/Search").mock(side_effect=flaky)
-    since = datetime.utcnow().replace(day=1) - timedelta(days=40)
+    since = utcnow().replace(day=1) - timedelta(days=40)
     n_chunks = len(CeqanetAdapter().backfill_chunks(cfg, since))
     assert n_chunks > 3
 

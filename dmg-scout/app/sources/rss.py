@@ -3,14 +3,13 @@ from __future__ import annotations
 
 import calendar
 import logging
-from datetime import datetime
 from typing import Iterator
 
 import feedparser
 
 from app.config import Config
 from app.http import PoliteClient
-from app.models import SignalType
+from app.models import SignalType, from_unix
 from app.sources.base import FetchedDoc, SourceAdapter, SourceFailure, keyword_match
 
 log = logging.getLogger(__name__)
@@ -51,7 +50,7 @@ class RssAdapter(SourceAdapter):
                 for key in ("published_parsed", "updated_parsed"):
                     t = entry.get(key)
                     if t:
-                        published = datetime.utcfromtimestamp(calendar.timegm(t))
+                        published = from_unix(calendar.timegm(t))
                         break
                 yield FetchedDoc(
                     source=self.name,

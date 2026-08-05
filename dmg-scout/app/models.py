@@ -10,7 +10,25 @@ from sqlmodel import Field, SQLModel
 
 
 def utcnow() -> datetime:
+    """Current UTC time, as the one clock the whole codebase uses.
+
+    Computed from the timezone-aware `datetime.now(timezone.utc)` — never the
+    deprecated `datetime.utcnow()` — then stripped back to naive.
+
+    Naive is deliberate, not an oversight. Every timestamp column here is
+    TIMESTAMP WITHOUT TIME ZONE, and every date an adapter parses out of a
+    source (`strptime` on a CEQAnet "Received" date, a Legistar
+    MatterIntroDate, an AgendaCenter MMDDYYYY slug) is naive too. Returning an
+    aware datetime would make `row_date >= since` raise TypeError across the
+    adapters and would need a timestamptz migration to store. So the rule is:
+    one clock, UTC, naive, and it lives here.
+    """
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def from_unix(seconds: float) -> datetime:
+    """Naive-UTC datetime from a Unix timestamp (replaces utcfromtimestamp)."""
+    return datetime.fromtimestamp(seconds, timezone.utc).replace(tzinfo=None)
 
 
 # Statuses still worth watching/scoring. Terminal: won | lost | dead | archived.

@@ -32,7 +32,7 @@ from typing import Iterator
 
 from app.config import Config
 from app.http import PoliteClient
-from app.models import SignalType
+from app.models import SignalType, utcnow
 from app.pdftext import pdf_to_text
 from app.sources.base import (
     FetchedDoc, SourceAdapter, SourceFailure, TargetResult, fanout_verify, keyword_match,
@@ -109,7 +109,7 @@ class CivicPlusAdapter(SourceAdapter):
         return out
 
     def _years(self, since: datetime) -> list[int]:
-        return list(range(since.year, datetime.utcnow().year + 1))
+        return list(range(since.year, utcnow().year + 1))
 
     def backfill_chunks(self, cfg: Config, since: datetime) -> list[dict]:
         """One chunk per jurisdiction per category per year."""
@@ -136,7 +136,7 @@ class CivicPlusAdapter(SourceAdapter):
               since: datetime | None = None) -> Iterator[FetchedDoc]:
         src = cfg.source(self.name)
         if since is None:
-            since = datetime.utcnow() - timedelta(days=int(src.get("lookback_days", 60)))
+            since = utcnow() - timedelta(days=int(src.get("lookback_days", 60)))
 
         results: list[TargetResult] = []
         # A document is yielded once per run even if it appears under more than
@@ -229,7 +229,7 @@ class CivicPlusAdapter(SourceAdapter):
         otherwise look perfectly healthy.
         """
         results: list[TargetResult] = []
-        year = datetime.utcnow().year
+        year = utcnow().year
         kinds = self._kinds(cfg)
         floor = self.min_doc_chars(cfg)
         max_pages = int(cfg.source(self.name).get("max_pdf_pages", 40))

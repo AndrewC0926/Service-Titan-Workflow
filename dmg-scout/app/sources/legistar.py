@@ -29,7 +29,7 @@ from typing import Iterator
 
 from app.config import Config
 from app.http import PoliteClient
-from app.models import SignalType
+from app.models import SignalType, utcnow
 from app.sources.base import (
     FetchedDoc, SourceAdapter, SourceFailure, TargetResult, fanout_verify, keyword_match,
 )
@@ -70,7 +70,7 @@ class LegistarAdapter(SourceAdapter):
         if since is not None:
             return since
         days = int(cfg.source(self.name).get("lookback_days", 21))
-        return datetime.utcnow() - timedelta(days=days)
+        return utcnow() - timedelta(days=days)
 
     def _probe(self, cfg: Config, client: PoliteClient, api_base: str,
                entry: dict, since: datetime) -> tuple[TargetResult, list[FetchedDoc]]:

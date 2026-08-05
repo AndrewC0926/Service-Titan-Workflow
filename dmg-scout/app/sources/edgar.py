@@ -42,7 +42,7 @@ from selectolax.parser import HTMLParser
 
 from app.config import Config
 from app.http import PoliteClient
-from app.models import SignalType
+from app.models import SignalType, utcnow
 from app.sources.base import FetchedDoc, SourceAdapter, SourceFailure
 
 log = logging.getLogger(__name__)
@@ -112,7 +112,7 @@ class EdgarAdapter(SourceAdapter):
         """One chunk per calendar month from `since` to now."""
         chunks = []
         cursor = since.replace(day=1)
-        now = datetime.utcnow()
+        now = utcnow()
         while cursor <= now:
             nxt = (cursor.replace(day=28) + timedelta(days=4)).replace(day=1)
             chunks.append({
@@ -131,9 +131,9 @@ class EdgarAdapter(SourceAdapter):
               since: datetime | None = None) -> Iterator[FetchedDoc]:
         src = cfg.source(self.name)
         if since is None:
-            since = datetime.utcnow() - timedelta(days=int(src.get("lookback_days", 14)))
+            since = utcnow() - timedelta(days=int(src.get("lookback_days", 14)))
         yield from self._fetch_range(cfg, client, since.strftime("%Y-%m-%d"),
-                                     datetime.utcnow().strftime("%Y-%m-%d"))
+                                     utcnow().strftime("%Y-%m-%d"))
 
     # ---- fetching --------------------------------------------------------
 

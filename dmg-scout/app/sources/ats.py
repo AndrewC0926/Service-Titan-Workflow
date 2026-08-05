@@ -31,7 +31,7 @@ from selectolax.parser import HTMLParser
 
 from app.config import Config
 from app.http import PoliteClient
-from app.models import SignalType
+from app.models import SignalType, from_unix
 from app.sources.base import (
     FetchedDoc, SourceAdapter, SourceFailure, TargetResult, fanout_verify,
 )
@@ -168,7 +168,7 @@ class AtsAdapter(SourceAdapter):
             published = None
             ts = job.get("createdAt")
             if isinstance(ts, (int, float)):
-                published = datetime.utcfromtimestamp(ts / 1000.0)
+                published = from_unix(ts / 1000.0)
             docs.append(self._emit(cname, group, f"lever:{slug}:{job.get('id')}",
                                    job.get("hostedUrl", url), title, loc, body, geo, published))
         return len(data), docs

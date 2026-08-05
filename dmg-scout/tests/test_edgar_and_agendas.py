@@ -10,14 +10,13 @@ Every test here pins a defect found in the first real backfill:
   * `--source` was a single string, so passing it three times ran only the last.
 """
 import httpx
-import pytest
 import respx
 from typer.testing import CliRunner
 
 from app.cli import app as cli_app
 from app.config import Config
 from app.http import PoliteClient
-from app.models import SignalType
+from app.models import SignalType, utcnow
 from app.sources.base import scrub
 from app.sources.civicplus import CivicPlusAdapter
 from app.sources.edgar import EdgarAdapter, filing_to_text
@@ -277,7 +276,7 @@ def test_civicplus_backfill_chunks_are_jurisdiction_category_year():
     chunks = CivicPlusAdapter().backfill_chunks(_civicplus_cfg(), datetime(2024, 1, 1))
     keys = [c["key"] for c in chunks]
     assert "Storey County, NV:4:2024" in keys
-    assert len(chunks) == len(range(2024, datetime.utcnow().year + 1))
+    assert len(chunks) == len(range(2024, utcnow().year + 1))
 
 
 # ---- CLI: repeatable --source ---------------------------------------------
