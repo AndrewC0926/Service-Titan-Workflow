@@ -8,6 +8,10 @@ from typing import Any
 
 import yaml
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 CONFIG_PATH_ENV = "SCOUT_CONFIG"
 DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "config.yaml"
 
