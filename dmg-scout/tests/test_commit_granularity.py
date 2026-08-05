@@ -233,3 +233,38 @@ def test_database_failure_still_records_the_run_outcome(db_session, flaky_cfg,
     assert run.ok is False, "a crashed run must never be left at ok=None"
     assert run.finished_at is not None
     assert "checkpoint exploded" in run.error
+
+
+def test_a_killed_run_does_not_wedge_the_source_forever(db_session, flaky_cfg, fast_client):
+    """A run killed by SIGKILL never sets finished_at. If the concurrency guard
+    treated that as 'still running' the source would be blocked permanently and
+    everyone would learn to pass --force reflexively."""
+    from datetime import timedelta
+
+    from app.models import SourceRun, utcnow
+
+    corpse = SourceRun(source="flaky:backfill")
+    corpse.started_at = utcnow() - timedelta(hours=48)
+    db_session.add(corpse)
+    db_session.commit()
+
+    # No --force needed: the stale run is recognised as dead.
+    assert run_backfill(db_session, flaky_cfg, "flaky",
+                        datetime(2024, 8, 1))["chunks_run"] == 1
+
+
+def test_a_recent_unfinished_run_still_blocks(db_session, flaky_cfg, fast_client):
+    """The guard must still catch genuine overlap, which is a minutes-scale
+    problem — that is the case that actually corrupted a run."""
+    from datetime import timedelta
+
+    from app.models import SourceRun, utcnow
+    from app.pipeline.backfill import ConcurrentBackfill
+
+    live = SourceRun(source="flaky:backfill")
+    live.started_at = utcnow() - timedelta(minutes=4)
+    db_session.add(live)
+    db_session.commit()
+
+    with pytest.raises(ConcurrentBackfill, match="already running"):
+        run_backfill(db_session, flaky_cfg, "flaky", datetime(2024, 8, 1))

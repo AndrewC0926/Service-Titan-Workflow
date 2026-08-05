@@ -49,14 +49,36 @@ def _checkpoint(session: Session, source: str, chunk_key: str,
                     chunk_key, source)
 
 
-def _running_backfill(session: Session, source: str) -> SourceRun | None:
-    """An unfinished backfill run for this source, if one exists."""
-    return session.exec(
+# A run killed by SIGKILL (a `timeout`, an OOM, a container restart) never gets
+# to set finished_at, so it stays "unfinished" forever. Without an age limit the
+# concurrency guard below would wedge that source permanently and train everyone
+# to pass --force reflexively, which defeats the guard. Real overlap is a
+# minutes-scale problem; anything older than this is a corpse, not a competitor.
+STALE_RUN_HOURS = 12
+
+
+def _running_backfill(session: Session, source: str,
+                      stale_after_hours: float = STALE_RUN_HOURS) -> SourceRun | None:
+    """A *live* unfinished backfill run for this source, if one exists.
+
+    Unfinished runs older than `stale_after_hours` are treated as dead and do not
+    block a new run.
+    """
+    run = session.exec(
         select(SourceRun)
         .where(SourceRun.source == f"{source}:backfill",
                SourceRun.finished_at.is_(None))
         .order_by(SourceRun.id.desc())
     ).first()
+    if run is None:
+        return None
+    age_hours = (utcnow() - run.started_at).total_seconds() / 3600
+    if age_hours > stale_after_hours:
+        log.warning("ignoring source_run #%d for %s: unfinished but %.1fh old, "
+                    "so it was almost certainly killed rather than still running",
+                    run.id, source, age_hours)
+        return None
+    return run
 
 
 def run_backfill(session: Session, cfg: Config, source: str, since: datetime,
