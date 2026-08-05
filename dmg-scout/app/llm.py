@@ -14,11 +14,32 @@ from app.schemas import EXTRACTION_JSON_SCHEMA, coerce_extraction
 log = logging.getLogger(__name__)
 
 TRIAGE_SYSTEM = """You triage documents for a data center market-intelligence pipeline.
-Answer whether the document is about a data center project (planned, proposed, permitted,
-or under construction) OR about a company/agency action that directly implies one
-(tax abatement application, generator permit, large utility load request, data-center
-job posting tied to a location). General industry news with no specific project or
-location is NOT relevant. Never guess."""
+
+Relevant means the document concerns a specific DATA CENTER — a facility whose primary
+purpose is housing and operating computing equipment at scale (data center, colocation,
+hyperscale or AI compute campus, enterprise server room, cryptocurrency mining
+operation) — either the project itself (planned, proposed, permitted, under
+construction, expanding, or being leased) or an action directly about one (tax
+abatement application, generator or air permit, large utility load request, agenda
+item, data-center job posting tied to a location).
+
+The kind of document never makes it relevant on its own. A tax abatement application,
+a permit, or an agenda item counts only if the facility it concerns is a data center.
+
+Decisive test: the facility must OPERATE computing capacity. If its purpose is making,
+assembling, storing, shipping, or selling equipment — or housing staff — it is NOT
+relevant, however technical the company. Not relevant, whoever the applicant is:
+- manufacturing, assembly, warehouse, distribution, fulfillment or logistics
+  facilities, INCLUDING plants that build servers, computing hardware or mining rigs
+- headquarters, offices, R&D and engineering space for technology companies
+- rules about data centers in general with no specific project: moratoria,
+  prohibitions, zoning or general-plan amendments
+- telecom infrastructure that is not a data center: cell towers, two-way radio
+  systems, fiber or cable routes
+- general industry news naming no specific project or location
+
+Never guess. If the document does not make clear that a data center is involved, it is
+not relevant."""
 
 TRIAGE_TOOL = {
     "name": "triage_result",
