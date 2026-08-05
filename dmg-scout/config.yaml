@@ -35,7 +35,21 @@ llm:
   prices:
     "claude-haiku-4-5-20251001": {in: 1.0, out: 5.0}
     "claude-sonnet-4-6": {in: 3.0, out: 15.0}
-  assumed_triage_pass_rate: 0.3   # for cost estimates only
+  # Cost-estimate constants, all MEASURED rather than assumed. The estimator ran
+  # ~39% low for a whole session on rules of thumb: 4.0 chars/token is an
+  # English-prose figure and these are PDF-extracted government filings (dense
+  # tables, numbers, addresses), and the prompt overheads ignored that the tool
+  # schemas ride along on every call. Overheads come from count_tokens against the
+  # live prompts; chars/token and output are fitted over 204 triage and 80 extract
+  # calls. Re-measure after any prompt change — `scout backfill --estimate` is only
+  # as honest as these.
+  assumed_triage_pass_rate: 0.39  # observed corpus-wide; was 0.30 assumed
+  chars_per_token: 3.7            # measured; 4.0 is prose, not filings
+  triage_prompt_overhead_tokens: 1087    # system + tool schema + scaffold
+  extract_prompt_overhead_tokens: 1462   # EXTRACTION_JSON_SCHEMA is most of this
+  triage_output_tokens: 95        # measured per document
+  extract_output_tokens: 624      # measured; the old 900 overstated it
+  adjudicate_cost_per_signal: 0.0034  # resolve was absent from the estimate entirely
   daily_budget_usd: 40.0          # hard kill switch: LLM calls stop past this
                                   # raised from 15 for the CEQAnet re-backfill;
                                   # drop back to 15 once backfill week is over
@@ -52,7 +66,9 @@ territories:
     counties: [Tijuana, Mexicali]
 
 keywords:
-  # Any of these marks a document as worth triaging.
+  # The pre-LLM fetch gate. A row matching NEITHER list is never stored, so a term
+  # missing here makes a project invisible to the whole pipeline — this is the
+  # narrowest funnel in the system, ahead of triage.
   data_center:
     - data center
     - datacenter
@@ -62,6 +78,23 @@ keywords:
     - server farm
     - mission critical facility
     - technology campus
+  # Kept SEPARATE from data_center so the two boards stay distinct and either list
+  # can be widened without disturbing the other. Deliberately tight: CEQAnet returns
+  # every environmental filing in a county, so a loose term like "industrial" alone
+  # would pull in road projects, remediation and general-plan updates. Widen from
+  # observed misses, not from guesses.
+  industrial:
+    - warehouse
+    - distribution center
+    - distribution centre
+    - fulfillment center
+    - logistics center
+    - manufacturing facility
+    - manufacturing plant
+    - light industrial
+    - industrial park
+    - business park
+    - cold storage
   supporting:
     - megawatt
     - substation

@@ -200,11 +200,16 @@ def estimate_cost(session: Session, cfg: Config, assumed_docs: dict[str, int] | 
     prices = cfg.get("llm.prices", {})
     triage_model = cfg.get("llm.triage_model")
     extract_model = cfg.get("llm.extract_model")
-    triage_chars = cfg.get("llm.triage_max_chars", 6000)
     extract_chars = cfg.get("llm.extract_max_chars", 60000)
-    pass_rate = cfg.get("llm.assumed_triage_pass_rate", 0.3)
+    pass_rate = cfg.get("llm.assumed_triage_pass_rate", 0.39)
+    cpt = cfg.get("llm.chars_per_token", 3.7)
+    ovh_t = cfg.get("llm.triage_prompt_overhead_tokens", 1087)
+    ovh_e = cfg.get("llm.extract_prompt_overhead_tokens", 1462)
+    out_t = cfg.get("llm.triage_output_tokens", 95)
+    out_e = cfg.get("llm.extract_output_tokens", 624)
+    adj_per = cfg.get("llm.adjudicate_cost_per_signal", 0.0034)
 
-    from app.sections import select_relevant_text
+    from app.sections import select_relevant_text, select_triage_text
 
     def cost(model: str, tin: float, tout: float) -> float:
         p = prices.get(model, {"in": 3.0, "out": 15.0})
@@ -227,45 +232,60 @@ def estimate_cost(session: Session, cfg: Config, assumed_docs: dict[str, int] | 
         for key, docs in sorted(groups.items()):
             sample = docs[:50]  # regex pass only; sampling keeps this instant
             avg_raw = sum(len(d.raw_text) for d in sample) / len(sample)
+            # What each stage actually sends, not what the document contains:
+            # triage reads whole up to its cap then samples a spread, extraction
+            # section-chunks. Measuring both separately is the only way an EIR and
+            # an NOE can show different numbers.
+            avg_triage = sum(select_triage_text(d.raw_text, cfg).body_chars
+                             for d in sample) / len(sample)
             avg_selected = sum(select_relevant_text(d.raw_text, cfg).selected_chars
                                for d in sample) / len(sample)
-            g_triage_in = len(docs) * (min(avg_raw, triage_chars) / 4 + 400)
-            g_extract_in = len(docs) * pass_rate * (avg_selected / 4 + 700)
+            g_triage_in = len(docs) * (avg_triage / cpt + ovh_t)
+            g_extract_in = len(docs) * pass_rate * (avg_selected / cpt + ovh_e)
             triage_in += g_triage_in
             extract_in += g_extract_in
             by_type[key] = {
                 "docs": len(docs),
                 "avg_raw_chars": int(avg_raw),
+                "avg_chars_sent_to_triage": int(avg_triage),
                 "avg_chars_sent_to_sonnet": int(avg_selected),
-                "extract_tokens_per_doc": int(avg_selected / 4 + 700),
+                "extract_tokens_per_doc": int(avg_selected / cpt + ovh_e),
                 "est_cost_usd": round(
-                    cost(triage_model, g_triage_in, len(docs) * 80)
-                    + cost(extract_model, g_extract_in, len(docs) * pass_rate * 900), 2),
+                    cost(triage_model, g_triage_in, len(docs) * out_t)
+                    + cost(extract_model, g_extract_in, len(docs) * pass_rate * out_e), 2),
             }
-        triage_out = n_docs * 80
+        triage_out = n_docs * out_t
         extract_docs = int(n_docs * pass_rate)
-        extract_out = extract_docs * 900
-        basis = f"measured from {n_docs} pending documents in DB (section-aware)"
+        extract_out = extract_docs * out_e
+        basis = (f"measured from {n_docs} pending documents in DB "
+                 f"(per-stage chunking, measured token constants)")
     else:
         n_docs = sum((assumed_docs or {}).values()) or 1200
-        triage_in = n_docs * (triage_chars / 4 + 400)
-        triage_out = n_docs * 80
+        assumed_chars = cfg.get("llm.assumed_doc_chars", 12000)
+        triage_in = n_docs * (min(assumed_chars, cfg.get("llm.triage_max_chars", 60000))
+                              / cpt + ovh_t)
+        triage_out = n_docs * out_t
         extract_docs = int(n_docs * pass_rate)
-        extract_in = extract_docs * (12000 + 700)
-        extract_out = extract_docs * 900
+        extract_in = extract_docs * (assumed_chars / cpt + ovh_e)
+        extract_out = extract_docs * out_e
         by_type = {}
         basis = f"paper estimate, {n_docs} assumed documents"
 
     triage_cost = cost(triage_model, triage_in, triage_out)
     extract_cost = cost(extract_model, extract_in, extract_out)
+    # Resolution was missing from every estimate this system has ever produced,
+    # which quietly understated the total by roughly a tenth.
+    adjudicate_cost = extract_docs * adj_per
     return {
         "basis": basis,
         "docs_to_triage": n_docs,
         "docs_to_extract_at_assumed_pass_rate": extract_docs,
+        "assumed_triage_pass_rate": pass_rate,
         "by_document_type": by_type,
         "triage_tokens_in": int(triage_in), "triage_tokens_out": int(triage_out),
         "extract_tokens_in": int(extract_in), "extract_tokens_out": int(extract_out),
         "triage_cost_usd": round(triage_cost, 2),
         "extract_cost_usd": round(extract_cost, 2),
-        "total_cost_usd": round(triage_cost + extract_cost, 2),
+        "adjudicate_cost_usd": round(adjudicate_cost, 2),
+        "total_cost_usd": round(triage_cost + extract_cost + adjudicate_cost, 2),
     }

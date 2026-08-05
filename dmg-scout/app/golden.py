@@ -137,31 +137,69 @@ def collect_forced(session: Session, doc_ids: list[int]) -> int:
 def collect(session: Session, limit: int = 30) -> int:
     """Sample extracted docs into the golden file (skipping ones already there).
 
-    Weighted toward the sources whose filings actually carry engineering numbers
-    (CEQAnet environmental documents, CivicPlus agenda packets), and toward the
-    head+tail fallbacks ahead of everything else.
+    Stratified by source in proportion to how many extracted documents each one
+    contributes, because the golden set has to look like the corpus the board
+    actually runs on. Strict source-priority ordering does not: it produced a set
+    that was 19 of 30 GOED, and after CEQAnet was re-backfilled the same rule would
+    have filled all 30 slots with CEQAnet — the opposite skew, equally unusable as
+    a measure of extraction quality.
+
+    Two things still jump the queue, deliberately:
+      - head+tail fallbacks, where chunking showed the model only the ends of the
+        document and a missed MW may be a chunking bug rather than an absent value;
+      - within each source, CEQA environmental documents (NOP/DEIR/EIR) and then
+        the largest documents, since those are where MW and generator specs live.
     """
     existing = {e["doc_key"] for e in load_golden()}
     signals = session.exec(select(Signal).where(Signal.raw_document_id.is_not(None))).all()
     by_doc = {s.raw_document_id: s for s in signals}
     docs = [session.get(RawDocument, did) for did in by_doc]
-    docs = [d for d in docs if d is not None]
+    docs = [d for d in docs if d is not None and f"{d.source}:{d.source_uid}" not in existing]
 
-    def weight(d: RawDocument) -> int:
-        # Lower sorts first.
-        if _no_sections_matched(by_doc[d.id]):
-            return 0
-        if d.source == "ceqanet" and (d.meta or {}).get("document_type") in ("NOP", "DEIR", "EIR"):
-            return 1
-        if d.source == "ceqanet":
-            return 2
-        if d.source == "civicplus":
-            return 3
-        if d.source == "goed":
-            return 4
-        return 5
+    def within_source(d: RawDocument) -> tuple:
+        # Lower sorts first, inside one source's pool.
+        env_doc = (d.source == "ceqanet"
+                   and (d.meta or {}).get("document_type") in ("NOP", "DEIR", "EIR"))
+        return (0 if _no_sections_matched(by_doc[d.id]) else 1,
+                0 if env_doc else 1,
+                -len(d.raw_text))
 
-    docs.sort(key=lambda d: (weight(d), -len(d.raw_text)))
+    pools: dict[str, list[RawDocument]] = {}
+    for d in docs:
+        pools.setdefault(d.source, []).append(d)
+    for pool in pools.values():
+        pool.sort(key=within_source)
+
+    # One slot per source first, then largest-remainder on what is left. The floor
+    # matters: proportional allocation alone gives a source holding 1 of 42
+    # documents 0.24 slots and therefore none, and an adapter with no documents in
+    # the set is an adapter whose extraction quality is simply unmeasured. EDGAR
+    # filings look nothing like GOED packets, so "small" is not "skippable".
+    total = sum(len(p) for p in pools.values()) or 1
+    floor = 1 if len(pools) <= limit else 0
+    alloc = {src: min(len(p), floor) for src, p in pools.items()}
+    remaining = limit - sum(alloc.values())
+    quotas = {src: remaining * len(p) / total for src, p in pools.items()}
+    for src, q in quotas.items():
+        take = min(len(pools[src]) - alloc[src], int(q))
+        alloc[src] += take
+    for src in sorted(pools, key=lambda s: quotas[s] - int(quotas[s]), reverse=True):
+        if sum(alloc.values()) >= limit:
+            break
+        if alloc[src] < len(pools[src]):
+            alloc[src] += 1
+
+    docs = []
+    for src in sorted(pools):
+        docs.extend(pools[src][:alloc[src]])
+    # Any shortfall (a source ran dry) is backfilled from whatever is left, so the
+    # set still reaches `limit` rather than quietly coming up short.
+    if len(docs) < limit:
+        chosen = {id(d) for d in docs}
+        leftovers = [d for src in sorted(pools) for d in pools[src] if id(d) not in chosen]
+        leftovers.sort(key=within_source)
+        docs.extend(leftovers[:limit - len(docs)])
+    docs.sort(key=lambda d: (d.source, within_source(d)))
     entries = load_golden()
     added = 0
     DOCS_DIR.mkdir(parents=True, exist_ok=True)

@@ -178,6 +178,29 @@ def fanout_verify(kind: str, results: list[TargetResult],
 
 
 def keyword_match(text: str, cfg: Config) -> bool:
-    """Cheap pre-LLM filter: does this text mention data centers at all?"""
+    """Cheap pre-LLM filter: is this text about a building we would sell into?
+
+    Matches either keyword list. The two are kept separate in config so the boards
+    stay distinct and one can be widened without touching the other, but the gate
+    itself only asks "worth storing at all" — triage decides which board.
+
+    This gate is upstream of everything, so a term missing from both lists makes a
+    project invisible to the entire pipeline. It ran data-center-only for a session
+    after the industrial board existed, which is why California showed 1 industrial
+    row against Nevada's 43: CEQAnet's warehouse and manufacturing filings were
+    dropped at fetch and never reached triage.
+    """
     lower = text.lower()
-    return any(kw in lower for kw in cfg.get("keywords.data_center", []))
+    return (any(kw in lower for kw in cfg.get("keywords.data_center", []))
+            or any(kw in lower for kw in cfg.get("keywords.industrial", [])))
+
+
+def keyword_category(text: str, cfg: Config) -> str | None:
+    """Which list matched, for probes and diagnostics. data_center wins ties: a
+    filing naming both is a data center that mentions its warehouse."""
+    lower = text.lower()
+    if any(kw in lower for kw in cfg.get("keywords.data_center", [])):
+        return "data_center"
+    if any(kw in lower for kw in cfg.get("keywords.industrial", [])):
+        return "industrial"
+    return None

@@ -80,9 +80,14 @@ def test_ceqanet_filters_and_parses(cfg, fixtures_dir):
     )
     docs = list(CeqanetAdapter().fetch(cfg, fast_client()))
     uids = {d.source_uid for d in docs}
-    # only the data center rows pass the keyword filter
+    # The gate now passes BOTH boards' work. Data center rows:
     assert any(u.startswith("2026070456") for u in uids)
-    assert not any(u.startswith("2026070123") for u in uids)
+    # ...and industrial. "Serrano Logistics Center — warehouse distribution facility
+    # on 45 acres" in Fontana is exactly the California industrial work that the
+    # data-center-only gate was silently dropping at fetch, which is why the board
+    # read NV 43 / CA 1.
+    assert any(u.startswith("2026070123") for u in uids)
+    # A housing element update is still neither, and must not get through.
     assert not any(u.startswith("2026070789") for u in uids)
     dc = next(d for d in docs if d.source_uid.startswith("2026070456"))
     assert dc.default_signal_type == SignalType.ceqa_nop
@@ -167,3 +172,21 @@ def test_legistar_keyword_match(cfg, fixtures_dir):
     assert not any("Sidewalk" in d.title for d in docs)
     assert docs[0].default_signal_type == SignalType.planning_agenda
     assert docs[0].source_uid.endswith(":55501")
+
+
+@respx.mock
+def test_ceqanet_keyword_lists_stay_separate(cfg, fixtures_dir):
+    """The two lists must remain distinguishable, or the boards blur. The fetch gate
+    only asks "worth storing"; which board a document lands on is triage's call, but
+    a probe has to be able to tell why a row was kept."""
+    from app.sources.base import keyword_category, keyword_match
+
+    assert keyword_category("Meridian Data Center Campus", cfg) == "data_center"
+    assert keyword_category("Serrano Logistics Center: warehouse", cfg) == "industrial"
+    assert keyword_category("Rialto Housing Element Update", cfg) is None
+    # A filing naming both is a data center that mentions its warehouse.
+    assert keyword_category("data center with warehouse space", cfg) == "data_center"
+    # And the gate itself accepts either.
+    assert keyword_match("new distribution center", cfg)
+    assert keyword_match("hyperscale campus", cfg)
+    assert not keyword_match("sidewalk repair project", cfg)
