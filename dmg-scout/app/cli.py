@@ -443,6 +443,24 @@ def doc_stats(
         raise typer.Exit(1)
 
 
+@app.command("grounding")
+def grounding(strict: bool = typer.Option(
+        False, "--strict", help="Exit 1 if any asserted number is ungrounded")) -> None:
+    """Check every asserted number against its source document.
+
+    Finds invented values, which is the failure that actually reaches a customer —
+    a null costs an estimate, a fabricated MW costs credibility. It cannot find a
+    misreading: a number can be present in the document and still be the wrong one,
+    and only hand verification catches that.
+    """
+    from app.grounding import audit_corpus, audit_text
+    with session_scope() as session:
+        result = audit_corpus(session)
+    typer.echo(audit_text(result))
+    if strict and result["ungrounded"]:
+        raise typer.Exit(1)
+
+
 @app.command("purge-source")
 def purge_source(
     source: str = typer.Option(..., help="Source name whose documents to delete"),

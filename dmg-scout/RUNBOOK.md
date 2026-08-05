@@ -214,6 +214,45 @@ Storey packets still produce no project name at 85-99% coverage. Fixing that mea
 letting one document yield several signals, which is a schema change, not a prompt
 change.
 
+## Deferred: known gaps, not yet built
+
+Recorded so they are decisions rather than surprises.
+
+**Multi-signal documents (Phase 5).** One document yields one signal. A county
+agenda packet names several projects, so the extractor correctly returns nulls
+rather than picking one, and Storey County packets 4386, 4393 and 4402 produce no
+project name at 85-99% chunk coverage. This is the binding constraint on the most
+important jurisdiction. Fix is one-document-to-many-signals, a schema change.
+
+**Mixed generator fleets (Phase 5).** `generator_count` and `generator_kw_each` are
+single fields and cannot represent a fleet of differing units. Vernon stores
+40 x 3000 kW = 120 MW; the filing says 38 x 3 MW on critical load plus 2 x 1 MW
+house generators = 116 MW nameplate, against a 99 MW stated plant rating. Sizing is
+unaffected — it uses the stated 99 MW, not the fleet — but the fleet as stored is
+wrong and must not be quoted. Fix is a generator-fleet list on the signal
+(`[{count, kw_each, role}]`). Vernon carries a review-queue note meanwhile.
+
+Related: extraction stored `3000 kW` where the document says `3 MW`. The value is
+arithmetically right but the prompt says do not convert units, and `scout grounding`
+flags it because 3000 appears nowhere in the source.
+
+## Extraction trust: the grounding audit
+
+```
+scout grounding             # every asserted number vs its source document
+scout grounding --strict    # exit 1 if anything is ungrounded (CI gate)
+```
+
+The dangerous extraction failure is a confident wrong value, not a null. This asks
+the one question that needs no human: if the model asserts 99 MW, does 99 appear in
+the document at all? A number absent from the source cannot have been read from it.
+Handles comma and "1.1 million" spellings, and flags matches under 10 as weak, since
+a bare `2` matches almost any document by chance.
+
+It does NOT check correctness. A grounded number can still be read off the wrong
+row — the product rating instead of the building load. Only the golden set catches
+that, which is why both exist.
+
 ## Two boards, one pipeline
 
 Triage classifies rather than filters. Every document comes back `data_center`,
