@@ -11,6 +11,20 @@ from app.http import PoliteClient
 from app.models import SignalType
 
 
+def scrub(text: str) -> str:
+    """Strip characters Postgres refuses in a text literal.
+
+    pdfplumber happily returns NUL bytes for some PDFs, and psycopg2 then raises
+    "A string literal cannot contain NUL (0x00) characters" — which killed the
+    entire GOED backfill chunk (0 documents stored) while the adapter itself
+    looked fine. Scrubbing here means every adapter is covered, and it happens
+    before content_hash so dedupe stays consistent.
+    """
+    if not text:
+        return text
+    return text.replace("\x00", "")
+
+
 @dataclass
 class FetchedDoc:
     """One document pulled from a source, before dedupe/triage."""
@@ -26,6 +40,10 @@ class FetchedDoc:
     # Set True when the adapter already knows this is on-topic (e.g. keyword-matched
     # agenda item); triage still runs unless skip_triage is set.
     skip_triage: bool = False
+
+    def __post_init__(self) -> None:
+        self.raw_text = scrub(self.raw_text)
+        self.title = scrub(self.title)
 
     @property
     def content_hash(self) -> str:
@@ -69,6 +87,15 @@ class SourceAdapter(ABC):
         """Fetch one backfill chunk. Default: the whole range."""
         return self.fetch(cfg, client, since=since)
 
+    # Below this many characters a document is a stub — metadata about a document
+    # rather than the document. EDGAR shipped 3,016 rows averaging 202 chars, and
+    # verify reported OK because something came back. Override per adapter via
+    # `min_doc_chars` in that source's config block.
+    default_min_doc_chars: int = 500
+
+    def min_doc_chars(self, cfg: Config) -> int:
+        return int(cfg.source(self.name).get("min_doc_chars", self.default_min_doc_chars))
+
     def verify(self, cfg: Config, client: PoliteClient) -> dict:
         """Live smoke-test: hit the source, return {status, detail}. Used by
         `scout verify-sources` after deploy to catch URL-structure drift.
@@ -76,15 +103,16 @@ class SourceAdapter(ABC):
         Three states, because "reachable" and "working" are not the same thing
         and conflating them is how a source sits broken for weeks:
 
-          ok   — returned at least one document
+          ok   — returned at least one real document
           warn — every request succeeded but nothing survived filtering; the
                  endpoint is alive and the result may be legitimately empty
-          fail — requests failed, or (see verify_targets) enough of a source's
-                 configured sub-targets failed that the source is not usable
+          fail — requests failed, enough of a source's configured sub-targets
+                 failed that the source is not usable, or the documents it
+                 returns are stubs rather than content
 
         Adapters that fan out over many sub-targets (Legistar clients, ATS
-        boards) should override verify() via verify_targets() so a partial
-        outage cannot be reported as success.
+        boards, CivicPlus categories) should override verify() via
+        fanout_verify() so a partial outage cannot be reported as success.
         """
         try:
             doc = next(iter(self.fetch(cfg, client)), None)
@@ -93,7 +121,13 @@ class SourceAdapter(ABC):
         if doc is None:
             return {"status": "warn",
                     "detail": "reachable, but returned zero documents (check filters)"}
-        return {"status": "ok", "detail": f"first doc: {doc.title[:80]!r} ({doc.url})"}
+        floor = self.min_doc_chars(cfg)
+        chars = len(doc.raw_text)
+        detail = f"first doc: {doc.title[:70]!r} — {chars} chars ({doc.url})"
+        if chars < floor:
+            return {"status": "fail",
+                    "detail": f"storing stubs, not content ({chars} < {floor} chars): {detail}"}
+        return {"status": "ok", "detail": detail}
 
 
 @dataclass

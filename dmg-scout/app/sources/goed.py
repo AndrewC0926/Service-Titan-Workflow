@@ -8,25 +8,24 @@ parse with pdfplumber, keyword-filter, and hand relevant text to the LLM.
 """
 from __future__ import annotations
 
-import io
 import logging
 import re
 from datetime import datetime
 from typing import Iterator
 
-import pdfplumber
 from selectolax.parser import HTMLParser
 
 from app.config import Config
 from app.http import PoliteClient
 from app.models import SignalType
+from app.pdftext import DEFAULT_MAX_PAGES, pdf_to_text
 from app.sources.base import FetchedDoc, SourceAdapter, SourceFailure
 
 log = logging.getLogger(__name__)
 
 MAX_LISTING_PAGES = 3
 MAX_LISTING_PAGES_BACKFILL = 40
-MAX_PDF_PAGES = 80  # board packets run long; cap parse cost
+MAX_PDF_PAGES = DEFAULT_MAX_PAGES  # board packets run long; cap parse cost
 
 _UPLOAD_DATE = re.compile(r"/wp-content/uploads/(\d{4})/(\d{2})/")
 
@@ -36,14 +35,6 @@ def upload_month(url: str) -> datetime | None:
     if not m:
         return None
     return datetime(int(m.group(1)), int(m.group(2)), 1)
-
-
-def pdf_to_text(data: bytes, max_pages: int = MAX_PDF_PAGES) -> str:
-    out: list[str] = []
-    with pdfplumber.open(io.BytesIO(data)) as pdf:
-        for page in pdf.pages[:max_pages]:
-            out.append(page.extract_text() or "")
-    return "\n".join(out)
 
 
 class GoedAdapter(SourceAdapter):

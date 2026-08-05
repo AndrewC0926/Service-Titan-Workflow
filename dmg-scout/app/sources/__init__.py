@@ -4,7 +4,9 @@ from __future__ import annotations
 from app.sources.base import SourceAdapter, registry  # noqa: F401
 
 # Importing modules registers their adapters.
-from app.sources import ats, ceqanet, edgar, goed, legistar, rss  # noqa: E402,F401
+from app.sources import (  # noqa: E402,F401
+    ats, ceqanet, civicplus, edgar, goed, legistar, primegov, rss,
+)
 
 
 def get_adapter(name: str) -> SourceAdapter:

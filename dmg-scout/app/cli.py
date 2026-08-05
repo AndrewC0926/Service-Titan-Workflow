@@ -5,6 +5,7 @@ import json
 import logging
 
 import typer
+from sqlmodel import select
 
 from app.config import load_config
 from app.db import init_db, session_scope
@@ -155,26 +156,52 @@ def add_signal(
 
 @app.command()
 def backfill(
-    source: str = typer.Option(..., help="ceqanet | goed | edgar | legistar"),
+    source: list[str] = typer.Option(
+        ..., "--source", "-s",
+        help="Repeatable. Also accepts a comma-separated list. "
+             "ceqanet | goed | edgar | legistar | civicplus | primegov"),
     since: str = typer.Option(..., help="YYYY-MM-DD start of historical window"),
     estimate: bool = typer.Option(False, help="Estimate LLM cost of the pending corpus, run nothing"),
     reset: bool = typer.Option(False, help="Discard checkpoints and refetch every chunk"),
 ) -> None:
-    """Chunked, checkpointed historical pull. Fetch only — after it completes,
-    check the cost with --estimate, then run `scout triage` and `scout extract`
-    in batches. A crash resumes at the first incomplete chunk."""
+    """Chunked, checkpointed historical pull, one source after another.
+
+    Fetch only — after it completes, check the cost with --estimate, then run
+    `scout triage` and `scout extract` in batches. A crash resumes at the first
+    incomplete chunk.
+
+    --source is repeatable, and was not always: as a single string, Click kept
+    only the LAST value, so `--source ceqanet --source goed --source edgar`
+    silently backfilled edgar alone. Unknown names now fail before any fetch
+    rather than part-way through.
+    """
     from datetime import datetime as dt
 
-    from app.pipeline.backfill import estimate_cost, run_backfill
+    from app.pipeline.backfill import BACKFILLABLE, estimate_cost, run_backfill
     cfg = load_config()
     if estimate:
         with session_scope() as session:
             typer.echo(json.dumps(estimate_cost(session, cfg), indent=2))
         return
+
+    sources = [s.strip() for entry in source for s in entry.split(",") if s.strip()]
+    seen: set[str] = set()
+    sources = [s for s in sources if not (s in seen or seen.add(s))]
+    unknown = [s for s in sources if s not in BACKFILLABLE]
+    if unknown:
+        raise typer.BadParameter(
+            f"{', '.join(unknown)} does not support backfill; "
+            f"choose from {', '.join(BACKFILLABLE)}")
+
     since_dt = dt.strptime(since, "%Y-%m-%d")
-    with session_scope() as session:
-        totals = run_backfill(session, cfg, source, since_dt, reset=reset)
-    typer.echo(json.dumps(totals))
+    summary: dict[str, dict] = {}
+    for name in sources:
+        typer.echo(f"--- backfill {name} since {since}")
+        with session_scope() as session:
+            summary[name] = run_backfill(session, cfg, name, since_dt, reset=reset)
+        typer.echo(json.dumps({name: summary[name]}))
+    if len(sources) > 1:
+        typer.echo(json.dumps(summary))
     typer.echo("Fetch done. Now run: scout backfill --source X --since ... --estimate "
                "to price the LLM pass, then scout triage / scout extract.")
 
@@ -317,6 +344,82 @@ def verify_sources(
     typer.echo("  ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "no adapters run")
     if counts.get("fail"):
         raise typer.Exit(1)
+
+
+@app.command("doc-stats")
+def doc_stats() -> None:
+    """Row count and raw_text length per source, with stub detection.
+
+    A source storing search-result metadata instead of documents looks healthy by
+    every other measure — it has rows, its requests return 200, its last run is
+    green. Average document length is what exposes it: EDGAR sat at 202 chars
+    across 3,016 rows. Exits 1 if any source averages below its stub floor.
+    """
+    from sqlalchemy import func
+
+    from app.models import RawDocument
+    from app.sources import get_adapter, registry
+    cfg = load_config()
+    with session_scope() as session:
+        rows = session.exec(
+            select(RawDocument.source,
+                   func.count(RawDocument.id),
+                   func.avg(func.length(RawDocument.raw_text)),
+                   func.min(func.length(RawDocument.raw_text)),
+                   func.max(func.length(RawDocument.raw_text)))
+            .group_by(RawDocument.source)
+            .order_by(func.count(RawDocument.id).desc())
+        ).all()
+
+    if not rows:
+        typer.echo("no documents stored")
+        return
+    typer.echo(f"{'source':12} {'rows':>7} {'avg chars':>10} {'min':>8} {'max':>9}  verdict")
+    stubs = []
+    for source, count, avg, lo, hi in rows:
+        avg = int(avg or 0)
+        floor = (get_adapter(source).min_doc_chars(cfg) if source in registry else 500)
+        verdict = "ok"
+        if avg < floor:
+            verdict = f"STUBS (avg < {floor})"
+            stubs.append(source)
+        typer.echo(f"{source:12} {count:7} {avg:10} {int(lo or 0):8} {int(hi or 0):9}  {verdict}")
+    typer.echo(f"total rows: {sum(r[1] for r in rows)}")
+    if stubs:
+        typer.echo(f"storing stubs rather than content: {', '.join(stubs)}")
+        raise typer.Exit(1)
+
+
+@app.command("purge-source")
+def purge_source(
+    source: str = typer.Option(..., help="Source name whose documents to delete"),
+    yes: bool = typer.Option(False, "--yes", help="Required; deletion is irreversible"),
+) -> None:
+    """Delete every raw document for one source, plus its backfill checkpoints.
+
+    For when a source's stored corpus is wrong rather than merely stale — e.g.
+    EDGAR's 3,016 keyword-match stubs, which had to go once the query was
+    narrowed. Signals already derived from those documents are left alone; this
+    only clears the fetch layer so a re-backfill starts clean.
+    """
+    from sqlalchemy import delete, func
+
+    from app.models import BackfillCheckpoint, RawDocument
+    with session_scope() as session:
+        n_docs = session.exec(select(func.count(RawDocument.id))
+                              .where(RawDocument.source == source)).one()
+        n_cps = session.exec(select(func.count(BackfillCheckpoint.id))
+                             .where(BackfillCheckpoint.source == source)).one()
+        if not yes:
+            typer.echo(f"would delete {n_docs} documents and {n_cps} checkpoints "
+                       f"for {source!r}; re-run with --yes")
+            return
+        # Bulk DELETE, not per-row ORM deletes: thousands of round trips to a
+        # remote Postgres takes minutes for what the server does in one statement.
+        session.exec(delete(RawDocument).where(RawDocument.source == source))
+        session.exec(delete(BackfillCheckpoint).where(BackfillCheckpoint.source == source))
+        session.commit()
+    typer.echo(f"deleted {n_docs} documents and {n_cps} checkpoints for {source!r}")
 
 
 @app.command()

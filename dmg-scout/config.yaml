@@ -170,11 +170,82 @@ sources:
   edgar:
     enabled: true
     base_url: "https://efts.sec.gov/LATEST/search-index"
-    forms: ["8-K", "424B2", "424B5", "10-K", "10-Q", "S-1"]
-    queries:
-      - '"data center" "Nevada"'
-      - '"data center" "California"'
     lookback_days: 14
+    max_pages: 3              # full-text pages are 10 hits each, per query
+    max_body_chars: 400000    # filing text stored; app/sections.py chunks it for the LLM
+    min_body_chars: 2000      # below this, verify-sources reports FAIL (stub detection)
+    min_doc_chars: 2000       # floor used by `scout doc-stats`; the old rows averaged 202
+    #
+    # Purpose is narrow: data center ABS/CMBS deal documents that name campuses,
+    # tenants, MW and delivery dates, plus filings by named developers. The old
+    # config ('"data center" "Nevada"' over 10-K/10-Q) produced 3,016 rows of chip
+    # and software companies whose risk factors mention data centers.
+    #
+    # Deal-document forms: where campus/tenant/MW terms actually appear.
+    # ABS-15G and ABS-EE are the securitization filings; 424B* are the
+    # prospectuses; 10-D are the ongoing servicer reports.
+    forms: ["ABS-15G", "ABS-EE", "424B2", "424B3", "424B5", "10-D"]
+    # Forms where a *named developer* announces a project. Kept separate so 8-K
+    # does not drag in every crypto miner that says "data center".
+    developer_forms: ["8-K", "S-1", "S-4", "424B5"]
+    # Phrases that essentially only data center deal documents use.
+    deal_phrases:
+      - "data center revenue notes"
+      - "stabilized data center"
+      - "critical IT load"
+      - "megawatts of critical"
+    # Known data center ABS issuers, queried across deal + developer forms.
+    issuer_queries:
+      - "Vantage Data Centers"
+      - "Aligned Data Centers"
+      - "Switch, Ltd."
+      - "STACK Infrastructure"
+      - "CyrusOne"
+      - "Compass Datacenters"
+      - "DataBank Holdings"
+      - "Cologix"
+      - "Flexential"
+      - "Sabey Data Center"
+      - "Phoenix Data Center Acquisitions"
+      - "TierPoint"
+    #
+    # THE PRECISION GATE. A hit is kept only if the *filer's* display name matches
+    # one of these. Verified on a 468-hit live sample: 93 kept, 375 dropped. This
+    # is what separates "Vantage Data Centers Holdings, LLC files an ABS-15G"
+    # (keep) from "JPMORGAN CHASE & CO files a 424B2 that mentions STACK" (drop),
+    # and it is why the query terms themselves can stay simple. Filers dropped by
+    # this gate in testing: Applied Digital, TeraWulf, Core Scientific, Riot,
+    # CleanSpark, Galaxy Digital, BBCMS mortgage trusts, Csquare, WEC Energy.
+    issuer_patterns:
+      - "data center"
+      - "datacenter"
+      - "data centre"
+      - "vantage data"
+      - "retained vantage"
+      - "aligned data"
+      - "adc holdco"
+      - "stack infrastructure"
+      - "cyrusone"
+      - "compass datacenter"
+      - "databank"
+      - "cologix"
+      - "flexential"
+      - "sabey"
+      - "tierpoint"
+      - "switch, ltd"
+      - "edgecore"
+      - "novva"
+      - "powerhouse data"
+      - "prime data"
+      # REITs/trusts that own and acquire campuses (their 8-Ks name sites and MW),
+      # as distinct from funds that merely hold the ABS notes. Named explicitly —
+      # a bare "digital infrastructure" also matched "BlockchAIn Digital
+      # Infrastructure, Inc.", a crypto shell with no campuses.
+      - "blue owl digital infrastructure"
+      - "blackstone digital infrastructure"
+      - "stratcap digital infrastructure"
+      - "digital realty"
+      - "equinix"
   goed:
     enabled: true
     base_url: "https://goed.nv.gov"
@@ -219,6 +290,55 @@ sources:
     # so until a CivicPlus/PrimeGov adapter exists, Storey/Reno/Sparks local
     # signal comes only from GOED plus the northern-Nevada RSS feeds below.
     # Las Vegas, Henderson, and North Las Vegas were also probed: not Legistar.
+  # CivicPlus AgendaCenter — jurisdictions with no Legistar and no CEQA equivalent.
+  # Storey County IS the Tahoe Reno Industrial Center (Vantage, Tract, Google,
+  # Switch) and was the largest blind spot in the system.
+  civicplus:
+    enabled: true
+    lookback_days: 60
+    # Packets run to 268 pages / 16 MB; the agenda item list is up front, so
+    # parse the head and keyword-screen that. Raise only if items are being missed.
+    max_pdf_pages: 40
+    document_kinds: ["Agenda"]   # add "Minutes" to also pull decisions (doubles downloads)
+    jurisdictions:
+      - name: "Storey County, NV"
+        base_url: "https://storeycounty.org"
+        county: "Storey"
+        state: "NV"
+        # Category IDs come from the AgendaCenter page (`id="cat<N>"`), NOT from
+        # the CID query params, which belong to unrelated CivicPlus modules.
+        categories:
+          - {id: 4, label: "Planning Commission"}
+          - {id: 2, label: "Board of Commissioners"}
+          # NOT category 8 ("Notices of Possible Quorum"): verified that all 14 of
+          # its 2026 documents are one-page scans with no text layer (0 chars, 2
+          # images), so they produced nothing but warnings. They are procedural
+          # quorum notices with no project content. Every Agenda in categories 2
+          # and 4 parses cleanly. tesseract is present on the box if these ever
+          # become worth OCRing.
+  # PrimeGov public portal — City of Reno.
+  #
+  # DISABLED, and not for a technical reason: reno.primegov.com/robots.txt is
+  # "User-agent: * / Disallow: /" — the entire host is off-limits. The adapter is
+  # written and its endpoints are verified (the meeting list and HTML agendas both
+  # work when fetched by hand), but PoliteClient correctly refuses the requests and
+  # we do not work around robots. Enabling this flag will just produce
+  # RobotsDisallowed on every request.
+  #
+  # If Reno coverage is needed, it has to come from a route that permits crawling:
+  # reno.gov's own public-records search, a Google Alerts RSS feed added to
+  # sources.rss, or a direct records request. Northern Nevada trade press is
+  # already covered by the EDAWN / This Is Reno / NNBW feeds below.
+  primegov:
+    enabled: false
+    lookback_days: 60
+    jurisdictions:
+      - name: "City of Reno, NV"
+        base_url: "https://reno.primegov.com"
+        county: "Washoe"
+        state: "NV"
+        # Substring match on the meeting title; empty list = every committee.
+        committees: ["Planning Commission", "City Council", "Redevelopment"]
   rss:
     enabled: true
     feeds:

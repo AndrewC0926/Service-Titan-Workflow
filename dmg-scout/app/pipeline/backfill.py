@@ -21,7 +21,7 @@ from app.sources import get_adapter
 
 log = logging.getLogger(__name__)
 
-BACKFILLABLE = ("ceqanet", "goed", "edgar", "legistar")
+BACKFILLABLE = ("ceqanet", "goed", "edgar", "legistar", "civicplus", "primegov")
 
 
 def run_backfill(session: Session, cfg: Config, source: str, since: datetime,

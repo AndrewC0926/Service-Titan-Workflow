@@ -22,14 +22,24 @@ def test_edgar_parses_hits(cfg, fixtures_dir):
     respx.get(url__startswith="https://efts.sec.gov/LATEST/search-index").mock(
         return_value=httpx.Response(200, json=payload)
     )
+    respx.get(url__startswith="https://www.sec.gov/Archives/").mock(
+        return_value=httpx.Response(200, headers={"Content-Type": "text/html"},
+                                    text="<html><body>" + ("48 MW campus. " * 500)
+                                         + "</body></html>"))
     docs = list(EdgarAdapter().fetch(cfg, fast_client()))
-    # 2 hits x N queries, but source_uids repeat -> pipeline dedupes; check shape
+    # 2 hits x N queries, but one row per accession -> deduped inside the adapter
     assert docs
     doc = docs[0]
     assert doc.source == "edgar"
-    assert doc.source_uid == "0001193125-26-012345:d8k.htm"
+    # source_uid is the accession, not accession:filename: one filing yields many
+    # full-text hits (one per exhibit) and they are all the same filing.
+    assert doc.source_uid == "0001193125-26-012345"
     assert "sec.gov/Archives/edgar/data/1710583" in doc.url
-    assert doc.meta["needs_body_fetch"] is True
+    # The filing body is fetched at fetch time, so triage sees the document
+    # rather than ~200 chars of search-result metadata.
+    assert doc.meta["needs_body_fetch"] is False
+    assert doc.meta["body_chars"] > 1000
+    assert "48 MW campus" in doc.raw_text
     assert doc.published_at.year == 2026
     abs_docs = [d for d in docs if d.default_signal_type == SignalType.abs_issuance]
     assert abs_docs, "424B2 should map to abs_issuance"

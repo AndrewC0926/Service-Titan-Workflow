@@ -60,6 +60,34 @@ all. Check what its agenda portal actually is (Granicus `ViewPublisher`,
 PrimeGov, eScribe, CivicPlus `AgendaCenter`) and record it in the removed-clients
 comment block in `config.yaml` rather than leaving a dead slug behind.
 
+### Adding a CivicPlus AgendaCenter jurisdiction
+
+For counties/cities on neither Legistar nor CEQA — which in Nevada means the ones
+that matter most. Find the category IDs from the AgendaCenter page source:
+
+```bash
+curl -s "https://<host>/AgendaCenter" | grep -o 'id="cat[0-9]*"'      # category IDs
+# then confirm a category returns rows (this is the endpoint the adapter uses):
+curl -s -X POST "https://<host>/AgendaCenter/UpdateCategoryList" \
+  -H "X-Requested-With: XMLHttpRequest" --data "year=2026&catID=4" | grep -c catAgendaRow
+```
+
+Use the `id="cat<N>"` numbers, **not** the `CID=` query params on the page — those
+belong to unrelated CivicPlus modules (QuickLinks, CivicAlerts).
+
+Then check the PDFs have a text layer before trusting the category. Storey County's
+"Notices of Possible Quorum" category is entirely one-page scans (0 chars, 2
+images), so it was left out of config:
+
+```bash
+curl -s "https://<host>/AgendaCenter/ViewFile/Agenda/_MMDDYYYY-1234" -o /tmp/a.pdf
+.venv/bin/python -c "from app.pdftext import pdf_to_text; \
+  print(len(pdf_to_text(open('/tmp/a.pdf','rb').read())))"
+```
+
+`scout verify-sources --only civicplus` downloads the newest packet on purpose, so
+a category that lists rows but yields no text reports FAIL rather than OK.
+
 ### Adding a job board
 
 Board tokens are opaque vendor strings. Two failure modes, and the second is
@@ -107,6 +135,8 @@ Tell the failure modes apart:
 | 500 with a message naming the client/tenant | Config error, not an outage | Legistar returns 500 for unknown client slugs. Fix or remove the slug; 5xx is retried only twice for exactly this reason |
 | 200s but 0 documents parsed | Schema drift (renamed CSV columns, changed HTML) | Compare a live response against `tests/fixtures/`; update parser + fixture together |
 | 200s but mojibake / `UnicodeDecodeError` | Response is not UTF-8 | CEQAnet's CSV is cp1252 with no charset header. Read bytes and decode explicitly; do not trust `.text` |
+| `A string literal cannot contain NUL (0x00) characters` | PDF text carries NUL bytes | `app.sources.base.scrub()` strips them for every adapter. This silently zeroed a whole GOED backfill chunk while the adapter looked healthy — if it reappears, something is bypassing `FetchedDoc` |
+| Rows exist, requests are 200, but documents are tiny | **Storing stubs, not content** | `scout doc-stats`. EDGAR sat at 202 avg chars across 3,016 rows because it stored search results and never followed the document URL. Fix the adapter to fetch the body; `min_doc_chars` makes verify-sources FAIL on it |
 | Connection errors only | Network/DNS/their outage | Wait a day before touching code |
 
 Retry budgets (`config.yaml`): throttles and transport errors get
@@ -125,9 +155,11 @@ note it here; we don't work around robots.
 ## Backfill
 
 ```
-scout backfill --source ceqanet --since 2024-08-01     # chunked + checkpointed
-scout backfill --source goed    --since 2024-08-01
-scout backfill --source edgar   --since 2024-08-01
+# --source is repeatable and comma-separated; sources run in sequence.
+scout backfill --source ceqanet --source goed --source civicplus --since 2024-08-01
+scout backfill --source edgar --since 2024-08-01
+scout doc-stats                                        # rows + avg chars per source, flags stubs
+scout purge-source --source edgar --yes                # wipe a wrong corpus before re-backfilling
 scout backfill --source X --since ... --estimate       # price the LLM pass BEFORE triage
 scout triage --limit 200 && scout extract --limit 100  # repeat until drained
 ```

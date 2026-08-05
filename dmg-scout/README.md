@@ -50,13 +50,29 @@ and idempotent — re-running never duplicates or corrupts.
 | Adapter | What | Signal | Status |
 |---|---|---|---|
 | `ceqanet` | CA environmental filings (CSV export + detail pages) | `ceqa_nop`, `ceqa_deir` | Tier 1, enabled |
-| `edgar` | SEC full-text search JSON API — ABS/8-K naming campuses | `abs_issuance` | Tier 1, enabled |
+| `edgar` | SEC full-text search — data center ABS/CMBS deal documents + named-developer filings, fetched in full | `abs_issuance` | Tier 1, enabled |
 | `goed` | NV GOED board packets (PDF) — abatements pre-construction | `abatement_application` | Tier 1, enabled |
 | `legistar` | City/county agendas via Legistar Web API | `planning_agenda` | Tier 1, enabled |
+| `civicplus` | CivicPlus AgendaCenter — **Storey County, NV** (Tahoe Reno Industrial Center) | `planning_agenda` | Tier 1, enabled |
 | `rss` | Trade press + regional news + Google Alerts | `news_report` | Tier 1, enabled |
-| `ats` | Greenhouse/Lever/Ashby public job boards (never LinkedIn) | `job_posting` | Tier 2, enabled |
+| `ats` | Greenhouse/Lever/Ashby/Workday public job boards (never LinkedIn) | `job_posting` | Tier 2, enabled |
+| `primegov` | PrimeGov portal (City of Reno) — written and verified by hand, but **disabled**: `reno.primegov.com/robots.txt` is `Disallow: /` | `planning_agenda` | disabled |
 | air permits, utility filings, FAA 7460, water districts | | | Tier 2, config-stubbed off |
 | `manual` | CLI + dashboard form: engineer moves, prequal/bid invites, tips | first-class | enabled |
+
+**Nevada is the point.** The 2024-08 backfill made this concrete: 25 months of
+CEQAnet across seven Southern California counties produced 16 documents, while one
+Nevada agency produced 75. Storey County is where Vantage, Tract, Google and Switch
+build, it has no CEQA equivalent, and it publishes only through CivicPlus — so
+`civicplus` exists to close that gap.
+
+### Stub detection
+
+A source can have rows, return 200s, and show a green last run while storing
+nothing of value. `scout doc-stats` is the check that catches it — EDGAR sat at
+**202 average characters across 3,016 rows** because it stored full-text-search
+metadata and never followed the document URL it had recorded. Each adapter declares
+a `min_doc_chars` floor; `verify-sources` reports FAIL, not OK, below it.
 
 **Source verification (first live run 2026-08-04, then fixed).** The adapters
 were originally written in a sandbox with no egress, against *guessed* endpoint

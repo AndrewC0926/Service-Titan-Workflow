@@ -38,6 +38,23 @@ SECTION_PATTERNS: list[tuple[str, re.Pattern]] = [
         r"water\s+supply\s+assessment)\b", re.I | re.M)),
     ("noise_generators", re.compile(  # generator specs often hide in noise analyses
         r"^\s*(?:(?:section\s+)?[\dIVXivx]+(?:\.\d+)*\.?\s+)?noise(?:\s+and\s+vibration)?\b", re.I | re.M)),
+    # --- SEC filings (ABS/CMBS prospectuses, 8-Ks) ---------------------------
+    # An ABS prospectus is as long as an EIR and just as front-loaded with
+    # boilerplate: the campus list, tenant names, MW and delivery dates live in
+    # the portfolio/property and tenancy sections, not in the head.
+    ("filing_portfolio", re.compile(
+        r"^\s*(?:(?:item|section)\s+[\dIVXivx]+(?:\.\d+)*\.?\s+)?"
+        r"(?:the\s+)?(?:portfolio|propert(?:y|ies)|data\s+cent(?:er|re)s?|"
+        r"the\s+facilities|collateral(?:\s+pool)?)\b", re.I | re.M)),
+    ("filing_tenancy", re.compile(
+        r"^\s*(?:(?:item|section)\s+[\dIVXivx]+(?:\.\d+)*\.?\s+)?"
+        r"(?:tenan(?:t|cy|ts)(?:\s+(?:overview|concentration|summary))?|"
+        r"lease(?:s|\s+(?:summary|overview|expirations?))?|"
+        r"customer\s+concentration)\b", re.I | re.M)),
+    ("filing_transaction", re.compile(
+        r"^\s*(?:(?:item|section)\s+[\dIVXivx]+(?:\.\d+)*\.?\s+)?"
+        r"(?:transaction\s+(?:overview|summary|structure)|"
+        r"summary\s+of\s+terms|the\s+offering|use\s+of\s+proceeds)\b", re.I | re.M)),
 ]
 
 # Any plausible top-level heading — used to find where a captured section ends.
