@@ -111,7 +111,8 @@ def test_gate5_views_and_exports(client, db_session, cfg):
         r = client.get(path, headers=AUTH)
         assert r.status_code == 200, path
         assert "text/csv" in r.headers["content-type"]
-    assert client.get("/export/board.csv", headers=AUTH).text.startswith("id,project,developer")
+    assert client.get("/export/board.csv", headers=AUTH).text.startswith(
+        "id,project,category,developer")
 
     # dashboard firm add + roster on contacts page
     r = client.post("/firms", headers=AUTH,

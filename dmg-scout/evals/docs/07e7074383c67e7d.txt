@@ -1,0 +1,814 @@
+Colovore Reno 1 LLC
+3000 Scott Blvd, Suite 206, Santa Clara, CA 95054
+Date: August 5, 2026 Toufan Salari, Sr. Manager, Finance & Accounting
+Application Facts: Company Profile
+Industry Information Technology Colovore Reno 1 LLC (Colovore), is planning to establish a data center facility in
+Storey County, Nevada. The proposed facility will provide data center services
+NAICS 518210
+including the installation and maintenance of network resources, data center
+Type of App New security, monitoring systems, and power and cooling infrastructure. The
+Location Storey County Company offers turn-key and client-designed solutions across a range of sizes,
+and intentionally designs its facilities to be as efficient as possible, with a focus
+RDA Northern NV Now (formerly on reducing the burden placed on local jurisdictions and utilities. Colovore
+EDAWN), Amanda Berry-Jones expects to begin new operations in Storey County by the fourth quarter of 2026.
+Colovore is committed to the responsible development of digital infrastructure
+supporting the growing demand for AI and high-performance computing. The
+Reno facility follows a high-density, metro-edge design that delivers significant
+computing capacity within a compact footprint, and its liquid-cooled architecture
+eliminates the need for water-intensive cooling, achieving a Water Usage
+Effectiveness (WUE) of zero. The Company is committed to equal employment
+opportunity and to building a workforce shaped by diverse experiences, skills,
+and backgrounds as it grows its Nevada operations. Source: Colovore Reno 1
+LLC
+Tax Abatement Requirements: Statutory Company Application Meeting Requirements
+Job Creation 10 10 Yes
+Average Wage $31.57 $59.00 Yes
+Equipment Capex (SU & MBT)
+$25,000,000 $30,000,000 Yes
+Equipment Capex (PP)
+Additional Requirements:
+Health Insurance 65% 100% Yes
+Business License Current Pending Will comply
+Tax Abatements Contract Terms Estimated Tax Abatement
+Sales Tax Abmt. 2% for 10 years $3,024,000
+Personal Property Tax Abmt. 75% for 10 years $1,052,970
+Total Estimated Tax Abatement over 10 yrs. $4,076,970
+Net New Tax Revenues Direct Indirect Taxes after Abatements
+Local Taxes
+Property $11,505,674 $20,882 $11,526,556
+Sales $2,464,000 $3,186 $2,467,186
+Lodging $0 $0 $0
+State Taxes
+Property $594,392 $84,767 $679,159
+Sales $1,960,000 $89,412 $2,049,412
+Modified Business $90,076 $36,355 $126,431
+Lodging $0 $0 $0
+Total Estimated New Tax Revenue over 10 yrs. $16,614,142 $234,602 $16,848,744
+Economic Impact over 10 yrs. Direct Construction Total
+Total Jobs Supported 16 489 505
+Total Payroll Supported $14,421,227 $34,330,821 48,752,048
+Total Economic Value $53,282,693 $106,462,966 159,745,659
+Economic Impact Output per Abatement Dollar New Total Tax per Abated Dollar
+$13.07 $4.13
+IMPORTANT TERMS & INFORMATION
+Tax Abatements are reduction or discount of tax liability and companies do not receive any form of payment.
+Total Estimated Tax Abatement is a tax reduction estimate. This estimated amount will be discounted from total tax liability.
+Estimated New Tax Revenue is amount of tax revenues local and state government will collect after the abatement was given to
+applying company.
+Economic Impact is economic effect or benefits that this company and it's operations will have on the community and state economy
+measured by total number of jobs, payroll and created output.
+Economic Development
+Authority of Western Nevada
+June 30, 2026
+Thomas Burns
+Executive Director
+Nevada Governor’s Office of Economic Development
+555 E. Washington Ave. Suite 5400
+Las Vegas, NV 89101
+RE: Colovore Reno 1 LLC – Data Center Abatement Application
+Dear Director Burns:
+EDAWN hereby supports the application of Colovore Reno 1 LLC for the Data Center Sales & Use Tax
+Abatement and the Data Center Personal Property Tax Abatement incentives.
+Colovore Reno 1 LLC is planning to establish a data center facility in Storey County that will provide data
+center services including the installation and maintenance of network resources, data center security,
+monitoring systems, and power and cooling infrastructure. Colovore offers turnkey and client-designed
+solutions across a range of sizes and intentionally designs its facilities to be as efficient as possible, with a
+focus on reducing the burden placed on local jurisdictions and utilities. They are committed to the responsible
+development of digital infrastructure supporting the growing demand for AI and high-performance computing.
+This facility follows a high-density, metro-edge design that delivers significant computing capacity within a
+compact footprint, and its liquid-cooled architecture eliminates the need for water-intensive cooling, achieving a
+Water Usage Effectiveness (WUE) of zero. Colovore is also committed to equal employment opportunities, as
+well as building a workforce shaped by diverse experiences, skills, and backgrounds as it grows its Nevada
+operations.
+Colovore Reno 1 LLC will be investing approximately $30,000,000 in capital equipment and plans to hire 10
+employees at an average wage of $59.00 per hour in the first five years of operation. Their compensation
+package includes medical, vision, and dental benefits, PTO/sick/vacation, overtime, merit increases and
+bonuses, as well as a retirement plan/401(k). Employees who enroll in the company’s basic health plan receive
+100% employer-paid coverage.
+EDAWN supports this application as the company meets all three statutory requirements. Your consideration
+and support of the incentive application for Colovore is a significant factor in their decision to expand in
+Northern Nevada and speaks favorably to the state’s business-friendly environment.
+Sincerely,
+Heather Wessling Grosz, Senior Vice President
+Economic Development Authority of Western Nevada (EDAWN)
+www.edawn.org | 50 W Liberty Street, Ste. 108 | Reno, NV 89501 | (775) 829-3700
+2
+Docusign Envelope ID: 06EBC64A-5160-8372-8221-0FB6B4C603F4
+June 4, 2026
+VIA EMAIL
+Tom Burns
+Executive Director
+Nevada Governor's Office of Economic Development
+1 State of Nevada Way, 4th Floor
+Las Vegas, NV 89119
+Re: Application for Incentives to the Governor’s Office of Economic Development
+Dear Executive Director Burns:
+Colovore Reno 1 LLC (“Company”) has enclosed an application to the State of Nevada Governor's
+Office of Economic Development (“GOED”), pursuant to NRS § 360.754 (the “Act’), for certain
+incentives related to a proposed data center to be developed in Storey County, Nevada (the
+“Project”). The purpose of this letter is to comply with the application checklist provided by
+GOED.
+1. Incentives Requested
+The Company hereby requests any and all abatements available under the Act, including, but not
+limited to, the abatement of: (i) sales and use taxes for a period of 10 years, and (ii) personal
+property taxes for a period of 10 years, all in accordance with the Act.
+2.Significance of Abatements on Decision to Locate
+The availability of tax abatements/reductions play a significant role in the Company decision,
+subject to approval of the abatements and successful execution of certain key agreements, to
+construct a data center in the State of Nevada. While many other factors support any location
+decision, including availability of a suitable project site and utilities considerations, the availability
+of the tax abatements/reductions made the potential Project significantly more competitive and
+appealing for securing a tenant.
+3. Major Markets for Product Distribution
+The proposed data center will likely serve one or more tenants, who are usually some of the largest
+technology companies in the country.
+3
+Docusign Envelope ID: 06EBC64A-5160-8372-8221-0FB6B4C603F4
+4. Job Growth Plans
+The Project is projected to create at least 10 new, full-time, Nevada resident employees by 2031.
+The job growth plan is more fully described in Section 6(E) — Employment Schedule of the Data
+Center Tax Abatement Application.
+5. Business History and Plans
+The Company is committed to responsible development of digital infrastructure that supports the
+growing demand for artificial intelligence and high-performing computing. The proposed Project
+is designed around a high-density, metro-edge model that delivers significant computing capacity
+within a relatively compact footprint. The development of this Project would continue to make
+Nevada an important part of the company’s growth strategy going forward. The Company expects
+to begin operations in Storey County, Nevada in 2026.
+6. Community Involvement
+The Company is committed to being a responsible community partner in Nevada and is excited to
+explore partnerships with local workforce development organizations, colleges and universities,
+and various community partners.
+The Company prioritizes fostering a workplace that values professionalism, collaboration, respect,
+and diverse perspectives. As the Company grows its Nevada operations, the Company will
+continue to recruit and develop talent from a broad range of backgrounds and experiences.
+7. Environmental Responsibility
+The Company recognizes their responsibility to be a good steward of the environment and the
+importance of integrating sustainability throughout the lifecycle of their data center projects, from
+engineering and design to operations. The Company’s facility is designed to maximize computing
+capacity while utilizing a smaller physical footprint. Through the use of liquid-cooled architecture,
+the Company improves efficiency and eliminates the need for water-intensive cooling systems.
+With this Project, the Company looks forward to building a successful partnership with the State
+of Nevada.
+Best,
+Chief Financial Officer
+4
+Docusign Envelope ID: 06EBC64A-5160-8372-8221-0FB6B4C603F4
+June 4, 2026
+VIA EMAIL
+Tom Burns
+Executive Director
+Nevada Governor's Office of Economic Development
+1 State of Nevada Way, 4th Floor
+Las Vegas, NV 89119
+Re: Request for Confidentiality - N.R.S. § 231.069
+Dear Executive Director Burns:
+On behalf Colovore Reno 1 LLC, we are writing to request that the Governor’s Office of Economic
+Development keep the following records and documents of Design confidential pursuant to N.R.S.
+§231.069:
+1. Schedule 6(B) of the Data Center Tax Abatement Application for Colovore Reno 1 LLC,
+which provides the detailed Capital Equipment List; and
+2. Schedule 6(E) of the Data Center Tax Abatement Application for Colovore Reno 1 LLC,
+which provides the detailed Employment Schedule; and
+3. Schedule 6(F) of the Data Center Tax Abatement Application for Colovore Reno 1 LLC,
+which provides the detailed Health Plan Evaluation.
+Each of the documents identified above consist of trade secrets, confidential economic information
+or other business information that should be declared proprietary or confidential consistent with
+Nevada law. See N.R.S. §§ 231.069(5) and 360.247(10). This information is not available to the
+public generally, provides an economic benefit to the holder of the information, and has been the
+subject of more than reasonable efforts by Colovore Reno 1 LLC to maintain its secrecy. These
+documents contain proprietary or confidential information that belong to the Colovore Reno 1
+LLC.
+Thank you for your consideration of this request. If you need any additional information, please
+do not hesitate to contact us.
+Best,
+Chief Financial Officer
+5
+808 W Nye Lane, Carson City, NV 89703
+1 State of Nevada Way, 4th Floor, Las Vegas, NV, 89119
+775.687.9900
+GOED.NV.GOV
+REQUEST FOR CONFIDENTIALITY DETERMINATION
+Pursuant to NRS 231.069, and upon the request of applicant, Colovore Reno 1
+LLC, the Executive Director of the Office has determined the:
+(i) The detailed schedule of Data Center Capital Equipment List, 6(B)
+(ii) The detailed schedule of Data Center Employment List, 6(E)
+are confidential proprietary information of the business, are not public records, and
+shall be redacted in its entirety from the copy of the application that is disclosed to
+the public.
+Governor Joe Lombardo
+Executive Director Thomas J. Burns
+6
+Company is an / a: (check one)
+Data Center Tax Abatement Incentive Application New location in Nevada
+Company Name: Colovore Reno 1 LLC Expansion of a Nevada company
+Date of Application: December 19, 2025
+Section 1 - Type of Incentives
+Please check all that the company is applying for on this application:
+Data Center Sales & Use Tax Abatement: abated to 2% up to 10 or 20 years for Tangible Personal Property
+Data Center Personal Property Tax Abatement: 75% up to 10 or 20 years for Eligible Machinery or Equipment
+Section 2 - Corporate Information
+COMPANY NAME (Legal name under which business will be transacted in Nevada) FEDERAL TAX ID #
+Colovore Reno 1 LLC 33-4216685
+CORPORATE ADDRESS CITY / TOWN STATE / PROVINCE ZIP
+4655 Great America Parkway Suite 430 Santa Clara CA 95054
+MAILING ADDRESS TO RECEIVE DOCUMENTS (If different from above) CITY / TOWN STATE / PROVINCE ZIP
+TELEPHONE NUMBER WEBSITE
+408-744-2487
+COMPANY CONTACT NAME COMPANY CONTACT TITLE
+www.colovore.com
+Toufan Salari Sr. Manager, Finance & Accounting
+E-MAIL ADDRESS PREFERRED PHONE NUMBER
+408-7442487
+Has your company ever applied and been approved for incentives available by the Governor's Office of Economic Development? Yes No
+toufan@colovore.com
+If Yes, list the program awarded, date of approval, and status of the accounts (attach separate sheet if necessary):
+Section 3 - Job Creation Requirement
+Please check the applicable category the company intends to qualify under with this application:
+10 Year Abatement: Data Center shall have or have added 10 or more full-time Nevada employees within 5 years from the effective date
+20 Year Abatement: Data Center shall have or have added 50 or more full-time Nevada employees within 5 years from the effective date
+Section 4 - Capital Investment Requirement (check applicable duration consistent with the category above)
+Please check the applicable category the company intends to qualify under with this application:
+10 Year Abatement: Within 5 years from the effective date, the data center and one or more co-located businesses in each county shall make
+a cumulative capital investment of at least $25,000,000 in capital assets that will be used or located at the data center.
+20 Year Abatement: Within 5 years from the effective date, the data center and one or more co-located businesses in each county shall make
+a cumulative capital investment $100,000,000 in capital assets that will be used or located at the data center.
+Section 5 - Nevada Facility
+Type of Facility (Check all that apply):
+Headquarters Public Cloud Provider
+Private Data Center Scientific Computing Center
+Co-Location Data Center Other:
+EXPECTED DATE OF NEW OPERATION (MONTH/YEAR) EXPECTED DATE OF EXPANDED OPERATION (MONTH / YEAR)
+Q4 2026 N/A
+NAICS CODE / SIC INDUSTRY TYPE
+518210 Computer Data Center
+DESCRIPTION OF COMPANY'S NEVADA OPERATIONS
+Colovore Reno 1 LLC (the "Company"), is planning to establish a data center facility in Storey County. This facility will provide data center services such as installing and
+maintaining network resources, data center security, monitoring systems and power and cooling infrastructure. The Company offers turn-key, and client designed solutions
+of all sizes. We are excited to be good stewards of the community and of the land used. The Company intentionally designs their facilities to be as efficient as possible and
+focuses on reducing the burden on local jurisdictions and utilities. The Company considered surrounding states as potential locations for this project. This project will be
+the first presence in Nevada pertaining to Data Center operations.
+PROPOSED / ACTUAL NEVADA FACILITY ADDRESS CITY / TOWN COUNTY ZIP
+100 Italy Drive McCarran Storey County 89437
+WHAT OTHER STATES / REGIONS / CITIES ARE BEING CONSIDERED FOR YOUR COMPANY'S RELOCATION / EXPANSION / STARTUP?
+The company has considered multiple locations in North America for this investment and prefers not to disclose specific jurisdictions that were unsuccessful in
+competing for the project for the purposes of maintaining positive relationships in those jurisdictions.
+7
+Docusign Envelope ID: 06EBC64A-5160-8372-8221-0FB6B4C603F4
+Section 6 - Complete Forms (see additional tabs at the bottom of this sheet for each form listed below)
+Check the applicable box when form has been completed.
+6 (A) Real Estate and Construction 6 (E) Employment Schedule
+6 (B) Capital Equipment List 6 (F)
+Health Plan Evaluation
+6 (C) Co-Located Tenants List
+6 (D) Data Center General Taxable Items List
+Section 7 - Employment (Fill in either New Operations/Startup or Expansion, not both)
+New Operations / Start Up Expansions
+How many full-time equivalent (FTE*) employees will be created by the How many full-time equivalent (FTE*) employees will be created by the
+end of the first fourth quarter of new operations?: 10 end of the first fourth quarter of expanded operations?:
+Average hourly wage of these new employees: $59.00 Average hourly wage of these new employees:
+How many FTE employees prior to expansion?:
+Average hourly wage of these existing employees:
+Total number of employees after expansion:
+*FTE means a person who is in a permanent position of employment, works and average of 30 hours per week, and is eligible for company-sponsored health benefits.
+OTHER COMPENSATION (Check all that apply):
+Overtime Merit Increase Tuition assistance Bonus
+PTO / Sick / Vacation COLA adjustments Retirement Plan / Profit Sharing / 401(k) Other:
+BRIEF DESCRIPTION OF ADDITIONAL COMPENSATION PROGRAMS AND ELIGIBILITY REQUIREMENTS (Attach a separate sheet if necessary):
+Section 8 - Employee Health Insurance Benefit Program
+Is health insurance for employees and an option for dependents offered?: Yes (copy of benefit plan must be attached) No
+Package includes (check all that apply):
+Medical Vision Dental Other:
+Qualified after (check one):
+Upon employment Three months after hire date Six months after hire date Other:
+Health Insurance Costs: Percentage of health insurance premium paid by company (min 65%):
+Plan Type: BS-CA ACO 25 CA
+Employer Contribution (annual premium per employee): $ 7,500.00 Company: 100%
+Employee Contribution (annual premium per employee) $ - Employee: 0%
+Total Annual Premium: $7,500
+Section 9 - Certification
+I, the undersigned, hereby grant to the Governor's Office of Economic Development access to all pertinent and relevant records and documents of the
+aforementioned company. I understand this requirement is necessary to qualify and to monitor for compliance of all statutory and regulatory provisions
+pertaining to this application.
+Being owner, member, partner, officer or employee with signatory authorization for the company, I do hereby declare that the facts herein stated are true
+and that all licensing and permitting requirements will be met prior to the commencement of operations. In addition, I and /or the company’s legal counsel
+have reviewed the terms of the GOED Tax Abatement and Incentives Agreement, the company recognizes this agreement is generally not subject to
+change, and any material revisions have been discussed with GOED in advance of board approval.
+Joseph Hegstrom
+Name of person authorized for signature Signature
+6/6/2026
+CFO
+Title Date
+Nevada Governor's Office of Economic Development
+1 State of Nevada Way, 4th Floor, Las Vegas, Nevada 89119 • 702.486.2700 • www.goed.nv.gov
+8
+Docusign Envelope ID: 06EBC64A-5160-8372-8221-0FB6B4C603F4
+Site Selection Factors
+Company Name: Colovore Reno 1 LLC County: Storey
+Section 1 - Site Selection Ratings
+Directions: Please rate the select factors by importance to the company's business (1 = very low; 5 = very high). Attach this form to the
+Incentives Application.
+Availability of qualified workforce: 4 Transportation infrastructure: 2
+Labor costs: 3 Transportation costs: 2
+Real estate availability: 4 State and local tax structure: 5
+Real estate costs: 4 State and local incentives: 5
+Utility infrastructure: 5 Business permitting & regulatory structure: 5
+Utility costs: 5 Access to higher education resources: 4
+OTHER FACTORS & RATINGS:
+Colovore Reno 1 LLC evaluates a range of factors and ratings to identify optimal jurisdictions for
+establishing a data center. In addition to the primary considerations outlined above, we also assessed
+elements such as the jurisdiction’s business climate, power availability, and opportunities for future
+expansion.
+9
+Docusign Envelope ID: 06EBC64A-5160-8372-8221-0FB6B4C603F4
+6(A) Real Estate & Construction
+Company Name: Colovore Reno 1 LLC County: Storey
+Section 1 - Real Estate & Constructions Projections
+Directions: please provide a 10/20 year projection of the real estate costs for current year (year-1) and future land and building
+procurement, as well as, current and future annual lease amounts and possible construction costs due to building improvements.
+Complete [columns (a) and (f)]. These estimates are used for state economic impact and net tax revenue analysis that this
+agency is required to report. The company will not be required to reach these estimated levels of real estate costs. Attach this
+form to the Incentives Application.
+(a) (b) (c) (d) (e) (f)
+Construction B u i l d i n g A n n u a l Lease
+Year Land Cost Building SqFt
+Cost Purchase Amount
+Year-1 - $80,000,000 - $2,750,000 75,000
+Year-2 - - - - -
+Year-3 - - - - -
+Year-4 - - - - -
+Year-5 - - - - -
+Year-6 - - - - -
+Year-7 - - - - -
+Year-8 - - - - -
+Year-9 - - - - -
+Year-10 - - - - -
+Year-11 - - - - -
+Year-12 - - - - -
+Year-13 - - - - -
+Year-14 - - - - -
+Year-15 - - - - -
+Year-16 - - - - -
+Year-17 - - - - -
+Year-18 - - - - -
+Year-19 - - - - -
+Year-20 - - - - -
+10
+Equipment Schedule, Detailed
+The Office has determined the detailed equipment schedule as
+described in this application constitutes confidential proprietary
+information of Colovore Reno 1 LLC and is not a public record.
+11
+6(C) Co-located Businesses
+Company Name: Colovore Reno 1 LLC County:Storey
+Section 1 - Tenant Information
+Directions: Provide information on Co-located businesses, if applicable, in or proposed to be in the Data center. A Co-located business means a business
+that enters into a contract to use or occupy all or part of a Data center that is qualified to receive a tax abatements pursuant to S.B. 170 (78th (2015)
+Session). A Data center means one or more buildings located at one or more physical locations in Nevada which house a group of networked server
+computers for the purpose of centralizing the storage, management and dissemination of data and information pertaining to one or more businesses and
+includes any modular or preassembled components, associated telecommunications and storage systems and, if the data center includes more than one
+building or physical location, any network or connection between such buildings or physical locations.
+(a) (b) (c ) (d)
+Estimated Annual Average of Capital
+Year Projected Number of Tenants Total Amount
+Expenditures
+Year-1 1 $11,000,000 $11,000,000
+Year-2
+Year-3
+Year-4
+Year-5
+Year-6
+Year-7
+Year-8
+Year-9
+Year-10
+Total $11,000,000
+12
+Docusign Envelope ID: 06EBC64A-5160-8372-8221-0FB6B4C603F4
+6(D) Data Center General Taxable Items List
+Company Name: Colovore Reno 1 LLC County: Storey
+Section 1 - Data Center General Purchase Projections
+Directions: please provide a 20 year projection of the general taxable items the company anticipates purchasing, complete [columns (a) and (b)].
+These estimates are used for state economic impact and net tax revenue analysis that this agency is required to report. The company will not be
+required to reach these estimated levels of general items purchased. Attach this form to the Incentives Application.
+(a) (b)
+Year Projected Dollar Amount of Purchases
+Year-1 N/A
+Year-2 N/A
+Year-3 N/A
+Year-4 N/A
+Year-5 N/A
+Year-6 N/A
+Year-7 N/A
+Year-8 N/A
+Year-9 N/A
+Year-10 N/A
+13
+Employment Schedule, Detailed
+The Office has determined the detailed employment schedule as
+described in this application constitutes confidential proprietary
+information of Colovore Reno 1 LLC and is not a public record.
+14
+6(F) Evaluation of Health Plans Offered by Companies
+Company Name: Colovore Reno 1 LLC County: Storey
+Total Number of Full-Time Employees: 10
+Average Hourly Wage per Employee $59.00
+Average Annual Wage per Employee (implied) $122,720
+COST OF HELATH INSURANCE
+Annual Health Insurance Premium Cost: $7,500.00
+Percentage of Premium Covered by:
+Company 100%
+Employee 0%
+HEALTH INSURANCE PLANS:
+Base Health Insurance Plan*: BS-CA ACO 25 CA
+Deductible - per employee $ -
+Coinsurance 0% / 0%
+Out-of-Pocket Maximum per employee $ 2 ,000
+Additional Health Insurance Plan*:
+Deductible - per employee $ -
+Coinsurance 0% / 0%
+Out-of-Pocket Maximum per employee $ -
+Additional Health Insurance Plan*:
+Deductible - per employee $ -
+Coinsurance 0% / 0%
+Out-of-Pocket Maximum per employee $ -
+*Note: Please list only "In Network" for deducible and out of the pocket amounts .
+Generalized Criteria for Essential Health Benefits (EHB)
+[following requirements outlined in the Affordable Care Act and US Code, including 42 USC Section 18022]
+Covered employee's premium not to exceed 9.5% of annual wage $ - MEC
+Annual Out-of-Pocket Maximum not to exceed $10,600 (2025) $2,000 MEC
+Minimum essential health benefits covered (Company offers PPO):
+(A)Ambulatory patient services
+(B)Emergency services
+(C)Hospitalization
+(D)Maternity and newborn care
+(E)Mental health/substance use disorder/behavioral health treatment
+(F)Prescription drugs
+(G)Rehabilitative and habilitative services and devices
+(H)Laboratory services
+(I)Preventive and wellness services and chronic disease management
+(J)Pediatric services, including oral and vision care
+No Annual Limits on Essential Health Benefits
+I, the undersigned, hereby declare to the Governor's Office of Economic Development that the facts herein stated
+are true, and that I have attached a qualified plan with information highlighting where our plan reflects meeting the
+65% minimum threshold for the employee paid portion of the plan for GOED to independently confirm the same.
+Joseph Hegstrom
+Name of person authorized for signature Signature
+CFO
+Title Date
+15
+Docusign Envelope ID: 06EBC64A-5160-8372-8221-0FB6B4C603F4
+6(G) Paid Family and Medical Leave (PFML)
+Company Name: Colovore Reno 1 LLC County: Storey
+After October 1, 2023, if the business will have at least 50 full-time employees on the payroll of the business by the
+eighth calendar quarter following the calendar quarter in which the abatement becomes effective the business, by
+the earlier of the eighth calendar quarter following the calendar quarter in which the abatement becomes effective
+or the date on which the business has at least 50 full-time employees on the payroll of the business, has a policy
+for paid family and medical leave and agrees that all employees who have been employed by the business for at
+least 1 year will be eligible for at least 12 weeks of paid family and medical leave at a rate of at least 55 percent of
+the regular wage of the employee.
+I,theundersigned,herebydeclaretotheGovernor'sOfficeofEconomicDevelopmentthatthefactshereinstatedare
+true, and that the Applicant will meet this threshold for PFML.
+Joseph Hegstrom
+Name of person authorized for signature Signature
+6/6/2026
+CFO
+Title Date
+16
+6(H) Company Information
+Company Name: Colovore Reno 1 LLC County: Storey
+Section 1 - Company Interest List
+Directions:Pleaseprovideadetailedlistofownersand/ormembersofthecompany.TheGovernor’sOfficeofEconomicDevelopmentstrivestomaintain
+thehigheststandardsofintegrity,anditisvitalthatthepublicbeconfidentofourcommitment.Accordingly,anyconflictorappearanceofaconflictmust
+beavoided.Tomaintainourintegrity andcredibility,theapplicantisrequiredtoprovideadetailedlistofowners,members,equityholders andBoard
+members of the company.
+(a) ( b)
+Name Title
+Jeff Springborn Chief Executive Officer
+Sean Holkzknecht President & Co-Founder
+Joe Hegstrom Chief Financial Officer
+Loan Gordon Chief Marketing Officer
+Mike Fulkerson Vice President, Facilities & Operations
+Peter Rosembaum Vice President, Real Estate Acquisitions
+Tomasz Mackowlak Vice President, Product Strategy and Business Development
+Mai Pham Head of People
+David Hayeems Vice President, Corporate Controller
+Section 2 - Company Affiliates and/or Subsidiaries
+Are there any subsidiary or affiliate companies sharing tax liability with the applicant company? No Yes
+If Yes, continue below:
+Directions: In order to include affiliates/subsidiaries, under the exemption letter, they must to be added to the Contract. Per standard practice GOED
+requires a corporate schematic to understand the exact relationships between the companies. Please populate the below table to show the exact
+relationships between the companies and include:
+1. The names as they would read on the tax exemption letter.
+2. Which entity(ies) will do the hiring?
+3. Which entity(ies) will be purchasing the equipment?
+Name of Subsidiary or Affiliate Entity, Role and Legal Control Relationship
+Colovore Employee Company LLC will be responsible for employing all data center and corporate employees, and is controlled by Colovore LLC.
+Colovore LLC is the corporate parent company of Colovore Reno 1 LLC, and is controlled by Colovore Parent Holdings LLC.
+Please include any additional details below:
+17
+Abatement Application Addendum (for internal use / information)
+Company Name: Colovore Reno 1 LLC County: Storey
+Corporate Social Responsibility (CSR)
+GOED is very interested in learning about a company's current CSR / Community Engagement
+Activities. Does the company have any current programs, or future plans in its Nevadan location,
+that it would like to list? If so please do so below in the space below. Feel free to add space if required:
+The Company is committed to responsible development of digital infrastructure that supports the growing demand for artificial
+intelligence and high-performing computing. The Company's Reno facility is designed around a high-density, metro-edge
+that delivers significant computing capacity within a relatively compact footprint.
+Unlike many large-scale hyperscale developments, the Company's facility is designed to maximize computing capacity while
+utilizing a smaller physical footprint. The Company's liquid-cooled architecture improves efficiency and eliminates the need for
+water-intensive cooling systems (Water Usage Effectiveness ("WUE") = 0).
+The Company is committed to being a responsible business partner in Nevada and contributing to the state's continued growth
+a center for advanced technology, artificial intelligence infrastructure, and digital services. Through its investment in Reno, The
+Company supports Nevada's efforts to diversify its economy, attract high-value investment, and create skilled technology
+jobs.
+Equity, Diversity, and Inclusion
+Would the company like to highlight any policies / practices for equity, diversity, and inclusion?
+Feel free to add space if required:
+The Company is committed to providing equal employment opportunities and fostering a workplace that values
+collaboration, respect, and diverse perspectives. The Company believes that innovation is strengthened by bringing together
+individuals with different experiences, skills, and backgrounds.
+Employment decisions are based on qualifications, performance, and business needs. As the Company grows its Nevada
+operations, the Company will continue to recruit and develop talent from a broad range of backgrounds and experiences.
+18
+Abatement Application Addendum (for internal use / information)
+Company Name: Colovore Reno 1 LLC County:Storey
+Education Partnerships
+Does the company have existing partnerships to recruit or advance workforce development (e.g. workforce boards, community
+based organizations and education providers)? Additionally, would the company have any anticipated needs, for this project,
+where GOED / RDAs can provide support? Feel free to add space if required:
+The Company recognizes the importance of workforce development in supporting Nevada's growing technology economy. The Company recently became a
+Gold Investor in the Economic Development of Western Nevada ("EDAWN") and is beginning to engage with regional workforce and education initiatives through
+EDAWN's network and partnerships.
+As the Company expands its presence in Reno, the Company intends to explore opportunities to support STEM education, technology workforce development, and
+awareness of careers in digital infrastructure, data centers, and AI. Potential future activities may include participation in workforce development initiatives, educationa
+outreach programs, facility tours, internships, and collaboration with regional K-12 schools, career and technical education ("CTE") programs, colleges and
+universities, workforce development organizations, and community partners to promote careers in technology digital infrastructure, engineering, skilled trades, and AI.
+While these efforts are in the early stages, the Company views workforce development as an important component of its continued growth in Nevada and looks
+forward to contributing to the development of the region's future technology workforce.
+Supply Chain
+Does the company anticipate purchasing equipment, as noted in the Capital Equipment List, from or through Nevada-based
+businesses? Does the company wish to submit any notes / highlights re. this? Feel free to add space if required:
+The Company recognizes the importance of supporting local and regional businesses as part of Nevada's economic development ecosystem. The Company seeks
+to utilize qualified Nevada-based contractors, suppliers, consultants, and service provided whenever practical and economically competitive.
+During the development and operation of its Reno facility, the Company expects to engage local firms in areas such as construction engineering, electrical and
+mechanical services, maintenance, security, logistics, and professional services. The Company also values relationships with regional business organizations and
+economic development partners that help strengthen Northern Nevada's business community.
+Certain specialized data center infrastructure components, including advanced cooling systems, electrical equipment, and technology infrastructure, are sourced
+through national and global supply chains. However, the Company will continue to evaluate opportunities to increase local and regional procurement where
+appropriate as Nevada operations expand.
+Through the continued development of its existing and planned data center facilities in the greater Reno area, the Company intends to build long-term relationships
+with Nevada-based businesses and service providers that contribute to the successful development and operation of its facilities.
+19
+SilverFlume Nevada's Business Portal to start/manage your business
+Entity Information
+Entity Information
+Entity Name:
+COLOVORE RENO 1 LLC
+Entity Number:
+E47702292025-2
+Entity Type:
+Foreign Limited-Liability Company
+Entity Status:
+Active
+Formation Date:
+03/26/2025
+NV Business ID:
+NV20253321642
+Termination Date:
+Annual Report Due Date:
+3/31/2027
+Compliance Hold:
+Series LLC:
+Domicile Name:
+Jurisdiction:
+20
+https://esos.nv.gov/EntitySearch/BusinessInformation
+Purpose-Built Data
+Centers for Secure,
+Mission-Critical AI
+Ultra dense. Liquid cooled.
+Ultra-high-density, liquid-cooled infrastructure
+designed for compliance, performance, and For low-latency AI inference at the metro edge.
+real-time analytics.
+21
+About Colovore
+• Purpose-built for enterprise AI where it matters most.
+Ultra-high-density, low-latency, metro-edge colocation for
+Fortune 500, financial services, and healthcare organizations
+deploying mission-critical AI they can’t host in-house.
+• 13 years of zero-downtime production ops. Battle-tested at
+scale with 99.999% SLA. Proven platform for enterprises and AI
+innovators, not a pilot.
+• Build-to-suit removes deployment risk. Modular 8-12 MW
+blocks with NVIDIA reference architectures delivered in less than
+12 months. Scale 4-8 MW at a time without redesign.
+• Enterprise-grade compliance built in. ISO 27001, SOC 2 Type II,
+and HIPAA/PCI/FedRAMP-ready. Right-sized redundancy for your
+risk profile, not over-engineered.
+• Metro-edge footprint aligned with Tier 1 enterprise markets.
+Silicon Valley, Reno, Chicago, Austin, Dallas, and other markets
+positioned at data gravity with sub-millisecond cloud
+connectivity.
+• Backed by King Street Capital & Blackstone with $1B debt
+facility to support multi-region expansion and enterprise growth.
+Ultra-high-density AI infrastructure. Peak performance.
+22
+Our Journey
+2025
+Secures $925 million debt facility to expand
+nationally
+2012
+Breaks ground on first Reno, NV (RNO01)
+Colovore is facility
+2014
+founded by Sean
+Holzknecht, Peter SJC01 Phase 1 is Appoints new CEO Jeff Springborn
+Harrison, and commissioned and
+Ben Coughlin begins operation Breaks ground on first Chicago site (ORD01)
+2013 2024 2026
+Colovore breaks King Street acquires Colovore First Reno site (16MW in RNO01) is fully
+ground on first all- and embarks on a rapid national expansion committed ahead of delivery, reflecting
+liquid-cooled data plan strong demand, liquid-cooled AI
+center (SJC01) infrastructure
+facility in Santa Launches second Silicon Valley data center
+Clara, CA (SJC02) and announces Reno, Chicago, and First Chicago site (6MW in ORD01) is fully,
+Texas sites. validating demand for metro-edge AI
+infrastructure in the Midwest.
+validated by
+$925M
+5-600+ kW backed by
+PUE 1.3 / WUE 0
+debt facility for
+per rack DGX-Ready Colocation
+national expansion Data Center since 2019
+23
+Powering Scalable AI Infrastructure at the Metro Edge
+Colovore accelerates ultra-high-density AI factories—beyond the limits of hyperscale
+Relentless Reference Low-Latency, Security,
+Ultra-High-Density
+Efficiency & Architectures & Metro-Edge Compliance, &
+Liquid Cooling
+Resilience Innovation Deployments Ecosystem Trust
+5-600+ kW per rack: 1.1-1.3 PUE + flexible GPU Turnkey for Dell/ NVIDIA Optimized for metro locations Physically isolated and
+Supports AI clusters & financing: For speed to clusters; Validated and user/data proximity. enterprise-compliant for
+NVIDIA SuperPODs, future- market and highest power architectures for rapid regulated workloads.
+proofed for every hardware efficiency for AI scale-out. scale-out and metro Built in modular 8-12 MW
+generation. deployment. quadrants for rapid scale-up Chosen by NVIDIA, Cerebras,
+99.999% SLA + 100% uptime: & lower TCO. Fortune 500s, CDNs, and top
+Industry-best rack Over a decade of zero- Channel-enabled: Supports AI innovators for mission-
+densities—unmatched downtime operations. hardware reseller bundles, <5ms Real-time analytics, critical deployments.
+scalability for AI Factory flexible GPU financing, and compliant AI workloads close
+deployments. new AI factory deployments. to enterprise users and data.
+Colovore: The proven AI data center partner for metro-edge, turnkey AI factory deployments.
+24
+Why Colovore?
+Agility at AI Platform Evergreen Security & Proximity without
+Any Scale Leadership Innovation Compliance Compromise
+Flexible, Multi-tenant Ultra-High Density Future-proof Always On Build-to-Suit
+Colocation + + + +
++ NVIDIA Certified AI-driven Automation Always Auditable Low Latency
+Speed-to-Power + + + +
++ 13 years in liquid Serviceability Built for Regulated Location Gravity
+Predictable, cooling without Downtime Industries (Users, Systems, Data)
+Lower TCO
+25
+Compelling Design & Ultimate Flexibility
+Any density, any Multiple cooling Enterprise-grade Compliant and Speed to
+zone. architectures. redundancy. auditable, by market; no
+design. vendor lock-in.
+5-600+ kW per rack, side- Modular liquid cooling, Custom N/N+1 power and
+by-side, zero direct-to-chip, fan wall, or cooling by block; instant
+ISO/IEC 27001 Modular 8-12MW
+compromise. Run ultra- immersion — change any adaptation to workload
+certification and SOC 2 quadrants lower TCO for
+high-density AI, high- block, any time. Future- criticality. SLAs are
+Type II targeted shortly regulated and super-high-
+throughput analytics, and proof for any AI hardware protected—no downtime.
+after opening. Built to density deployments.
+legacy apps all in the generations; never Tailor redundancy to your
+support customer HIPAA, Capacity live in <12
+same facility, side-by- stranded by a single specific compliance and
+PCI DSS, and FedRAMP months, build-to-suit for
+side, on demand. cooling choice. risk needs.
+requirements, with any enterprise model.
+HITRUST scope planned Technology agnostic;
+for the Q4 2027 audit choose your hardware /
+cycle. rack layout / power,
+and instantly scale
+up or down.
+26
+Who We Serve
+AI Innovators
+Startups & enterprises scaling GPU clusters and SuperPODs for
+real-time production inference.
+Organizations with HPC Workloads
+ASICs, trading, scientific research, advanced compute
+Fortune 500 Companies
+Traditional IT + hybrid AI environments; early architectural
+engagement with finance, healthcare, and technology leaders.
+Regulated Industries
+Defense, healthcare, financial services — where compliance and
+security matter most.
+Colovore’s metro infrastructure unlocks Fortune 500, regulated
+enterprise, and HPC segments that have outgrown hyperscale
+constraints.
+27
+Build-to-Suit Program
+Colovore handles the complexity of custom AI infrastructure buildout: site selection, engineering, financing, and on-
+time delivery. Your enterprise customers get purpose-built facilities. You own the relationship and the recurring revenue.
+Development Services
+• Site & Utility Qualification: Land search, power, fiber, and hazard vetting
+• Custom Design & Engineering: Security, redundancy, commissioning agent
+oversight
+• Flexible Financing: Lease, JV, or own with incentives and tax optimization
+• Guaranteed Delivery: Schedule control and risk reduction
+• Operational Options: Turnkey operation or customer-operated handoff
+Colovore Differentiation
+• Density-First Design: 50-500 kW racks, liquid cooling from day one
+• Latency-Optimized Siting: Sub-5ms RTT to your production data centers or exchange
+hubs
+• Faster Delivery: Pre-engineered 8-12 MW blocks live in <12 months
+• Modular Growth: Expand in 4-8 MW increments with no redesign
+• Right-Sized Redundancy: N or N+1 options to control cost and TCO
+• Green Power & Sustainability: High-efficiency, water-optimized cooling with PUE
+<1.3 and WUE 0
+• Lifecycle Operations: ISO 27001 / SOC 2 / HITRUST operations and compliance
+28
+Customer Needs Colovore Delivers
+• AI & GPU Scale: • 5-600+ kW per Rack:
+Rapidly deploy and scale the latest GPU/AI clusters for real-time Any vendor, any density—purpose-built for current and future AI
+inference, LLM, fraud detection, robotics, and analytics—without density workloads and every hardware generation.
+constraints.
+• Metro-Edge Deployment:
+• Low-Latency Hubs: <5ms RTT latency to Tier 1 financial and technology hubs. Ultra-low
+Place compute close to data, users, and systems for real-time latency proximity to core data, users, and enterprise environments.
+performance.
+• Speed-to-Power:
+• Predictable, Fast Delivery: 8-12MW live in <12 months. Capacity delivered in months, not years—
+Bring capacity online quickly with predictable timelines and execution. standardized, build-to-spec, and build-to-suit options.
+• Flexibility Across Hardware Generations: • Technology-Agnostic Architecture:
+Support evolving GPU, CPU, and accelerator architectures without Modular and flexible by design. Mix and scale infrastructure without rip-
+rework. and-replace across hardware cycles.
+• Security, Compliance & Control: • Compliance-First Design:
+Maintain strict data governance, isolation, and audit readiness. PCI, SOC 2, HITRUST, FedRAMP-ready environments with full data control.
+• Efficient, Sustainable Operations: • Efficient & Scalable:
+Optimize power, cooling, and footprint to reduce total cost and waste. PUE <1.3 and WUE 0. Modular N/N+1 per block design—capacity scales
+Right-sized for redundancy and zero stranded capex. without overbuilding.
+29
+Established Real Estate
+Platform
+▪ Dedicated real estate
+professionals in the US & Europe
+▪ $5.7bn of committed capital to
+private real estate since 2010
+▪ Deep industry relationships and
+access
+King Street’s Edge
+Institutional capital, infrastructure
+Data
+expertise, and 30+ years of proven
+Centers
+execution supporting long-term AI
+Integrated Global Reach and Resources
+infrastructure growth.
+Investment Team
+▪ $30bn global alternatives
+▪ 90+ person investment team firm spanning multiple
+▪ Collaborative approach to segments of the public and
+investing across strategies, private markets
+focused on best ideas ▪ Institutional infrastructure
+▪ Research analysts with developed over 30 years
+extensive knowledge in tech ▪ 100% partner owned and fully
+and energy sectors provides aligned with investors
+differentiated perspective
+30
+Experienced Management Team
+50+ employees led by deep and experienced management team.
+Senior Management Board of Directors
+Jeff Springborn Sean Holzknecht Brian Higgins
+CEO and Board Member President and Co-Founder Chairman of the Board
+20+ years of experience in data Experience leading and managing Managing Partner and Co-Portfolio
+center design, construction, and colocation facilities in the Bay Area Manager of King Street, which he
+energy management since 1997 founded in 1995
+Joe Hegstrom Peter Rosenbaum Mark Van Zandt
+Chief Financial Officer Vice President of Real Estate Board Member
+Acquisition
+17+ years of experience with data Managing Director and Co-Head of
+center industry leaders including ~20 years of experience leading Real Estate at King Street
+Digital Realty and CyrusOne data center acquisitions and
+investments with Digital Realty
+Loan Gordon Mike Fulkerson Sharin Valia
+Chief Marketing Officer Director of Facilities and Board Member
+Operations
+25+ years of marketing, GTM, and Managing Director on the US
+development experience in the 16+ years of data center operating Capital Markets team at King
+technology, telecom/wireless, and and engineering experience with Street, based in Palo Alto
+healthcare sectors industry leaders including Equinix
+31
+Slide 11
+Thank you.
+info@colovore.com
+www.colovore.com
+32

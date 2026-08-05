@@ -1,0 +1,424 @@
+SCH Number: 2026070358
+Document Type: NOE
+Project Title: Accelerating Grid-Interactive, Flexible Data Centers in California
+Lead Agency: Energy Commission
+Counties: San Diego
+Cities: La Jolla
+Location Coordinates: 32°52'40.2"N 117°14'24"W
+Location Cross Streets: Gilman Dr, Mandeville Ln
+NOE Exempt Status: Categorical Exemption
+Contact: Zoe Marshall / Utilities Engineer / California Energy Commission / zoe.marshall@energy.ca.gov / 9169315128
+
+Description:
+The proposed project includes electrical system upgrades and installation of new high-voltage transformer equipment; associated grading and new concrete are also planned. Additional activities include power distribution upgrades at the site and laboratory work at the DERConnect and Center for Energy Research facilities utilizing existing hardware test equipment and research space.
+
+--- detail page ---
+
+
+
+
+
+Home
+
+Search
+
+Accelerating Grid-Interactive, Flexible Data Centers in California
+
+
+
+Accelerating Grid-Interactive, Flexible Data Centers in California
+
+
+
+
+
+Summary
+
+
+
+
+
+SCH Number
+
+
+2026070358
+
+
+
+
+Public Agency
+
+
+California Energy Commission
+
+
+
+
+Document Title
+
+
+Accelerating Grid-Interactive, Flexible Data Centers in California
+
+
+
+
+Document Type
+
+
+NOE - Notice of Exemption
+
+
+
+
+Received
+
+
+
+7/9/2026
+
+
+
+
+
+Posted
+
+
+7/9/2026
+
+
+
+
+Document Description
+
+
+The proposed project includes electrical system upgrades and installation of new high-voltage transformer equipment; associated grading and new concrete are also planned. Additional activities include power distribution upgrades at the site and laboratory work at the DERConnect and Center for Energy Research facilities utilizing existing hardware test equipment and research space.
+
+
+
+
+
+Contact Information
+
+
+
+
+
+Name
+
+
+Zoe Marshall
+
+
+
+
+Agency Name
+
+
+California Energy Commission
+
+
+
+
+Job Title
+
+
+Utilities Engineer
+
+
+
+
+Contact Types
+
+
+Lead/Public Agency
+
+
+
+
+Address
+
+
+
+
+715 P Street
+
+
+Sacramento
+,
+CA
+
+95814
+
+
+
+
+
+
+Phone
+
+
+
+(916) 931-5128
+
+
+
+
+
+Email
+
+
+
+zoe.marshall@energy.ca.gov
+
+
+
+
+
+
+
+
+
+
+Name
+
+
+Sasha Doppelt
+
+
+
+
+Agency Name
+
+
+UC San Diego
+
+
+
+
+Job Title
+
+
+Project Manager
+
+
+
+
+Contact Types
+
+
+Project Applicant
+
+
+
+
+Address
+
+
+
+
+9500 Gilman Drive MC 0417
+
+
+La Jolla
+,
+CA
+
+92093
+
+
+
+
+
+
+Phone
+
+
+
+(510) 484-4306
+
+
+
+
+
+Email
+
+
+
+sdoppelt@ucsd.edu
+
+
+
+
+
+
+Location
+
+
+
+
+
+Coordinates
+
+
+
+
+
+32°52'40.2"N 117°14'24"W
+
+
+
+
+
+Cities
+
+
+La Jolla
+
+
+
+
+Counties
+
+
+San Diego
+
+
+
+
+Regions
+
+
+Citywide, Southern California
+
+
+
+
+Cross Streets
+
+
+Gilman Dr, Mandeville Ln
+
+
+
+
+Zip
+
+
+92093
+
+
+
+
+Other Location Info
+
+
+9500 Gilman Dr, La Jolla, CA 92093
+
+
+
+
+
+Notice of Exemption
+
+
+
+
+
+Exempt Status
+
+
+Categorical Exemption
+
+
+
+
+Type, Section or Code
+
+
+Cal. Code Regs., tit. 14, § 15301
+
+
+
+
+Reasons for Exemption
+
+
+Cal. Code Regs., tit. 14, &sect;15301, provides that projects which consist of the operation, repair, maintenance, permitting, leasing, licensing, or minor alteration of existing public and private structures, facilities, mechanical equipment, or topographical features, and which involve negligible or no expansion of use beyond that at the time of the lead agency's determination, are categorically exempt from CEQA. The physical aspects of this work will involve electrical system upgrades and installation of new high-voltage transformers immediately adjacent to an existing building that houses a data center and within the same vicinity of existing energy infrastructure that includes switchgear, transformers, electric chillers, and backup generators. Two new 1.2MW solid-state transformers will be installed and will be interconnected directly to existing 12 kV switches. The use of the existing structure remains the same and the equipment does not change the use of the facility.
+For these reasons, the proposed work involves negligible or no expansion of use, will not have any significant effect on the environment, and is exempt from CEQA under Cal. Code Regs., tit. 14, &sect;15301.
+
+
+
+
+
+Exempt Status
+
+
+Categorical Exemption
+
+
+
+
+Type, Section or Code
+
+
+Cal. Code Regs., tit. 14, § 15303
+
+
+
+
+Reasons for Exemption
+
+
+California Code of Regulations, tit. 14, &sect;15303, provides that projects which consist of the construction and location of limited numbers of new, small facilities or structures; installation of small new equipment and facilities in small structures; and the conversion of existing small structures from one use to another where only minor modifications are made in the exterior of the structure are categorically exempt from CEQA. This project will install new transformers located immediately adjacent to an existing building that houses a data center and within the same vicinity of existing energy infrastructure that includes switchgear, transformers, electric chillers, and backup generators. A new concrete pad, roughly 16’ x 16’ will need to be laid and the transformers will be installed on the pad. Minor trenching will be necessary to install a new underground electrical conduit. For this reason, the project will consist of the installation of a small structure, will not have a significant effect on the environment, and is categorically exempt from CEQA under California Code of Regulations, tit. 14, &sect;15303.
+The project will not impact an environmental resource of hazardous or critical concern where designated, precisely mapped, and officially adopted pursuant to law by federal, state, or local agencies; does not involve any cumulative impacts of successive projects of the same type in the same place that might be considered significant; does not involve unusual circumstances that might have a significant effect on the environment; will not result in damage to scenic resources within a highway officially designated as a state scenic highway; the project site is not included on any list compiled pursuant to Government Code section 65962.5; and the project will not cause a substantial adverse change in the significance of a historical resource. Therefore, none of the exceptions to categorical exemptions listed in CEQA Guidelines section 15300.2 apply to this project, and this project will not have a significant effect on the environment.
+
+
+
+
+
+Attachments
+
+
+
+
+
+Notice of Exemption
+
+
+
+
+12_NOE_CEQA_UCSD
+PDF
+
+190 K
+
+
+
+
+
+
+Disclaimer:
+The Governor’s Office of Land Use and Climate Innovation (LCI) accepts no responsibility for the content or accessibility of these documents.
+            To obtain an attachment in a different format, please contact the lead agency at the contact information listed above. For more information, please visit
+LCI’s Accessibility Site
+.
+
+
+
+
+
+Download CSV
+
+New Search
+
+Print
+
+
+
+
+
+
+
+
+
+

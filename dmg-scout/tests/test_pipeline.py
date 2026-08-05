@@ -178,3 +178,39 @@ def test_pair_similarity_apn_dominates(db_session, cfg):
                project_name="Totally Different Name", summary_one_line="x")
     p = Project(name="Meridian", apn_parcel="0110-111-22")
     assert pair_similarity(s, p, 5) > 0.5
+
+
+def test_county_alone_never_auto_merges(db_session, cfg):
+    """Regression: the score is a weighted mean, so a signal whose ONLY comparable
+    field was county scored a perfect 1.0 on that single agreement and auto-merged.
+    A nameless Storey County agenda packet attached itself to the SV RNO data
+    center at confidence 1.000 and pulled its last-signal date forward five months.
+    """
+    from app.models import Category
+    _signal(db_session, project_name="SV RNO Property Owner 1 Data Center",
+            county="Storey", state="NV", category=Category.data_center)
+    run_resolve(db_session, cfg, use_llm=False)
+    project = db_session.exec(select(Project)).one()
+
+    nameless = _signal(db_session, project_name=None, developer_or_owner=None,
+                       county="Storey", state="NV", category=Category.data_center)
+    assert pair_similarity(nameless, project, radius_km=5.0) <= 0.60
+
+    stats = run_resolve(db_session, cfg, use_llm=False)
+    assert stats["auto_linked"] == 0          # the merge that used to happen
+    assert stats["queued_review"] == 1        # surfaced for a human instead
+
+
+def test_strong_evidence_still_auto_merges(db_session, cfg):
+    """The cap must not block real merges: a matching project name is strong
+    evidence and has to clear the auto-merge threshold on its own."""
+    from app.models import Category
+    _signal(db_session, project_name="Colovore Reno 1", county="Storey", state="NV",
+            developer_or_owner="Colovore Reno 1 LLC", category=Category.data_center)
+    run_resolve(db_session, cfg, use_llm=False)
+    project = db_session.exec(select(Project)).one()
+    same = _signal(db_session, project_name="Colovore Reno 1 (RNO01)", county="Storey",
+                   state="NV", developer_or_owner="Colovore Reno 1, LLC",
+                   category=Category.data_center)
+    assert pair_similarity(same, project, radius_km=5.0) >= 0.88
+    assert run_resolve(db_session, cfg, use_llm=False)["auto_linked"] == 1

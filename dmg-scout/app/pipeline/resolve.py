@@ -24,6 +24,12 @@ from app.normalize import normalize_county, normalize_name
 
 log = logging.getLogger(__name__)
 
+# Ceiling on similarity when nothing distinguishing (project name, APN, coordinates)
+# was available to compare — county and developer agreement alone. Sits between
+# resolution.review_threshold (0.55) and auto_merge_threshold (0.88) so these pairs
+# get adjudicated or reviewed rather than merged on a coincidence of geography.
+WEAK_EVIDENCE_CAP = 0.60
+
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6371.0
@@ -67,16 +73,26 @@ def pair_similarity(signal: Signal, project: Project, radius_km: float) -> float
     WEAK evidence (weight 0.75) — Vantage builds many campuses, and two
     different projects by one developer must never auto-merge on the developer
     string alone. A known-county mismatch actively penalizes.
+
+    Weak evidence alone is capped below the auto-merge threshold. Because the score
+    is a weighted MEAN, a signal carrying only a county would otherwise score a
+    perfect 1.0 off that single agreement and auto-merge — which is how a Storey
+    County agenda packet with no project name at all attached itself to the SV RNO
+    data center at confidence 1.000 and dragged its recency forward five months.
+    Same county is not the same building.
     """
     scores: list[tuple[float, float]] = []  # (weight, score)
+    strong_evidence = False  # an identifier that can distinguish two neighbours
 
     # APN match is close to dispositive.
     if signal.apn_parcel and project.apn_parcel:
         scores.append((3.0, 1.0 if signal.apn_parcel.strip() == project.apn_parcel.strip() else 0.0))
+        strong_evidence = True
 
     if signal.project_name and project.name and not project.name.startswith("Unnamed"):
         scores.append((2.0, fuzz.token_sort_ratio(
             normalize_name(signal.project_name), normalize_name(project.name)) / 100.0))
+        strong_evidence = True
     if signal.developer_or_owner and project.developer:
         scores.append((0.75, fuzz.token_sort_ratio(
             normalize_name(signal.developer_or_owner), normalize_name(project.developer)) / 100.0))
@@ -88,6 +104,7 @@ def pair_similarity(signal: Signal, project: Project, radius_km: float) -> float
     if None not in (signal.latitude, signal.longitude, project.latitude, project.longitude):
         d = haversine_km(signal.latitude, signal.longitude, project.latitude, project.longitude)
         scores.append((2.0, max(0.0, 1.0 - d / radius_km)))
+        strong_evidence = True
 
     sig_mw = signal.mw_it or signal.mw_total
     proj_mw = project.mw_it or project.mw_total
@@ -98,7 +115,12 @@ def pair_similarity(signal: Signal, project: Project, radius_km: float) -> float
     if not scores:
         return 0.0
     total_w = sum(w for w, _ in scores)
-    return sum(w * s for w, s in scores) / total_w
+    sim = sum(w * s for w, s in scores) / total_w
+    if not strong_evidence:
+        # Land it in the adjudication/review band instead of auto-merging or
+        # silently splitting: a human or the LLM decides, and it stays visible.
+        sim = min(sim, WEAK_EVIDENCE_CAP)
+    return sim
 
 
 def _blocked_candidates(session: Session, signal: Signal, radius_km: float) -> list[Project]:
@@ -125,7 +147,10 @@ def _blocked_candidates(session: Session, signal: Signal, radius_km: float) -> l
                 not signal.state or not p.state or signal.state == p.state
             ):
                 candidates[p.id] = p
-    return list(candidates.values())
+    # A data center and a factory are never the same building, and one developer
+    # can be building both — so category is a hard blocking key, not a tiebreak.
+    # Without this, a shared developer name alone would merge across the boards.
+    return [p for p in candidates.values() if p.category == signal.category]
 
 
 def _signal_record(signal: Signal) -> dict:
@@ -189,7 +214,8 @@ def _new_project(session: Session, signal: Signal) -> Project:
         f"Unnamed {signal.developer_or_owner}" if signal.developer_or_owner
         else f"Unnamed project ({signal.county or signal.jurisdiction or 'unknown location'})"
     )
-    project = Project(name=name, developer=signal.developer_or_owner,
+    project = Project(name=name, category=signal.category,
+                      developer=signal.developer_or_owner,
                       county=normalize_county(signal.county), state=signal.state)
     session.add(project)
     session.flush()  # need project.id

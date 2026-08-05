@@ -12,7 +12,15 @@ from sqlmodel import Session, select
 from app.config import Config
 from app.http import PoliteClient
 from app.llm import LLMUnavailable, extract
-from app.models import RawDocument, Signal, SignalType, Stage, TriageResult, utcnow
+from app.models import (
+    Category,
+    RawDocument,
+    Signal,
+    SignalType,
+    Stage,
+    TriageResult,
+    utcnow,
+)
 
 log = logging.getLogger(__name__)
 
@@ -74,12 +82,21 @@ def run_extract(session: Session, cfg: Config, limit: int = 100) -> dict:
             except ValueError:
                 stage = Stage.unknown
 
+            # Category is triage's call, carried over rather than re-inferred: one
+            # classification per document, and the board filter matches what triage
+            # actually decided.
+            try:
+                category = Category(doc.meta.get("triage_category"))
+            except ValueError:
+                category = Category.other
+
             # Idempotency: one signal per raw document; re-extraction replaces it.
             existing = session.exec(
                 select(Signal).where(Signal.raw_document_id == doc.id)
             ).first()
             signal = existing or Signal(raw_document_id=doc.id, signal_type=signal_type)
             signal.signal_type = signal_type
+            signal.category = category
             signal.event_date = event_date or doc.published_at
             for f in ("project_name", "developer_or_owner", "jurisdiction", "county", "state",
                       "street_address", "apn_parcel", "latitude", "longitude", "mw_it", "mw_total",

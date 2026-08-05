@@ -7,7 +7,15 @@ import hashlib
 
 from sqlmodel import Session
 
-from app.models import RawDocument, Signal, SignalType, Stage, TriageResult, utcnow
+from app.models import (
+    Category,
+    RawDocument,
+    Signal,
+    SignalType,
+    Stage,
+    TriageResult,
+    utcnow,
+)
 
 
 def add_manual_signal(
@@ -24,8 +32,13 @@ def add_manual_signal(
     person_name: str | None = None,
     person_org: str | None = None,
     url: str = "",
+    category: str = Category.data_center.value,
 ) -> Signal:
     st = SignalType(signal_type)
+    # Manual entries never pass through triage, so nothing else would set a
+    # category — and `other` is invisible on every board, which would silently
+    # swallow hand-entered tips. Default to the book of business this exists for.
+    cat = Category(category)
     text = (
         f"MANUAL ENTRY ({st.value})\n{summary}\n"
         f"Project: {project_name or '-'} | Developer: {developer or '-'} | "
@@ -37,12 +50,13 @@ def add_manual_signal(
         title=f"Manual: {summary[:120]}", raw_text=text,
         content_hash=hashlib.sha256(text.encode()).hexdigest(),
         triage_result=TriageResult.relevant, triage_reason="manual entry",
-        processed_at=utcnow(), meta={"default_signal_type": st.value},
+        processed_at=utcnow(),
+        meta={"default_signal_type": st.value, "triage_category": cat.value},
     )
     session.add(doc)
     session.flush()
     signal = Signal(
-        raw_document_id=doc.id, signal_type=st, project_name=project_name,
+        raw_document_id=doc.id, signal_type=st, category=cat, project_name=project_name,
         developer_or_owner=developer, county=county, state=state,
         mw_it=mw_it, mw_total=mw_total, stage=Stage(stage),
         summary_one_line=summary[:300], confidence=1.0,

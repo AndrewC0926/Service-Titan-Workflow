@@ -143,6 +143,7 @@ def add_signal(
     stage: str = typer.Option("unknown"),
     person: str = typer.Option(None), org: str = typer.Option(None),
     url: str = typer.Option(""),
+    category: str = typer.Option("data_center", help="data_center | industrial"),
 ) -> None:
     """Log a manual signal (tip, engineer move, prequal/bid invite)."""
     from app.manual import add_manual_signal
@@ -150,8 +151,9 @@ def add_signal(
         s = add_manual_signal(session, signal_type, summary, project_name=project,
                               developer=developer, county=county, state=state, mw_it=mw_it,
                               mw_total=mw_total, stage=stage, person_name=person,
-                              person_org=org, url=url)
-        typer.echo(f"signal #{s.id} recorded ({s.signal_type.value}); run `scout resolve` to link it")
+                              person_org=org, url=url, category=category)
+        typer.echo(f"signal #{s.id} recorded ({s.signal_type.value}, {s.category.value}); "
+                   f"run `scout resolve` to link it")
 
 
 @app.command()
@@ -223,11 +225,25 @@ app.add_typer(golden_app, name="golden")
 
 
 @golden_app.command("collect")
-def golden_collect(limit: int = 30) -> None:
-    """Snapshot extracted docs (weighted to CEQAnet NOP + GOED) for hand-verification."""
-    from app.golden import collect
+def golden_collect(
+    limit: int = 30,
+    include_doc: list[int] = typer.Option(
+        None, "--include-doc",
+        help="Repeatable raw_document id to force into the set even if triage dropped "
+             "it. Costs one extraction each. Use for head+tail fallbacks: "
+             "scout doc-stats --fallbacks lists them."),
+) -> None:
+    """Snapshot extracted docs for hand-verification.
+
+    Weighted toward head+tail fallbacks first, then CEQAnet environmental documents
+    and CivicPlus packets — the filings that actually carry MW and generator figures.
+    """
+    from app.golden import collect, collect_forced
     with session_scope() as session:
+        forced = collect_forced(session, list(include_doc or []))
         added = collect(session, limit=limit)
+    if forced:
+        typer.echo(f"{forced} triage-dropped documents force-included (no signals written)")
     typer.echo(f"{added} documents added to evals/golden.jsonl — now run: scout golden review")
 
 
@@ -359,7 +375,12 @@ def verify_sources(
 
 
 @app.command("doc-stats")
-def doc_stats() -> None:
+def doc_stats(
+    fallbacks: bool = typer.Option(
+        False, "--fallbacks",
+        help="Instead of per-source stats, list documents where section chunking "
+             "matched nothing and fell back to a head+tail sample."),
+) -> None:
     """Row count and raw_text length per source, with stub detection.
 
     A source storing search-result metadata instead of documents looks healthy by
@@ -372,6 +393,26 @@ def doc_stats() -> None:
     from app.models import RawDocument
     from app.sources import get_adapter, registry
     cfg = load_config()
+
+    if fallbacks:
+        from app.sections import select_relevant_text
+        with session_scope() as session:
+            docs = session.exec(select(RawDocument).order_by(RawDocument.id)).all()
+            hits = [(d, select_relevant_text(d.raw_text, cfg)) for d in docs]
+            hits = [(d, s) for d, s in hits if "tail_fallback" in s.sections_found]
+            if not hits:
+                typer.echo("no documents fall back to head+tail sampling")
+                return
+            typer.echo(f"{'id':>7} {'source':11} {'chars':>9} {'sent':>8} {'triage':11}  title")
+            for d, s in sorted(hits, key=lambda x: -len(x[0].raw_text)):
+                typer.echo(f"{d.id:>7} {d.source:11} {len(d.raw_text):>9,} "
+                           f"{s.selected_chars:>8,} {d.triage_result.value:11}  {d.title[:44]}")
+            typer.echo(f"\n{len(hits)} documents. The middle of each was never sent to the "
+                       f"model — and triage only read the first "
+                       f"{cfg.get('llm.triage_max_chars', 6000):,} chars. Sample them:")
+            typer.echo("  scout golden collect " +
+                       " ".join(f"--include-doc {d.id}" for d, _ in hits[:3]))
+        return
     with session_scope() as session:
         rows = session.exec(
             select(RawDocument.source,

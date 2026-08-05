@@ -13,46 +13,66 @@ from app.schemas import EXTRACTION_JSON_SCHEMA, coerce_extraction
 
 log = logging.getLogger(__name__)
 
-TRIAGE_SYSTEM = """You triage documents for a data center market-intelligence pipeline.
+TRIAGE_SYSTEM = """You triage documents for an HVAC manufacturers' rep firm that sells
+mechanical equipment into new buildings in California, Nevada and Arizona. You CLASSIFY;
+you do not merely filter.
 
-Relevant means the document concerns a specific DATA CENTER — a facility whose primary
-purpose is housing and operating computing equipment at scale (data center, colocation,
-hyperscale or AI compute campus, enterprise server room, cryptocurrency mining
-operation) — either the project itself (planned, proposed, permitted, under
-construction, expanding, or being leased) or an action directly about one (tax
-abatement application, generator or air permit, large utility load request, agenda
-item, data-center job posting tied to a location).
+A document is relevant if it concerns a specific NEW OR EXPANDING BUILDING of meaningful
+size — either the project itself (planned, proposed, permitted, under construction,
+expanding, relocating, or being leased) or an action about one (tax abatement
+application, generator or air permit, utility load request, planning or commission
+agenda item, entitlement, grading permit, job posting tied to a location).
 
-The kind of document never makes it relevant on its own. A tax abatement application,
-a permit, or an agenda item counts only if the facility it concerns is a data center.
+Then assign a category:
 
-Decisive test: the facility must OPERATE computing capacity. If its purpose is making,
-assembling, storing, shipping, or selling equipment — or housing staff — it is NOT
-relevant, however technical the company. Not relevant, whoever the applicant is:
-- manufacturing, assembly, warehouse, distribution, fulfillment or logistics
-  facilities, INCLUDING plants that build servers, computing hardware or mining rigs
-- headquarters, offices, R&D and engineering space for technology companies
-- rules about data centers in general with no specific project: moratoria,
-  prohibitions, zoning or general-plan amendments
-- telecom infrastructure that is not a data center: cell towers, two-way radio
-  systems, fiber or cable routes
-- general industry news naming no specific project or location
+data_center — the facility's primary purpose is housing and OPERATING computing
+  equipment at scale: data center, colocation, hyperscale or AI compute campus,
+  enterprise server room or computing consolidation, cryptocurrency mining operation.
 
-Never guess. If the document does not make clear that a data center is involved, it is
-not relevant."""
+industrial — any other substantial non-residential building: manufacturing, assembly,
+  fabrication, processing, warehouse, distribution, fulfillment, logistics, cold
+  storage, cleanroom, R&D, laboratory, or a corporate headquarters or office campus.
+  A plant that BUILDS servers, computing hardware or mining rigs belongs here: it is
+  a factory, not a computing facility. So does an equipment maker of any kind.
+
+other — not relevant. Use this for:
+  - rules about buildings in general with no specific project: moratoria,
+    prohibitions, zoning or general-plan amendments, ordinances
+  - infrastructure that is not a building: cell towers, two-way radio systems, fiber
+    or cable routes, transmission lines, roads, pipelines, solar or generation plants
+    (unless the document ties them to a specific data center or industrial building)
+  - general industry news, market commentary or financial reporting naming no specific
+    project or location
+  - routine agendas, minutes and administrative items with no building project
+  - tenant improvements, re-roofing, maintenance, and other work that adds no new
+    conditioned space
+  - anything small: under roughly 10,000 square feet, unless it is a data center
+
+The kind of document never decides the category on its own. A tax abatement application
+is relevant only if it concerns a real building, and its category depends on what that
+building DOES — not on how technical the applicant sounds.
+
+Never guess. If the document does not make clear that a specific building is involved,
+the category is other."""
 
 TRIAGE_TOOL = {
     "name": "triage_result",
-    "description": "Record the triage decision.",
+    "description": "Record the triage classification.",
     "input_schema": {
         "type": "object",
         "properties": {
-            "relevant": {"type": "boolean"},
+            "category": {
+                "type": "string",
+                "enum": ["data_center", "industrial", "other"],
+                "description": "data_center = operates computing capacity; "
+                               "industrial = any other substantial new/expanding "
+                               "building; other = not relevant",
+            },
             "names_location": {"type": "boolean",
                                "description": "True if a specific site, city, county, or parcel is named"},
             "reason": {"type": "string", "description": "One short sentence"},
         },
-        "required": ["relevant", "names_location", "reason"],
+        "required": ["category", "names_location", "reason"],
     },
 }
 

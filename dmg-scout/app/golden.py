@@ -1,9 +1,12 @@
 """Golden-set extraction evaluation.
 
 Workflow:
-  1. `scout golden collect --limit 30` — sample extracted documents (weighted
-     toward CEQAnet NOPs and GOED packets), snapshot text + model output into
-     evals/golden.jsonl and evals/docs/.
+  1. `scout golden collect --limit 30` — sample extracted documents, weighted
+     toward head+tail fallbacks first, then CEQAnet environmental filings and
+     CivicPlus packets (the sources that carry MW and generator figures), and
+     snapshot text + model output into evals/golden.jsonl and evals/docs/.
+     `--include-doc <id>` forces in a document triage dropped; `scout doc-stats
+     --fallbacks` lists the ones worth forcing.
   2. `scout golden review` — hand-verify one document at a time: the model's
      value for each field next to the source text; Enter accepts, a typed value
      corrects, 'null' marks not-stated.
@@ -55,8 +58,89 @@ def save_golden(entries: list[dict]) -> None:
     GOLDEN_PATH.write_text("\n".join(json.dumps(e, default=str) for e in entries) + "\n")
 
 
+TAIL_FALLBACK = "tail_fallback"  # app.sections marks the head+tail path with this
+
+
+def _no_sections_matched(signal: Signal) -> bool:
+    """True if section-aware chunking found nothing and fell back to head+tail.
+
+    These are the documents most likely to have silently dropped a megawatt figure:
+    the MW number lives in a utilities or air-quality section, and when no section
+    header matched, the middle of the document — where that section sits — was never
+    sent to the model at all. Sampling them is the only way to tell a document that
+    states no MW from one whose MW we threw away.
+
+    Detected by the `tail_fallback` marker, NOT by an empty `sections_found`: the
+    fallback still reports `["document_head", "tail_fallback"]`, so testing for
+    emptiness silently matched nothing at all.
+    """
+    sections = (signal.extraction_json or {}).get("sections") or {}
+    return TAIL_FALLBACK in (sections.get("sections_found") or [])
+
+
+def collect_forced(session: Session, doc_ids: list[int]) -> int:
+    """Add specific documents to the golden set even if triage dropped them.
+
+    Exists for the head+tail fallbacks. Those documents are 60k-122k chars, triage
+    judged them on the first 6,000, and section chunking would show extraction only
+    the head and tail — two compounding blind spots over the same middle of the
+    document. The only way to know whether a real project is hiding in there is to
+    extract one and read it by hand.
+
+    Extraction runs here but NO Signal row is written: these documents are
+    triage-negative, and materialising signals for them would invent projects on the
+    board. The model output lives in the golden entry only.
+    """
+    from app.llm import extract as llm_extract
+
+    entries = load_golden()
+    existing = {e["doc_key"] for e in entries}
+    DOCS_DIR.mkdir(parents=True, exist_ok=True)
+    added = 0
+    for doc_id in doc_ids:
+        doc = session.get(RawDocument, doc_id)
+        if doc is None:
+            continue
+        key = f"{doc.source}:{doc.source_uid}"
+        if key in existing:
+            continue
+        data = llm_extract(doc.raw_text, title=doc.title, source=doc.source, url=doc.url)
+        sections = data.get("_sections") or {}
+        model = {f: data.get(f) for f in SCALAR_FIELDS if f != "stage"}
+        model["stage"] = data.get("stage") or "unknown"
+        model["named_people"] = data.get("named_people") or []
+        model["named_firms"] = data.get("named_firms") or []
+        text_sha = hashlib.sha256(doc.raw_text.encode()).hexdigest()
+        text_path = DOCS_DIR / f"{text_sha[:16]}.txt"
+        text_path.write_text(doc.raw_text)
+        entries.append({
+            "doc_key": key, "source": doc.source, "url": doc.url, "title": doc.title,
+            "text_sha256": text_sha, "text_file": text_path.name,
+            "chunked": bool(sections.get("chunked")),
+            "sections_found": sections.get("sections_found") or [],
+            "head_tail_fallback": TAIL_FALLBACK in (sections.get("sections_found") or []),
+            "original_chars": sections.get("original_chars"),
+            "selected_chars": sections.get("selected_chars"),
+            # Recorded so the reviewer knows triage dropped this and why: if the doc
+            # DOES contain a project, that is a triage miss, not an extraction miss.
+            "forced": True,
+            "triage_result": doc.triage_result.value,
+            "triage_reason": doc.triage_reason,
+            "model": model, "truth": None, "verified": False,
+        })
+        existing.add(key)
+        added += 1
+    save_golden(entries)
+    return added
+
+
 def collect(session: Session, limit: int = 30) -> int:
-    """Sample extracted docs into the golden file (skipping ones already there)."""
+    """Sample extracted docs into the golden file (skipping ones already there).
+
+    Weighted toward the sources whose filings actually carry engineering numbers
+    (CEQAnet environmental documents, CivicPlus agenda packets), and toward the
+    head+tail fallbacks ahead of everything else.
+    """
     existing = {e["doc_key"] for e in load_golden()}
     signals = session.exec(select(Signal).where(Signal.raw_document_id.is_not(None))).all()
     by_doc = {s.raw_document_id: s for s in signals}
@@ -64,15 +148,20 @@ def collect(session: Session, limit: int = 30) -> int:
     docs = [d for d in docs if d is not None]
 
     def weight(d: RawDocument) -> int:
-        if d.source == "ceqanet" and (d.meta or {}).get("document_type") == "NOP":
+        # Lower sorts first.
+        if _no_sections_matched(by_doc[d.id]):
             return 0
-        if d.source == "goed":
+        if d.source == "ceqanet" and (d.meta or {}).get("document_type") in ("NOP", "DEIR", "EIR"):
             return 1
         if d.source == "ceqanet":
             return 2
-        return 3
+        if d.source == "civicplus":
+            return 3
+        if d.source == "goed":
+            return 4
+        return 5
 
-    docs.sort(key=weight)
+    docs.sort(key=lambda d: (weight(d), -len(d.raw_text)))
     entries = load_golden()
     added = 0
     DOCS_DIR.mkdir(parents=True, exist_ok=True)
@@ -88,9 +177,18 @@ def collect(session: Session, limit: int = 30) -> int:
         model["stage"] = signal.stage.value
         model["named_people"] = signal.named_people
         model["named_firms"] = signal.named_firms
+        sections = (signal.extraction_json or {}).get("sections") or {}
         entries.append({
             "doc_key": key, "source": doc.source, "url": doc.url, "title": doc.title,
             "text_sha256": text_sha, "text_file": text_path.name,
+            # Chunking record: a field missed on a head+tail fallback may be a
+            # chunking failure rather than a value the document never stated, and
+            # the reviewer has to be able to tell those apart.
+            "chunked": bool(sections.get("chunked")),
+            "sections_found": sections.get("sections_found") or [],
+            "head_tail_fallback": _no_sections_matched(signal),
+            "original_chars": sections.get("original_chars"),
+            "selected_chars": sections.get("selected_chars"),
             "model": model, "truth": None, "verified": False,
         })
         added += 1
@@ -104,6 +202,20 @@ def review_entry(entry: dict, input_fn=input, print_fn=print) -> dict:
     print_fn("=" * 78)
     print_fn(f"[{entry['source']}] {entry['title']}")
     print_fn(entry["url"])
+    if entry.get("forced"):
+        print_fn(f"!! TRIAGE DROPPED THIS ({entry.get('triage_result')}): "
+                 f"{entry.get('triage_reason') or '(no reason)'}")
+        print_fn("   Triage read only the first 6,000 chars. If this document DOES "
+                 "contain a real building project, that is a triage miss — say so.")
+    if entry.get("head_tail_fallback"):
+        print_fn(f"!! HEAD+TAIL FALLBACK — no section headers matched. The model saw "
+                 f"{entry.get('selected_chars') or '?'} of {entry.get('original_chars') or '?'} "
+                 f"chars, and NOT the middle of the document. If a megawatt or generator "
+                 f"figure is in this text but the model missed it, that is a chunking bug, "
+                 f"not a model miss — record the true value anyway.")
+    elif entry.get("chunked"):
+        print_fn(f"   section-chunked: {', '.join(entry.get('sections_found') or [])} "
+                 f"({entry.get('selected_chars')} of {entry.get('original_chars')} chars sent)")
     print_fn("-" * 78)
     print_fn(text[:3500])
     if len(text) > 3500:
@@ -218,7 +330,20 @@ def score(entries: list[dict] | None = None, model_key: str = "model") -> dict:
     return {"n_verified": len(entries), "fields": fields, "fabrications": fabrications}
 
 
+# Fields whose recall decides whether a tonnage estimate can be defended at all.
+# Called out by name because burying mw_it in an alphabetical table is how a 0% recall
+# goes unnoticed while 38 of 43 estimates quietly fall back to guessing from sqft.
+SIZING_FIELDS = ["mw_it", "mw_total", "generator_count", "generator_hp_each",
+                 "generator_kw_each", "building_sqft"]
+RECALL_FLOOR = 0.50
+
+
 def report_text(result: dict) -> str:
+    if not result["n_verified"]:
+        return ("Golden set: 0 hand-verified documents — nothing to score yet.\n"
+                "Run `scout golden review` first; precision and recall are measured "
+                "against hand-entered truth, and there is no honest way to synthesise it.")
+
     lines = [f"Golden set: {result['n_verified']} hand-verified documents", "",
              f"{'field':22s} {'precision':>9s} {'recall':>7s} {'fab':>4s} {'wrong':>5s} {'miss':>5s}"]
     for f, s in result["fields"].items():
@@ -227,6 +352,29 @@ def report_text(result: dict) -> str:
         p = f"{s.precision:.2f}" if s.precision is not None else "  — "
         r = f"{s.recall:.2f}" if s.recall is not None else "  — "
         lines.append(f"{f:22s} {p:>9s} {r:>7s} {s.fabricated:>4d} {s.wrong:>5d} {s.missed:>5d}")
+
+    lines += ["", "SIZING INPUTS — these decide whether a tonnage number is defensible:"]
+    for f in SIZING_FIELDS:
+        s = result["fields"].get(f)
+        if s is None:
+            continue
+        seen = s.tp + s.wrong + s.missed
+        if not seen:
+            lines.append(f"  {f:20s} not stated in any verified document — "
+                         f"nothing to recall")
+            continue
+        r = s.recall or 0.0
+        flag = "  << BELOW 50%" if r < RECALL_FLOOR else ""
+        lines.append(f"  {f:20s} recall {r:.0%} ({s.tp}/{seen} stated values captured)"
+                     f"{flag}")
+    low = [f for f in SIZING_FIELDS
+           if (s := result["fields"].get(f)) and (s.tp + s.wrong + s.missed)
+           and (s.recall or 0.0) < RECALL_FLOOR]
+    if low:
+        lines += ["", f"RECALL BELOW {RECALL_FLOOR:.0%} on: {', '.join(low)}.",
+                  ("Say this out loud rather than working around it: every project relying "
+                   "on one of these falls back to a square-footage guess.")]
+
     if result["fabrications"]:
         lines += ["", "FABRICATIONS (hard failure — fix the prompt and re-run):"]
         for f, s in result["fabrications"].items():

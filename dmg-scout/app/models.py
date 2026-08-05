@@ -80,6 +80,20 @@ class TriageResult(str, enum.Enum):
     error = "error"
 
 
+class Category(str, enum.Enum):
+    """What kind of building this is, which decides how it gets sized and which
+    board it lands on. Two pipelines, one corpus: data centers are the long-cycle
+    specialist work, industrial is new/expanding manufacturing, warehouse and
+    distribution space that needs RTUs, AHUs, make-up air and VFDs.
+
+    A plant that BUILDS servers is `industrial`, not `data_center` — it needs
+    HVAC, it just isn't a computing facility. `other` means triage-negative.
+    """
+    data_center = "data_center"
+    industrial = "industrial"
+    other = "other"
+
+
 class RawDocument(SQLModel, table=True):
     __tablename__ = "raw_documents"
     __table_args__ = (UniqueConstraint("source", "source_uid", name="uq_source_uid"),)
@@ -105,6 +119,7 @@ class Signal(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     raw_document_id: int | None = Field(default=None, foreign_key="raw_documents.id", index=True)
     signal_type: SignalType = Field(index=True)
+    category: Category = Field(default=Category.other, index=True)
     created_at: datetime = Field(default_factory=utcnow)
     event_date: datetime | None = None
     # Extracted fields (null = not stated in source; never inferred)
@@ -141,6 +156,7 @@ class Project(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(index=True)
+    category: Category = Field(default=Category.data_center, index=True)
     developer: str | None = None
     county: str | None = Field(default=None, index=True)
     state: str | None = None

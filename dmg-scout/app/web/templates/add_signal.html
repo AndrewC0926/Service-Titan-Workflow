@@ -7,6 +7,9 @@
     {% for t in signal_types %}<option value="{{ t }}" {{ 'selected' if t=='manual_tip' }}>{{ t }}</option>{% endfor %}
   </select>
   <select name="stage">{% for s in stages %}<option>{{ s }}</option>{% endfor %}</select>
+  <select name="category" title="Which board this lands on">
+    {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+  </select>
   <input name="summary" placeholder="What happened (one line) *" required style="grid-column:1/-1">
   <input name="project_name" placeholder="Project name">
   <input name="developer" placeholder="Developer / owner">

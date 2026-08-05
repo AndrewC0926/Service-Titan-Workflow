@@ -18,10 +18,21 @@ from app.config import load_config
 from app.db import get_session
 from app.manual import add_manual_signal
 from app.models import (
-    ACTIVE_STATUSES, OUTCOME_STATUSES, Contact, Firm, MatchCandidate, Outreach, Project,
-    ProjectContact, ProjectFirm, ProjectSignal, RawDocument, Signal, SignalType, SourceRun,
-    Stage, utcnow,
+    ACTIVE_STATUSES, OUTCOME_STATUSES, Category, Contact, Firm, MatchCandidate, Outreach,
+    Project, ProjectContact, ProjectFirm, ProjectSignal, RawDocument, Signal, SignalType,
+    SourceRun, Stage, utcnow,
 )
+
+
+def _parse_category(value: str | None) -> Category | None:
+    """None means every category — an unknown value falls back to that rather than
+    silently showing an empty board."""
+    if not value or value == "all":
+        return None
+    try:
+        return Category(value)
+    except ValueError:
+        return None
 from app.normalize import normalize_name
 from app.pipeline.resolve import apply_review_decision
 
@@ -73,12 +84,25 @@ def _title_block(session: Session) -> dict:
 
 
 @app.get("/", response_class=HTMLResponse)
-def board(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
-    projects = session.exec(
-        select(Project).where(Project.status.in_(ACTIVE_STATUSES),
+def board(request: Request, category: str = "data_center",
+          session: Session = Depends(get_session), _: str = Depends(auth)):
+    # Two boards, one pipeline. Defaults to data centers: that is the book of
+    # business this system was built for, and industrial should never silently
+    # dilute it. `?category=all` shows both.
+    cat = _parse_category(category)
+    q = select(Project).where(Project.status.in_(ACTIVE_STATUSES),
                               Project.in_territory == True)  # noqa: E712
-        .order_by(Project.score.desc())
-    ).all()
+    if cat is not None:
+        q = q.where(Project.category == cat)
+    projects = session.exec(q.order_by(Project.score.desc())).all()
+    counts = {
+        c.value: session.exec(
+            select(func.count(Project.id)).where(
+                Project.status.in_(ACTIVE_STATUSES),
+                Project.in_territory == True,  # noqa: E712
+                Project.category == c)).one()
+        for c in (Category.data_center, Category.industrial)
+    }
     watch_count = session.exec(
         select(func.count(Project.id)).where(Project.status.in_(ACTIVE_STATUSES),
                                              Project.in_territory == False)).one()  # noqa: E712
@@ -94,7 +118,7 @@ def board(request: Request, session: Session = Depends(get_session), _: str = De
     return templates.TemplateResponse(request, "board.html", {
         "projects": projects, "days_since": days_since, "review_count": review_count,
         "has_pre_bod": has_pre_bod, "watch_count": watch_count, "is_watchlist": False,
-        "completeness": completeness,
+        "completeness": completeness, "category": category, "cat_counts": counts,
         "tb": _title_block(session), "active": "board",
     })
 
@@ -253,22 +277,26 @@ def _csv_response(filename: str, header: list[str], rows: list[list]) -> "Respon
 
 
 @app.get("/export/board.csv")
-def export_board(watchlist: bool = False,
+def export_board(watchlist: bool = False, category: str = "data_center",
                  session: Session = Depends(get_session), _: str = Depends(auth)):
-    projects = session.exec(
-        select(Project).where(Project.status.in_(ACTIVE_STATUSES),
+    q = select(Project).where(Project.status.in_(ACTIVE_STATUSES),
                               Project.in_territory == (not watchlist))
-        .order_by(Project.score.desc())).all()
-    rows = [[p.id, p.name, p.developer, p.county, p.state,
+    cat = _parse_category(category)
+    # The watch list is a geography view, not a category one — never filter it.
+    if cat is not None and not watchlist:
+        q = q.where(Project.category == cat)
+    projects = session.exec(q.order_by(Project.score.desc())).all()
+    rows = [[p.id, p.name, p.category.value, p.developer, p.county, p.state,
              p.tons_estimate_low, p.tons_estimate_high,
              "LOW_CONFIDENCE" if p.estimate_low_confidence else "",
              p.estimate_basis, p.stage.value, p.window.value, p.score,
              p.days_to_estimated_bid, p.status,
              p.last_signal_at.isoformat() if p.last_signal_at else "", p.next_action or ""]
             for p in projects]
-    name = "watchlist.csv" if watchlist else "board.csv"
+    name = "watchlist.csv" if watchlist else f"board-{cat.value if cat else 'all'}.csv"
     return _csv_response(name,
-                         ["id", "project", "developer", "county", "state", "tons_low", "tons_high",
+                         ["id", "project", "category", "developer", "county", "state",
+                          "tons_low", "tons_high",
                           "confidence_flag", "estimate_basis", "stage", "window", "score",
                           "days_to_bid", "status", "last_signal", "next_action"], rows)
 
@@ -403,6 +431,7 @@ def add_signal_form(request: Request, session: Session = Depends(get_session), _
     return templates.TemplateResponse(request, "add_signal.html", {
         "signal_types": [t.value for t in SignalType],
         "stages": [s.value for s in Stage],
+        "categories": [Category.data_center.value, Category.industrial.value],
         "tb": _title_block(session), "active": "add",
     })
 
@@ -413,6 +442,7 @@ def add_signal_submit(
     project_name: str = Form(""), developer: str = Form(""), county: str = Form(""),
     state: str = Form(""), mw_it: str = Form(""), stage: str = Form("unknown"),
     person_name: str = Form(""), person_org: str = Form(""), url: str = Form(""),
+    category: str = Form(Category.data_center.value),
     session: Session = Depends(get_session), _: str = Depends(auth),
 ):
     add_manual_signal(
@@ -421,6 +451,7 @@ def add_signal_submit(
         county=county or None, state=state or None,
         mw_it=float(mw_it) if mw_it else None, stage=stage or "unknown",
         person_name=person_name or None, person_org=person_org or None, url=url,
+        category=category or Category.data_center.value,
     )
     # Immediately resolve + rescore so the entry shows up on the board.
     from app.pipeline.resolve import run_resolve
@@ -428,4 +459,6 @@ def add_signal_submit(
     cfg = load_config()
     run_resolve(session, cfg, use_llm=False)
     run_size_score(session, cfg)
-    return RedirectResponse("/", status_code=303)
+    # Land on the board the entry actually went to, not the default one.
+    return RedirectResponse(f"/?category={category or Category.data_center.value}",
+                            status_code=303)

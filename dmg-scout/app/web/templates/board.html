@@ -20,8 +20,22 @@
   Check Source Health and whether CEQAnet NOP / GOED fetches are running.
 </div>
 {% endif %}
+{% if not is_watchlist and cat_counts is defined %}
+<div style="margin-bottom:10px;font-size:12px">
+  {% for key, label in [('data_center','Data centers'), ('industrial','Industrial'), ('all','All')] %}
+  {% set sel = (category or 'data_center') == key %}
+  <a href="/?category={{ key }}" style="display:inline-block;padding:4px 10px;margin-right:4px;
+     border:1px solid {% if sel %}var(--accent,#6ea8fe){% else %}#333{% endif %};
+     color:{% if sel %}var(--accent,#6ea8fe){% else %}inherit{% endif %};
+     text-decoration:none">{{ label }}{% if key != 'all' %} ({{ cat_counts.get(key, 0) }}){% endif %}</a>
+  {% endfor %}
+  <span style="color:#888;margin-left:8px">
+    Industrial is sized from floor area by rule of thumb, not from IT load — treat its
+    tonnage as a ranking aid, not a takeoff.</span>
+</div>
+{% endif %}
 <h2>{% if is_watchlist %}Watch list — outside my territory{% else %}Projects — ranked by winnability{% endif %}
-  <a href="/export/board.csv{% if is_watchlist %}?watchlist=true{% endif %}" style="float:right;font-size:11px">⬇ CSV</a></h2>
+  <a href="/export/board.csv?{% if is_watchlist %}watchlist=true{% else %}category={{ category or 'data_center' }}{% endif %}" style="float:right;font-size:11px">⬇ CSV</a></h2>
 <table>
 <thead><tr>
   <th>#</th><th>Project</th><th>Developer</th><th>County</th>

@@ -62,7 +62,11 @@ def run_size_score(session: Session, cfg: Config) -> dict:
             generator_hp_each=best("generator_hp_each"),
             generator_kw_each=best("generator_kw_each"),
             building_sqft=best("building_sqft"),
+            category=project.category,
         )
+        if est.rejected_inputs:
+            log.warning("project %s (%s): discarded implausible size input(s): %s",
+                        project.id, project.name, "; ".join(est.rejected_inputs))
         project.tons_estimate_low, project.tons_estimate_high = est.low, est.high
         project.estimate_basis = est.basis
         project.estimate_low_confidence = est.low_confidence

@@ -168,6 +168,50 @@ A crash resumes at the first incomplete chunk. `--reset` refetches everything
 too — a big backfill either raises `llm.daily_budget_usd` temporarily or
 drains over several days. That's a feature.
 
+## Two boards, one pipeline
+
+Triage classifies rather than filters. Every document comes back `data_center`,
+`industrial`, or `other`, and only `other` is dropped. The dashboard defaults to
+the data center board; `/?category=industrial` and `/?category=all` are the others.
+
+The distinction is what the building *does*, never what kind of document it is or
+how technical the applicant sounds. A plant that builds servers is `industrial`.
+A tax abatement application is relevant only if it concerns a real building.
+
+Two things to know before quoting a number off the industrial board:
+
+1. **Industrial tonnage never uses IT watts.** Its load is envelope and
+   ventilation, so it is sized from floor area via
+   `sizing.industrial_sqft_per_ton_*`. Using the data-center 150 W/sqft would
+   overstate a warehouse by more than 10x — 1,000,000 sqft is ~1,000-2,900 tons,
+   not ~24,000. Every industrial row is flagged LOW CONFIDENCE for this reason.
+2. **A "stated" MW is not automatically trusted.** If it implies more
+   watts-per-sqft than `sizing.max_watts_per_sqft_by_category` allows, it is
+   discarded and the basis string says so. This exists because Amperesand's filing
+   stated 500 MW for a 73,000 sqft transformer factory — the product rating, not
+   the building load. Trusted, it became 357 MW IT and 136,964 tons, the largest
+   number on the board, and it escaped every low-confidence flag *because* it was
+   stated. It now sizes at 73-209 tons from floor area.
+
+Re-triaging after a prompt change costs a triage pass, not a re-fetch — raw
+documents are kept forever. Sequence:
+
+```bash
+# 1. reset the sources you want re-judged (keeps signals + processed_at)
+psql "$DATABASE_URL" -c "UPDATE raw_documents SET triage_result='pending'"
+scout triage --limit 250
+# 2. sync existing signals to their new category, drop signals for now-irrelevant
+#    docs, clear their processed_at, then extract whatever is newly relevant
+scout extract --limit 100
+# 3. the project layer is derived — rebuild rather than patch, or projects keep
+#    absorbed values from signals that no longer exist
+scout resolve && scout score
+```
+
+Manual entries skip triage, so `scout add-signal --category` (and the dashboard
+form's category select) sets it. It defaults to `data_center`; if it defaulted to
+`other` a hand-entered tip would be invisible on every board.
+
 ## Restore from backup
 
 Backups: nightly `pg_dump` custom-format to `$BACKUP_S3_URI/scout-YYYY-MM-DD.dump`,
@@ -200,7 +244,9 @@ The irreplaceable data is `match_candidates`/`project_signals` (my hand merges),
 | `llm.budget_warn_fraction` | 0.8 | 0.5–0.9 | digest/dashboard warning threshold |
 | `sizing.tons_per_mw_installed_default` | 325 | 300–400 | tons per MW IT, installed |
 | `sizing.band_by_basis.*` | .10/.18/.28/.45 | keep the ordering | estimate band half-width per basis; must widen as input gets more indirect |
-| `sizing.watts_per_sqft` | 150 | 100–300 | only used when sqft is the sole input (flagged LOW CONF) |
+| `sizing.watts_per_sqft` | 150 | 100–300 | data centers only, and only when sqft is the sole input (flagged LOW CONF) |
+| `sizing.industrial_sqft_per_ton_low/high` | 350 / 1000 | 250–500 / 700–1500 | **every industrial tonnage on the board comes from these two numbers.** Rule of thumb for ranking, not a takeoff — retune against jobs actually quoted |
+| `sizing.max_watts_per_sqft_by_category` | 500 DC / 60 industrial | keep DC well above 300 | ceiling on a *stated* MW figure. Above it the number is treated as a misread and discarded — see "Two boards" below |
 | `scoring.window_multipliers` | 1.0/0.7/0.15/0.05 | keep monotonic | the winnability core — POST_BOD near zero is the whole point |
 | `scoring.signal_certainty.*` | table | 0–1 | priors per signal type; retune from `scout outcomes` once ≥20 closed outcomes |
 | `scoring.corroboration_bonus` | 0.25 | 0.1–0.3 | added certainty per extra independent signal type |
@@ -247,7 +293,9 @@ scout resolve && scout score
 scout coverage                     # any SUSPECTED BLIND county = adapter check first
 
 # Step 6 — extraction accuracy (hand-verify 30 docs)
-scout golden collect --limit 30 && scout golden review && scout golden report
+scout doc-stats --fallbacks    # documents whose middle was never sent to the model
+scout golden collect --limit 26 --include-doc <id> --include-doc <id>
+scout golden review && scout golden report
 # zero fabrications required; note mw_it recall honestly
 
 # Step 7/8 — ranking + contacts
