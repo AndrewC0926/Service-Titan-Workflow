@@ -28,7 +28,7 @@ from sqlmodel import Session, select
 from app.models import (
     ACTIVE_STATUSES, Firm, Project, ProjectFirm, ProjectSignal, RawDocument, Signal,
 )
-from app.normalize import normalize_name
+from app.normalize import normalize_name, normalize_person_name
 
 RUNG_LABELS = {
     1: "mechanical EOR (named)",
@@ -89,7 +89,10 @@ def build_ladder(session: Session, project: Project) -> list[dict]:
 
     def add(rung: int, name: str, title: str | None, company: str | None,
             source_url: str | None, kind: str) -> None:
-        key = (rung, normalize_name(name))
+        # People and firms normalize differently: normalize_name is built for
+        # companies and would reduce 'Di Wu' to 'wu', merging distinct people.
+        norm = normalize_person_name(name) if kind == "person" else normalize_name(name)
+        key = (rung, norm)
         if key in seen:
             return
         seen.add(key)
@@ -165,10 +168,33 @@ def ladder_distribution(session: Session) -> dict:
         by_category.setdefault(p.category.value, Counter())[rung] += 1
         per_project.append({"project": p.name, "score": p.score, "window": p.window.value,
                             "category": p.category.value, "best_rung": rung,
-                            "best_name": best["name"] if best else None})
+                            "best_name": best["name"] if best else None,
+                            "best_kind": best["kind"] if best else None})
+
+    # Rung counts alone flatter the board. 58 projects reaching "a contact" looked
+    # like 58 calls; they resolve to a couple of dozen names, and the industrial
+    # side concentrates on a handful of GOED economic-development officers who
+    # appear on every abatement packet. Counted here, on the person normalizer, so
+    # the concentration is part of the diagnostic instead of something computed by
+    # hand afterwards — which is how it got read wrong the first time.
+    def _identity(row: dict) -> str | None:
+        if not row["best_name"]:
+            return None
+        if row["best_kind"] == "person":
+            return "person:" + normalize_person_name(row["best_name"])
+        return "firm:" + normalize_name(row["best_name"])
+
+    ids = [i for i in (_identity(r) for r in per_project) if i]
+    concentration = Counter(ids)
     return {"counts": dict(counts), "n_projects": len(projects),
             "by_category": {k: dict(v) for k, v in by_category.items()},
-            "per_project": per_project}
+            "per_project": per_project,
+            "distinct_contacts": len(concentration),
+            "distinct_people": sum(1 for k in concentration if k.startswith("person:")),
+            "distinct_firms": sum(1 for k in concentration if k.startswith("firm:")),
+            "person_rungs": sum(1 for r in per_project if r["best_kind"] == "person"),
+            "firm_rungs": sum(1 for r in per_project if r["best_kind"] == "firm"),
+            "top_contacts": [(k.split(":", 1)[1], n) for k, n in concentration.most_common(5)]}
 
 
 def distribution_text(dist: dict) -> str:
@@ -187,13 +213,31 @@ def distribution_text(dist: dict) -> str:
     totals = "".join(f"{sum(dist['by_category'][c].values()):>13}" for c in cats)
     lines.append(f"  {'projects':<40}{totals}{dist['n_projects']:>8}")
 
+    n = max(dist["n_projects"], 1)
     reachable = dist["n_projects"] - n_none
-    lines += ["", f"  callable at some rung: {reachable}/{dist['n_projects']} "
-                  f"({reachable / max(dist['n_projects'], 1):.0%})"]
     rung1 = dist["counts"].get(1, 0)
-    lines.append(f"  mechanical EOR named:  {rung1}/{dist['n_projects']} "
-                 f"({rung1 / max(dist['n_projects'], 1):.0%})")
+    near = sum(dist["counts"].get(r, 0) for r in (1, 2, 3, 4, 5))
+    lines += ["", f"  reaches some rung:      {reachable}/{dist['n_projects']} ({reachable / n:.0%})"]
+    lines.append(f"  mechanical EOR named:   {rung1}/{dist['n_projects']} ({rung1 / n:.0%})")
+    lines.append(f"  rungs 1-5 (near the spec decision): {near}/{dist['n_projects']} ({near / n:.0%})")
+
+    if "distinct_contacts" in dist:
+        lines += ["",
+                  f"  best contact is a named person on {dist['person_rungs']} projects, "
+                  f"a firm on {dist['firm_rungs']}",
+                  f"  distinct contacts behind those rows: {dist['distinct_contacts']} "
+                  f"({dist['distinct_people']} people, {dist['distinct_firms']} firms)"]
+        if dist["top_contacts"]:
+            lines.append("  most repeated:")
+            for name, count in dist["top_contacts"]:
+                if count > 1:
+                    lines.append(f"    {count:>3} projects  {name}")
+        # The number that decides product-or-reading-list. Rung counts hide it.
+        if dist["distinct_contacts"] and reachable:
+            lines.append(f"  -> {reachable} reachable rows resolve to "
+                         f"{dist['distinct_contacts']} contacts "
+                         f"({reachable / dist['distinct_contacts']:.1f} rows each)")
     if n_none:
-        lines.append(f"  {n_none} projects have no callable human — those rows are "
-                     f"reading, not calls")
+        lines.append(f"  {n_none} projects have no callable contact at all — those rows "
+                     f"are reading, not calls")
     return "\n".join(lines)
