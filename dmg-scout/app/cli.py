@@ -59,17 +59,23 @@ def extract(limit: int = 100) -> None:
 
 
 @app.command()
-def resolve(no_llm: bool = typer.Option(False, help="Skip LLM adjudication")) -> None:
+def resolve(no_llm: bool = typer.Option(False, help="Skip LLM adjudication"),
+            force: bool = typer.Option(
+                False, help="Start even if another resolve looks like it is running")) -> None:
     """RESOLVE: match signals to canonical projects."""
     from app.duplicates import find_duplicates
-    from app.pipeline.resolve import run_resolve
+    from app.pipeline.resolve import ConcurrentResolve, run_resolve
     from app.spend import run_budget
     cfg = load_config()
-    with run_budget("resolve"), session_scope() as session:
-        stats = run_resolve(session, cfg, use_llm=not no_llm)
-        # Always, not on request: a resolver that starts fragmenting the board
-        # fails silently otherwise — the row count simply grows.
-        dup = find_duplicates(session)
+    try:
+        with run_budget("resolve"), session_scope() as session:
+            stats = run_resolve(session, cfg, use_llm=not no_llm, force=force)
+            # Always, not on request: a resolver that starts fragmenting the board
+            # fails silently otherwise — the row count simply grows.
+            dup = find_duplicates(session)
+    except ConcurrentResolve as exc:
+        typer.secho(f"REFUSED: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from exc
     stats["duplicate_groups"] = dup["n_groups"]
     stats["duplicate_excess_rows"] = dup["n_excess_rows"]
     typer.echo(json.dumps(stats))

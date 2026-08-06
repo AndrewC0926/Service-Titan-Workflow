@@ -19,7 +19,7 @@ from sqlmodel import Session, select
 from app.config import Config
 from app.llm import LLMUnavailable, adjudicate
 from app.models import (
-    DeveloperAlias, MatchCandidate, Project, ProjectSignal, Signal, utcnow,
+    DeveloperAlias, MatchCandidate, Project, ProjectSignal, Signal, SourceRun, utcnow,
 )
 from app.normalize import normalize_county, normalize_name
 
@@ -315,8 +315,59 @@ def _new_project(session: Session, signal: Signal) -> Project:
     return project
 
 
-def run_resolve(session: Session, cfg: Config, use_llm: bool = True) -> dict:
+class ConcurrentResolve(RuntimeError):
+    """Another resolve run is still in flight."""
+
+
+# Same reasoning as backfill's: a run killed by SIGKILL never sets finished_at,
+# and without an age limit one corpse wedges resolve forever and trains everyone
+# to pass --force reflexively. Real overlap is a minutes-scale problem.
+STALE_RUN_HOURS = 12
+RESOLVE_RUN_SOURCE = "resolve"
+
+
+def _running_resolve(session: Session,
+                     stale_after_hours: float = STALE_RUN_HOURS) -> SourceRun | None:
+    """A *live* unfinished resolve run, if one exists."""
+    run = session.exec(
+        select(SourceRun)
+        .where(SourceRun.source == RESOLVE_RUN_SOURCE, SourceRun.finished_at.is_(None))
+        .order_by(SourceRun.id.desc())
+    ).first()
+    if run is None:
+        return None
+    age_hours = (utcnow() - run.started_at).total_seconds() / 3600
+    if age_hours > stale_after_hours:
+        log.warning("ignoring source_run #%d for resolve: unfinished but %.1fh old, "
+                    "so it was almost certainly killed rather than still running",
+                    run.id, age_hours)
+        return None
+    return run
+
+
+def run_resolve(session: Session, cfg: Config, use_llm: bool = True,
+                force: bool = False) -> dict:
+    """Match unlinked signals to canonical projects.
+
+    Refuses to start while another resolve is in flight. Two concurrent runs each
+    snapshot `unlinked` at their own start, so a signal unlinked in both snapshots
+    is processed twice and creates the project twice — which is exactly what
+    happened on 2026-08-06: a detached run and a foreground run overlapped for
+    3.5 minutes, and signal 503 became projects #961 and #963, byte-identical
+    down to the SCH number. Backfill learned this same lesson first; resolve is
+    now guarded the same way.
+    """
     from app.firms import seed_firms
+
+    inflight = None if force else _running_resolve(session)
+    if inflight is not None:
+        raise ConcurrentResolve(
+            f"resolve already running (source_run #{inflight.id}, started "
+            f"{inflight.started_at:%Y-%m-%d %H:%M:%S}Z). Wait for it, or pass "
+            f"--force if you are sure it is dead. Do NOT rely on `pgrep` to decide "
+            f"that: resolve can run for minutes between log lines, and a process "
+            f"check that says 'finished' when it has not is how #961/#963 happened.")
+
     seed_aliases(session, cfg)
     seed_firms(session, cfg)
     radius = cfg.get("resolution.block_radius_km", 5)
@@ -329,8 +380,39 @@ def run_resolve(session: Session, cfg: Config, use_llm: bool = True) -> dict:
     unlinked = [s for s in session.exec(select(Signal)).all()
                 if s.id not in linked_ids and s.id not in pending_review]
 
-    stats = {"auto_linked": 0, "llm_linked": 0, "queued_review": 0, "new_projects": 0}
+    run = SourceRun(source=RESOLVE_RUN_SOURCE)
+    session.add(run)
+    session.commit()
+
+    stats = {"auto_linked": 0, "llm_linked": 0, "queued_review": 0,
+             "new_projects": 0, "skipped_already_linked": 0}
+    try:
+        stats = _resolve_loop(session, cfg, unlinked, stats,
+                              radius, auto_t, review_t, use_llm)
+    finally:
+        # Always closed, so a failed run does not wedge the next one for 12 hours.
+        run.finished_at = utcnow()
+        run.ok = True
+        run.records_fetched = len(unlinked)
+        session.add(run)
+        session.commit()
+    return stats
+
+
+def _resolve_loop(session: Session, cfg: Config, unlinked: list[Signal], stats: dict,
+                  radius: float, auto_t: float, review_t: float, use_llm: bool) -> dict:
     for signal in unlinked:
+        # Defence in depth behind the concurrency guard: the snapshot above can be
+        # minutes or hours stale by the time we reach this signal, and --force
+        # exists. Linking a signal that is already linked would duplicate its
+        # project, so re-check rather than trust the snapshot. One indexed query.
+        if session.exec(select(ProjectSignal)
+                        .where(ProjectSignal.signal_id == signal.id)).first() is not None:
+            log.warning("signal %s was linked after this run's snapshot; skipping "
+                        "(concurrent resolve?)", signal.id)
+            stats["skipped_already_linked"] += 1
+            continue
+
         candidates = _blocked_candidates(session, signal, radius)
         scored = sorted(
             ((pair_similarity(signal, p, radius), p) for p in candidates),
