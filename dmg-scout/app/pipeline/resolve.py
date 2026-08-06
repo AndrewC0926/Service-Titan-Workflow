@@ -50,6 +50,34 @@ def canonical_developer(session: Session, name: str | None) -> str | None:
     return alias.canonical if alias else name
 
 
+def alias_map(session: Session) -> dict[str, str]:
+    """The whole alias table as {alias_norm: canonical}, in one query.
+
+    canonical_developer() costs one indexed lookup, which is right for one name
+    and wrong for a scan. _blocked_candidates called it once per active project
+    per signal, so the developer blocking key alone cost one round trip per row
+    on the board — against a database in another region. At 101 projects that is
+    ~101 round trips per signal, and it grows with the board: resolve measured
+    ~1.7 signals/min at 101 projects where it had managed 9/min at ~50.
+
+    Equivalent to calling canonical_developer() per name, exactly: alias_norm
+    carries a unique constraint (uq_alias_norm), so keying a dict on it cannot
+    collapse two rows that .first() would have distinguished.
+
+    Rebuilt per call rather than cached for the run, because _learn_alias() adds
+    rows mid-run and a stale map would silently stop matching them.
+    """
+    return {a.alias_norm: a.canonical
+            for a in session.exec(select(DeveloperAlias)).all()}
+
+
+def canonical_with(aliases: dict[str, str], name: str | None) -> str | None:
+    """canonical_developer() against an already-loaded alias map."""
+    if not name:
+        return None
+    return aliases.get(normalize_name(name), name)
+
+
 def seed_aliases(session: Session, cfg: Config) -> int:
     added = 0
     for canonical, aliases in (cfg.get("resolution.developer_aliases") or {}).items():
@@ -197,12 +225,15 @@ def _blocked_candidates(session: Session, signal: Signal, radius_km: float) -> l
         for p in session.exec(select(Project).where(Project.latitude.is_not(None))).all():
             if haversine_km(signal.latitude, signal.longitude, p.latitude, p.longitude) <= radius_km:
                 candidates[p.id] = p
-    # Shared canonical developer, same state — small enough set to scan.
-    dev = canonical_developer(session, signal.developer_or_owner)
+    # Shared canonical developer, same state. The scan is over the whole active
+    # board, so the alias table is loaded once here rather than looked up per row
+    # — see alias_map(). Same candidates, two queries instead of N+1.
+    aliases = alias_map(session)
+    dev = canonical_with(aliases, signal.developer_or_owner)
     if dev:
         dev_norm = normalize_name(dev)
         for p in session.exec(select(Project).where(Project.status == "active")).all():
-            p_dev = canonical_developer(session, p.developer)
+            p_dev = canonical_with(aliases, p.developer)
             if p_dev and normalize_name(p_dev) == dev_norm and (
                 not signal.state or not p.state or signal.state == p.state
             ):
