@@ -54,6 +54,14 @@ llm:
                                   # back to 15 on 2026-08-05: the CEQAnet backfill
                                   # week is over (175/182 chunks done) and 40 was
                                   # only ever the temporary ceiling for it
+  run_budget_usd: 8.0             # per-run cap, fixed when the run opens and NOT
+                                  # reset by midnight. The daily cap alone could
+                                  # not stop a long job: the 08-05 resolve crossed
+                                  # into 08-06, spent_today() fell back to zero and
+                                  # the kill switch silently re-armed at full
+                                  # budget. 8.0 is above the largest honest single
+                                  # run measured (extract, $6.95) and below the
+                                  # daily cap, so it binds first on a runaway.
   budget_warn_fraction: 0.8       # digest + dashboard warning threshold
 
 territories:

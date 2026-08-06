@@ -40,8 +40,9 @@ def fetch(source: str = typer.Option(None, help="Run one source only")) -> None:
 def triage(limit: int = 200) -> None:
     """TRIAGE: Haiku relevance pass over pending documents."""
     from app.pipeline.triage import run_triage
+    from app.spend import run_budget
     cfg = load_config()
-    with session_scope() as session:
+    with run_budget("triage"), session_scope() as session:
         stats = run_triage(session, cfg, limit=limit)
     typer.echo(json.dumps(stats))
 
@@ -50,8 +51,9 @@ def triage(limit: int = 200) -> None:
 def extract(limit: int = 100) -> None:
     """EXTRACT: Sonnet structured extraction over relevant documents."""
     from app.pipeline.extract import run_extract
+    from app.spend import run_budget
     cfg = load_config()
-    with session_scope() as session:
+    with run_budget("extract"), session_scope() as session:
         stats = run_extract(session, cfg, limit=limit)
     typer.echo(json.dumps(stats))
 
@@ -61,8 +63,9 @@ def resolve(no_llm: bool = typer.Option(False, help="Skip LLM adjudication")) ->
     """RESOLVE: match signals to canonical projects."""
     from app.duplicates import find_duplicates
     from app.pipeline.resolve import run_resolve
+    from app.spend import run_budget
     cfg = load_config()
-    with session_scope() as session:
+    with run_budget("resolve"), session_scope() as session:
         stats = run_resolve(session, cfg, use_llm=not no_llm)
         # Always, not on request: a resolver that starts fragmenting the board
         # fails silently otherwise — the row count simply grows.
@@ -110,32 +113,38 @@ def pipeline() -> None:
     """Run the full pipeline: fetch → triage → extract → resolve → score → notify.
     Pings the dead man's switch (HEALTHCHECK_URL) on completion."""
     from app.ops import ping_healthcheck
-    from app.spend import BudgetExceeded
+    from app.spend import BudgetExceeded, run_budget
 
     failures = 0
-    # grounding sits between extract and resolve on purpose: it is the last point
-    # where a fabricated number can be caught before it becomes a project, a
-    # tonnage estimate and a row someone quotes.
-    for step in (fetch, triage, extract, grounding, resolve, score, notify):
-        typer.echo(f"--- {step.__name__} ---")
-        try:
-            if step is fetch:
-                step(source=None)
-            elif step is resolve:
-                step(no_llm=False)
-            elif step is grounding:
-                # Report, never halt the run: the unit guard has already nulled
-                # what it could prove wrong, and anything still flagged is for a
-                # human to look at, not a reason to skip scoring.
-                step(strict=False)
-            else:
-                step()
-        except BudgetExceeded as exc:
-            typer.echo(f"{step.__name__} STOPPED BY BUDGET: {exc}", err=True)
-            failures += 1
-        except Exception as exc:  # noqa: BLE001 — later stages still run; failure is visible
-            typer.echo(f"{step.__name__} FAILED: {exc}", err=True)
-            failures += 1
+    # ONE budget for the whole pipeline, opened here. The per-stage run_budget()
+    # calls nest into this one rather than opening their own, so a nightly cron
+    # is capped once end-to-end — and because the cap is fixed at open, a run that
+    # starts before midnight and finishes after it cannot pick up a second day's
+    # allowance partway through.
+    with run_budget("pipeline"):
+        # grounding sits between extract and resolve on purpose: it is the last point
+        # where a fabricated number can be caught before it becomes a project, a
+        # tonnage estimate and a row someone quotes.
+        for step in (fetch, triage, extract, grounding, resolve, score, notify):
+            typer.echo(f"--- {step.__name__} ---")
+            try:
+                if step is fetch:
+                    step(source=None)
+                elif step is resolve:
+                    step(no_llm=False)
+                elif step is grounding:
+                    # Report, never halt the run: the unit guard has already nulled
+                    # what it could prove wrong, and anything still flagged is for a
+                    # human to look at, not a reason to skip scoring.
+                    step(strict=False)
+                else:
+                    step()
+            except BudgetExceeded as exc:
+                typer.echo(f"{step.__name__} STOPPED BY BUDGET: {exc}", err=True)
+                failures += 1
+            except Exception as exc:  # noqa: BLE001 — later stages still run; failure is visible
+                typer.echo(f"{step.__name__} FAILED: {exc}", err=True)
+                failures += 1
     # The switch measures "the cron ran to completion", not "every source was
     # healthy" — per-source failures already alert via digest + dashboard.
     ping_healthcheck(success=True)
