@@ -122,6 +122,10 @@ def run_extract(session: Session, cfg: Config, limit: int = 100) -> dict:
                       "acres", "building_count", "cooling_type", "water_acre_feet_per_year",
                       "filing_type"):
                 setattr(signal, f, data.get(f))
+            # NOT from the LLM: the adapter read it off the source record, so it is
+            # the one identifier on a signal that cannot be hallucinated. See
+            # Signal.sch_number and pair_similarity().
+            signal.sch_number = (doc.meta or {}).get("sch_number")
             signal.stage = stage
             signal.summary_one_line = data.get("summary_one_line", "")
             signal.confidence = data.get("confidence", 0.0)

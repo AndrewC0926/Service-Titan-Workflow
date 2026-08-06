@@ -234,6 +234,80 @@ def collect(session: Session, limit: int = 30) -> int:
     return added
 
 
+def write_worksheet(path: Path) -> int:
+    """Write the golden set as a markdown worksheet for offline hand-verification.
+
+    The interactive reviewer needs a terminal and one sitting; this is the same job
+    done on a train. Every asserted value is shown with a blank verdict column, and
+    the source text is on disk next to it, because the whole point is checking the
+    claim against the filing rather than against a summary of the filing.
+    """
+    entries = load_golden()
+    lines = [
+        "# Golden set — extraction accuracy worksheet",
+        "",
+        f"{len(entries)} documents. For each field: mark OK if the document supports "
+        "the value, write the correct value if it does not, or NULL if the document "
+        "never states it.",
+        "",
+        "A blank is not a verdict. The dangerous case is a value the document does "
+        "not support, not a missing one — so if you only have time for part of this, "
+        "check the numbers rather than the names.",
+        "",
+        "Source text for each document is in `evals/docs/`. Load your answers back "
+        "with `scout golden review`, which will skip anything already verified.",
+        "",
+    ]
+    for i, e in enumerate(entries, 1):
+        m = e.get("model") or {}
+        lines += [
+            f"## {i}. {e.get('title') or '(untitled)'}",
+            "",
+            f"- **doc_key**: `{e['doc_key']}`  ·  **source**: {e['source']}",
+            f"- **url**: {e.get('url') or '—'}",
+            f"- **text**: `evals/docs/{e['text_file']}`",
+        ]
+        if e.get("head_tail_fallback"):
+            lines.append(
+                f"- ⚠ **head+tail fallback** — the model saw "
+                f"{e.get('selected_chars')} of {e.get('original_chars')} chars and "
+                f"NOT the middle. A missed number here is a chunking bug, not a "
+                f"model miss; record the true value anyway.")
+        if e.get("forced"):
+            lines.append(f"- ⚠ **triage dropped this** ({e.get('triage_result')}): "
+                         f"{e.get('triage_reason') or '—'}. If it does contain a real "
+                         f"project, that is a triage miss.")
+        lines += ["", "| field | model asserted | your verdict |",
+                  "|---|---|---|"]
+        for f in SCALAR_FIELDS:
+            v = m.get(f)
+            shown = "*(null)*" if v in (None, "") else f"`{v}`"
+            lines.append(f"| {f} | {shown} | |")
+        for f in LIST_FIELDS:
+            names = "; ".join(x.get("name", "?") for x in (m.get(f) or [])) or "*(none)*"
+            lines.append(f"| {f} | {names} | |")
+        lines.append("")
+    path.write_text("\n".join(lines))
+    return len(entries)
+
+
+def fill_rates() -> dict:
+    """How often each field carries a value at all.
+
+    Not accuracy — a field can be 100% filled and 100% wrong. This says which fields
+    the extractor even attempts, which is the prerequisite question: mw_it at 0%
+    means no amount of hand verification will make tonnage defensible.
+    """
+    entries = load_golden()
+    n = len(entries) or 1
+    out = {}
+    for f in SCALAR_FIELDS + LIST_FIELDS:
+        filled = sum(1 for e in entries
+                     if (e.get("model") or {}).get(f) not in (None, "", []))
+        out[f] = {"filled": filled, "n": len(entries), "rate": filled / n}
+    return out
+
+
 def review_entry(entry: dict, input_fn=input, print_fn=print) -> dict:
     """Interactive hand-verification of one entry. Returns the updated entry."""
     text = (DOCS_DIR / entry["text_file"]).read_text()

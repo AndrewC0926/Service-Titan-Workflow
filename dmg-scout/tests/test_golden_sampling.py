@@ -131,3 +131,51 @@ def test_limit_is_reached_even_when_a_source_runs_dry(db_session, tmp_path,
         _doc(db_session, "goed", f"g{i}")
     _doc(db_session, "ceqanet", "c0")
     assert collect(db_session, limit=10) == 10
+
+
+def test_worksheet_shows_every_asserted_value_with_a_blank_verdict(db_session, tmp_path,
+                                                                   monkeypatch):
+    """The offline handoff. Every field gets a row whether or not it was extracted,
+    because a null the document contradicts is as interesting as a wrong value."""
+    from pathlib import Path
+    from app.golden import write_worksheet
+
+    _isolate(tmp_path, monkeypatch)
+    _doc(db_session, "ceqanet", "c1", doctype="NOP")
+    collect(db_session, limit=1)
+
+    out = tmp_path / "ws.md"
+    assert write_worksheet(out) == 1
+    text = out.read_text()
+    assert "| field | model asserted | your verdict |" in text
+    for f in ("mw_it", "mw_total", "generator_count", "building_sqft", "stage",
+              "county", "project_name", "named_people"):
+        assert f"| {f} |" in text, f"{f} missing from the worksheet"
+    assert "*(null)*" in text          # unextracted fields still get a row
+    assert "evals/docs/" in text       # the source text is reachable
+
+
+def test_worksheet_marks_head_tail_fallbacks(db_session, tmp_path, monkeypatch):
+    from pathlib import Path
+    from app.golden import write_worksheet
+
+    _isolate(tmp_path, monkeypatch)
+    _doc(db_session, "civicplus", "p1", chars=90_000,
+         sections={"chunked": True,
+                   "sections_found": ["document_head", "tail_fallback"],
+                   "original_chars": 90_000, "selected_chars": 34_050})
+    collect(db_session, limit=1)
+    out = tmp_path / "ws.md"
+    write_worksheet(out)
+    assert "head+tail fallback" in out.read_text()
+
+
+def test_fill_rates_count_populated_fields(db_session, tmp_path, monkeypatch):
+    from app.golden import fill_rates
+    _isolate(tmp_path, monkeypatch)
+    _doc(db_session, "goed", "g1")
+    collect(db_session, limit=1)
+    rates = fill_rates()
+    assert rates["project_name"]["filled"] == 1
+    assert rates["mw_it"]["filled"] == 0        # never set by the fixture
+    assert rates["mw_it"]["rate"] == 0.0

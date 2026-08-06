@@ -59,11 +59,30 @@ def extract(limit: int = 100) -> None:
 @app.command()
 def resolve(no_llm: bool = typer.Option(False, help="Skip LLM adjudication")) -> None:
     """RESOLVE: match signals to canonical projects."""
+    from app.duplicates import find_duplicates
     from app.pipeline.resolve import run_resolve
     cfg = load_config()
     with session_scope() as session:
         stats = run_resolve(session, cfg, use_llm=not no_llm)
+        # Always, not on request: a resolver that starts fragmenting the board
+        # fails silently otherwise — the row count simply grows.
+        dup = find_duplicates(session)
+    stats["duplicate_groups"] = dup["n_groups"]
+    stats["duplicate_excess_rows"] = dup["n_excess_rows"]
     typer.echo(json.dumps(stats))
+    if dup["n_groups"]:
+        typer.secho(
+            f"WARNING: {dup['n_groups']} duplicate project groups "
+            f"({dup['n_excess_rows']} excess rows) — `scout duplicates` for detail",
+            fg=typer.colors.YELLOW)
+
+
+@app.command()
+def duplicates() -> None:
+    """Project rows that look like the same project: shared SCH, or name+county."""
+    from app.duplicates import duplicates_text, find_duplicates
+    with session_scope() as session:
+        typer.echo(duplicates_text(find_duplicates(session)))
 
 
 @app.command()
@@ -255,6 +274,22 @@ def golden_collect(
     typer.echo(f"{added} documents added to evals/golden.jsonl — now run: scout golden review")
 
 
+@golden_app.command("worksheet")
+def golden_worksheet(out: str = "evals/golden-worksheet.md") -> None:
+    """Write the golden set as an offline worksheet, plus per-field fill rates."""
+    from pathlib import Path
+
+    from app.golden import fill_rates, write_worksheet
+    n = write_worksheet(Path(out))
+    typer.echo(f"{n} documents written to {out}\n")
+    rates = fill_rates()
+    typer.echo(f"{'field':24s}{'filled':>8}{'of':>5}{'rate':>8}")
+    for f, r in sorted(rates.items(), key=lambda kv: -kv[1]["rate"]):
+        typer.echo(f"{f:24s}{r['filled']:>8}{r['n']:>5}{r['rate']:>7.0%}")
+    typer.echo("\nFill rate is not accuracy: a field can be fully populated and "
+               "entirely wrong. Gate 0 needs the hand pass.")
+
+
 @golden_app.command("review")
 def golden_review() -> None:
     """Hand-verify each document: model extraction next to source text."""
@@ -326,15 +361,23 @@ def audit(top: int = 25) -> None:
 @app.command()
 def ladder() -> None:
     """Contact ladder distribution: how many projects reach a callable human."""
-    from app.ladder import distribution_text, ladder_distribution
+    from app.ladder import contactability_text, distribution_text, ladder_distribution
     with session_scope() as session:
         dist = ladder_distribution(session)
-        typer.echo(distribution_text(dist))
+        typer.echo(contactability_text(dist))
+        typer.echo("\n" + distribution_text(dist))
         typer.echo("\nPer-project best contact:")
+        mark = {"contactable": "CALL", "name_only": "name", "none": "----"}
         for row in sorted(dist["per_project"], key=lambda r: -r["score"]):
             rung = row["best_rung"] if row["best_rung"] else "—"
-            typer.echo(f"  [{rung}] {row['project'][:44]:44s} {row['window']:8s} "
-                       f"{row['score']:5.2f}  {row['best_name'] or 'NO CONTACT'}")
+            reach = ""
+            if row["reachable_name"]:
+                how = row["reachable_phone"] or row["reachable_email"] or ""
+                reach = (f"  -> {row['reachable_name']} "
+                         f"({row['reachable_title'] or '?'}, {row['reachable_org'] or '?'}) {how}")
+            typer.echo(f"  [{mark[row['contact_status']]}][{rung}] "
+                       f"{row['project'][:40]:40s} {row['window']:8s} "
+                       f"{row['score']:5.2f}  {row['best_name'] or 'NO CONTACT'}{reach}")
 
 
 @app.command()

@@ -88,7 +88,8 @@ def build_ladder(session: Session, project: Project) -> list[dict]:
     seen: set[tuple] = set()
 
     def add(rung: int, name: str, title: str | None, company: str | None,
-            source_url: str | None, kind: str) -> None:
+            source_url: str | None, kind: str,
+            phone: str | None = None, email: str | None = None) -> None:
         # People and firms normalize differently: normalize_name is built for
         # companies and would reduce 'Di Wu' to 'wu', merging distinct people.
         norm = normalize_person_name(name) if kind == "person" else normalize_name(name)
@@ -98,7 +99,9 @@ def build_ladder(session: Session, project: Project) -> list[dict]:
         seen.add(key)
         rungs.append({"rung": rung, "rung_label": RUNG_LABELS[rung], "name": name,
                       "title": title, "company": company, "source_url": source_url,
-                      "kind": kind})
+                      "kind": kind,
+                      "phone": (phone or "").strip() or None,
+                      "email": (email or "").strip() or None})
 
     # People named in filings
     for link in links:
@@ -114,7 +117,8 @@ def build_ladder(session: Session, project: Project) -> list[dict]:
                 continue
             rung = _classify_person(session, person, src, developer_norm)
             if rung:
-                add(rung, name, person.get("title"), person.get("org"), url, "person")
+                add(rung, name, person.get("title"), person.get("org"), url, "person",
+                    phone=person.get("phone"), email=person.get("email"))
         # ATS postings = rung-5 evidence even without a named individual
         if s.signal_type.value == "job_posting" and url:
             company = (doc.meta or {}).get("company") if doc else None
@@ -146,6 +150,45 @@ def best_contact(session: Session, project: Project) -> dict | None:
     return ladder[0] if ladder else None
 
 
+def contact_status(session: Session, project: Project,
+                   ladder: list[dict] | None = None) -> dict:
+    """Is there a human on this row that a rep could actually call today?
+
+    This is the success criterion as of 2026-08-05, and it deliberately replaces
+    "did we find the mechanical engineer" — that target was measured unreachable
+    three separate ways, because the owner contracts a prime and the prime picks
+    its MEP sub privately. What matters instead is a name attached to a phone or
+    an email, at ANY rung.
+
+    Three states, and the middle one is the honest part: a name with no way to
+    reach it is not a call, it is a research task. Counting it as coverage is how
+    a board of 58 rows looked reachable when it was not.
+    """
+    ladder = build_ladder(session, project) if ladder is None else ladder
+    people = [r for r in ladder if r["kind"] == "person"]
+    reachable = [r for r in people if r.get("phone") or r.get("email")]
+    # Rung order still ranks by proximity to the spec decision, so the best
+    # reachable person is the lowest-rung one that carries a contact method.
+    best_reachable = reachable[0] if reachable else None
+    if best_reachable:
+        status = "contactable"
+    elif people:
+        status = "name_only"
+    else:
+        status = "none"
+    top = ladder[0] if ladder else None
+    return {
+        "status": status,
+        "best_reachable": best_reachable,
+        "n_people": len(people),
+        "n_reachable": len(reachable),
+        # True when the highest-ranked rung is itself callable. When False, the
+        # row's headline contact and its callable contact are different people —
+        # which is the ranking bug Phase B has to fix, not a data problem.
+        "top_rung_is_reachable": bool(top and top is best_reachable),
+    }
+
+
 def ladder_distribution(session: Session) -> dict:
     """The session's most important diagnostic: does this tool generate calls
     or just reading? Distribution of best-available rung across the board.
@@ -160,16 +203,31 @@ def ladder_distribution(session: Session) -> dict:
                               Project.in_territory == True)).all()  # noqa: E712
     counts: Counter = Counter()
     by_category: dict[str, Counter] = {}
+    contact_counts: Counter = Counter()
+    contact_by_category: dict[str, Counter] = {}
     per_project = []
     for p in projects:
-        best = best_contact(session, p)
+        ladder = build_ladder(session, p)
+        best = ladder[0] if ladder else None
         rung = best["rung"] if best else None
         counts[rung] += 1
         by_category.setdefault(p.category.value, Counter())[rung] += 1
+        cs = contact_status(session, p, ladder=ladder)
+        contact_counts[cs["status"]] += 1
+        contact_by_category.setdefault(p.category.value, Counter())[cs["status"]] += 1
+        reach = cs["best_reachable"]
         per_project.append({"project": p.name, "score": p.score, "window": p.window.value,
                             "category": p.category.value, "best_rung": rung,
                             "best_name": best["name"] if best else None,
-                            "best_kind": best["kind"] if best else None})
+                            "best_kind": best["kind"] if best else None,
+                            "contact_status": cs["status"],
+                            "top_rung_is_reachable": cs["top_rung_is_reachable"],
+                            "reachable_name": reach["name"] if reach else None,
+                            "reachable_title": reach["title"] if reach else None,
+                            "reachable_org": reach["company"] if reach else None,
+                            "reachable_rung": reach["rung"] if reach else None,
+                            "reachable_phone": reach["phone"] if reach else None,
+                            "reachable_email": reach["email"] if reach else None})
 
     # Rung counts alone flatter the board. 58 projects reaching "a contact" looked
     # like 58 calls; they resolve to a couple of dozen names, and the industrial
@@ -188,6 +246,8 @@ def ladder_distribution(session: Session) -> dict:
     concentration = Counter(ids)
     return {"counts": dict(counts), "n_projects": len(projects),
             "by_category": {k: dict(v) for k, v in by_category.items()},
+            "contact_counts": dict(contact_counts),
+            "contact_by_category": {k: dict(v) for k, v in contact_by_category.items()},
             "per_project": per_project,
             "distinct_contacts": len(concentration),
             "distinct_people": sum(1 for k in concentration if k.startswith("person:")),
@@ -195,6 +255,40 @@ def ladder_distribution(session: Session) -> dict:
             "person_rungs": sum(1 for r in per_project if r["best_kind"] == "person"),
             "firm_rungs": sum(1 for r in per_project if r["best_kind"] == "firm"),
             "top_contacts": [(k.split(":", 1)[1], n) for k, n in concentration.most_common(5)]}
+
+
+CONTACT_LABELS = {
+    "contactable": "name + phone or email  (a call)",
+    "name_only":   "name, no contact method (research)",
+    "none":        "no human named at all   (reading)",
+}
+
+
+def contactability_text(dist: dict) -> str:
+    """The headline number: how many rows a rep can actually dial today.
+
+    Printed above the rung table because the rung table answers a question we
+    stopped asking — see contact_status().
+    """
+    cats = sorted(dist.get("contact_by_category", {}))
+    n = max(dist["n_projects"], 1)
+    lines = [f"Contactability — {dist['n_projects']} in-territory projects", ""]
+    header = f"  {'':<38}" + "".join(f"{c[:12]:>13}" for c in cats) + f"{'TOTAL':>8}{'':>8}"
+    lines += [header, "  " + "-" * (len(header) - 2)]
+    for key in ("contactable", "name_only", "none"):
+        cells = "".join(f"{dist['contact_by_category'][c].get(key, 0):>13}" for c in cats)
+        total = dist["contact_counts"].get(key, 0)
+        lines.append(f"  {CONTACT_LABELS[key]:<38}{cells}{total:>8}{total / n:>7.0%}")
+    lines += ["  " + "-" * (len(header) - 2)]
+    totals = "".join(f"{sum(dist['contact_by_category'][c].values()):>13}" for c in cats)
+    lines.append(f"  {'projects':<38}{totals}{dist['n_projects']:>8}")
+    mism = sum(1 for r in dist["per_project"]
+               if r["contact_status"] == "contactable" and not r["top_rung_is_reachable"])
+    if mism:
+        lines += ["",
+                  f"  on {mism} contactable rows the top-ranked rung is NOT the callable one —",
+                  "  the board would show a firm while the phone number sits further down"]
+    return "\n".join(lines)
 
 
 def distribution_text(dist: dict) -> str:

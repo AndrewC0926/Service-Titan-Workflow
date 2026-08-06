@@ -50,9 +50,10 @@ llm:
   triage_output_tokens: 95        # measured per document
   extract_output_tokens: 624      # measured; the old 900 overstated it
   adjudicate_cost_per_signal: 0.0034  # resolve was absent from the estimate entirely
-  daily_budget_usd: 40.0          # hard kill switch: LLM calls stop past this
-                                  # raised from 15 for the CEQAnet re-backfill;
-                                  # drop back to 15 once backfill week is over
+  daily_budget_usd: 15.0          # hard kill switch: LLM calls stop past this
+                                  # back to 15 on 2026-08-05: the CEQAnet backfill
+                                  # week is over (175/182 chunks done) and 40 was
+                                  # only ever the temporary ceiling for it
   budget_warn_fraction: 0.8       # digest + dashboard warning threshold
 
 territories:

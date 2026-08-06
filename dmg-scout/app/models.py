@@ -149,6 +149,11 @@ class Signal(SQLModel, table=True):
     state: str | None = None
     street_address: str | None = None
     apn_parcel: str | None = None
+    # State Clearinghouse number. CEQAnet assigns one per PROJECT and reuses it
+    # across every filing in the series (NOP, then DEIR, then NOD), so it is the
+    # only exact project identifier any source gives us. Not extracted by the LLM
+    # — copied from the adapter's document metadata, so it cannot be hallucinated.
+    sch_number: str | None = Field(default=None, index=True)
     latitude: float | None = None
     longitude: float | None = None
     mw_it: float | None = None
@@ -182,6 +187,7 @@ class Project(SQLModel, table=True):
     latitude: float | None = None
     longitude: float | None = None
     apn_parcel: str | None = None
+    sch_number: str | None = Field(default=None, index=True)  # see Signal.sch_number
     mw_it: float | None = None
     mw_total: float | None = None
     tons_estimate_low: float | None = None

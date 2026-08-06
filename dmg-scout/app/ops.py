@@ -104,6 +104,16 @@ def doctor() -> list[tuple[str, bool, str]]:
                 checks.append((f"source:{name}", fresh,
                                f"last success {last_ok.started_at:%Y-%m-%d %H:%M}Z"))
 
+    # A fragmenting board is a silent failure: nothing errors, the row count just
+    # grows and every rate computed over it is wrong. See app/duplicates.py.
+    from app.duplicates import find_duplicates
+    with session_scope() as session:
+        dup = find_duplicates(session)
+    checks.append(("project_duplicates", dup["n_groups"] == 0,
+                   "no duplicate project rows" if dup["n_groups"] == 0 else
+                   f"{dup['n_groups']} suspect groups, {dup['n_excess_rows']} excess rows "
+                   f"of {dup['n_projects']} — run `scout duplicates`"))
+
     armed = bool(os.environ.get(HEALTHCHECK_ENV))
     checks.append(("dead_mans_switch", armed,
                    "HEALTHCHECK_URL set" if armed else "HEALTHCHECK_URL not set — cron death would be silent"))

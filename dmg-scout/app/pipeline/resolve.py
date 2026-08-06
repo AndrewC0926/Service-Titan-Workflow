@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 
 from rapidfuzz import fuzz
 from sqlmodel import Session, select
@@ -66,6 +67,39 @@ def seed_aliases(session: Session, cfg: Config) -> int:
     return added
 
 
+# Parcel numbers inside a free-text APN field. CEQAnet's APN is typed by a
+# different agency clerk on every filing, so the same parcels arrive as
+# "4090-021-032 through -034", "4090-021-032, 4090-021-033, 4090-021-034",
+# "209-411-02, -03 & -04" and "... -03 and -04". Exact string comparison scored
+# those as DISAGREEMENT at the heaviest weight in the function, which is how four
+# projects with byte-identical names split into eight rows.
+_APN_TOKEN = re.compile(r"\d[\d\-]{3,}")
+
+
+def parse_apns(raw: str | None) -> set[str]:
+    """Parcel identifiers in a free-text APN field, as a comparable set.
+
+    Deliberately conservative: it does NOT expand ranges ("through -034"), because
+    inventing parcel numbers to force a match is worse than abstaining. Returns an
+    empty set when nothing parses, and callers must treat empty as "no opinion"
+    rather than as disagreement.
+    """
+    if not raw:
+        return set()
+    out: set[str] = set()
+    for tok in _APN_TOKEN.findall(raw):
+        digits = tok.replace("-", "")
+        if len(digits) >= 5:            # a full APN, not a "-034" suffix fragment
+            out.add(digits)
+        # "7426029006-007" is one parcel plus a range suffix, not a 13-digit
+        # parcel. Emit the leading parcel too so it can match a filing that
+        # writes the same lot on its own.
+        head = tok.split("-")[0]
+        if len(head) >= 8:
+            out.add(head)
+    return out
+
+
 def pair_similarity(signal: Signal, project: Project, radius_km: float) -> float:
     """0-1 similarity used for auto-merge / adjudication banding.
 
@@ -81,12 +115,31 @@ def pair_similarity(signal: Signal, project: Project, radius_km: float) -> float
     data center at confidence 1.000 and dragged its recency forward five months.
     Same county is not the same building.
     """
+    # SCH number is not evidence to be weighed — it IS the project. CEQAnet
+    # assigns one per project and reuses it across the whole filing series, so an
+    # agreement short-circuits every other term. Disagreement deliberately does
+    # NOT score 0: two SCH numbers can cover one development (a specific plan and
+    # its subsequent tract map), so a mismatch abstains and lets the rest decide.
+    if signal.sch_number and project.sch_number:
+        if signal.sch_number.strip() == project.sch_number.strip():
+            return 1.0
+
     scores: list[tuple[float, float]] = []  # (weight, score)
     strong_evidence = False  # an identifier that can distinguish two neighbours
 
-    # APN match is close to dispositive.
-    if signal.apn_parcel and project.apn_parcel:
-        scores.append((3.0, 1.0 if signal.apn_parcel.strip() == project.apn_parcel.strip() else 0.0))
+    # APN is POSITIVE-ONLY evidence, and that asymmetry is the whole fix.
+    #
+    # A shared parcel is close to dispositive: two filings listing the same lot
+    # are the same site even when one enumerates more lots than the other. But
+    # non-overlap says almost nothing, because the field is a free-text parcel
+    # list of varying completeness and formatting — one filing gives the main lot,
+    # the next gives all eight, a third is truncated mid-string
+    # ("7426029006-007, 742603004-015,74"). Scoring that disagreement at weight
+    # 3.0 is what dragged four byte-identical project names down to ~0.59 and
+    # split them into eight rows. So when the parcels do not overlap, the term
+    # abstains rather than voting against. See tests/test_sch_dedupe.py.
+    if parse_apns(signal.apn_parcel) & parse_apns(project.apn_parcel):
+        scores.append((3.0, 1.0))
         strong_evidence = True
 
     if signal.project_name and project.name and not project.name.startswith("Unnamed"):
@@ -129,6 +182,13 @@ def _blocked_candidates(session: Session, signal: Signal, radius_km: float) -> l
     if county:
         for p in session.exec(select(Project).where(Project.county == county,
                                                     Project.status == "active")).all():
+            candidates[p.id] = p
+    # SCH first: it is the one exact project key, and it must reach the scorer even
+    # when the signal has no county (a filing whose county field came back null
+    # would otherwise be blocked out of its own project).
+    if signal.sch_number:
+        for p in session.exec(
+                select(Project).where(Project.sch_number == signal.sch_number)).all():
             candidates[p.id] = p
     if signal.apn_parcel:
         for p in session.exec(select(Project).where(Project.apn_parcel == signal.apn_parcel)).all():
@@ -193,6 +253,7 @@ def _absorb(project: Project, signal: Signal) -> None:
     project.county = project.county or normalize_county(signal.county)
     project.state = project.state or signal.state
     project.apn_parcel = project.apn_parcel or signal.apn_parcel
+    project.sch_number = project.sch_number or signal.sch_number
     if project.latitude is None and signal.latitude is not None:
         project.latitude, project.longitude = signal.latitude, signal.longitude
     if signal.mw_it and (project.mw_it or 0) < signal.mw_it:
