@@ -461,7 +461,10 @@ sizing:
     heavy_manufacturing:      {low: 100,  high: 300}   # with process load
     cleanroom:                {low: 50,   high: 150}
     office_rnd:               {low: 300,  high: 400}
-    unknown:                  {low: 50,   high: 2500}  # the full span, deliberately
+    # NOTE: there is deliberately no `unknown` row. An unstated type produces no
+    # tonnage at all — see _industrial_from_sqft. The 50-2,500 full span that used
+    # to live here turned "we do not know what this building is" into
+    # "3,240 to 162,000 tons", which reads as a measurement and is not one.
   # Ceiling on watts-per-sqft implied by a STATED MW figure. Above this the stated
   # number is treated as a misread (a product rating, an annual output, a utility
   # service size) and discarded rather than trusted — see the Amperesand case in
@@ -471,6 +474,33 @@ sizing:
     data_center: 500     # generous: dense white space runs 150-300 W/sqft
     industrial: 60       # manufacturing process load, well above typical
     other: 60
+
+# What a ton of cooling is WORTH, which is not what a ton of cooling IS.
+#
+# From the field: a custom air handler or a central chiller plant is worth far
+# more than the same tonnage spread across terminal units, so ranking on tonnage
+# alone systematically over-values large low-intensity boxes. A 5,000 ton
+# fulfillment centre on packaged rooftops is a smaller opportunity than a 600 ton
+# cleanroom on custom AHUs.
+#
+# **The dollar magnitudes below are NOT from the DMG line card.** I have not seen
+# it. They encode only the ORDERING the field gave us — custom AHU and central
+# plant are worth a multiple of packaged rooftop tonnage — so that ranking moves
+# in the right direction. Every number is a tunable knob and all of them should be
+# replaced with real line-card figures before anyone quotes a dollar value.
+equipment_value:
+  enabled: true
+  # $ per installed ton, by the equipment a building of this type actually buys.
+  value_per_ton_by_facility_type:
+    cleanroom:                {low: 3000, high: 6000, equipment: "custom AHU, tight-tolerance control"}
+    data_center:              {low: 2000, high: 4000, equipment: "central chiller plant, CRAH"}
+    heavy_manufacturing:      {low: 1200, high: 2500, equipment: "process cooling, custom AHU"}
+    office_rnd:               {low: 800,  high: 1600, equipment: "AHU plus terminal units"}
+    light_manufacturing:      {low: 700,  high: 1500, equipment: "packaged AHU, some process load"}
+    warehouse_conditioned:    {low: 400,  high: 900,  equipment: "packaged rooftop"}
+    distribution_fulfillment: {low: 250,  high: 700,  equipment: "packaged rooftop, spread thin"}
+    # No `unknown` row on purpose, same reasoning as the sizing table: without a
+    # type there is no equipment category, so there is no value to state.
 
 scoring:
   window_multipliers:

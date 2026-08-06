@@ -199,6 +199,13 @@ class Project(SQLModel, table=True):
     tons_estimate_high: float | None = None
     estimate_basis: str | None = None  # which input drove the tonnage estimate
     estimate_low_confidence: bool = Field(default=False)
+    # What the cooling is worth, which is not the same as how much there is: a
+    # 5,000 ton fulfillment centre on packaged rooftops is a smaller opportunity
+    # than a 600 ton cleanroom on custom AHUs. Null whenever tonnage or facility
+    # type is unknown. See app/pipeline/sizing.estimate_equipment_value.
+    equipment_value_low: float | None = None
+    equipment_value_high: float | None = None
+    equipment_value_basis: str | None = None
     stage: Stage = Field(default=Stage.unknown, index=True)
     window: Window = Field(default=Window.PRE_BOD)
     score: float = Field(default=0.0, index=True)

@@ -197,20 +197,86 @@ def _industrial_from_sqft(cfg: Config, building_sqft: float,
                  "unknown for sizing (category and facility type disagree)")
         facility_type = FacilityType.unknown
 
+    # An unstated type produces NO tonnage, not a 50x band.
+    #
+    # The full span across all types is 50-2,500 sqft/ton, so an 8,100,000 sqft
+    # building came out as "3,240 to 162,000 tons". That is not an estimate; it is
+    # the arithmetic restating that we do not know what the building is, wearing
+    # the costume of a number. Anyone reading the board sees two figures and a
+    # dash and assumes someone measured something. Better to carry 40 rows that
+    # can be quoted and flag the rest than 296 nobody can trust.
+    #
+    # The row keeps its square footage and says exactly what is missing, so it is
+    # actionable: one filing stating the use turns it into a real estimate.
+    if facility_type is FacilityType.unknown:
+        return TonsEstimate(
+            low=None, high=None,
+            basis=f"UNKNOWN TYPE — {building_sqft:,.0f} sqft, building use not stated. "
+                  f"No tonnage estimated: sqft-per-ton spans 50x across facility "
+                  f"types ({FALLBACK_SQFT_PER_TON['low']:,.0f}-"
+                  f"{FALLBACK_SQFT_PER_TON['high']:,.0f} sqft/ton), so any band would "
+                  f"be a restatement of the uncertainty rather than an estimate.",
+            basis_key="industrial_unknown_type", mw_it=None, low_confidence=True,
+        )
+
     table = cfg.get("sizing.industrial_sqft_per_ton_by_type", {}) or {}
-    band = table.get(facility_type.value) or table.get("unknown") or FALLBACK_SQFT_PER_TON
+    band = table.get(facility_type.value) or FALLBACK_SQFT_PER_TON
     low_sqft_per_ton = band.get("low", FALLBACK_SQFT_PER_TON["low"])
     high_sqft_per_ton = band.get("high", FALLBACK_SQFT_PER_TON["high"])
     # Fewer sqft per ton = denser load = MORE tons, so low/high invert here.
     high = building_sqft / low_sqft_per_ton
     low = building_sqft / high_sqft_per_ton
-    known = facility_type is not FacilityType.unknown
-    label = facility_type.value if known else "type not stated"
     return TonsEstimate(
         low=low, high=high,
-        basis=f"{building_sqft:,.0f} sqft {label} @ {low_sqft_per_ton:,.0f}-"
-              f"{high_sqft_per_ton:,.0f} sqft/ton -> {low:,.0f}-{high:,.0f} tons "
-              f"(LOW CONFIDENCE, rule of thumb"
-              f"{'' if known else '; full span because type is unknown'})",
+        basis=f"{building_sqft:,.0f} sqft {facility_type.value} @ "
+              f"{low_sqft_per_ton:,.0f}-{high_sqft_per_ton:,.0f} sqft/ton -> "
+              f"{low:,.0f}-{high:,.0f} tons (LOW CONFIDENCE, rule of thumb)",
         basis_key="industrial_sqft", mw_it=None, low_confidence=True,
+    )
+
+
+@dataclass
+class EquipmentValue:
+    """What the cooling on this project is worth, and what equipment that assumes."""
+    low: float | None
+    high: float | None
+    basis: str | None
+
+
+def estimate_equipment_value(cfg: Config, tons_low: float | None, tons_high: float | None,
+                             facility_type: FacilityType) -> EquipmentValue:
+    """Rough installed equipment value, from tonnage and what the building buys.
+
+    Ranking on tonnage alone over-values large low-intensity boxes: a 5,000 ton
+    fulfillment centre on packaged rooftops is a smaller opportunity than a 600
+    ton cleanroom on custom air handlers. This is the correction, and it changes
+    ranking rather than tonnage — the tons stay exactly as sized.
+
+    Returns nothing when the tonnage is unknown or the facility type is unstated:
+    without a type there is no equipment category, and inventing one here would
+    reintroduce the guess that removing the 50x band just took out.
+
+    The dollar figures are config, and their magnitudes are placeholders standing
+    in for the DMG line card — see the note in config.yaml. The ordering is the
+    part that is load-bearing.
+    """
+    if not cfg.get("equipment_value.enabled", True):
+        return EquipmentValue(None, None, None)
+    if tons_low is None or tons_high is None:
+        return EquipmentValue(None, None, None)
+
+    table = cfg.get("equipment_value.value_per_ton_by_facility_type", {}) or {}
+    band = table.get(facility_type.value)
+    if not band:
+        return EquipmentValue(
+            None, None,
+            f"no equipment value: {facility_type.value} has no value-per-ton entry")
+
+    low = tons_low * band["low"]
+    high = tons_high * band["high"]
+    return EquipmentValue(
+        low=low, high=high,
+        basis=f"{tons_low:,.0f}-{tons_high:,.0f} tons of {band.get('equipment', facility_type.value)} "
+              f"@ ${band['low']:,.0f}-{band['high']:,.0f}/ton -> ${low:,.0f}-${high:,.0f} "
+              f"(ORDER OF MAGNITUDE: rates are placeholders, not line-card figures)",
     )

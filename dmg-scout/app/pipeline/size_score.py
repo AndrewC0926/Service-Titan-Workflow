@@ -8,11 +8,11 @@ from sqlmodel import Session, select
 
 from app.config import Config
 from app.models import (
-    ACTIVE_STATUSES, FacilityType, Project, ProjectSignal, Signal, Window, utcnow,
+    ACTIVE_STATUSES, Category, FacilityType, Project, ProjectSignal, Signal, Window, utcnow,
 )
 from app.normalize import normalize_county
 from app.pipeline.scoring import classify_window, days_to_estimated_bid, priority_score
-from app.pipeline.sizing import estimate_tons
+from app.pipeline.sizing import estimate_equipment_value, estimate_tons
 
 log = logging.getLogger(__name__)
 
@@ -70,6 +70,7 @@ def run_size_score(session: Session, cfg: Config) -> dict:
             vals = [getattr(s, attr) for s in signals if getattr(s, attr) is not None]
             return max(vals) if vals else None
 
+        facility_type = _facility_type(signals)
         est = estimate_tons(
             cfg,
             mw_it=project.mw_it or best("mw_it"),
@@ -79,8 +80,17 @@ def run_size_score(session: Session, cfg: Config) -> dict:
             generator_kw_each=best("generator_kw_each"),
             building_sqft=best("building_sqft"),
             category=project.category,
-            facility_type=_facility_type(signals),
+            facility_type=facility_type,
         )
+        # Data centers report facility_type=unknown on most filings (the category
+        # already says what the building is), so value them as data centers rather
+        # than dropping every one for want of a redundant field.
+        value_type = facility_type
+        if value_type is FacilityType.unknown and project.category is Category.data_center:
+            value_type = FacilityType.data_center
+        val = estimate_equipment_value(cfg, est.low, est.high, value_type)
+        project.equipment_value_low, project.equipment_value_high = val.low, val.high
+        project.equipment_value_basis = val.basis
         if est.rejected_inputs:
             log.warning("project %s (%s): discarded implausible size input(s): %s",
                         project.id, project.name, "; ".join(est.rejected_inputs))

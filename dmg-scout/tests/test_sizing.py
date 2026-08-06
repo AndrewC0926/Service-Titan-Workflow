@@ -189,21 +189,30 @@ def test_each_facility_type_uses_its_own_band(cfg, ftype, lo, hi):
     assert round(est.low) == lo and round(est.high) == hi
 
 
-def test_unknown_type_spans_every_band(cfg):
-    """Not knowing the type is a real answer and gets the full span rather than a
-    convenient middle — and says so in the basis."""
+def test_unknown_type_produces_no_tonnage_at_all(cfg):
+    """Superseded the old "full span" behaviour, deliberately.
+
+    This used to assert 40-2,000 tons for 100,000 sqft: the whole 50x span,
+    offered as an estimate. On an 8,100,000 sqft campus that rendered as
+    "3,240 to 162,000 tons" at the top of the board, which is not a measurement
+    of anything — it is the arithmetic restating that nobody said what the
+    building was. A row that cannot be quoted should say so.
+    """
     est = estimate_tons(cfg, building_sqft=100_000, category=Category.industrial,
                         facility_type=FacilityType.unknown)
-    assert round(est.low) == 40 and round(est.high) == 2000
-    assert "type is unknown" in est.basis
+    assert est.low is None and est.high is None
+    assert est.basis_key == "industrial_unknown_type"
+    assert "UNKNOWN TYPE" in est.basis
+    # The area survives, so the row stays actionable rather than blank.
+    assert "100,000 sqft" in est.basis
     assert est.low_confidence is True
 
-    # The unknown band must contain every typed band for the same area.
+    # Every typed band still produces a real number for the same area.
     for ftype in (FacilityType.distribution_fulfillment, FacilityType.cleanroom,
                   FacilityType.heavy_manufacturing, FacilityType.office_rnd):
         typed = estimate_tons(cfg, building_sqft=100_000, category=Category.industrial,
                               facility_type=ftype)
-        assert est.low <= typed.low and typed.high <= est.high
+        assert typed.low is not None and typed.high is not None
 
 
 def test_facility_type_does_not_affect_data_centers(cfg):
@@ -215,18 +224,21 @@ def test_facility_type_does_not_affect_data_centers(cfg):
     assert a.low == b.low and a.high == b.high and a.basis_key == "stated_it"
 
 
-def test_unknown_type_sits_among_the_typed_bands_not_above_them(cfg):
-    """Regression: with an arithmetic midpoint the unknown band centred on 5,661
-    tons — denser than a cleanroom — so Elsinore Heights leapt from 0.396 to 0.673
-    and took the top of the industrial board purely because nobody stated its type.
-    Not knowing must not pay.
+def test_not_knowing_the_type_cannot_pay(cfg):
+    """The Elsinore Heights regression, now closed by construction.
 
-    The geometric centre lands it among the real types rather than above all of
-    them, which is what an unstated type should mean. It stays wider than any of
-    them in both directions."""
+    With an arithmetic midpoint the unknown band centred on 5,661 tons — denser
+    than a cleanroom — so Elsinore Heights leapt from 0.396 to 0.673 and took the
+    top of the industrial board purely because nobody stated its type. The
+    geometric mean fixed the inflation; removing the band removes the failure
+    mode entirely. An unstated type now has no midpoint, so it cannot contribute
+    a size factor to the score at all, let alone a winning one.
+    """
     area = 555_060
     unknown = estimate_tons(cfg, building_sqft=area, category=Category.industrial,
                             facility_type=FacilityType.unknown)
+    assert unknown.midpoint is None, "an unstated type can still influence ranking"
+
     typed = {ft: estimate_tons(cfg, building_sqft=area, category=Category.industrial,
                                facility_type=ft)
              for ft in (FacilityType.distribution_fulfillment,
@@ -235,25 +247,21 @@ def test_unknown_type_sits_among_the_typed_bands_not_above_them(cfg):
                         FacilityType.heavy_manufacturing,
                         FacilityType.cleanroom,
                         FacilityType.office_rnd)}
-    mids = [e.midpoint for e in typed.values()]
-    assert min(mids) < unknown.midpoint < max(mids)
-    # The arithmetic centre put it 3.6x higher — that inflation is what moved the
-    # board, and the geometric mean is what removes it.
-    assert (unknown.low + unknown.high) / 2 > unknown.midpoint * 3
-    # Still the widest band in both directions: wider, not bigger.
+    # Every stated type still yields a usable centre — only the unstated one does not.
     for e in typed.values():
-        assert unknown.low <= e.low and e.high <= unknown.high
+        assert e.midpoint is not None and e.midpoint > 0
 
 
 def test_industrial_facility_type_of_data_center_is_a_contradiction(cfg):
     """Triage already ruled this is not a computing facility. Fall to unknown
-    deliberately rather than by a dict miss."""
+    deliberately rather than by a dict miss — and unknown now means no tonnage."""
     est = estimate_tons(cfg, building_sqft=555_060, category=Category.industrial,
                         facility_type=FacilityType.data_center)
     same = estimate_tons(cfg, building_sqft=555_060, category=Category.industrial,
                          facility_type=FacilityType.unknown)
     assert est.low == same.low and est.high == same.high
-    assert "type is unknown" in est.basis
+    assert est.low is None
+    assert "UNKNOWN TYPE" in est.basis
 
 
 def test_geometric_midpoint_barely_moves_narrow_bands(cfg):
