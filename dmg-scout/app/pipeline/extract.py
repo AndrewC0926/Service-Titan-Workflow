@@ -10,8 +10,8 @@ from datetime import datetime
 from sqlmodel import Session, select
 
 from app.config import Config
-from app.http import PoliteClient
 from app.grounding import reject_ungrounded_numbers
+from app.http import PoliteClient
 from app.llm import LLMUnavailable, extract
 from app.models import (
     Category,
@@ -23,6 +23,7 @@ from app.models import (
     TriageResult,
     utcnow,
 )
+from app.runguard import stage_run
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +44,23 @@ def _ensure_body(doc: RawDocument, client: PoliteClient) -> str:
     return doc.raw_text
 
 
-def run_extract(session: Session, cfg: Config, limit: int = 100) -> dict:
+def run_extract(session: Session, cfg: Config, limit: int = 100,
+                force: bool = False) -> dict:
+    """Structured extraction over triaged documents, one signal per document.
+
+    Guarded for the same reason resolve is. This stage selects documents whose
+    processed_at is NULL, then spends a Sonnet call on each before writing — so
+    two concurrent runs whose selection queries both land before either commits
+    will both extract the same documents. That is the #961/#963 failure shape on
+    the most expensive stage in the pipeline; it had simply not been caught yet.
+    Backstopped by uq_signal_raw_document, which makes a slip loud instead of
+    silent.
+    """
+    with stage_run(session, "extract", force=force):
+        return _extract_docs(session, cfg, limit)
+
+
+def _extract_docs(session: Session, cfg: Config, limit: int) -> dict:
     docs = session.exec(
         select(RawDocument)
         .where(RawDocument.triage_result == TriageResult.relevant,

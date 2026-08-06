@@ -133,6 +133,11 @@ class RawDocument(SQLModel, table=True):
 
 class Signal(SQLModel, table=True):
     __tablename__ = "signals"
+    # Extract intends one signal per document, but its lookup and its insert
+    # straddle a Sonnet call, so two concurrent runs can both find nothing and
+    # both insert. Intent in application code is not a guarantee. NULLs are
+    # distinct in a Postgres unique index, so manual signals are unaffected.
+    __table_args__ = (UniqueConstraint("raw_document_id", name="uq_signal_raw_document"),)
 
     id: int | None = Field(default=None, primary_key=True)
     raw_document_id: int | None = Field(default=None, foreign_key="raw_documents.id", index=True)

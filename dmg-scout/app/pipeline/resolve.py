@@ -19,9 +19,10 @@ from sqlmodel import Session, select
 from app.config import Config
 from app.llm import LLMUnavailable, adjudicate
 from app.models import (
-    DeveloperAlias, MatchCandidate, Project, ProjectSignal, Signal, SourceRun, utcnow,
+    DeveloperAlias, MatchCandidate, Project, ProjectSignal, Signal, utcnow,
 )
 from app.normalize import normalize_county, normalize_name
+from app.runguard import STALE_RUN_HOURS, ConcurrentStage, running_stage, stage_run
 
 log = logging.getLogger(__name__)
 
@@ -302,6 +303,30 @@ def _absorb(project: Project, signal: Signal) -> None:
 
 
 def _new_project(session: Session, signal: Signal) -> Project:
+    """Create the project this signal implies — unless it already has one.
+
+    The last-moment check is the one that closes the #961/#963 race. The loop
+    re-checks at the top of each iteration, but candidate blocking happens there
+    and project creation happens *after* an LLM call, so the window between
+    "nobody has a project for this signal" and "I am creating one" is not
+    microseconds — it is however long adjudication takes, tens of seconds. Two
+    runs whose blocking queries both landed inside that window each saw no
+    candidate and each created a project, which is exactly the shape of the
+    observed failure. The SCH key was never involved: neither run could match on
+    a row the other had not committed yet.
+    """
+    existing = session.exec(
+        select(ProjectSignal).where(ProjectSignal.signal_id == signal.id)).first()
+    if existing is not None:
+        project = session.get(Project, existing.project_id)
+        if project is not None:
+            log.warning("signal %s acquired project #%d while it was being resolved; "
+                        "absorbing into it instead of creating a duplicate",
+                        signal.id, project.id)
+            _absorb(project, signal)
+            session.add(project)
+            return project
+
     name = signal.project_name or (
         f"Unnamed {signal.developer_or_owner}" if signal.developer_or_owner
         else f"Unnamed project ({signal.county or signal.jurisdiction or 'unknown location'})"
@@ -315,34 +340,15 @@ def _new_project(session: Session, signal: Signal) -> Project:
     return project
 
 
-class ConcurrentResolve(RuntimeError):
-    """Another resolve run is still in flight."""
-
-
-# Same reasoning as backfill's: a run killed by SIGKILL never sets finished_at,
-# and without an age limit one corpse wedges resolve forever and trains everyone
-# to pass --force reflexively. Real overlap is a minutes-scale problem.
-STALE_RUN_HOURS = 12
+# The guard lives in app/runguard.py now — extract needed the identical thing, so
+# copying it a third time was not the answer. These names are kept because the
+# resolve-specific tests and the CLI import them.
 RESOLVE_RUN_SOURCE = "resolve"
+ConcurrentResolve = ConcurrentStage
 
 
-def _running_resolve(session: Session,
-                     stale_after_hours: float = STALE_RUN_HOURS) -> SourceRun | None:
-    """A *live* unfinished resolve run, if one exists."""
-    run = session.exec(
-        select(SourceRun)
-        .where(SourceRun.source == RESOLVE_RUN_SOURCE, SourceRun.finished_at.is_(None))
-        .order_by(SourceRun.id.desc())
-    ).first()
-    if run is None:
-        return None
-    age_hours = (utcnow() - run.started_at).total_seconds() / 3600
-    if age_hours > stale_after_hours:
-        log.warning("ignoring source_run #%d for resolve: unfinished but %.1fh old, "
-                    "so it was almost certainly killed rather than still running",
-                    run.id, age_hours)
-        return None
-    return run
+def _running_resolve(session: Session, stale_after_hours: float = STALE_RUN_HOURS):
+    return running_stage(session, RESOLVE_RUN_SOURCE, stale_after_hours)
 
 
 def run_resolve(session: Session, cfg: Config, use_llm: bool = True,
@@ -359,43 +365,24 @@ def run_resolve(session: Session, cfg: Config, use_llm: bool = True,
     """
     from app.firms import seed_firms
 
-    inflight = None if force else _running_resolve(session)
-    if inflight is not None:
-        raise ConcurrentResolve(
-            f"resolve already running (source_run #{inflight.id}, started "
-            f"{inflight.started_at:%Y-%m-%d %H:%M:%S}Z). Wait for it, or pass "
-            f"--force if you are sure it is dead. Do NOT rely on `pgrep` to decide "
-            f"that: resolve can run for minutes between log lines, and a process "
-            f"check that says 'finished' when it has not is how #961/#963 happened.")
+    with stage_run(session, RESOLVE_RUN_SOURCE, force=force) as run:
+        seed_aliases(session, cfg)
+        seed_firms(session, cfg)
+        radius = cfg.get("resolution.block_radius_km", 5)
+        auto_t = cfg.get("resolution.auto_merge_threshold", 0.88)
+        review_t = cfg.get("resolution.review_threshold", 0.55)
 
-    seed_aliases(session, cfg)
-    seed_firms(session, cfg)
-    radius = cfg.get("resolution.block_radius_km", 5)
-    auto_t = cfg.get("resolution.auto_merge_threshold", 0.88)
-    review_t = cfg.get("resolution.review_threshold", 0.55)
+        linked_ids = {ps.signal_id for ps in session.exec(select(ProjectSignal)).all()}
+        pending_review = {mc.signal_id for mc in session.exec(
+            select(MatchCandidate).where(MatchCandidate.status == "pending")).all()}
+        unlinked = [s for s in session.exec(select(Signal)).all()
+                    if s.id not in linked_ids and s.id not in pending_review]
+        run.records_fetched = len(unlinked)
 
-    linked_ids = {ps.signal_id for ps in session.exec(select(ProjectSignal)).all()}
-    pending_review = {mc.signal_id for mc in session.exec(
-        select(MatchCandidate).where(MatchCandidate.status == "pending")).all()}
-    unlinked = [s for s in session.exec(select(Signal)).all()
-                if s.id not in linked_ids and s.id not in pending_review]
-
-    run = SourceRun(source=RESOLVE_RUN_SOURCE)
-    session.add(run)
-    session.commit()
-
-    stats = {"auto_linked": 0, "llm_linked": 0, "queued_review": 0,
-             "new_projects": 0, "skipped_already_linked": 0}
-    try:
+        stats = {"auto_linked": 0, "llm_linked": 0, "queued_review": 0,
+                 "new_projects": 0, "skipped_already_linked": 0}
         stats = _resolve_loop(session, cfg, unlinked, stats,
                               radius, auto_t, review_t, use_llm)
-    finally:
-        # Always closed, so a failed run does not wedge the next one for 12 hours.
-        run.finished_at = utcnow()
-        run.ok = True
-        run.records_fetched = len(unlinked)
-        session.add(run)
-        session.commit()
     return stats
 
 

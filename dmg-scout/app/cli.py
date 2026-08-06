@@ -94,6 +94,35 @@ def duplicates() -> None:
         typer.echo(duplicates_text(find_duplicates(session)))
 
 
+@app.command("merge-duplicates")
+def merge_duplicates(
+    apply: bool = typer.Option(False, "--apply",
+                               help="Actually merge. Without this it only prints the plan."),
+) -> None:
+    """Collapse every group `scout duplicates` reports. Dry run unless --apply.
+
+    The duplicate loses its place on the board but not its history: it is retired
+    to status='merged', never deleted.
+    """
+    from app.merge import merge_duplicate_groups
+    with session_scope() as session:
+        plans = merge_duplicate_groups(session, dry_run=not apply)
+    if not plans:
+        typer.echo("no duplicate groups to merge")
+        return
+    for p in plans:
+        verb = "merged" if apply else "would merge"
+        typer.echo(f"  [{p['rule']}] {verb} #{p['merge_id']} into #{p['survivor_id']}"
+                   f"  {p['name'][:56]}")
+        if apply:
+            r = p["result"]
+            typer.echo(f"      moved={r['moved'] or 'nothing'} "
+                       f"dropped_dupe_links={r['dropped_as_duplicate_links'] or 'none'}")
+    if not apply:
+        typer.secho(f"\n{len(plans)} merge(s) planned. Re-run with --apply to do it.",
+                    fg=typer.colors.YELLOW)
+
+
 @app.command()
 def score() -> None:
     """SIZE + SCORE: recompute tonnage and priority for all active projects."""

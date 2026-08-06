@@ -152,3 +152,50 @@ def test_a_signal_linked_after_the_snapshot_is_not_processed_twice(db_session, c
         f"#961/#963 defect")
     assert stats["skipped_already_linked"] >= 1
     assert len(db_session.exec(select(Project)).all()) == 1, "a second project was created"
+
+
+def test_a_signal_linked_during_adjudication_does_not_get_a_second_project(db_session, cfg):
+    """The actual #961/#963 race, in the window the loop-top re-check cannot cover.
+
+    Candidate blocking happens at the top of the iteration; project creation
+    happens after the LLM call. That window is tens of seconds wide, and two runs
+    whose blocking queries both landed inside it each saw no candidate and each
+    created a project. The SCH key is not implicated — neither run could match on
+    a row the other had not committed yet (see tests/test_sch_shortcircuit.py,
+    which proves the key itself is sound).
+
+    So the guard has to be at the moment of creation, not only at the top of the
+    loop.
+    """
+    import app.pipeline.resolve as mod
+
+    sig = _signal(db_session, name="Race In The LLM Window", sch=None)
+    real_new = mod._new_project
+
+    def other_run_wins_the_race(session, signal):
+        # Stand in for the concurrent run committing first, mid-adjudication.
+        if not session.exec(select(ProjectSignal)
+                            .where(ProjectSignal.signal_id == signal.id)).first():
+            other = Project(name="Committed By The Other Run",
+                            category=signal.category, developer="Other LLC",
+                            county="Kern", state="CA", status="active",
+                            stage=Stage.entitlement)
+            session.add(other)
+            session.flush()
+            session.add(ProjectSignal(project_id=other.id, signal_id=signal.id,
+                                      match_confidence=1.0, match_method="direct"))
+            session.commit()
+        return real_new(session, signal)
+
+    mod._new_project = other_run_wins_the_race
+    try:
+        run_resolve(db_session, cfg, use_llm=False)
+    finally:
+        mod._new_project = real_new
+
+    links = db_session.exec(
+        select(ProjectSignal).where(ProjectSignal.signal_id == sig.id)).all()
+    assert len(links) == 1, (
+        f"signal {sig.id} got {len(links)} projects — the creation-time guard "
+        f"did not hold")
+    assert len(db_session.exec(select(Project)).all()) == 1
