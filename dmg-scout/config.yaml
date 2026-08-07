@@ -749,3 +749,407 @@ digest:
 dashboard:
   basic_auth_username: "andrew"
   basic_auth_password_env: "DASHBOARD_PASSWORD"
+
+# =============================================================================
+# ACCOUNTS — line-card coverage for the ~100 dormant accounts, gap ranking, and
+# replacement forcing. Three questions per account: what they have (coverage,
+# entered by hand — no import exists yet), what they should have (adjacency
+# scoring below, against the line card), and what is forcing them to buy
+# (install year against replacement.service_life above — no new table, the
+# same ownership-branched one Phase B already settled).
+# =============================================================================
+accounts:
+  # Typical single-PO dollar range for one tier of equipment, used to rank
+  # coverage gaps by estimated dollar VALUE rather than by row count — a
+  # missing custom air handler (tier 1) must outrank twenty missing diffusers
+  # (tier 4) even though the diffusers are twenty rows on the gap list. This is
+  # the fix a Trane portfolio leader named directly: rank on unit value.
+  #
+  # ESTIMATED from typical DMG/ToroAire deal sizes — nobody has measured actual
+  # invoice history against these tiers yet. If a ranked gap list looks wrong,
+  # correct these bands (or a line's value_tier below) before touching the
+  # adjacency weights; they are the more likely place to be off.
+  value_tier_dollars:
+    1: {low: 75000, high: 500000,
+        source: "ESTIMATED: custom AHUs, chillers, cooling towers, large RTU/DOAS packages"}
+    2: {low: 20000, high: 75000,
+        source: "ESTIMATED: VRF systems, WSHP, mid-size RTUs, industrial fans/blowers"}
+    3: {low: 5000, high: 20000,
+        source: "ESTIMATED: VFDs, controls packages, VAV terminals, sound attenuators"}
+    4: {low: 1000, high: 5000,
+        source: "ESTIMATED: diffusers/grilles as a package, filters, small heaters, louvers"}
+    5: {low: 200, high: 1000,
+        source: "ESTIMATED: small accessories, individual components"}
+
+  # Category-to-category affinity: "an account that already owns category A is
+  # this relevant a fit for category B", 0-1. Declarative and sparse — an
+  # unlisted pair defaults to 0 (no fit), which is the point: it is how a
+  # rooftop-only account never sees Seresco natatorium units or Monoxivent fume
+  # exhaust in its gap list, without a keyword or an LLM call deciding that at
+  # run time. Symmetric — code applies each edge both directions — so add a
+  # pair once. Not inference: every number here is a first-pass judgment call
+  # by category, meant to be corrected in place by whoever actually reps these
+  # lines, not re-derived.
+  #
+  # Two categories exist specifically because one adjacency example demanded
+  # it: `fans_exhaust` (general commercial/industrial fans — a rooftop unit
+  # project plausibly needs these too) is split from `process_exhaust` (lab,
+  # fume, vehicle/welding exhaust — Strobic Air, Monoxivent — a specialized
+  # vertical a generic rooftop account has no use for). Collapsing them into one
+  # "fans" category would have made Monoxivent look like a fit for every
+  # rooftop account, which is exactly the wrong answer the category split
+  # exists to prevent.
+  adjacency:
+    categories:
+      - rooftop_units            # packaged RTUs, self-contained units
+      - air_handling              # custom/semi-custom AHUs, DOAS, ERV, cleanroom air handling
+      - vrf_split                 # VRF/VRV, ductless, WSHP, PTAC/PTHP
+      - chillers_cooling          # chillers, modular chillers
+      - cooling_towers            # cooling towers, closed-circuit coolers, heat rejection
+      - controls                  # BAS controllers/actuators, VFDs, control dampers, zoning
+      - air_distribution          # diffusers, grilles, registers, VAV terminals, louvers, fabric duct
+      - fans_exhaust              # general commercial/industrial fans, blowers, roof/wall exhausters
+      - process_exhaust           # lab/fume exhaust, vehicle/welding fume extraction
+      - filtration_iaq            # filters, UV disinfection, ionization, electronic air cleaners
+      - acoustics_vibration       # sound attenuators, vibration isolation
+      - heaters                   # unit heaters, duct heaters, make-up air heaters
+      - humidification_dehumidification  # humidifiers, pool dehumidification, heat-pipe dehumidification
+      - specialty_cooling         # evaporative cooling, HVLS fans, chilled beams/radiant
+      - accessories               # access doors, louvers, curbs, air curtains
+      - residential_light_commercial     # bath fans, range hoods, residential ventilation
+      - water_treatment           # HVAC water treatment
+      - monitoring_sensors        # airflow measurement, sensors
+
+    edges:
+      - [rooftop_units, air_handling, 0.2]
+      - [rooftop_units, vrf_split, 0.2]
+      - [rooftop_units, chillers_cooling, 0.1]
+      - [rooftop_units, cooling_towers, 0.1]
+      - [rooftop_units, controls, 0.8]
+      - [rooftop_units, air_distribution, 0.8]
+      - [rooftop_units, fans_exhaust, 0.5]
+      - [rooftop_units, filtration_iaq, 0.4]
+      - [rooftop_units, acoustics_vibration, 0.5]
+      - [rooftop_units, heaters, 0.2]
+      - [rooftop_units, specialty_cooling, 0.1]
+      - [rooftop_units, accessories, 0.3]
+      - [rooftop_units, residential_light_commercial, 0.1]
+      - [rooftop_units, monitoring_sensors, 0.3]
+
+      - [air_handling, vrf_split, 0.1]
+      - [air_handling, chillers_cooling, 0.7]
+      - [air_handling, cooling_towers, 0.5]
+      - [air_handling, controls, 0.9]
+      - [air_handling, air_distribution, 0.8]
+      - [air_handling, fans_exhaust, 0.5]
+      - [air_handling, process_exhaust, 0.3]
+      - [air_handling, filtration_iaq, 0.8]
+      - [air_handling, acoustics_vibration, 0.7]
+      - [air_handling, heaters, 0.3]
+      - [air_handling, humidification_dehumidification, 0.5]
+      - [air_handling, specialty_cooling, 0.3]
+      - [air_handling, accessories, 0.3]
+      - [air_handling, water_treatment, 0.2]
+      - [air_handling, monitoring_sensors, 0.6]
+
+      - [vrf_split, chillers_cooling, 0.1]
+      - [vrf_split, controls, 0.7]
+      - [vrf_split, air_distribution, 0.4]
+      - [vrf_split, fans_exhaust, 0.3]
+      - [vrf_split, filtration_iaq, 0.2]
+      - [vrf_split, acoustics_vibration, 0.2]
+      - [vrf_split, heaters, 0.1]
+      - [vrf_split, specialty_cooling, 0.1]
+      - [vrf_split, accessories, 0.1]
+      - [vrf_split, residential_light_commercial, 0.2]
+      - [vrf_split, monitoring_sensors, 0.2]
+
+      - [chillers_cooling, cooling_towers, 0.9]
+      - [chillers_cooling, controls, 0.8]
+      - [chillers_cooling, air_distribution, 0.3]
+      - [chillers_cooling, fans_exhaust, 0.2]
+      - [chillers_cooling, process_exhaust, 0.1]
+      - [chillers_cooling, filtration_iaq, 0.2]
+      - [chillers_cooling, acoustics_vibration, 0.5]
+      - [chillers_cooling, heaters, 0.1]
+      - [chillers_cooling, humidification_dehumidification, 0.2]
+      - [chillers_cooling, specialty_cooling, 0.4]
+      - [chillers_cooling, accessories, 0.2]
+      - [chillers_cooling, water_treatment, 0.6]
+      - [chillers_cooling, monitoring_sensors, 0.4]
+
+      - [cooling_towers, controls, 0.6]
+      - [cooling_towers, air_distribution, 0.1]
+      - [cooling_towers, fans_exhaust, 0.2]
+      - [cooling_towers, acoustics_vibration, 0.5]
+      - [cooling_towers, specialty_cooling, 0.1]
+      - [cooling_towers, water_treatment, 0.8]
+      - [cooling_towers, monitoring_sensors, 0.3]
+
+      - [controls, air_distribution, 0.6]
+      - [controls, fans_exhaust, 0.6]
+      - [controls, process_exhaust, 0.5]
+      - [controls, filtration_iaq, 0.3]
+      - [controls, acoustics_vibration, 0.1]
+      - [controls, heaters, 0.4]
+      - [controls, humidification_dehumidification, 0.4]
+      - [controls, specialty_cooling, 0.4]
+      - [controls, accessories, 0.2]
+      - [controls, residential_light_commercial, 0.2]
+      - [controls, water_treatment, 0.3]
+      - [controls, monitoring_sensors, 0.6]
+
+      - [air_distribution, fans_exhaust, 0.4]
+      - [air_distribution, process_exhaust, 0.2]
+      - [air_distribution, filtration_iaq, 0.3]
+      - [air_distribution, acoustics_vibration, 0.6]
+      - [air_distribution, heaters, 0.2]
+      - [air_distribution, humidification_dehumidification, 0.1]
+      - [air_distribution, specialty_cooling, 0.2]
+      - [air_distribution, accessories, 0.5]
+      - [air_distribution, residential_light_commercial, 0.2]
+      - [air_distribution, monitoring_sensors, 0.2]
+
+      - [fans_exhaust, process_exhaust, 0.3]
+      - [fans_exhaust, filtration_iaq, 0.2]
+      - [fans_exhaust, acoustics_vibration, 0.4]
+      - [fans_exhaust, heaters, 0.1]
+      - [fans_exhaust, humidification_dehumidification, 0.1]
+      - [fans_exhaust, specialty_cooling, 0.2]
+      - [fans_exhaust, accessories, 0.3]
+      - [fans_exhaust, residential_light_commercial, 0.2]
+      - [fans_exhaust, monitoring_sensors, 0.2]
+
+      - [process_exhaust, filtration_iaq, 0.4]
+      - [process_exhaust, acoustics_vibration, 0.3]
+      - [process_exhaust, accessories, 0.1]
+      - [process_exhaust, monitoring_sensors, 0.3]
+
+      - [filtration_iaq, acoustics_vibration, 0.1]
+      - [filtration_iaq, monitoring_sensors, 0.3]
+
+      - [heaters, residential_light_commercial, 0.2]
+
+      - [humidification_dehumidification, specialty_cooling, 0.2]
+
+    # Relevance for a category an account has NO owned coverage in at all
+    # (a brand-new account, or one where every line is still "unknown"). Not
+    # zero — an empty gap list on day one is useless — but well under most real
+    # edges, so a genuinely-connected gap always outranks a guess.
+    no_coverage_base: 0.3
+
+    # Below this relevance, a gap is dropped from the ranked list entirely
+    # rather than shown at the bottom. This is the literal mechanism behind
+    # "the same account has no use for Seresco natatorium units": at 0.0
+    # (unlisted pair) or anything under this floor, it does not appear, not
+    # just rank low.
+    min_relevance_to_show: 0.15
+
+    # Multiplies the category-pair relevance above by how plausible it is that
+    # THIS account type buys in that category at all, regardless of what they
+    # already own. ESTIMATED judgment calls, not measured — ownership-branch
+    # style: a wrong direction here is a small error on every account of that
+    # type, so tune it once corrected rather than per-account.
+    account_type_modifier:
+      default: 1.0
+      mechanical_contractor: {default: 1.0}
+      service_contractor:
+        default: 1.0
+        # Service work is parts/controls/retrofit, not new capital equipment —
+        # a service contractor occasionally sells a replacement unit, but it is
+        # not their primary lane the way it is for a mechanical contractor.
+        rooftop_units: 0.6
+        air_handling: 0.6
+        chillers_cooling: 0.6
+        cooling_towers: 0.6
+        vrf_split: 0.6
+      gc: {default: 1.0}
+      owner:
+        default: 1.0
+        # Owners typically procure large capital equipment through a GC/mech
+        # contractor's bid, not this relationship directly, but buy controls,
+        # filtration, and service-adjacent upgrades themselves.
+        rooftop_units: 0.5
+        air_handling: 0.5
+        chillers_cooling: 0.5
+        cooling_towers: 0.5
+      developer: {default: 1.0}
+      distributor: {default: 1.0}
+      # An engineer specs, they do not buy. Kept at a real (not zero) modifier
+      # because a gap on an engineer's account is still worth carrying into a
+      # meeting as "what you should be specifying" — just not weighted like a
+      # live purchase decision.
+      engineer: {default: 0.3}
+
+  # DMG and ToroAire line cards, one row per line name — LG, Yaskawa, Aldes and
+  # Neptronic appear on both and get ONE row each (firm: both), not two.
+  #
+  # category/subcategory/value_tier/equipment_type are first-pass judgment
+  # calls, not measured — correct them here and re-run `scout seed-lines`
+  # (idempotent, matches app/firms.py's roster pattern exactly). Lines flagged
+  # "best-guess" below are genuinely uncertain from general industry knowledge
+  # and most need a correction from whoever actually reps them.
+  #
+  # equipment_type maps a line to one of the 8 keys in
+  # replacement.service_life.ownership.*.equipment above — ONLY when it
+  # actually is one of those 8 equipment archetypes. Most lines (diffusers,
+  # controls, VFDs, filters, fans...) are not, and get equipment_type: null —
+  # replacement windows simply are not computed for them, on the same
+  # "abstain rather than invent" rule replacement.py already uses for
+  # equipment/ownership it has no number for.
+  line_card:
+    - {name: "AAON", firm: DMG, category: rooftop_units, subcategory: "packaged rooftop units",
+       description: "Packaged/self-contained rooftop units; also custom air handling and chillers",
+       value_tier: 1, equipment_type: packaged_rooftop}
+    - {name: "DB", firm: DMG, category: chillers_cooling, subcategory: "chillers",
+       description: "Chillers (best-guess categorization — confirm)",
+       value_tier: 1, equipment_type: air_cooled_chiller}
+    - {name: "Energy Labs", firm: DMG, category: air_handling, subcategory: "custom air handling units",
+       description: "Custom/semi-custom air handling units, DOAS", value_tier: 1, equipment_type: air_handling_unit}
+    - {name: "LG", firm: both, category: vrf_split, subcategory: "VRF/VRV systems",
+       description: "VRF/VRV multi-split systems", value_tier: 2, equipment_type: split_dx}
+    - {name: "Marley", firm: DMG, category: cooling_towers, subcategory: "cooling towers",
+       description: "Cooling towers (SPX Marley)", value_tier: 1, equipment_type: cooling_tower}
+    - {name: "BASX", firm: DMG, category: air_handling, subcategory: "mission-critical air handling",
+       description: "Custom air handling for mission-critical/data center applications",
+       value_tier: 1, equipment_type: air_handling_unit}
+    - {name: "ClimateCraft", firm: DMG, category: air_handling, subcategory: "custom air handling units",
+       description: "Custom air handling units", value_tier: 1, equipment_type: air_handling_unit}
+    - {name: "Scott Springfield", firm: DMG, category: air_handling, subcategory: "custom air handling units",
+       description: "Custom/semi-custom air handling units", value_tier: 1, equipment_type: air_handling_unit}
+    - {name: "Thermal Corp", firm: DMG, category: air_handling, subcategory: "coils / heat exchangers",
+       description: "Coils and heat exchangers (best-guess categorization — confirm)",
+       value_tier: 2, equipment_type: null}
+    - {name: "VTS", firm: DMG, category: air_distribution, subcategory: "VAV terminal units",
+       description: "VAV terminal units (best-guess categorization — confirm)",
+       value_tier: 3, equipment_type: null}
+    - {name: "ClimaCool", firm: DMG, category: chillers_cooling, subcategory: "modular chillers",
+       description: "Modular chillers", value_tier: 1, equipment_type: air_cooled_chiller}
+    - {name: "VU Flow Environmental", firm: DMG, category: air_handling, subcategory: "cleanroom / CO2 air handling",
+       description: "Cleanroom and CO2-anchor custom air handling systems",
+       value_tier: 1, equipment_type: air_handling_unit}
+    - {name: "Geoclima", firm: DMG, category: chillers_cooling, subcategory: "heat pump chillers",
+       description: "Geothermal/water-source heat pump chillers", value_tier: 1, equipment_type: water_cooled_chiller}
+    - {name: "ClimateMaster", firm: DMG, category: vrf_split, subcategory: "water source heat pumps",
+       description: "Water source heat pumps", value_tier: 2, equipment_type: split_dx}
+    - {name: "Hecoclima", firm: DMG, category: chillers_cooling, subcategory: "chillers / fan coils",
+       description: "Chillers/fan coils (best-guess categorization — confirm)",
+       value_tier: 2, equipment_type: null}
+    - {name: "IEC", firm: DMG, category: specialty_cooling, subcategory: "evaporative cooling",
+       description: "Indirect/direct evaporative cooling", value_tier: 2, equipment_type: null}
+    - {name: "Recold", firm: DMG, category: air_handling, subcategory: "coils / process cooling",
+       description: "Coils/process cooling (best-guess categorization — confirm)",
+       value_tier: 3, equipment_type: null}
+    - {name: "Strobic Air", firm: DMG, category: process_exhaust, subcategory: "lab/fume exhaust fans",
+       description: "Lab and fume exhaust fans (Tri-Stack)", value_tier: 2, equipment_type: null}
+    - {name: "Ebtron", firm: DMG, category: monitoring_sensors, subcategory: "airflow measurement",
+       description: "Airflow measurement stations", value_tier: 3, equipment_type: null}
+    - {name: "AtmosAir/Bioclimatic", firm: DMG, category: filtration_iaq, subcategory: "bipolar ionization",
+       description: "Bipolar ionization air purification", value_tier: 3, equipment_type: null}
+    - {name: "UVDI", firm: DMG, category: filtration_iaq, subcategory: "UV disinfection",
+       description: "UV-C disinfection systems", value_tier: 3, equipment_type: null}
+    - {name: "Cosatron", firm: DMG, category: filtration_iaq, subcategory: "electronic air cleaners",
+       description: "Electronic air cleaners", value_tier: 3, equipment_type: null}
+    - {name: "Vibro-Acoustics", firm: DMG, category: acoustics_vibration, subcategory: "sound & vibration control",
+       description: "Sound attenuators and vibration isolation", value_tier: 3, equipment_type: null}
+    - {name: "Neptronic", firm: both, category: controls, subcategory: "dampers, actuators, humidifiers",
+       description: "Control dampers, actuators, electric heat, humidifiers", value_tier: 3, equipment_type: null}
+    - {name: "LFSystems", firm: DMG, category: controls, subcategory: "lab airflow controls",
+       description: "Lab/fume airflow controls (best-guess categorization — confirm)",
+       value_tier: 3, equipment_type: null}
+    - {name: "Carel", firm: DMG, category: controls, subcategory: "humidification & refrigeration controls",
+       description: "Humidification and refrigeration controls", value_tier: 3, equipment_type: null}
+    - {name: "Cambridge", firm: DMG, category: heaters, subcategory: "make-up air heaters",
+       description: "Gas-fired make-up air and unit heaters", value_tier: 2, equipment_type: null}
+    - {name: "PEP Filters", firm: DMG, category: filtration_iaq, subcategory: "commercial air filters",
+       description: "Commercial/industrial air filters", value_tier: 4, equipment_type: null}
+    - {name: "Seresco", firm: DMG, category: humidification_dehumidification, subcategory: "pool dehumidification",
+       description: "Natatorium (pool) dehumidification units", value_tier: 2, equipment_type: null}
+    - {name: "Aldes", firm: both, category: air_handling, subcategory: "ventilation / ERV",
+       description: "Ventilation, ERV, exhaust products", value_tier: 3, equipment_type: null}
+    - {name: "MacroAir", firm: DMG, category: specialty_cooling, subcategory: "HVLS fans",
+       description: "High-volume low-speed (HVLS) fans", value_tier: 2, equipment_type: null}
+    - {name: "Islandaire", firm: DMG, category: vrf_split, subcategory: "PTAC/PTHP",
+       description: "Packaged terminal air conditioners/heat pumps", value_tier: 3, equipment_type: split_dx}
+    - {name: "ChangeAir", firm: DMG, category: air_handling, subcategory: "energy recovery ventilation",
+       description: "Energy recovery ventilators (best-guess categorization — confirm)",
+       value_tier: 3, equipment_type: null}
+    - {name: "Flow-Tech", firm: DMG, category: water_treatment, subcategory: "water treatment",
+       description: "HVAC water treatment systems", value_tier: 4, equipment_type: null}
+    - {name: "Heat Pipe Technology", firm: DMG, category: humidification_dehumidification,
+       subcategory: "heat pipe dehumidification", description: "Heat pipe energy recovery/dehumidification",
+       value_tier: 3, equipment_type: null}
+    - {name: "Howden", firm: DMG, category: fans_exhaust, subcategory: "industrial fans & blowers",
+       description: "Industrial fans, blowers, compressors", value_tier: 2, equipment_type: null}
+    - {name: "Suburban", firm: DMG, category: heaters, subcategory: "gas-fired heaters",
+       description: "Gas-fired heating equipment (best-guess categorization — confirm)",
+       value_tier: 3, equipment_type: null}
+    - {name: "Ice-Cel", firm: DMG, category: specialty_cooling, subcategory: "evaporative cooling media",
+       description: "Evaporative cooling media/pads", value_tier: 4, equipment_type: null}
+    - {name: "Yaskawa", firm: both, category: controls, subcategory: "VFDs",
+       description: "Variable frequency drives", value_tier: 3, equipment_type: null}
+    - {name: "HCi", firm: DMG, category: air_handling, subcategory: "air handling components",
+       description: "Air handling components (best-guess categorization — confirm)",
+       value_tier: 3, equipment_type: null}
+    - {name: "Airzone", firm: DMG, category: controls, subcategory: "zoning systems",
+       description: "Residential/light commercial zoning controls", value_tier: 4, equipment_type: null}
+    - {name: "Systemair", firm: DMG, category: fans_exhaust, subcategory: "commercial fans & ERVs",
+       description: "Commercial fans, blowers, ERVs", value_tier: 2, equipment_type: null}
+    - {name: "Barcol-Air", firm: DMG, category: specialty_cooling, subcategory: "chilled beams",
+       description: "Chilled beams / radiant cooling", value_tier: 2, equipment_type: null}
+    - {name: "Ventacity", firm: DMG, category: air_handling, subcategory: "DOAS / ERV",
+       description: "Smart dedicated outdoor air/ERV systems", value_tier: 2, equipment_type: air_handling_unit}
+
+    - {name: "Titus", firm: ToroAire, category: air_distribution, subcategory: "diffusers, grilles, VAV terminals",
+       description: "Diffusers, grilles, registers, VAV terminal units", value_tier: 3, equipment_type: vav_terminal}
+    - {name: "Pottorff", firm: ToroAire, category: air_distribution, subcategory: "dampers & louvers",
+       description: "Fire/smoke dampers and louvers", value_tier: 3, equipment_type: null}
+    - {name: "TCF/Twin City Fan", firm: ToroAire, category: fans_exhaust, subcategory: "commercial/industrial fans",
+       description: "Commercial and industrial fans", value_tier: 2, equipment_type: null}
+    - {name: "Nailor", firm: ToroAire, category: air_distribution, subcategory: "VAV terminals, dampers, diffusers",
+       description: "Air terminals, VAV boxes, dampers, diffusers", value_tier: 3, equipment_type: vav_terminal}
+    - {name: "Ductsox", firm: ToroAire, category: air_distribution, subcategory: "fabric duct",
+       description: "Fabric duct air dispersion systems", value_tier: 3, equipment_type: null}
+    - {name: "Berner", firm: ToroAire, category: accessories, subcategory: "air curtains",
+       description: "Air curtains", value_tier: 4, equipment_type: null}
+    - {name: "Commercial Acoustics", firm: ToroAire, category: acoustics_vibration, subcategory: "sound attenuators",
+       description: "Duct silencers and sound attenuators", value_tier: 3, equipment_type: null}
+    - {name: "Specified Controls", firm: ToroAire, category: controls, subcategory: "dampers, actuators, valves",
+       description: "Control dampers, actuators, control valves", value_tier: 3, equipment_type: null}
+    - {name: "AJ Manufacturing", firm: ToroAire, category: accessories, subcategory: "access doors & louvers",
+       description: "Access doors, roof/wall louvers, curbs", value_tier: 4, equipment_type: null}
+    - {name: "Effectiv", firm: ToroAire, category: controls, subcategory: "actuators / dampers",
+       description: "Actuators/control dampers (best-guess categorization — confirm)",
+       value_tier: 4, equipment_type: null}
+    - {name: "Markel", firm: ToroAire, category: heaters, subcategory: "electric duct & unit heaters",
+       description: "Electric duct heaters and unit heaters", value_tier: 3, equipment_type: null}
+    - {name: "Monoxivent", firm: ToroAire, category: process_exhaust, subcategory: "vehicle/welding fume exhaust",
+       description: "Vehicle exhaust and welding fume extraction", value_tier: 2, equipment_type: null}
+    - {name: "CRC", firm: ToroAire, category: air_distribution, subcategory: "grilles / registers",
+       description: "Grilles/registers (best-guess categorization — confirm)", value_tier: 4, equipment_type: null}
+    - {name: "Anemostat", firm: ToroAire, category: air_distribution, subcategory: "diffusers & grilles",
+       description: "Diffusers, grilles, registers, security grilles", value_tier: 3, equipment_type: null}
+    - {name: "Panasonic", firm: ToroAire, category: residential_light_commercial, subcategory: "ventilation fans",
+       description: "Bathroom/residential ventilation fans", value_tier: 4, equipment_type: null}
+    - {name: "Young Regulator", firm: ToroAire, category: controls, subcategory: "pressure regulators",
+       description: "Pressure-independent dampers, pressure regulators", value_tier: 3, equipment_type: null}
+    - {name: "Seiho", firm: ToroAire, category: air_distribution, subcategory: "louvers & grilles",
+       description: "Louvers, grilles, dampers", value_tier: 4, equipment_type: null}
+    - {name: "Canarm", firm: ToroAire, category: fans_exhaust, subcategory: "industrial/exhaust fans",
+       description: "Industrial and exhaust fans", value_tier: 3, equipment_type: null}
+    - {name: "Penn Barry", firm: ToroAire, category: fans_exhaust, subcategory: "roof/wall exhaust fans",
+       description: "Roof and wall exhaust fans", value_tier: 3, equipment_type: null}
+    - {name: "Delta Breez", firm: ToroAire, category: residential_light_commercial, subcategory: "bathroom exhaust fans",
+       description: "Bathroom exhaust fans", value_tier: 4, equipment_type: null}
+    - {name: "Broan NuTone", firm: ToroAire, category: residential_light_commercial, subcategory: "residential ventilation",
+       description: "Residential ventilation, range hoods, bath fans", value_tier: 4, equipment_type: null}
+    - {name: "Tuttle & Bailey", firm: ToroAire, category: air_distribution, subcategory: "grilles, registers, diffusers",
+       description: "Grilles, registers, diffusers", value_tier: 4, equipment_type: null}
+    - {name: "Soler & Palau", firm: ToroAire, category: fans_exhaust, subcategory: "commercial/inline fans",
+       description: "Commercial and industrial in-line fans", value_tier: 3, equipment_type: null}
+    - {name: "Hitachi", firm: ToroAire, category: vrf_split, subcategory: "VRF systems",
+       description: "VRF systems", value_tier: 2, equipment_type: split_dx}
+    - {name: "Engineered Comfort", firm: ToroAire, category: vrf_split, subcategory: "fan coil / PTAC",
+       description: "Fan coil/PTAC units (best-guess categorization — confirm)", value_tier: 3, equipment_type: null}
+    - {name: "FanAm", firm: ToroAire, category: fans_exhaust, subcategory: "American-made fans",
+       description: "Commercial/industrial fans", value_tier: 3, equipment_type: null}

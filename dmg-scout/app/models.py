@@ -508,3 +508,86 @@ class DigestLog(SQLModel, table=True):
     ref_id: int
     fingerprint: str  # e.g. stage value, score bucket — dedupe key for "materially changed"
     sent_at: datetime = Field(default_factory=utcnow)
+
+
+class ProductLine(SQLModel, table=True):
+    """DMG/ToroAire line card, one row per manufacturer line. Seeded from
+    config.yaml accounts.line_card (app/accounts.py:seed_product_lines) and
+    edited THERE, not through the dashboard — same convention as the Firm
+    roster (app/firms.py), for the same reason: a manufacturer's category and
+    value tier is stable reference data, not something a rep types once and
+    forgets to keep in sync across accounts."""
+    __tablename__ = "product_lines"
+    __table_args__ = (UniqueConstraint("name_norm", name="uq_product_line_norm"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+    name_norm: str = Field(index=True)
+    firm: str = "DMG"  # DMG | ToroAire | both
+    category: str = Field(index=True)  # see accounts.adjacency.categories in config.yaml
+    subcategory: str = ""
+    description: str = ""
+    value_tier: int = 3  # 1 (highest $/unit) - 5 (lowest); see accounts.value_tier_dollars
+    # One of replacement.service_life's 8 equipment keys, or null when this line
+    # is not one of the archetypes that table has a service-life band for —
+    # see the comment on accounts.line_card in config.yaml. Replacement windows
+    # are simply not computed for a null line, rather than guessing.
+    equipment_type: str | None = None
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class Account(SQLModel, table=True):
+    """A company DMG/ToroAire sells to or through — deliberately distinct from
+    Firm, which is the roster extracted named_firms resolve against on the
+    project-pipeline side. An Account carries sales-pipeline fields (assigned
+    rep, order history, parent/child hierarchy) Firm has no use for, and Firm
+    carries extraction provenance (added_from, aliases) an Account has no use
+    for. `firm_id` is an optional bridge: set it (by hand, or auto-matched on
+    create by normalized name) so an account brief can show live Scout
+    projects naming this company without a second name-matching pass."""
+    __tablename__ = "accounts"
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+    name_norm: str = Field(index=True)
+    parent_id: int | None = Field(default=None, foreign_key="accounts.id", index=True)
+    # mechanical_contractor | service_contractor | gc | owner | developer | distributor | engineer
+    account_type: str = Field(default="mechanical_contractor", index=True)
+    address: str | None = None
+    city: str | None = None
+    county: str | None = Field(default=None, index=True)
+    state: str | None = None
+    assigned_rep: str | None = Field(default=None, index=True)
+    first_order_date: datetime | None = None
+    last_order_date: datetime | None = None
+    notes: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    # federal | state_municipal | private_commercial — matches
+    # replacement.service_life.ownership keys, and drives which band this
+    # account's replacement windows are computed from. Defaults to the longest
+    # cycle for the same reason app/replacement.py's default does: guessing
+    # short invents a live candidate years early, guessing long only misses one.
+    ownership_type: str = "private_commercial"
+    firm_id: int | None = Field(default=None, foreign_key="firms.id", index=True)
+    status: str = Field(default="active", index=True)  # active | dormant | archived
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class AccountCoverage(SQLModel, table=True):
+    """One account's relationship to one line-card line. A row is created for
+    every product line the moment an account is created (see
+    app/accounts.py:ensure_coverage_rows) so the account page always has
+    something to click on, rather than an editor that only shows lines someone
+    has already touched — the whole point is learning coverage by hand, a line
+    at a time, from conversations."""
+    __tablename__ = "account_coverage"
+    __table_args__ = (UniqueConstraint("account_id", "product_line_id", name="uq_account_line"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    account_id: int = Field(foreign_key="accounts.id", index=True)
+    product_line_id: int = Field(foreign_key="product_lines.id", index=True)
+    status: str = Field(default="unknown", index=True)  # bought | quoted_not_won | never_quoted | unknown
+    install_year: int | None = None
+    dollar_value: float | None = None
+    notes: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    updated_at: datetime = Field(default_factory=utcnow)

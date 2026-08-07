@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Accounts{% endblock %}
+{% block sheet_no %}S-12{% endblock %}
+{% block content %}
+<div class="sec-head">
+  <div class="sec-title">Accounts — line-card coverage</div>
+  <a href="/accounts/new" style="float:right">+ New account</a>
+  <a href="/accounts/import" style="float:right;margin-right:14px">⇪ Import CSV</a>
+  <span class="note">What they have, what they should have, what is forcing them to buy.
+    Click an account to mark coverage.</span>
+</div>
+
+<form class="grid" style="max-width:900px;margin-bottom:12px">
+  <select name="rep" onchange="this.form.submit()">
+    <option value="">Rep: all</option>
+    {% for r in reps %}<option value="{{ r }}" {% if r == f_rep %}selected{% endif %}>{{ r }}</option>{% endfor %}
+  </select>
+  <select name="county" onchange="this.form.submit()">
+    <option value="">County: all</option>
+    {% for c in counties %}<option value="{{ c }}" {% if c == f_county %}selected{% endif %}>{{ c }}</option>{% endfor %}
+  </select>
+  <select name="account_type" onchange="this.form.submit()">
+    <option value="">Type: all</option>
+    {% for t in account_types %}<option value="{{ t }}" {% if t == f_type %}selected{% endif %}>{{ t.replace('_', ' ') }}</option>{% endfor %}
+  </select>
+</form>
+
+<table class="tbl">
+<colgroup><col style="width:22rem"><col style="width:12rem"><col style="width:12rem"><col style="width:10rem"><col style="width:8rem"><col></colgroup>
+<thead><tr>
+  <th>Account</th><th>Type</th><th>County / state</th><th>Rep</th>
+  <th class="num">Bought / total</th><th>Last order</th>
+</tr></thead>
+<tbody>
+{% for a in accounts %}
+<tr>
+  <td><a href="/accounts/{{ a.id }}">{{ a.name }}</a></td>
+  <td class="nowrap">{{ a.account_type.replace('_', ' ') }}</td>
+  <td>{{ a.county or '?' }}{{ ', ' + a.state if a.state }}</td>
+  <td>{{ a.assigned_rep or '—' }}</td>
+  <td class="num mono">{{ bought_counts.get(a.id, 0) }} / {{ total_counts.get(a.id, 0) }}</td>
+  <td class="num">{{ a.last_order_date.strftime('%Y-%m-%d') if a.last_order_date else '—' }}</td>
+</tr>
+{% else %}
+<tr><td colspan="6" class="note">No accounts yet. <a href="/accounts/new">Add the first one</a> or use the CSV importer.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}

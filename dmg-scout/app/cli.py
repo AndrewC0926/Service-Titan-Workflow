@@ -524,6 +524,22 @@ def seed_firms_cmd() -> None:
     typer.echo(f"{added} firms added (existing rows updated in place)")
 
 
+@app.command("seed-lines")
+def seed_lines_cmd() -> None:
+    """Load the DMG/ToroAire line card from config.yaml into product_lines.
+
+    Safe to re-run after correcting a category, value_tier or equipment_type in
+    config.yaml — same idempotent-upsert pattern as seed-firms. Existing
+    accounts automatically pick up any newly-added line on their next page
+    load (see app.accounts.ensure_coverage_rows), no separate backfill needed.
+    """
+    from app.accounts import seed_product_lines
+    cfg = load_config()
+    with session_scope() as session:
+        added = seed_product_lines(session, cfg)
+    typer.echo(f"{added} product lines added (existing rows updated in place)")
+
+
 @app.command("verify-sources")
 def verify_sources(
     only: str = typer.Option("", help="Comma-separated adapter names; default all enabled"),

@@ -181,6 +181,10 @@
   }
   .tbl td.num, .tbl th.num { text-align: right; white-space: nowrap; }
   .tbl tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--color-panel-alt) 55%, transparent); }
+  /* Coverage status, at a glance across ~70 rows — a rep scanning the account
+     page for "what's left to ask about" reads the tint, not the select text. */
+  .tbl tbody tr.cov-bought td { background: color-mix(in srgb, var(--color-stamp-ok) 10%, transparent); }
+  .tbl tbody tr.cov-quoted_not_won td { background: color-mix(in srgb, var(--color-stamp-warn) 9%, transparent); }
   .tbl tbody tr:hover td { background: color-mix(in srgb, var(--color-blueprint) 9%, transparent); }
   .tbl .idx { color: var(--color-ink-dim); font-family: var(--font-mono); }
 

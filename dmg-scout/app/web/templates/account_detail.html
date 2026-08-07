@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}{{ account.name }}{% endblock %}
+{% block content %}
+<h2>{{ account.name }} <span class="tag">{{ account.account_type.replace('_', ' ') }}</span>
+  <span class="tag">{{ account.ownership_type.replace('_', ' ') }}</span>
+  <a href="/accounts/{{ account.id }}/brief" style="float:right;font-size:12px">📄 One-page brief</a>
+  <a href="/accounts/{{ account.id }}/edit" style="float:right;font-size:12px;margin-right:14px">✎ Edit</a></h2>
+
+<table style="max-width:900px">
+<tr><th>Parent</th><td>{% if parent %}<a href="/accounts/{{ parent.id }}">{{ parent.name }}</a>{% else %}—{% endif %}</td>
+    <th>Children</th><td>{% if children %}{% for c in children %}<a href="/accounts/{{ c.id }}">{{ c.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}{% else %}—{% endif %}</td></tr>
+<tr><th>Address</th><td>{{ account.address or '—' }}{% if account.city %}, {{ account.city }}{% endif %}</td>
+    <th>County / state</th><td>{{ account.county or '?' }}{{ ', ' + account.state if account.state }}</td></tr>
+<tr><th>Assigned rep</th><td>{{ account.assigned_rep or '—' }}</td>
+    <th>First / last order</th>
+    <td class="num">{{ account.first_order_date.strftime('%Y-%m-%d') if account.first_order_date else '—' }}
+        / {{ account.last_order_date.strftime('%Y-%m-%d') if account.last_order_date else '—' }}</td></tr>
+</table>
+
+<h2>Coverage — bought {{ coverage_counts.bought }} · quoted &amp; lost {{ coverage_counts.quoted_not_won }}
+  · never quoted {{ coverage_counts.never_quoted }} · unknown {{ coverage_counts.unknown }}</h2>
+<p class="note" style="margin-top:-6px">Click a status, year, or dollar value to save — no separate submit.</p>
+<table class="tbl">
+<colgroup><col style="width:20rem"><col style="width:3rem"><col style="width:10rem"><col style="width:6rem"><col style="width:8rem"><col></colgroup>
+<thead><tr><th>Line</th><th class="num">Tier</th><th>Status</th><th>Install yr</th><th>$ value</th><th>Notes</th></tr></thead>
+<tbody>
+{% for coverage, line in coverage_rows %}
+{% include "_coverage_row.html" %}
+{% endfor %}
+</tbody>
+</table>
+
+<h2>What they should have — ranked by estimated dollar value</h2>
+<p class="note" style="margin-top:-6px">Adjacency-scored against what they've bought (config-driven, not inferred) —
+  see accounts.adjacency in config.yaml. Gaps under the relevance floor are not shown at all, not ranked low.</p>
+<table class="tbl">
+<colgroup><col style="width:20rem"><col style="width:14rem"><col style="width:6rem"><col style="width:10rem"><col style="width:10rem"><col></colgroup>
+<thead><tr><th>Line</th><th>Category</th><th class="num">Relevance</th>
+  <th class="num">Est. value</th><th class="num">Gap score</th><th>Current status</th></tr></thead>
+<tbody>
+{% for g in gaps %}
+<tr>
+  <td><b>{{ g.line.name }}</b> <span class="dim">{{ g.line.firm }}</span><br><span class="note">{{ g.line.subcategory }}</span></td>
+  <td>{{ g.line.category.replace('_', ' ') }}</td>
+  <td class="num mono">{{ '%.2f'|format(g.relevance) }}</td>
+  <td class="num mono">${{ '{:,.0f}'.format(g.value_low) }}–${{ '{:,.0f}'.format(g.value_high) }}</td>
+  <td class="num mono">{{ '{:,.0f}'.format(g.gap_score) }}</td>
+  <td class="dim">{{ g.coverage_status.replace('_', ' ') }}</td>
+</tr>
+{% else %}
+<tr><td colspan="6" class="note">No gaps above the relevance floor — either everything relevant is
+  already bought, or nothing is bought yet (gap ranking uses a flat baseline until a first "bought" line
+  gives it something to key off).</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+<h2>What is forcing them to buy — replacement windows</h2>
+<p class="note" style="margin-top:-6px">Only lines with a stated install year and an equipment type this
+  system has a service-life band for (see replacement.service_life in config.yaml) — most of the line card
+  is not one of those archetypes and is correctly absent here, not guessed at.</p>
+<table class="tbl">
+<colgroup><col style="width:18rem"><col style="width:8rem"><col style="width:8rem"><col style="width:10rem"><col></colgroup>
+<thead><tr><th>Line</th><th class="num">Installed</th><th class="num">Age</th><th>Window</th><th>Basis</th></tr></thead>
+<tbody>
+{% for w in replacement_windows %}
+<tr>
+  <td><b>{{ w.line.name }}</b></td>
+  <td class="num mono">{{ w.install_year }}</td>
+  <td class="num mono">{{ '%.0f'|format(w.age_years) }}yr</td>
+  <td>
+    {% if w.status == 'overdue' %}<span class="tag bad">OVERDUE</span>
+    {% elif w.status == 'due' %}<span class="tag warn">IMMINENT</span>
+    {% else %}<span class="tag">APPROACHING</span>{% endif %}
+    <span class="dim">{{ w.window_start_year }}–{{ w.window_end_year }}</span>
+  </td>
+  <td class="note">{{ w.basis }}</td>
+</tr>
+{% else %}
+<tr><td colspan="5" class="note">No replacement windows yet — enter install years on bought lines above.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+<h2>Live Scout projects naming this account</h2>
+<table style="max-width:900px">
+<thead><tr><th>Project</th><th>Role</th><th class="num">Score</th></tr></thead>
+<tbody>
+{% for r in live_projects %}
+<tr><td><a href="/project/{{ r.project.id }}">{{ r.project.name }}</a></td>
+    <td class="dim">{{ r.role.replace('_', ' ') }}</td>
+    <td class="num mono">{{ '%.2f'|format(r.project.score) }}</td></tr>
+{% else %}
+<tr><td colspan="3" class="note">None on the board right now
+  {% if not account.firm_id %}(no roster match yet — this account has not been linked to a Firm){% endif %}.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+<h2>Notes</h2>
+<form method="post" action="/accounts/{{ account.id }}/notes" style="max-width:900px">
+  <textarea name="notes" placeholder="Notes...">{{ account.notes }}</textarea>
+  <button style="margin-top:8px">Save</button>
+</form>
+{% endblock %}

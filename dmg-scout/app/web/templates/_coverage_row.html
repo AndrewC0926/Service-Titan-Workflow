@@ -1,0 +1,27 @@
+{# One line's coverage — included in account_detail.html's table AND returned
+   standalone by POST /accounts/{id}/coverage/{line_id} (htmx swaps this whole
+   <tr> in place, so what's on screen after a save is always what's in the DB,
+   not an optimistic guess). Needs `account`, `coverage`, `line`,
+   `coverage_statuses` in context. #}
+<tr id="cov-{{ coverage.id }}" class="cov-{{ coverage.status }}">
+  <td><b>{{ line.name }}</b> <span class="dim">{{ line.firm }}</span><br>
+      <span class="note">{{ line.subcategory }}</span></td>
+  <td class="num mono">T{{ line.value_tier }}</td>
+  <td>
+    <select name="status" hx-post="/accounts/{{ account.id }}/coverage/{{ line.id }}"
+            hx-target="#cov-{{ coverage.id }}" hx-swap="outerHTML" hx-include="closest tr">
+      {% for s in coverage_statuses %}
+      <option value="{{ s }}" {% if coverage.status == s %}selected{% endif %}>{{ s.replace('_', ' ') }}</option>
+      {% endfor %}
+    </select>
+  </td>
+  <td><input type="number" name="install_year" placeholder="year" value="{{ coverage.install_year or '' }}"
+             style="width:5.5rem" hx-post="/accounts/{{ account.id }}/coverage/{{ line.id }}"
+             hx-trigger="change" hx-target="#cov-{{ coverage.id }}" hx-swap="outerHTML" hx-include="closest tr"></td>
+  <td><input type="number" name="dollar_value" placeholder="$" value="{{ coverage.dollar_value|int if coverage.dollar_value else '' }}"
+             style="width:7rem" hx-post="/accounts/{{ account.id }}/coverage/{{ line.id }}"
+             hx-trigger="change" hx-target="#cov-{{ coverage.id }}" hx-swap="outerHTML" hx-include="closest tr"></td>
+  <td><input type="text" name="notes" placeholder="note" value="{{ coverage.notes or '' }}"
+             style="width:14rem" hx-post="/accounts/{{ account.id }}/coverage/{{ line.id }}"
+             hx-trigger="change" hx-target="#cov-{{ coverage.id }}" hx-swap="outerHTML" hx-include="closest tr"></td>
+</tr>

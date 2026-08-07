@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{% if account %}Edit {{ account.name }}{% else %}New account{% endif %}{% endblock %}
+{% block content %}
+<h2>{% if account %}Edit {{ account.name }}{% else %}New account{% endif %}</h2>
+
+<form method="post" action="{% if account %}/accounts/{{ account.id }}/edit{% else %}/accounts{% endif %}"
+      class="grid" style="max-width:900px">
+  <label>Name<br><input name="name" required value="{{ account.name if account else '' }}"></label>
+  <label>Parent account<br>
+    <select name="parent_id">
+      <option value="">— none —</option>
+      {% for p in parents %}
+      <option value="{{ p.id }}" {% if account and account.parent_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Type<br>
+    <select name="account_type">
+      {% for t in account_types %}
+      <option value="{{ t }}" {% if account and account.account_type == t or not account and t == 'mechanical_contractor' %}selected{% endif %}>{{ t.replace('_', ' ') }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Address<br><input name="address" value="{{ account.address if account and account.address else '' }}"></label>
+  <label>City<br><input name="city" value="{{ account.city if account and account.city else '' }}"></label>
+  <label>County<br><input name="county" value="{{ account.county if account and account.county else '' }}"></label>
+  <label>State<br><input name="state" value="{{ account.state if account and account.state else '' }}"></label>
+  <label>Assigned rep<br><input name="assigned_rep" value="{{ account.assigned_rep if account and account.assigned_rep else '' }}"></label>
+  <label>Ownership (drives replacement windows)<br>
+    <select name="ownership_type">
+      {% for o in ownership_types %}
+      <option value="{{ o }}" {% if account and account.ownership_type == o or not account and o == 'private_commercial' %}selected{% endif %}>{{ o.replace('_', ' ') }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>First order date<br>
+    <input type="date" name="first_order_date"
+           value="{{ account.first_order_date.strftime('%Y-%m-%d') if account and account.first_order_date else '' }}"></label>
+  <label>Last order date<br>
+    <input type="date" name="last_order_date"
+           value="{{ account.last_order_date.strftime('%Y-%m-%d') if account and account.last_order_date else '' }}"></label>
+  {% if not account %}
+  <label style="grid-column:1/-1">Notes<br><textarea name="notes" placeholder="Anything worth knowing before the coverage matrix exists"></textarea></label>
+  {% endif %}
+  <button style="grid-column:1/-1">{% if account %}Save{% else %}Create account{% endif %}</button>
+</form>
+{% if account %}
+<p class="note" style="margin-top:10px">Coverage, gaps and replacement windows are edited on the
+  <a href="/accounts/{{ account.id }}">account page</a>, not here.</p>
+{% endif %}
+{% endblock %}

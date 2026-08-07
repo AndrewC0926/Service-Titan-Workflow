@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Brief: {{ account.name }}{% endblock %}
+{% block content %}
+<style>
+@media print {
+  body { background: #fff; color: #000; font-size: 11pt; }
+  .titleblock, nav, .noprint { display: none !important; }
+  main { border: none; background: #fff; margin: 0; padding: 0; }
+  a { color: #000; }
+  th, td { border-color: #999 !important; }
+  h2 { color: #000; }
+  .tag { border: 1px solid #000; background: none !important; color: #000 !important; }
+}
+</style>
+<p class="noprint"><button onclick="window.print()">🖨 Print / save PDF</button>
+  <a href="/accounts/{{ account.id }}" style="margin-left:12px">← back to account</a></p>
+
+<h2 style="font-size:18px">{{ account.name }} — account brief</h2>
+<p class="dim">DMG Scout — generated {{ b.generated_at.strftime('%Y-%m-%d %H:%M') }}Z.
+{{ account.account_type.replace('_', ' ') }} · {{ account.county or '?' }} County, {{ account.state or '?' }}
+· rep: {{ account.assigned_rep or 'unassigned' }}</p>
+
+<table style="max-width:820px">
+<tr><th>Parent</th><td>{{ account.parent_id and 'see account page' or '—' }}</td>
+    <th>Ownership</th><td>{{ account.ownership_type.replace('_', ' ') }}</td></tr>
+<tr><th>Address</th><td>{{ account.address or '—' }}{% if account.city %}, {{ account.city }}{% endif %}</td>
+    <th>First / last order</th>
+    <td class="num">{{ account.first_order_date.strftime('%Y-%m-%d') if account.first_order_date else '—' }}
+        / {{ account.last_order_date.strftime('%Y-%m-%d') if account.last_order_date else '—' }}</td></tr>
+</table>
+
+<h2>What they have</h2>
+<p class="dim">{{ b.coverage.counts.bought }} lines bought, {{ b.coverage.counts.quoted_not_won }} quoted and lost,
+{{ b.coverage.counts.never_quoted }} never quoted, {{ b.coverage.counts.unknown }} unknown.</p>
+<table style="max-width:820px">
+<thead><tr><th>Line</th><th>Category</th><th class="num">Install yr</th><th class="num">$ value</th></tr></thead>
+<tbody>
+{% for row in b.coverage.by_status.bought %}
+<tr><td>{{ row.line.name }}</td><td>{{ row.line.category.replace('_', ' ') }}</td>
+    <td class="num">{{ row.coverage.install_year or '—' }}</td>
+    <td class="num">{% if row.coverage.dollar_value %}${{ '{:,.0f}'.format(row.coverage.dollar_value) }}{% else %}—{% endif %}</td></tr>
+{% else %}
+<tr><td colspan="4" class="dim">Nothing marked bought yet.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+<h2>What they should have — top gaps by estimated dollar value</h2>
+<table style="max-width:1000px">
+<thead><tr><th>Line</th><th>Category</th><th class="num">Relevance</th><th class="num">Est. value</th></tr></thead>
+<tbody>
+{% for g in b.gaps[:15] %}
+<tr><td>{{ g.line.name }}</td><td>{{ g.line.category.replace('_', ' ') }}</td>
+    <td class="num">{{ '%.2f'|format(g.relevance) }}</td>
+    <td class="num">${{ '{:,.0f}'.format(g.value_low) }}–${{ '{:,.0f}'.format(g.value_high) }}</td></tr>
+{% else %}
+<tr><td colspan="4" class="dim">No gaps above the relevance floor.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+<h2>What is forcing them to buy — replacement windows</h2>
+<table style="max-width:1000px">
+<thead><tr><th>Line</th><th class="num">Installed</th><th class="num">Age</th><th>Status</th><th>Window</th></tr></thead>
+<tbody>
+{% for w in b.replacement_windows %}
+<tr><td>{{ w.line.name }}</td><td class="num">{{ w.install_year }}</td>
+    <td class="num">{{ '%.0f'|format(w.age_years) }}yr</td>
+    <td><span class="tag">{{ w.status.upper() }}</span></td>
+    <td class="num">{{ w.window_start_year }}–{{ w.window_end_year }}</td></tr>
+{% else %}
+<tr><td colspan="5" class="dim">No replacement windows on file.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+{% if b.live_projects %}
+<h2>Live Scout projects naming this account</h2>
+<table style="max-width:820px">
+{% for r in b.live_projects %}
+<tr><td>{{ r.project.name }}</td><td>{{ r.role.replace('_', ' ') }}</td>
+    <td class="num">{{ '%.2f'|format(r.project.score) }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+
+{% if account.notes %}<h2>Notes</h2><p>{{ account.notes }}</p>{% endif %}
+{% endblock %}

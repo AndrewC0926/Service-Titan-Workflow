@@ -9,20 +9,21 @@ import secrets
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, func, select
 
+from app.accounts import ACCOUNT_TYPES, COVERAGE_STATUSES
 from app.config import load_config
 from app.db import get_session
 from app.manual import add_manual_signal
 from app.models import (
-    ACTIVE_STATUSES, OUTCOME_STATUSES, Category, Contact, Firm, MatchCandidate, Outreach,
-    Project, ProjectContact, ProjectFirm, ProjectSignal, RawDocument, SavedSearch, Signal,
-    SignalType, SourceRun, Stage, utcnow,
+    ACTIVE_STATUSES, OUTCOME_STATUSES, Account, AccountCoverage, Category, Contact, Firm,
+    MatchCandidate, Outreach, Project, ProductLine, ProjectContact, ProjectFirm, ProjectSignal,
+    RawDocument, SavedSearch, Signal, SignalType, SourceRun, Stage, utcnow,
 )
 
 
@@ -704,6 +705,284 @@ def firm_detail(firm_id: int, request: Request,
         raise HTTPException(404)
     return templates.TemplateResponse(request, "firm.html", {
         "p": prof, "tb": _title_block(session), "active": "firms",
+    })
+
+
+
+# ---- accounts ----------------------------------------------------------
+#
+# A separate book from the project pipeline above: line-card coverage for the
+# ~100 dormant accounts, not construction signals. Nothing here reads or
+# writes Project/Signal, and nothing above this section reads Account. The
+# only bridge is Account.firm_id, used solely to show live Scout projects on
+# an account's brief (see app.accounts.live_scout_projects).
+
+@app.get("/accounts", response_class=HTMLResponse)
+def accounts_list(request: Request, rep: str = "", county: str = "", account_type: str = "",
+                  session: Session = Depends(get_session), _: str = Depends(auth)):
+    q = select(Account).where(Account.status == "active").order_by(Account.name)
+    if rep:
+        q = q.where(Account.assigned_rep == rep)
+    if county:
+        q = q.where(Account.county == county)
+    if account_type:
+        q = q.where(Account.account_type == account_type)
+    accounts = session.exec(q).all()
+
+    bought_counts: dict[int, int] = {}
+    total_counts: dict[int, int] = {}
+    for row in session.exec(
+        select(AccountCoverage.account_id, AccountCoverage.status,
+              func.count(AccountCoverage.id)).group_by(
+                  AccountCoverage.account_id, AccountCoverage.status)).all():
+        acc_id, status_, n = row
+        total_counts[acc_id] = total_counts.get(acc_id, 0) + n
+        if status_ == "bought":
+            bought_counts[acc_id] = n
+
+    reps = sorted({a.assigned_rep for a in
+                   session.exec(select(Account).where(Account.status == "active")).all()
+                   if a.assigned_rep})
+    counties = sorted({a.county for a in
+                       session.exec(select(Account).where(Account.status == "active")).all()
+                       if a.county})
+    return templates.TemplateResponse(request, "accounts_list.html", {
+        "accounts": accounts, "bought_counts": bought_counts, "total_counts": total_counts,
+        "reps": reps, "counties": counties, "account_types": list(ACCOUNT_TYPES),
+        "f_rep": rep, "f_county": county, "f_type": account_type,
+        "tb": _title_block(session), "active": "accounts",
+    })
+
+
+@app.get("/accounts/new", response_class=HTMLResponse)
+def account_new_form(request: Request, session: Session = Depends(get_session),
+                     _: str = Depends(auth)):
+    parents = session.exec(select(Account).where(Account.status == "active")
+                           .order_by(Account.name)).all()
+    return templates.TemplateResponse(request, "account_form.html", {
+        "account": None, "parents": parents, "account_types": list(ACCOUNT_TYPES),
+        "ownership_types": ["private_commercial", "federal", "state_municipal"],
+        "tb": _title_block(session), "active": "accounts",
+    })
+
+
+# Registered here, BEFORE /accounts/{account_id} below, on purpose — FastAPI
+# matches routes in registration order, and a literal "/accounts/import"
+# registered after the dynamic route would be swallowed by it (account_id=
+# "import", a 422 on int parsing) rather than ever reaching this handler.
+@app.get("/accounts/import", response_class=HTMLResponse)
+def accounts_import_form(request: Request, session: Session = Depends(get_session),
+                         _: str = Depends(auth)):
+    return templates.TemplateResponse(request, "accounts_import.html", {
+        "step": "upload", "tb": _title_block(session), "active": "accounts",
+    })
+
+
+@app.post("/accounts/import/preview", response_class=HTMLResponse)
+async def accounts_import_preview(request: Request, file: UploadFile = File(...),
+                                  session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.importers.accounts_csv import ACCOUNT_FIELDS, guess_mapping, parse_csv, preview_import
+    raw_bytes = await file.read()
+    raw_text = raw_bytes.decode("utf-8-sig", errors="replace")
+    headers, rows = parse_csv(raw_text)
+    if not headers:
+        return templates.TemplateResponse(request, "accounts_import.html", {
+            "step": "upload", "error": "no header row found in that file",
+            "tb": _title_block(session), "active": "accounts",
+        })
+    mapping = guess_mapping(headers)
+    preview = preview_import(session, headers, rows, mapping)
+    return templates.TemplateResponse(request, "accounts_import.html", {
+        "step": "preview", "headers": headers, "mapping": mapping, "preview": preview[:200],
+        "n_total": len(rows), "n_shown": min(len(rows), 200),
+        "account_fields": ACCOUNT_FIELDS, "raw_csv": raw_text,
+        "tb": _title_block(session), "active": "accounts",
+    })
+
+
+@app.post("/accounts/import/commit", response_class=HTMLResponse)
+async def accounts_import_commit(request: Request, raw_csv: str = Form(...),
+                                 session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.importers.accounts_csv import commit_import, parse_csv
+    form = await request.form()
+    # Mapping arrives as one form field per CSV header: name="map__<header>".
+    mapping = {key[len("map__"):]: value for key, value in form.multi_items()
+              if key.startswith("map__") and value}
+    headers, rows = parse_csv(raw_csv)
+    result = commit_import(session, headers, rows, mapping)
+    return templates.TemplateResponse(request, "accounts_import.html", {
+        "step": "done", "result": result,
+        "tb": _title_block(session), "active": "accounts",
+    })
+
+
+def _parse_form_date(value: str):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+@app.post("/accounts")
+def account_create(
+    name: str = Form(...), parent_id: str = Form(""), account_type: str = Form("mechanical_contractor"),
+    address: str = Form(""), city: str = Form(""), county: str = Form(""), state: str = Form(""),
+    assigned_rep: str = Form(""), ownership_type: str = Form("private_commercial"),
+    first_order_date: str = Form(""), last_order_date: str = Form(""), notes: str = Form(""),
+    session: Session = Depends(get_session), _: str = Depends(auth),
+):
+    from app.accounts import create_account
+    account = create_account(
+        session, name=name, parent_id=int(parent_id) if parent_id else None,
+        account_type=account_type, address=address or None, city=city or None,
+        county=county or None, state=state or None, assigned_rep=assigned_rep or None,
+        ownership_type=ownership_type,
+        first_order_date=_parse_form_date(first_order_date),
+        last_order_date=_parse_form_date(last_order_date), notes=notes,
+    )
+    return RedirectResponse(f"/accounts/{account.id}", status_code=303)
+
+
+@app.get("/accounts/{account_id}/edit", response_class=HTMLResponse)
+def account_edit_form(account_id: int, request: Request,
+                      session: Session = Depends(get_session), _: str = Depends(auth)):
+    account = session.get(Account, account_id)
+    if not account:
+        raise HTTPException(404)
+    parents = session.exec(
+        select(Account).where(Account.status == "active", Account.id != account_id)
+        .order_by(Account.name)).all()
+    return templates.TemplateResponse(request, "account_form.html", {
+        "account": account, "parents": parents, "account_types": list(ACCOUNT_TYPES),
+        "ownership_types": ["private_commercial", "federal", "state_municipal"],
+        "tb": _title_block(session), "active": "accounts",
+    })
+
+
+@app.post("/accounts/{account_id}/edit")
+def account_edit_save(
+    account_id: int,
+    name: str = Form(...), parent_id: str = Form(""), account_type: str = Form("mechanical_contractor"),
+    address: str = Form(""), city: str = Form(""), county: str = Form(""), state: str = Form(""),
+    assigned_rep: str = Form(""), ownership_type: str = Form("private_commercial"),
+    first_order_date: str = Form(""), last_order_date: str = Form(""),
+    session: Session = Depends(get_session), _: str = Depends(auth),
+):
+    account = session.get(Account, account_id)
+    if not account:
+        raise HTTPException(404)
+    if parent_id and int(parent_id) == account_id:
+        raise HTTPException(400, detail="an account cannot be its own parent")
+    account.name = name
+    account.name_norm = normalize_name(name)
+    account.parent_id = int(parent_id) if parent_id else None
+    account.account_type = account_type
+    account.address = address or None
+    account.city = city or None
+    account.county = county or None
+    account.state = state or None
+    account.assigned_rep = assigned_rep or None
+    account.ownership_type = ownership_type
+    account.first_order_date = _parse_form_date(first_order_date)
+    account.last_order_date = _parse_form_date(last_order_date)
+    account.updated_at = utcnow()
+    session.add(account)
+    session.commit()
+    return RedirectResponse(f"/accounts/{account_id}", status_code=303)
+
+
+@app.get("/accounts/{account_id}", response_class=HTMLResponse)
+def account_detail(account_id: int, request: Request,
+                   session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.accounts import (
+        account_replacement_windows, compute_gaps, coverage_summary, ensure_coverage_rows,
+        live_scout_projects,
+    )
+    account = session.get(Account, account_id)
+    if not account:
+        raise HTTPException(404)
+    # Picks up any line added to the card since this account was created —
+    # cheap (two selects over a ~70-row table) and keeps the page always
+    # showing every line, never one the seed added after the fact.
+    ensure_coverage_rows(session, account)
+    parent = session.get(Account, account.parent_id) if account.parent_id else None
+    children = session.exec(select(Account).where(Account.parent_id == account_id)).all()
+    cfg = load_config()
+    cov = coverage_summary(session, account_id)
+    cats = cfg.get("accounts.adjacency.categories", []) or []
+    cat_order = {c: i for i, c in enumerate(cats)}
+    rows = sorted(cov["rows"], key=lambda r: (cat_order.get(r[1].category, 99), r[1].name))
+    return templates.TemplateResponse(request, "account_detail.html", {
+        "account": account, "parent": parent, "children": children,
+        "coverage_rows": rows, "coverage_counts": cov["counts"],
+        "gaps": compute_gaps(session, cfg, account_id)[:25],
+        "replacement_windows": account_replacement_windows(session, cfg, account_id),
+        "live_projects": live_scout_projects(session, account),
+        "coverage_statuses": ["bought", "quoted_not_won", "never_quoted", "unknown"],
+        "tb": _title_block(session), "active": "accounts",
+    })
+
+
+@app.post("/accounts/{account_id}/coverage/{line_id}", response_class=HTMLResponse)
+def account_coverage_update(
+    account_id: int, line_id: int, request: Request,
+    status: str = Form("unknown"), install_year: str = Form(""), dollar_value: str = Form(""),
+    notes: str = Form(""),
+    session: Session = Depends(get_session), _: str = Depends(auth),
+):
+    if status not in COVERAGE_STATUSES:
+        raise HTTPException(400, detail=f"unknown coverage status {status!r}")
+    cov = session.exec(
+        select(AccountCoverage).where(AccountCoverage.account_id == account_id,
+                                      AccountCoverage.product_line_id == line_id)).first()
+    line = session.get(ProductLine, line_id)
+    if not cov or not line:
+        raise HTTPException(404)
+    cov.status = status
+    try:
+        cov.install_year = int(install_year) if install_year else None
+    except ValueError:
+        raise HTTPException(400, detail="install_year must be a year")
+    try:
+        cov.dollar_value = float(dollar_value) if dollar_value else None
+    except ValueError:
+        raise HTTPException(400, detail="dollar_value must be a number")
+    cov.notes = notes
+    cov.updated_at = utcnow()
+    session.add(cov)
+    session.commit()
+    return templates.TemplateResponse(request, "_coverage_row.html", {
+        "account": session.get(Account, account_id), "coverage": cov, "line": line,
+        "coverage_statuses": ["bought", "quoted_not_won", "never_quoted", "unknown"],
+    })
+
+
+@app.post("/accounts/{account_id}/notes")
+def account_notes_save(account_id: int, notes: str = Form(""),
+                       session: Session = Depends(get_session), _: str = Depends(auth)):
+    account = session.get(Account, account_id)
+    if not account:
+        raise HTTPException(404)
+    account.notes = notes
+    account.updated_at = utcnow()
+    session.add(account)
+    session.commit()
+    return RedirectResponse(f"/accounts/{account_id}", status_code=303)
+
+
+@app.get("/accounts/{account_id}/brief", response_class=HTMLResponse)
+def account_brief_view(account_id: int, request: Request,
+                       session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.accounts import build_account_brief
+    cfg = load_config()
+    try:
+        b = build_account_brief(session, cfg, account_id)
+    except ValueError:
+        raise HTTPException(404)
+    return templates.TemplateResponse(request, "account_brief.html", {
+        "b": b, "account": b.account, "tb": _title_block(session), "active": "accounts",
     })
 
 
