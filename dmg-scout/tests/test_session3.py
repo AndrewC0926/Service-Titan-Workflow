@@ -12,7 +12,7 @@ from app.deliverables import write_baseline, write_briefs, write_call_list
 from app.firms import seed_firms
 from app.ladder import best_contact, build_ladder, ladder_distribution
 from app.manual import add_manual_signal
-from app.models import Project, RawDocument, Signal, TriageResult, utcnow
+from app.models import MatchCandidate, Project, RawDocument, Signal, TriageResult, utcnow
 from app.pipeline.notify import _call_recommendation
 from app.pipeline.resolve import run_resolve
 from app.pipeline.size_score import run_size_score
@@ -112,6 +112,26 @@ def test_completeness_banner_conditions(db_session, cfg):
     db_session.commit()
     st = pipeline_completeness(db_session, cfg)
     assert st["complete"] is False and st["pending_triage"] == 1
+
+
+def test_signals_awaiting_review_do_not_count_as_unresolved(db_session, cfg):
+    """A signal already queued in match_candidates has been looked at by resolve —
+    it is waiting on a human merge decision in /review, not on a pipeline run.
+    Counting it as 'not yet resolved' told a rep to re-run scout resolve to clear
+    a queue that resolve deliberately skips (see app/pipeline/resolve.py)."""
+    project = make_project(db_session, cfg, "Anchor DC")
+    s = add_manual_signal(db_session, "planning_agenda", "ambiguous match candidate",
+                          project_name=None, developer="Someone", county="San Bernardino",
+                          state="CA", stage="entitlement",
+                          url="https://example.gov/ambiguous")
+    db_session.add(MatchCandidate(signal_id=s.id, project_id=project.id,
+                                  similarity=0.7, status="pending"))
+    db_session.commit()
+
+    st = pipeline_completeness(db_session, cfg)
+    assert st["pending_review"] == 1
+    assert st["unresolved_signals"] == 0
+    assert st["complete"] is True
 
 
 def test_audit_flags(db_session, cfg):

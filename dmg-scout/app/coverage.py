@@ -17,8 +17,8 @@ from sqlmodel import Session, select
 
 from app.config import Config
 from app.models import (
-    ACTIVE_STATUSES, BackfillCheckpoint, Project, ProjectSignal, RawDocument, Signal,
-    TriageResult, utcnow,
+    ACTIVE_STATUSES, BackfillCheckpoint, MatchCandidate, Project, ProjectSignal, RawDocument,
+    Signal, TriageResult, utcnow,
 )
 from app.normalize import normalize_county
 
@@ -79,14 +79,25 @@ def coverage_text(report: dict) -> str:
 
 
 def pipeline_completeness(session: Session, cfg: Config) -> dict:
-    """Is the board presenting a complete picture? Used by the dashboard banner."""
+    """Is the board presenting a complete picture? Used by the dashboard banner.
+
+    "Unresolved" and "awaiting review" are different claims. An unlinked signal
+    with no match_candidate means `scout resolve` has not looked at it yet — that
+    is unfinished work, and the board is genuinely incomplete until it runs. An
+    unlinked signal already sitting in match_candidates (status='pending') has
+    been looked at: resolve queued it because the match was ambiguous, and it is
+    waiting on a human merge decision in /review, not on a pipeline run. Counting
+    the second as the first told a rep to "run scout resolve" to clear a queue
+    that rerunning resolve cannot touch — resolve skips signals already queued
+    for review by design (see app/pipeline/resolve.py).
+    """
     pending_triage = len(session.exec(
         select(RawDocument).where(
             RawDocument.triage_result.in_([TriageResult.pending, TriageResult.error]))).all())
     pending_extract = len(session.exec(
         select(RawDocument).where(RawDocument.triage_result == TriageResult.relevant,
                                   RawDocument.processed_at.is_(None))).all())
-    unresolved = _unlinked_signal_count(session)
+    unresolved, pending_review = _unlinked_signal_counts(session)
 
     incomplete_backfills = []
     from app.sources import get_adapter
@@ -107,12 +118,25 @@ def pipeline_completeness(session: Session, cfg: Config) -> dict:
             incomplete_backfills.append(
                 {"source": source, "since": since, "done": done, "expected": expected})
 
+    # pending_review is deliberately excluded: it is correct steady state, not an
+    # unfinished run, and must never make the board say INCOMPLETE.
     complete = not (pending_triage or pending_extract or unresolved or incomplete_backfills)
     return {"complete": complete, "pending_triage": pending_triage,
             "pending_extract": pending_extract, "unresolved_signals": unresolved,
-            "incomplete_backfills": incomplete_backfills}
+            "pending_review": pending_review, "incomplete_backfills": incomplete_backfills}
 
 
-def _unlinked_signal_count(session: Session) -> int:
+def _unlinked_signal_counts(session: Session) -> tuple[int, int]:
+    """(truly unresolved, awaiting human review) among signals with no project link.
+
+    A signal can be unlinked for two different reasons and only one of them is
+    unfinished work — see the docstring on pipeline_completeness for why the
+    distinction matters to the banner.
+    """
     linked = {ps.signal_id for ps in session.exec(select(ProjectSignal)).all()}
-    return sum(1 for s in session.exec(select(Signal)).all() if s.id not in linked)
+    queued = {mc.signal_id for mc in session.exec(
+        select(MatchCandidate).where(MatchCandidate.status == "pending")).all()}
+    unlinked_ids = [s.id for s in session.exec(select(Signal)).all() if s.id not in linked]
+    pending_review = sum(1 for sid in unlinked_ids if sid in queued)
+    unresolved = len(unlinked_ids) - pending_review
+    return unresolved, pending_review
