@@ -23,7 +23,7 @@ from app.manual import add_manual_signal
 from app.models import (
     ACTIVE_STATUSES, OUTCOME_STATUSES, Account, AccountCoverage, Category, Contact, Firm,
     MatchCandidate, Outreach, Project, ProductLine, ProjectContact, ProjectFirm, ProjectSignal,
-    RawDocument, SavedSearch, Signal, SignalType, SourceRun, Stage, utcnow,
+    RawDocument, SavedSearch, Signal, SignalType, SourceRun, Stage, StageObservation, utcnow,
 )
 
 
@@ -263,6 +263,14 @@ def project_detail(project_id: int, request: Request,
         people.extend(s.named_people or [])
         firms.extend(s.named_firms or [])
     timeline.sort(key=lambda t: t["signal"].event_date or t["signal"].created_at, reverse=True)
+
+    from app.staleness import stage_ages
+    stage_progression = session.exec(
+        select(StageObservation).where(StageObservation.project_id == project_id)
+        .order_by(StageObservation.observed_at)).all()
+    stale_months = load_config().get("board.stage_unverified_months", 12)
+    stage_age = stage_ages(session, [project]).get(project.id)
+
     outreach = session.exec(
         select(Outreach).where(Outreach.project_id == project_id)
         .order_by(Outreach.date.desc())).all()
@@ -277,6 +285,8 @@ def project_detail(project_id: int, request: Request,
         "resolved_firms": resolved_firms, "outcome_statuses": OUTCOME_STATUSES,
         "ladder": ladder,
         "outreach": outreach, "contacts": contacts,
+        "stage_progression": stage_progression, "stage_age": stage_age,
+        "stale_months": stale_months,
         "tb": _title_block(session), "active": "board",
     })
 

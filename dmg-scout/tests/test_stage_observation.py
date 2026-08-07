@@ -8,8 +8,10 @@ Repointed to the survivor on merge, same as any other signal-keyed link row.
 from sqlmodel import select
 
 from app.merge import merge_projects
-from app.models import Category, Project, Signal, SignalType, Stage, StageObservation
-from app.pipeline.resolve import run_resolve
+from app.models import (
+    Category, Project, ProjectSignal, Signal, SignalType, Stage, StageObservation,
+)
+from app.pipeline.resolve import backfill_stage_observations, run_resolve
 
 
 def _sig(session, **kw):
@@ -91,3 +93,26 @@ def test_merge_repoints_stage_observations_to_the_survivor(db_session, cfg):
     moved = _observations(db_session, sig.id)
     assert len(moved) == 1
     assert moved[0].project_id == a.id
+
+
+def test_backfill_reconstructs_observations_for_pre_ledger_links(db_session, cfg):
+    """A ProjectSignal created before StageObservation existed (the 296-project
+    board's whole history) has no observation until the backfill runs."""
+    project = Project(name="Old Project", category=Category.data_center,
+                      county="Los Angeles", state="CA", stage=Stage.permitting,
+                      status="active")
+    db_session.add(project)
+    db_session.commit()
+    sig = _sig(db_session, project_name="Old Project", stage=Stage.permitting)
+    db_session.add(ProjectSignal(project_id=project.id, signal_id=sig.id,
+                                 match_confidence=1.0, match_method="direct"))
+    db_session.commit()
+    assert _observations(db_session, sig.id) == []
+
+    written = backfill_stage_observations(db_session)
+    assert written == 1
+    obs = _observations(db_session, sig.id)
+    assert len(obs) == 1 and obs[0].project_id == project.id and obs[0].stage == Stage.permitting
+
+    # idempotent: a second run over the same links writes nothing new
+    assert backfill_stage_observations(db_session) == 0

@@ -9,13 +9,34 @@
 <table style="max-width:900px">
 <tr><th>Developer</th><td>{{ p.developer or '—' }}</td>
     <th>County</th><td>{{ p.county or '?' }}{{ ', ' + p.state if p.state }}</td></tr>
-<tr><th>Stage</th><td>{{ p.stage.value }}</td>
+<tr><th>Stage</th><td>{{ p.stage.value }}
+    {%- if stage_age and stage_age.unverified(stale_months) %}
+      <span class="stamp stamp-post" title="Stage last evidenced {{ stage_age.observed_at.strftime('%Y-%m-%d') if stage_age.observed_at else 'never' }}. Older than {{ stale_months }} months — treat this stage and the bid-date estimate as unverified.">UNVERIFIED · {{ stage_age.label }}</span>
+    {%- elif stage_age %}
+      <span class="dim">(confirmed {{ stage_age.label }} ago)</span>
+    {%- endif %}</td>
     <th>Days to est. bid</th><td class="num">{{ p.days_to_estimated_bid if p.days_to_estimated_bid is not none else '—' }}</td></tr>
 <tr><th>MW (IT / total)</th><td class="num">{{ p.mw_it or '—' }} / {{ p.mw_total or '—' }}</td>
     <th>APN</th><td class="mono">{{ p.apn_parcel or '—' }}</td></tr>
 <tr><th>Est. tonnage</th>
     <td class="num">{% if p.tons_estimate_low %}{{ '{:,.0f}'.format(p.tons_estimate_low) }}–{{ '{:,.0f}'.format(p.tons_estimate_high) }} tons{% if p.estimate_low_confidence %} <span class="bad">⚠ LOW CONFIDENCE</span>{% endif %}{% else %}—{% endif %}</td>
     <th>Basis</th><td>{{ p.estimate_basis or 'no size input yet' }}</td></tr>
+</table>
+
+<h2>Stage progression</h2>
+<table style="max-width:700px">
+<thead><tr><th>Date</th><th>Stage</th><th>Source</th></tr></thead>
+<tbody>
+{% for o in stage_progression %}
+<tr{% if o.stage == p.stage %} class="ok"{% endif %}>
+  <td class="num">{{ o.observed_at.strftime('%Y-%m-%d') }}{% if not o.from_event %} <span class="dim" title="The filing stated no event date — dated from when we recorded it">(recorded)</span>{% endif %}</td>
+  <td>{{ o.stage.value }}{% if o.stage == p.stage %} <span class="dim">← current</span>{% endif %}</td>
+  <td class="dim">{{ o.source }}{% if o.signal_id %} (signal #{{ o.signal_id }}){% endif %}</td>
+</tr>
+{% else %}
+<tr><td colspan="3" class="dim">No stage observations recorded yet.</td></tr>
+{% endfor %}
+</tbody>
 </table>
 
 <h2>Signal timeline</h2>

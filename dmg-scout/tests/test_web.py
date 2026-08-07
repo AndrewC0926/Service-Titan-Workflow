@@ -88,12 +88,32 @@ def test_project_detail_and_notes(client, db_session, cfg):
     assert r.status_code == 200
     assert "Signal timeline" in r.text and "prequal_invite" in r.text
     assert "57,200" in r.text or "stated IT load" in r.text  # tonnage basis shown
+    assert "Stage progression" in r.text and "design" in r.text
 
     r = client.post("/project/1/notes", headers=AUTH,
                     data={"notes": "call EOR", "next_action": "intro call"},
                     follow_redirects=False)
     assert r.status_code == 303
     assert "intro call" in client.get("/project/1", headers=AUTH).text
+
+
+def test_project_page_shows_stage_progression(client, db_session, cfg):
+    """A project touched by two signals at two different stages shows both,
+    not just the current one — the gate for the stage-tracking work."""
+    add_manual_signal(db_session, "prequal_invite", "ACCO invited prequal for Meridian",
+                      project_name="Meridian DC", developer="Vantage Data Centers",
+                      county="San Bernardino", state="CA", mw_it=176, stage="entitlement")
+    run_resolve(db_session, cfg, use_llm=False)
+    add_manual_signal(db_session, "prequal_invite", "Meridian moved to permitting",
+                      project_name="Meridian DC", developer="Vantage Data Centers",
+                      county="San Bernardino", state="CA", mw_it=176, stage="permitting")
+    run_resolve(db_session, cfg, use_llm=False)
+    run_size_score(db_session, cfg)
+
+    r = client.get("/project/1", headers=AUTH)
+    assert r.status_code == 200
+    assert r.text.count("← current") == 1  # only the current stage's row(s) marked
+    assert "entitlement" in r.text and "permitting" in r.text
 
 
 def test_outreach_log(client, db_session, cfg):

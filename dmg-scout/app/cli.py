@@ -161,6 +161,17 @@ def merge_duplicates(
                     fg=typer.colors.YELLOW)
 
 
+@app.command("backfill-stage-observations")
+def backfill_stage_observations_cmd() -> None:
+    """One-time: reconstruct the stage ledger for signals linked before it
+    existed. Idempotent — safe to re-run, and normal `scout resolve` runs
+    keep the ledger current going forward on its own."""
+    from app.pipeline.resolve import backfill_stage_observations
+    with session_scope() as session:
+        written = backfill_stage_observations(session)
+    typer.echo(f"wrote {written} stage observation(s)")
+
+
 @app.command()
 def score() -> None:
     """SIZE + SCORE: recompute tonnage and priority for all active projects."""

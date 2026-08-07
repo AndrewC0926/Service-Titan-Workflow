@@ -14,6 +14,7 @@ import math
 import re
 
 from rapidfuzz import fuzz
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.config import Config
@@ -522,6 +523,25 @@ def _resolve_loop(session: Session, cfg: Config, unlinked: list[Signal], stats: 
             stats["new_projects"] += 1
         session.commit()
     return stats
+
+
+def backfill_stage_observations(session: Session) -> int:
+    """One-time reconstruction of the ledger for signals linked before
+    StageObservation existed. Idempotent (dedups on signal_id via
+    _record_stage_observation), so re-running it after this is safe and free —
+    everything past the first run is a no-op.
+
+    Every ProjectSignal already names both sides; no re-matching, no LLM.
+    """
+    n_before = session.exec(select(func.count()).select_from(StageObservation)).one()
+    for link in session.exec(select(ProjectSignal)).all():
+        project = session.get(Project, link.project_id)
+        signal = session.get(Signal, link.signal_id)
+        if project is not None and signal is not None:
+            _record_stage_observation(session, project, signal)
+    session.commit()
+    n_after = session.exec(select(func.count()).select_from(StageObservation)).one()
+    return n_after - n_before
 
 
 def _learn_alias(session: Session, signal: Signal, project: Project) -> None:
