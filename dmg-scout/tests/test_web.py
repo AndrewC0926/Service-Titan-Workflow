@@ -1,5 +1,7 @@
 """Dashboard smoke tests: auth enforcement and each view renders with data."""
 import base64
+import re
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -192,6 +194,50 @@ def test_saved_search_round_trips(client, db_session, cfg):
     saved = db_session.exec(select(SavedSearch)).all()
     assert len(saved) == 1 and saved[0].criteria == {"county": "Storey", "min_mw": 10}
     assert "Storey over 10" in client.get("/searches", headers=AUTH).text
+
+
+# ---- deployed stylesheet delivery -------------------------------------------
+
+def _dockerfile_forwarded_allow_ips() -> str:
+    """The proxy trust boundary uvicorn actually runs with in the deployed
+    image, read straight from the Dockerfile CMD so this test breaks if
+    --forwarded-allow-ips is ever dropped, instead of hardcoding a value that
+    could silently drift from what's really deployed."""
+    dockerfile = (Path(__file__).parent.parent / "Dockerfile").read_text()
+    match = re.search(r"--forwarded-allow-ips[= ]'?([^'\s\"]+)'?", dockerfile)
+    return match.group(1) if match else "127.0.0.1"  # uvicorn's own default
+
+
+def test_stylesheet_link_resolves_behind_the_render_proxy(client, db_session, cfg):
+    """Render terminates TLS at its edge and forwards to this container over
+    plain HTTP, setting X-Forwarded-Proto: https. request.url_for() — what
+    base.html's stylesheet <link> is built from — only honours that header for
+    proxies uvicorn is told to trust; otherwise it stamps the link with
+    scheme=http on a page the browser loaded over https, and the browser
+    silently drops that as mixed content. The stylesheet itself still builds
+    and serves fine on its own URL either way, and `app.css exists on disk`
+    never catches this — only following the exact link the page rendered does.
+    """
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+    seed(db_session, cfg)
+    proxied_app = ProxyHeadersMiddleware(app, trusted_hosts=_dockerfile_forwarded_allow_ips())
+    proxied = TestClient(proxied_app, base_url="http://dmg-scout-web-84bz.onrender.com")
+
+    r = proxied.get("/", headers={**AUTH, "X-Forwarded-Proto": "https"})
+    assert r.status_code == 200
+
+    match = re.search(r'<link rel="stylesheet" href="([^"]+)">', r.text)
+    assert match, "board page has no stylesheet <link>"
+    href = match.group(1)
+    assert href.startswith("https://"), (
+        f"stylesheet link resolved to {href!r} on a page served over https — "
+        "the browser blocks that as mixed content and the board renders unstyled"
+    )
+
+    css = proxied.get(href)
+    assert css.status_code == 200
+    assert ".titleblock" in css.text  # the real built stylesheet, not a 404 page
 
 
 def test_esco_board_is_reachable_and_separate(client, db_session, cfg):

@@ -40,4 +40,14 @@ RUN pip install --no-cache-dir .
 EXPOSE 8000
 
 # Web service default; cron overrides with `scout pipeline`
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.web.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+#
+# --forwarded-allow-ips='*': Render terminates TLS at its edge and forwards to
+# this container over plain HTTP from a non-loopback address. Uvicorn only
+# trusts X-Forwarded-Proto from proxies in forwarded_allow_ips, which defaults
+# to 127.0.0.1 — nothing Render sends matches that, so request.url_for() (what
+# base.html's stylesheet <link> is built from) stamped scheme=http on a page
+# served over https. The browser silently blocks that as mixed content: no
+# server error, no build error, CSS serves fine on its own URL, page renders
+# naked. Render's edge is the only thing that can reach this container, so
+# trusting it here is safe.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.web.main:app --host 0.0.0.0 --port ${PORT:-8000} --forwarded-allow-ips='*'"]
