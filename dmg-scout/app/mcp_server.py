@@ -10,13 +10,13 @@ here writes to the pipeline's own tables (log_outreach is the one write tool,
 and it only ever touches Outreach, the same table the dashboard's own
 outreach form writes to).
 
-ONE TOOL SHIPS FIRST, on purpose. There is an open claude.ai bug (see
-app/mcp_auth.py's sibling research, and the deploy checklist) where a custom
-connector shows Connected with tools listed in Settings, but the tools never
-reach the model in conversation — reported on claude.ai web specifically,
-web-only, June-July 2026, still open. Building all eight tools before
-confirming the trivial one is actually callable from claude.ai and from a
-phone would mean finding out at the end, not the start.
+A single trivial tool shipped first and was confirmed working from both
+claude.ai web and mobile before any of the other seven were written — there
+is an open claude.ai bug where a custom connector shows Connected with tools
+listed in Settings, but the tools never reach the model in conversation
+(web-specific, reported June-July 2026, still open as of this build). Worth
+knowing if a future connector added the same way seems to hang the same
+way: check that first, not last.
 
 Mounting note: FastMCP's own FastAPI integration example
 (app.mount("/mcp", mcp.http_app(path="/mcp"))) is correct for a server with
@@ -30,7 +30,6 @@ parent app rather than nesting via app.mount(). See mounted_routes() below.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
 
 from fastmcp import FastMCP
 
@@ -66,24 +65,7 @@ mcp = FastMCP(
 )
 
 
-@mcp.tool
-def scout_status() -> str:
-    """Connectivity check: confirms the MCP connector can reach Scout's live
-    database. Call this first if anything else seems to be failing or timing
-    out — it tells you whether the problem is the connector/auth layer or
-    something specific to another tool."""
-    from sqlmodel import select
-
-    from app.db import session_scope
-    from app.models import ACTIVE_STATUSES, Project
-
-    with session_scope() as session:
-        n = session.exec(
-            select(Project).where(Project.status.in_(ACTIVE_STATUSES))
-        ).all()
-        count = len(n)
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    return f"DMG Scout MCP connector is live. {count} active projects on the board as of {now}."
+import app.mcp_tools  # noqa: E402,F401 — registers the eight tools via @mcp.tool; see that module
 
 
 @mcp.custom_route("/login", methods=["GET"])

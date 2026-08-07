@@ -149,7 +149,10 @@ def test_garbage_token_is_rejected(mcp_client):
     assert r.status_code == 401
 
 
-def test_scout_status_tool_reports_real_project_count(mcp_client, db_session):
+def test_board_summary_tool_reports_real_project_count(mcp_client, db_session):
+    """One real tool call through the full OAuth + transport stack, not just a
+    direct function call — tests/test_mcp_tools.py covers each tool's query
+    logic in isolation; this proves the wiring between them actually works."""
     from app.manual import add_manual_signal
     from app.pipeline.resolve import run_resolve
 
@@ -170,7 +173,7 @@ def test_scout_status_tool_reports_real_project_count(mcp_client, db_session):
                     headers=headers)
 
     r = mcp_client.post("/mcp", json={"jsonrpc": "2.0", "method": "tools/call", "id": 2,
-                                     "params": {"name": "scout_status", "arguments": {}}},
+                                     "params": {"name": "board_summary", "arguments": {}}},
                         headers=headers)
     assert r.status_code == 200
     assert "1 active projects" in r.text
