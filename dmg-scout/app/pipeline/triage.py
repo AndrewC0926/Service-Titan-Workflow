@@ -26,8 +26,13 @@ def run_triage(session: Session, cfg: Config, limit: int = 200) -> dict:
         .limit(limit)
     ).all()
 
-    stats = {"data_center": 0, "industrial": 0, "irrelevant": 0, "error": 0, "skipped": 0,
-             "irrelevant_partial_read": 0}
+    # Keyed off the enum, not a hand-written list. The literal version raised
+    # KeyError the moment `esco` was added — a stage that crashes on a category it
+    # was just taught to produce, mid-run, after the LLM call was already paid
+    # for. Any future category is counted without touching this line.
+    stats = {c.value: 0 for c in Category if c is not Category.other}
+    stats.update({"irrelevant": 0, "error": 0, "skipped": 0,
+                  "irrelevant_partial_read": 0})
     for doc in pending:
         if doc.meta.get("skip_triage"):
             doc.triage_result = TriageResult.relevant

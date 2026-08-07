@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Outreach{% endblock %}
+{% block sheet_no %}S-11{% endblock %}
+{% block content %}
+
+<div class="sec-head">
+  <div class="sec-title">Call list — what is owed, what went quiet, what was never touched</div>
+  <span class="note">The board ranks opportunities; this ranks the next call</span>
+</div>
+
+{% macro rows(items, show_due) %}
+<table class="tbl mb-4">
+<colgroup><col style="width:22rem"><col style="width:16rem"><col style="width:8rem">
+  <col style="width:7rem"><col></colgroup>
+<thead><tr>
+  <th>Project</th><th>Who to call</th><th class="num">{{ 'Due' if show_due else 'Last touch' }}</th>
+  <th class="num">Score</th><th>{{ 'Promised' if show_due else 'Last note' }}</th>
+</tr></thead>
+<tbody>
+{% for r in items %}
+<tr>
+  <td><a href="/project/{{ r.p.id }}" class="clamp2" title="{{ r.p.name }}">{{ r.p.name }}</a>
+    <div class="note">{{ r.p.county or '?' }}{{ ', ' + r.p.state if r.p.state }} ·
+      {{ r.p.window.value.replace('_','-') }}</div>
+  </td>
+  <td>
+    {%- if r.who -%}
+      <span class="mono">{{ r.who.phone or r.who.email }}</span>
+      <div class="note">{{ r.who.name }}{% if r.who.title %}, {{ r.who.title }}{% endif %}</div>
+    {%- else -%}<span class="stamp stamp-quiet">No one</span>{%- endif -%}
+  </td>
+  <td class="num mono nowrap">
+    {%- if show_due -%}
+      {%- if r.overdue_by > 0 -%}<span class="bad">{{ r.overdue_by }}d over</span>
+      {%- elif r.overdue_by == 0 -%}<span class="warn">today</span>
+      {%- else -%}in {{ -r.overdue_by }}d{%- endif -%}
+    {%- else -%}{{ r.days }}d{%- endif -%}
+  </td>
+  <td class="num mono">{{ '%.2f'|format(r.p.score) }}</td>
+  <td>
+    {%- if show_due -%}{{ r.o.next_action }}
+    {%- else -%}<span class="note">{{ (r.o.notes or '—')[:80] }}</span>{%- endif -%}
+    {%- if r.contact %}<div class="note">with {{ r.contact.name }}</div>{% endif -%}
+  </td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% endmacro %}
+
+{# Promises first. A commitment with a date on it outranks a higher-scoring row
+   nobody agreed to anything about. #}
+<div class="sec-head"><div class="sec-title">Promised — {{ due | length }}</div></div>
+{% if due %}{{ rows(due, true) }}
+{% else %}<p class="note mb-4">Nothing with a next action and a date. Log one from a
+  project page when you finish a call — a promise with no date is not a commitment.</p>{% endif %}
+
+<div class="sec-head"><div class="sec-title">Worked, then quiet — {{ cold | length }}</div></div>
+{% if cold %}{{ rows(cold, false) }}
+{% else %}<p class="note mb-4">No open conversations without a next action.</p>{% endif %}
+
+<div class="sec-head">
+  <div class="sec-title">Never touched, callable — {{ n_untouched }}</div>
+  {% if n_untouched > 50 %}<span class="note">showing the top 50 by score</span>{% endif %}
+</div>
+{# Rows with nobody reachable are deliberately absent: no contact method means no
+   call to make, so listing them here would imply a duty that cannot be
+   discharged. They are counted on the board as Research. #}
+{% if untouched %}{{ rows(untouched, false) }}
+{% else %}<p class="note">Every callable row has been touched at least once.</p>{% endif %}
+{% endblock %}

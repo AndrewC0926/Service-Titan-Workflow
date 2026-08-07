@@ -1,65 +1,166 @@
 {% extends "base.html" %}
-{% block title %}Board{% endblock %}
+{% block title %}{% if is_watchlist %}Watch list{% else %}Board{% endif %}{% endblock %}
+{% block sheet_no %}{% if is_watchlist %}S-02{% else %}S-01{% endif %}{% endblock %}
 {% block content %}
+
+{# ── Statements about whether the sheet below can be trusted. Nothing else goes
+     in a callout. If one is on screen, something under it is not safe to act on. #}
 {% if completeness is defined and completeness and not completeness.complete %}
-<div style="border:1px solid #e0c341;color:#e0c341;padding:10px 14px;margin-bottom:12px">
-  ⚠ BOARD IS INCOMPLETE — do not treat this ranking as the full market.
-  {% if completeness.pending_triage %}{{ completeness.pending_triage }} documents awaiting triage. {% endif %}
-  {% if completeness.pending_extract %}{{ completeness.pending_extract }} relevant documents awaiting extraction. {% endif %}
-  {% if completeness.unresolved_signals %}{{ completeness.unresolved_signals }} signals not yet resolved to projects. {% endif %}
-  {% for bf in completeness.incomplete_backfills %}
-  Backfill {{ bf.source }} (since {{ bf.since }}): {{ bf.done }}/{{ bf.expected }} chunks done.
-  {% endfor %}
-  Likely cause: daily LLM budget cap mid-corpus — run <span class="mono">scout triage / scout extract / scout resolve</span> tomorrow or raise the cap.
+<div class="callout callout-warn">
+  <strong>Board is incomplete — this is not the full market</strong>
+  <span class="body">
+    {% if completeness.pending_triage %}{{ completeness.pending_triage }} documents awaiting triage.{% endif %}
+    {% if completeness.pending_extract %} {{ completeness.pending_extract }} relevant documents awaiting extraction.{% endif %}
+    {% if completeness.unresolved_signals %} {{ completeness.unresolved_signals }} signals not yet resolved to projects.{% endif %}
+    {% for bf in completeness.incomplete_backfills %}
+      Backfill {{ bf.source }} since {{ bf.since }}: {{ bf.done }}/{{ bf.expected }} chunks.
+    {% endfor %}
+    Run <span class="mono">scout triage</span> → <span class="mono">scout extract</span> → <span class="mono">scout resolve</span>.
+  </span>
 </div>
 {% endif %}
+
 {% if projects and not has_pre_bod and not is_watchlist %}
-<div style="border:1px solid var(--bad);color:var(--bad);padding:10px 14px;margin-bottom:12px">
-  ⚠ ZERO PRE-BOD PROJECTS ON THE BOARD. Everything here is already in or past
-  basis of design — the early-signal pipeline is not surfacing winnable work.
-  Check Source Health and whether CEQAnet NOP / GOED fetches are running.
+<div class="callout callout-bad">
+  <strong>Zero pre-BOD projects</strong>
+  <span class="body">Everything here is already in or past basis of design, so the early-signal
+    pipeline is not surfacing winnable work. Check Source health and whether the CEQAnet NOP
+    and GOED fetches are running.</span>
 </div>
 {% endif %}
-{% if not is_watchlist and cat_counts is defined %}
-<div style="margin-bottom:10px;font-size:12px">
-  {% for key, label in [('data_center','Data centers'), ('industrial','Industrial'), ('all','All')] %}
-  {% set sel = (category or 'data_center') == key %}
-  <a href="/?category={{ key }}" style="display:inline-block;padding:4px 10px;margin-right:4px;
-     border:1px solid {% if sel %}var(--accent,#6ea8fe){% else %}#333{% endif %};
-     color:{% if sel %}var(--accent,#6ea8fe){% else %}inherit{% endif %};
-     text-decoration:none">{{ label }}{% if key != 'all' %} ({{ cat_counts.get(key, 0) }}){% endif %}</a>
+
+<div class="sec-head">
+  <div>
+    <div class="sec-title">
+      {% if is_watchlist %}Watch list — outside territory{% else %}Opportunity register — ranked by winnability{% endif %}
+    </div>
+  </div>
+  <a class="note" href="/export/board.csv?{% if is_watchlist %}watchlist=true{% else %}category={{ category or 'data_center' }}{% endif %}">Export CSV ↓</a>
+</div>
+
+{# ── Summary strip. The two numbers that decide whether this is a product or a
+     reading list: how many rows exist, and how many of them a rep can dial. #}
+<div class="kv mb-3">
+  <div><div class="k">Projects</div><div class="v">{{ '{:,}'.format(summary.n) }}</div></div>
+  <div>
+    <div class="k">Callable today</div>
+    <div class="v">{{ summary.callable }}
+      <span class="note">/ {{ summary.n }}{% if summary.n %} · {{ (100 * summary.callable / summary.n)|round|int }}%{% endif %}</span>
+    </div>
+  </div>
+  <div><div class="k">Name only</div><div class="v">{{ summary.name_only }}</div></div>
+  <div><div class="k">Nobody named</div><div class="v">{{ summary.no_one }}</div></div>
+  <div>
+    <div class="k">Sized tonnage</div>
+    <div class="v">{{ '{:,.0f}'.format(summary.tons_low) }}–{{ '{:,.0f}'.format(summary.tons_high) }}
+      <span class="note">across {{ summary.sized }} sized</span>
+    </div>
+  </div>
+  {% for w, label in [('PRE_BOD','Pre-BOD'), ('IN_BOD','In BOD'), ('POST_BOD','Post-BOD')] %}
+  <div><div class="k">{{ label }}</div><div class="v">{{ summary.windows.get(w, 0) }}</div></div>
   {% endfor %}
-  <span style="color:#888;margin-left:8px">
-    Industrial is sized from floor area by rule of thumb, not from IT load — treat its
-    tonnage as a ranking aid, not a takeoff.</span>
+</div>
+
+{% if not is_watchlist and cat_counts is defined %}
+<div class="mb-2 flex flex-wrap items-center gap-1.5">
+  {# "Both boards", not "All": esco is a retrofit procurement with no tonnage and
+     no bid date, so it is reachable under its own chip rather than mixed into a
+     ranking of new construction it is not competing in. #}
+  {% for key, label in [('data_center','Data centers'), ('industrial','Industrial'),
+                        ('all','Both boards'), ('esco','ESCO retrofit')] %}
+  {% set sel = (category or 'data_center') == key %}
+  <a href="/?category={{ key }}" class="chip" aria-pressed="{{ 'true' if sel else 'false' }}">{{ label }}{% if key != 'all' %}<span class="ct">{{ cat_counts.get(key, 0) }}</span>{% endif %}</a>
+  {% endfor %}
+  <span class="note ml-1">
+    {%- if category == 'esco' -%}
+      Energy services performance contracts on existing public buildings. No tonnage:
+      the value here is that the ESCO selects the equipment.
+    {%- else -%}
+      Industrial tonnage is sized from floor area by rule of thumb, not from IT
+      load — a ranking aid, not a takeoff.
+    {%- endif -%}
+  </span>
 </div>
 {% endif %}
-<h2>{% if is_watchlist %}Watch list — outside my territory{% else %}Projects — ranked by winnability{% endif %}
-  <a href="/export/board.csv?{% if is_watchlist %}watchlist=true{% else %}category={{ category or 'data_center' }}{% endif %}" style="float:right;font-size:11px">⬇ CSV</a></h2>
-<table>
+
+<table class="tbl">
+{# Widths declared once. See .tbl in app.css for why this is not left to auto. #}
+<colgroup>
+  <col style="width:2.6rem"><col style="width:20rem"><col style="width:13rem">
+  <col style="width:9.5rem"><col style="width:9.5rem"><col style="width:6.5rem">
+  <col style="width:6rem"><col style="width:7.5rem"><col style="width:4.5rem">
+  <col style="width:5rem"><col>
+</colgroup>
 <thead><tr>
-  <th>#</th><th>Project</th><th>Developer</th><th>County</th>
-  <th class="num">Est. tons</th><th>Stage</th><th>Window</th>
-  <th class="num">Score</th><th class="num">Days to bid</th>
-  <th class="num">Last signal</th><th>Next action</th>
+  <th class="num">#</th>
+  <th>Project</th>
+  <th>Developer</th>
+  <th>County</th>
+  <th class="num">Est. tons</th>
+  <th>Stage</th>
+  <th class="num">Stage age</th>
+  <th>Window</th>
+  <th class="num">Score</th>
+  <th class="num">To bid</th>
+  <th class="num">Last sig.</th>
+  <th>Who to call</th>
 </tr></thead>
 <tbody>
 {% for p in projects %}
+{% set c = contacts.get(p.id) %}
 <tr>
-  <td class="num dim">{{ loop.index }}</td>
-  <td><a href="/project/{{ p.id }}">{{ p.name }}</a></td>
-  <td>{{ p.developer or '—' }}</td>
-  <td>{{ p.county or '?' }}{{ ', ' + p.state if p.state }}</td>
-  <td class="num">{% if p.tons_estimate_low %}{{ '{:,.0f}'.format(p.tons_estimate_low) }}–{{ '{:,.0f}'.format(p.tons_estimate_high) }}{% if p.estimate_low_confidence %} <span class="bad" title="sized from square footage only">⚠ LOW CONF</span>{% endif %}{% else %}<span class="dim">—</span>{% endif %}</td>
-  <td>{{ p.stage.value }}</td>
-  <td><span class="tag {{ p.window.value }}">{{ p.window.value }}</span></td>
-  <td class="num"><span class="scorechip" style="background:{{ score_color(p.score) }}">{{ '%.2f'|format(p.score) }}</span></td>
+  <td class="num idx">{{ loop.index }}</td>
+  <td><a href="/project/{{ p.id }}" class="clamp2" title="{{ p.name }}">{{ p.name }}</a></td>
+  <td><span class="clip" title="{{ p.developer or '' }}">{{ p.developer or '—' }}</span></td>
+  <td class="nowrap">{{ p.county or '?' }}{{ ', ' + p.state if p.state }}</td>
+  <td class="num nowrap">
+    {%- if p.tons_estimate_low -%}
+      {{ '{:,.0f}'.format(p.tons_estimate_low) }}–{{ '{:,.0f}'.format(p.tons_estimate_high) }}
+      {%- if p.estimate_low_confidence %}&nbsp;<span class="caveat" title="Sized from floor area only — no stated IT load. Ranking aid, not a takeoff.">fa</span>{% endif -%}
+    {%- else -%}<span class="note">—</span>{%- endif -%}
+  </td>
+  <td class="nowrap">{{ p.stage.value }}</td>
+  {# Age of the EVIDENCE for the stage, not of the row. Over the threshold the
+     stage is a claim nobody has confirmed in a year, and the bid-date estimate
+     beside it inherits that. #}
+  {%- set age = stage_ages.get(p.id) -%}
+  <td class="num nowrap">
+    {%- if age and age.unverified(stale_months) -%}
+      <span class="stamp stamp-post" title="Stage last evidenced {{ age.observed_at.strftime('%Y-%m-%d') if age.observed_at else 'never' }}{% if age and not age.dated_from_event %} (dated from when the signal was recorded — the filing stated no event date){% endif %}. Older than {{ stale_months }} months, so treat the stage and the bid date as unverified.">{{ age.label }}</span>
+    {%- elif age -%}
+      <span class="mono" title="Stage last evidenced {{ age.observed_at.strftime('%Y-%m-%d') if age.observed_at else '?' }}">{{ age.label }}</span>
+    {%- else -%}<span class="note">—</span>{%- endif -%}
+  </td>
+  <td>
+    {%- set w = p.window.value -%}
+    <span class="stamp {{ 'stamp-pre' if w=='PRE_BOD' else 'stamp-in' if w=='IN_BOD' else 'stamp-post' }}">{{ w.replace('_','-') }}</span>
+  </td>
+  <td class="num">
+    <span class="score">
+      <span class="val">{{ '%.2f'|format(p.score) }}</span>
+      <span class="bar" aria-hidden="true"><i style="width:{{ (100 * p.score / score_max)|round(1) }}%"></i></span>
+    </span>
+  </td>
   <td class="num">{{ p.days_to_estimated_bid if p.days_to_estimated_bid is not none else '—' }}</td>
   <td class="num">{% if days_since[p.id] is not none %}{{ days_since[p.id] }}d{% else %}—{% endif %}</td>
-  <td>{{ p.next_action or '' }}</td>
+  {# The column the charter exists for. A name with no phone and no email is a
+     research task, not a call, and it is labelled as one rather than counted as
+     coverage. #}
+  <td>
+    {%- if c -%}
+      <span class="clip max-w-none" title="{{ c.name }}{% if c.title %}, {{ c.title }}{% endif %}{% if c.company %} ({{ c.company }}){% endif %}">
+        <span class="mono">{{ c.phone or c.email }}</span>
+        <span class="note">· {{ c.name }}</span>
+      </span>
+    {%- elif contact_statuses.get(p.id) == 'name_only' -%}
+      <span class="stamp stamp-quiet" title="A name with no phone and no email is a research task, not a call">Research</span>
+    {%- else -%}
+      <span class="stamp stamp-quiet">No one</span>
+    {%- endif -%}
+  </td>
 </tr>
 {% else %}
-<tr><td colspan="11" class="dim">No projects yet. Run the pipeline: <span class="mono">scout pipeline</span></td></tr>
+<tr><td colspan="11" class="note">No projects yet. Run <span class="mono">scout pipeline</span>.</td></tr>
 {% endfor %}
 </tbody>
 </table>

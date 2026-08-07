@@ -31,9 +31,21 @@ def fetch(source: str = typer.Option(None, help="Run one source only")) -> None:
     cfg = load_config()
     with session_scope() as session:
         runs = run_fetch(session, cfg, only_source=source)
-    for name, run in runs.items():
-        status = "ok" if run.ok else f"FAILED: {(run.error or '').splitlines()[0]}"
-        typer.echo(f"{name}: fetched={run.records_fetched} new={run.records_new} {status}")
+        # Rendered INSIDE the session. These are ORM instances, and the commit on
+        # scope exit expires them, so reading run.ok out here raised
+        # DetachedInstanceError — after every source had already fetched and
+        # committed successfully. The damage is not the traceback: `scout
+        # pipeline` catches per-step exceptions and counts them, so a completely
+        # successful fetch was about to be reported as a failed pipeline step on
+        # every nightly cron run.
+        lines = []
+        for name, run in runs.items():
+            first = (run.error or "").splitlines()
+            status = "ok" if run.ok else f"FAILED: {first[0] if first else 'no error recorded'}"
+            lines.append(f"{name}: fetched={run.records_fetched} "
+                         f"new={run.records_new} {status}")
+    for line in lines:
+        typer.echo(line)
 
 
 @app.command()
@@ -45,6 +57,7 @@ def triage(limit: int = 200) -> None:
     with run_budget("triage"), session_scope() as session:
         stats = run_triage(session, cfg, limit=limit)
     typer.echo(json.dumps(stats))
+    _fail_if_all_errored("triage", stats, "error")
 
 
 @app.command()
@@ -56,6 +69,31 @@ def extract(limit: int = 100) -> None:
     with run_budget("extract"), session_scope() as session:
         stats = run_extract(session, cfg, limit=limit)
     typer.echo(json.dumps(stats))
+    _fail_if_all_errored("extract", stats, "errors")
+
+
+def _fail_if_all_errored(stage: str, stats: dict, error_key: str) -> None:
+    """A stage that got nothing done must not exit 0. Invariant 1, applied to LLM
+    stages rather than to sources.
+
+    Observed on 2026-08-06: `scout triage` errored on all 80 pending documents
+    (the Anthropic account was out of credit), printed
+    `{"error": 80, ...}` and exited 0. Nothing downstream can tell that apart from
+    a clean run over an empty queue — `scout pipeline` would have marched straight
+    on to extract, resolve and notify, and the cron would have gone green on a
+    night when the pipeline did no work at all.
+
+    Deliberately narrow: SOME errors are normal and stay quiet at this level. Only
+    a run that did work and got nothing but errors fails.
+    """
+    errors = stats.get(error_key, 0)
+    done = sum(v for k, v in stats.items()
+               if k not in (error_key, "skipped") and isinstance(v, int))
+    if errors and not done:
+        typer.echo(f"[FAIL] {stage}: {errors} attempted, {errors} errored, 0 succeeded — "
+                   f"the stage did no work. Check `scout doctor` for the LLM account "
+                   f"and budget before re-running.", err=True)
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -422,6 +460,49 @@ def ladder() -> None:
             typer.echo(f"  [{mark[row['contact_status']]}][{rung}] "
                        f"{row['project'][:40]:40s} {row['window']:8s} "
                        f"{row['score']:5.2f}  {row['best_name'] or 'NO CONTACT'}{reach}")
+
+
+@app.command("validate-estimate")
+def validate_estimate_cmd(
+    since: str = typer.Option(..., help="YYYY-MM-DD[THH:MM] start of the spend window"),
+    until: str = typer.Option(..., help="YYYY-MM-DD[THH:MM] end of the spend window"),
+    source: list[str] = typer.Option(None, "--source", "-s",
+                                     help="Restrict the corpus to these sources"),
+) -> None:
+    """Check the cost estimator against what was actually spent (invariant 8).
+
+    Pick a window in which the documents still in the table are the documents
+    that window paid for — a purge and re-backfill in between makes the
+    comparison meaningless, and the report says so rather than quietly averaging
+    across it. Exits 1 when the estimate is outside the Phase B tolerance.
+    """
+    from datetime import datetime as dt
+
+    from app.pipeline.backfill import validate_estimate
+
+    def parse(s: str) -> dt:
+        for fmt in ("%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+            try:
+                return dt.strptime(s, fmt)
+            except ValueError:
+                continue
+        raise typer.BadParameter(f"{s!r} is not YYYY-MM-DD or YYYY-MM-DDTHH:MM")
+
+    cfg = load_config()
+    with session_scope() as session:
+        report = validate_estimate(session, cfg, parse(since), parse(until),
+                                   sources=list(source) if source else None)
+    typer.echo(json.dumps(report, indent=2))
+    for stage, entry in report["stages"].items():
+        if isinstance(entry, dict) and entry.get("corpus_matches_calls") is False:
+            typer.echo(f"[WARN] {stage}: {entry['predicted_docs']} documents in the corpus "
+                       f"but {entry['actual_calls']} calls in the window — the window and "
+                       f"the corpus do not describe the same work, so treat the per-call "
+                       f"numbers as indicative only.", err=True)
+    if not report["gate_passed"]:
+        typer.echo(f"[FAIL] estimator outside the {report['tolerance_pct']:.0f}% gate", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"[OK] estimator within {report['tolerance_pct']:.0f}% on every checked term")
 
 
 @app.command()

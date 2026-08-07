@@ -31,7 +31,8 @@ from app.config import Config
 from app.http import PoliteClient
 from app.models import SignalType, utcnow
 from app.sources.base import (
-    FetchedDoc, SourceAdapter, SourceFailure, TargetResult, fanout_verify, keyword_match,
+    FetchedDoc, SourceAdapter, SourceFailure, TargetResult, fanout_verify, keyword_category,
+    keyword_match,
 )
 
 log = logging.getLogger(__name__)
@@ -96,6 +97,10 @@ class LegistarAdapter(SourceAdapter):
                 f"Body: {body_name}\nJurisdiction: {label}")
         if not keyword_match(text, cfg):
             return None
+        # Which list matched, recorded on the document. An ESCO award is a
+        # retrofit signal and neither existing board describes it, so without this
+        # tag the only way to find one later is to re-read every agenda item.
+        matched = keyword_category(text, cfg)
         mid = m.get("MatterId")
         intro = m.get("MatterIntroDate") or m.get("MatterLastModifiedUtc") or ""
         published = None
@@ -111,7 +116,8 @@ class LegistarAdapter(SourceAdapter):
             raw_text=text,
             published_at=published,
             meta={"client": slug, "jurisdiction": label,
-                  "matter_type": m.get("MatterTypeName"), "file_no": m.get("MatterFile")},
+                  "matter_type": m.get("MatterTypeName"), "file_no": m.get("MatterFile"),
+                  "keyword_category": matched},
             default_signal_type=SignalType.planning_agenda,
         )
 

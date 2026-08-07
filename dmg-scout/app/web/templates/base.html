@@ -4,79 +4,77 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DMG SCOUT — {% block title %}{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
 <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
-<style>
-:root{
-  --bg:#0d1117; --panel:#141a22; --line:#2a3442; --ink:#c9d4e0; --dim:#7c8a99;
-  --accent:#4aa3ff; --ok:#3fbf6f; --bad:#ff5d5d;
-}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);
-  font:14px/1.45 "Segoe UI",system-ui,sans-serif}
-.mono,td.num,.num{font-family:"SFMono-Regular",Consolas,Menlo,monospace;font-variant-numeric:tabular-nums}
-a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
-
-/* Drawing-style title block */
-.titleblock{display:flex;flex-wrap:wrap;border:2px solid var(--line);margin:10px;background:var(--panel)}
-.titleblock .cell{padding:6px 14px;border-right:1px solid var(--line);min-width:110px}
-.titleblock .cell .lbl{font-size:10px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase}
-.titleblock .cell .val{font-family:Consolas,Menlo,monospace;font-size:15px}
-.titleblock .brand{font-size:19px;font-weight:700;letter-spacing:.18em;padding:8px 18px;
-  border-right:2px solid var(--line);display:flex;align-items:center}
-.titleblock .brand small{color:var(--dim);font-weight:400;letter-spacing:.05em;margin-left:10px;font-size:11px}
-
-nav{display:flex;gap:2px;margin:0 10px;flex-wrap:wrap}
-nav a{padding:7px 16px;border:1px solid var(--line);border-bottom:none;background:var(--panel);
-  color:var(--dim);font-size:12px;letter-spacing:.1em;text-transform:uppercase}
-nav a.on{color:var(--ink);background:var(--bg);border-color:var(--accent)}
-nav a .badge{background:var(--bad);color:#fff;border-radius:8px;padding:0 6px;font-size:10px}
-
-main{margin:10px;border:1px solid var(--line);background:var(--panel);padding:12px;overflow-x:auto}
-h2{font-size:13px;letter-spacing:.15em;text-transform:uppercase;color:var(--dim);
-  border-bottom:1px solid var(--line);padding-bottom:6px}
-table{border-collapse:collapse;width:100%;font-size:13px}
-th{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);
-  text-align:left;padding:6px 8px;border-bottom:2px solid var(--line);white-space:nowrap}
-td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
-td.num{text-align:right;white-space:nowrap}
-tr:hover td{background:#1a2230}
-.scorechip{display:inline-block;min-width:52px;text-align:center;padding:2px 7px;border-radius:2px;
-  color:#08101c;font-weight:700;font-family:Consolas,monospace}
-.tag{border:1px solid var(--line);padding:1px 7px;font-size:11px;border-radius:2px;color:var(--dim)}
-.tag.PRE_BOD{color:var(--ok);border-color:var(--ok)}
-.tag.IN_BOD{color:#e0c341;border-color:#e0c341}
-.tag.POST_BOD,.tag.OPERATING{color:var(--bad);border-color:var(--bad)}
-.ok{color:var(--ok)} .bad{color:var(--bad)} .dim{color:var(--dim)}
-input,select,textarea{background:#0a0f16;color:var(--ink);border:1px solid var(--line);
-  padding:6px 8px;font:inherit;width:100%}
-textarea{font-family:Consolas,monospace;min-height:90px}
-button{background:var(--accent);color:#08101c;border:none;padding:7px 16px;font-weight:700;
-  cursor:pointer;letter-spacing:.05em}
-button.warn{background:var(--bad)}
-form.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
-.resolved{color:var(--ok);font-weight:700}
-@media(max-width:700px){.titleblock .cell{min-width:33%}}
-</style>
+<script>
+// Theme resolves before first paint so the sheet never flashes white then dark.
+(function () {
+  var saved = localStorage.getItem('scout-theme');
+  var dark = saved ? saved === 'dark'
+                   : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+})();
+</script>
 </head>
 <body>
-<div class="titleblock">
-  <div class="brand">DMG&nbsp;SCOUT<small>DATA CENTER PROJECT INTELLIGENCE — SUBMITTAL REV 0.1</small></div>
-  <div class="cell"><div class="lbl">Data as of</div>
-    <div class="val">{{ tb.data_as_of.strftime('%Y-%m-%d %H:%M') if tb.data_as_of else '—' }}</div></div>
-  <div class="cell"><div class="lbl">Projects</div><div class="val">{{ tb.record_count }}</div></div>
-  <div class="cell"><div class="lbl">Signals</div><div class="val">{{ tb.signal_count }}</div></div>
-  <div class="cell"><div class="lbl">Documents</div><div class="val">{{ tb.doc_count }}</div></div>
-  <div class="cell"><div class="lbl">Printed</div><div class="val">{{ now().strftime('%Y-%m-%d %H:%M') }}Z</div></div>
+
+<div class="p-2.5">
+  {# TITLE BLOCK — what this is, when it was true, how much of it there is.
+     First on the sheet because "data as of" is the question to ask before acting
+     on any row below it. #}
+  <div class="sheet titleblock">
+    <div class="tb-brand">
+      DMG&nbsp;SCOUT
+      <span class="note tracking-normal normal-case">Mechanical opportunity register</span>
+    </div>
+    <div class="tb-cell">
+      <div class="tb-lbl">Data as of</div>
+      <div class="tb-val">{{ tb.data_as_of.strftime('%Y-%m-%d %H:%M') if tb.data_as_of else '—' }}</div>
+    </div>
+    <div class="tb-cell"><div class="tb-lbl">Projects</div><div class="tb-val">{{ '{:,}'.format(tb.record_count) }}</div></div>
+    <div class="tb-cell"><div class="tb-lbl">Signals</div><div class="tb-val">{{ '{:,}'.format(tb.signal_count) }}</div></div>
+    <div class="tb-cell"><div class="tb-lbl">Documents</div><div class="tb-val">{{ '{:,}'.format(tb.doc_count) }}</div></div>
+    <div class="tb-cell"><div class="tb-lbl">Sheet</div><div class="tb-val">{% block sheet_no %}—{% endblock %}</div></div>
+    <div class="tb-cell"><div class="tb-lbl">Printed</div><div class="tb-val">{{ now().strftime('%Y-%m-%d %H:%M') }}Z</div></div>
+    <div class="tb-cell ml-auto border-r-0">
+      <div class="tb-lbl">Sheet tone</div>
+      <button type="button" onclick="toggleTheme()"
+              class="tb-val cursor-pointer bg-transparent border-0 p-0 text-[color:var(--color-blueprint)]"
+              id="theme-btn">—</button>
+    </div>
+  </div>
+
+  {# SHEET TABS #}
+  <nav class="tabs mt-2.5" aria-label="Sheets">
+    <a href="/" class="tab" {% if active=='board' %}aria-current="page"{% endif %}>Board</a>
+    <a href="/watchlist" class="tab" {% if active=='watchlist' %}aria-current="page"{% endif %}>Watch list{% if watch_count %} <span class="tab-badge">{{ watch_count }}</span>{% endif %}</a>
+    <a href="/review" class="tab" {% if active=='review' %}aria-current="page"{% endif %}>Review queue{% if review_count %} <span class="tab-badge">{{ review_count }}</span>{% endif %}</a>
+    <a href="/ask" class="tab" {% if active=='ask' %}aria-current="page"{% endif %}>Ask</a>
+    <a href="/searches" class="tab" {% if active=='searches' %}aria-current="page"{% endif %}>Saved searches</a>
+    <a href="/outreach" class="tab" {% if active=="outreach" %}aria-current="page"{% endif %}>Outreach</a>
+    <a href="/firms" class="tab" {% if active=='firms' %}aria-current="page"{% endif %}>Firms</a>
+    <a href="/contacts" class="tab" {% if active=='contacts' %}aria-current="page"{% endif %}>Contacts</a>
+    <a href="/map" class="tab" {% if active=='map' %}aria-current="page"{% endif %}>Map</a>
+    <a href="/health" class="tab" {% if active=='health' %}aria-current="page"{% endif %}>Source health</a>
+    <a href="/add-signal" class="tab" {% if active=='add' %}aria-current="page"{% endif %}>+ Signal</a>
+  </nav>
+
+  <main class="sheet border-t-2 p-3 overflow-x-auto">{% block content %}{% endblock %}</main>
 </div>
-<nav>
-  <a href="/" class="{{ 'on' if active=='board' }}">Board</a>
-  <a href="/watchlist" class="{{ 'on' if active=='watchlist' }}">Watch List{% if watch_count %} <span class="badge">{{ watch_count }}</span>{% endif %}</a>
-  <a href="/review" class="{{ 'on' if active=='review' }}">Review Queue{% if review_count %} <span class="badge">{{ review_count }}</span>{% endif %}</a>
-  <a href="/contacts" class="{{ 'on' if active=='contacts' }}">Contacts</a>
-  <a href="/map" class="{{ 'on' if active=='map' }}">Map</a>
-  <a href="/health" class="{{ 'on' if active=='health' }}">Source Health</a>
-  <a href="/add-signal" class="{{ 'on' if active=='add' }}">+ Signal</a>
-</nav>
-<main>{% block content %}{% endblock %}</main>
+
+<script>
+function toggleTheme() {
+  var root = document.documentElement;
+  var next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+  root.dataset.theme = next;
+  localStorage.setItem('scout-theme', next);
+  paintThemeBtn();
+}
+function paintThemeBtn() {
+  var b = document.getElementById('theme-btn');
+  if (b) b.textContent = document.documentElement.dataset.theme === 'dark' ? 'DARK' : 'BOND';
+}
+paintThemeBtn();
+</script>
 </body>
 </html>

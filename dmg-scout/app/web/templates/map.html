@@ -1,21 +1,119 @@
 {% extends "base.html" %}
 {% block title %}Map{% endblock %}
+{% block sheet_no %}S-06{% endblock %}
 {% block content %}
-<h2>Projects — colored by score (cold → hot)</h2>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<div id="map" style="height:72vh;border:1px solid var(--line)"></div>
+
+<div class="sec-head">
+  <div class="sec-title">Territory map — what is near me</div>
+  <div class="flex gap-2 items-center">
+    <button type="button" id="near-btn">Find projects near me</button>
+    <a class="note" href="/">← Board</a>
+  </div>
+</div>
+
+<div id="near-status" class="note mb-2"></div>
+
+{# Nearby list FIRST, map second. On a phone in a truck the question is "what is
+   near me and who do I ring", and a list answers that with one thumb; the map is
+   orientation. On desktop they sit side by side. #}
+<div class="grid gap-3" style="grid-template-columns:repeat(auto-fit,minmax(20rem,1fr))">
+  <div id="near-panel" class="sheet p-3 hidden">
+    <div class="tb-lbl mb-2">Nearest projects</div>
+    <div id="near-list"></div>
+  </div>
+  <div class="sheet" style="min-height:60vh">
+    <div id="map" style="height:60vh"></div>
+  </div>
+</div>
+
+{% if not markers %}
+<p class="note mt-3">No geocoded projects yet — coordinates come from extraction.</p>
+{% endif %}
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const markers = {{ markers | tojson }};
+const MARKERS = {{ markers | tojson }};
+const dark = () => document.documentElement.dataset.theme === 'dark';
+
 const map = L.map('map').setView([35.5, -117.0], 6);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-  {attribution: '&copy; OpenStreetMap contributors'}).addTo(map);
-for (const m of markers) {
-  L.circleMarker([m.lat, m.lon], {radius: 9, color: m.color, fillColor: m.color, fillOpacity: 0.75})
-    .addTo(map)
-    .bindPopup(`<b><a href="/project/${m.id}">${m.name}</a></b><br>score ${m.score.toFixed(2)} · ${m.tons} tons`);
+  {attribution: '&copy; OpenStreetMap', maxZoom: 18}).addTo(map);
+
+// Marker size encodes score, not colour. Same reasoning as the board's score bar:
+// a hue ramp over a narrow score range discriminates nothing and reads as a
+// traffic light. Radius is legible on a phone in daylight; a colour ramp is not.
+const scores = MARKERS.map(m => m.score);
+const maxScore = Math.max(1e-6, ...scores);
+const ink = () => dark() ? '#6ea8ff' : '#1b4c8c';
+
+function popup(m) {
+  const tons = m.tons ? `${m.tons} tons` : 'size unknown';
+  const who = m.reach
+    ? `<br><b>${m.reach}</b> &middot; ${m.who}`
+    : '<br><span style="opacity:.7">nobody to call yet</span>';
+  return `<b><a href="/project/${m.id}">${m.name}</a></b><br>`
+       + `${m.county}, ${m.state} &middot; ${m.window.replace('_','-')}<br>`
+       + `${tons} &middot; score ${m.score.toFixed(2)}${who}`;
 }
-if (markers.length) map.fitBounds(markers.map(m => [m.lat, m.lon]), {padding: [40, 40]});
+
+for (const m of MARKERS) {
+  m._layer = L.circleMarker([m.lat, m.lon], {
+    radius: 5 + 9 * (m.score / maxScore),
+    color: ink(), weight: 1.5, fillColor: ink(), fillOpacity: 0.45,
+  }).addTo(map).bindPopup(popup(m));
+}
+if (MARKERS.length) map.fitBounds(MARKERS.map(m => [m.lat, m.lon]), {padding: [40, 40]});
+
+function haversineMi(a, b, c, d) {
+  const R = 3958.8, r = x => x * Math.PI / 180;
+  const dp = r(c - a), dl = r(d - b);
+  const h = Math.sin(dp/2)**2 + Math.cos(r(a)) * Math.cos(r(c)) * Math.sin(dl/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+const statusEl = document.getElementById('near-status');
+document.getElementById('near-btn').addEventListener('click', () => {
+  if (!navigator.geolocation) {
+    statusEl.textContent = 'This browser will not share a location.';
+    return;
+  }
+  statusEl.textContent = 'Asking for your location…';
+  navigator.geolocation.getCurrentPosition(pos => {
+    const {latitude: lat, longitude: lon} = pos.coords;
+    const near = MARKERS
+      .map(m => ({...m, mi: haversineMi(lat, lon, m.lat, m.lon)}))
+      .sort((x, y) => x.mi - y.mi)
+      .slice(0, 12);
+
+    L.circleMarker([lat, lon], {radius: 7, color: '#9d2720', weight: 2,
+                                fillColor: '#9d2720', fillOpacity: 0.9})
+      .addTo(map).bindPopup('You are here');
+    map.setView([lat, lon], 9);
+
+    const panel = document.getElementById('near-panel');
+    const list = document.getElementById('near-list');
+    list.innerHTML = near.map(m => `
+      <div style="padding:.4rem 0;border-bottom:1px solid var(--color-rule)">
+        <div style="display:flex;justify-content:space-between;gap:.6rem">
+          <a href="/project/${m.id}">${m.name}</a>
+          <span class="mono" style="white-space:nowrap">${m.mi.toFixed(1)} mi</span>
+        </div>
+        <div class="note">${m.county}, ${m.state} &middot; ${m.window.replace('_','-')}
+          ${m.tons ? '&middot; ' + m.tons + ' tons' : ''}</div>
+        ${m.reach
+          ? `<div class="mono">${m.reach} <span class="note">&middot; ${m.who}</span></div>`
+          : '<div class="note">nobody to call yet</div>'}
+      </div>`).join('');
+    panel.classList.remove('hidden');
+    statusEl.textContent = `${near.length} nearest of ${MARKERS.length} geocoded projects.`;
+  }, err => {
+    // Named plainly. "Location unavailable" reads like a bug; a denied permission
+    // is a choice the person made and can undo.
+    statusEl.textContent = err.code === err.PERMISSION_DENIED
+      ? 'Location permission denied — allow it in the browser to use this.'
+      : `Could not get a location: ${err.message}`;
+  }, {enableHighAccuracy: true, timeout: 10000, maximumAge: 60000});
+});
 </script>
-{% if not markers %}<p class="dim">No geocoded projects yet — coordinates come from extraction.</p>{% endif %}
 {% endblock %}

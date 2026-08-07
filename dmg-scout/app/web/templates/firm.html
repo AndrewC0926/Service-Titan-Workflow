@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}{{ p.firm.name }}{% endblock %}
+{% block sheet_no %}S-10{% endblock %}
+{% block content %}
+
+<div class="sec-head">
+  <div>
+    <div class="sec-title">{{ p.firm.name }}</div>
+    <div class="note">{{ p.firm.firm_type }}{% if p.firm.aliases %} · also {{ p.firm.aliases | join(', ') }}{% endif %}</div>
+  </div>
+  <a class="note" href="/firms">← All firms</a>
+</div>
+
+{# The four questions a rep asks before dialling. The fourth — my history with
+   them — is the one no public dataset can answer; it comes from this system's own
+   outreach records, which is why it sits alongside the other three rather than on
+   a separate page. #}
+<div class="kv mb-4">
+  <div><div class="k">Projects</div><div class="v">{{ p.n_projects }}</div></div>
+  <div>
+    <div class="k">Tonnage on those jobs</div>
+    <div class="v">{% if p.tons_low %}{{ '{:,.0f}'.format(p.tons_low) }}–{{ '{:,.0f}'.format(p.tons_high) }}{% else %}—{% endif %}</div>
+  </div>
+  <div><div class="k">People we know</div><div class="v">{{ p.contacts | length }}</div></div>
+  <div>
+    <div class="k">Last contact</div>
+    <div class="v">
+      {%- if p.last_touch -%}{{ p.days_since_touch }}d ago
+      {%- else -%}<span class="note">never</span>{%- endif -%}
+    </div>
+  </div>
+  {% for status, n in p.outcomes.most_common() %}
+  <div><div class="k">{{ status }}</div><div class="v">{{ n }}</div></div>
+  {% endfor %}
+</div>
+
+<div class="grid gap-4 mb-4" style="grid-template-columns:repeat(auto-fit,minmax(17rem,1fr))">
+  <div class="sheet p-3">
+    <div class="tb-lbl mb-2">Role on the job</div>
+    {% for role, n in p.roles.most_common() %}
+    <div class="flex justify-between"><span>{{ role }}</span><span class="mono">{{ n }}</span></div>
+    {% else %}<span class="note">—</span>{% endfor %}
+  </div>
+  <div class="sheet p-3">
+    <div class="tb-lbl mb-2">Where they work</div>
+    {% for county, n in p.counties.most_common(6) %}
+    <div class="flex justify-between"><span>{{ county }}</span><span class="mono">{{ n }}</span></div>
+    {% else %}<span class="note">—</span>{% endfor %}
+  </div>
+  <div class="sheet p-3">
+    <div class="tb-lbl mb-2">What they build</div>
+    {% for cat, n in p.categories.most_common() %}
+    <div class="flex justify-between"><span>{{ cat }}</span><span class="mono">{{ n }}</span></div>
+    {% else %}<span class="note">—</span>{% endfor %}
+  </div>
+  <div class="sheet p-3">
+    <div class="tb-lbl mb-2">Buying window</div>
+    {% for w, n in p.windows.most_common() %}
+    <div class="flex justify-between"><span>{{ w.replace('_','-') }}</span><span class="mono">{{ n }}</span></div>
+    {% else %}<span class="note">—</span>{% endfor %}
+  </div>
+</div>
+
+<div class="sec-head"><div class="sec-title">Who they work with</div></div>
+{% if p.collaborators %}
+<table class="tbl mb-4">
+<colgroup><col style="width:28rem"><col style="width:12rem"><col style="width:10rem"><col></colgroup>
+<thead><tr><th>Firm</th><th>Their role</th><th class="num">Shared jobs</th><th></th></tr></thead>
+<tbody>
+{% for firm, n, role in p.collaborators[:15] %}
+<tr>
+  <td><a href="/firm/{{ firm.id }}">{{ firm.name }}</a></td>
+  <td class="nowrap">{{ role }}</td>
+  <td class="num mono">{{ n }}</td>
+  <td class="note">{{ firm.firm_type }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="note mb-4">No other firm has been recorded on the same projects.</p>
+{% endif %}
+
+<div class="sec-head"><div class="sec-title">My history with them</div></div>
+{% if p.outreach %}
+<table class="tbl mb-4">
+<colgroup><col style="width:8rem"><col style="width:7rem"><col style="width:22rem"><col></colgroup>
+<thead><tr><th>Date</th><th>Channel</th><th>Project</th><th>Notes</th></tr></thead>
+<tbody>
+{% for o, proj in p.outreach[:20] %}
+<tr>
+  <td class="mono nowrap">{{ o.date.strftime('%Y-%m-%d') }}</td>
+  <td>{{ o.channel }}</td>
+  <td><a href="/project/{{ proj.id }}">{{ proj.name[:40] }}</a></td>
+  <td>{{ o.notes or '' }}{% if o.next_action %}<div class="note">next: {{ o.next_action }}</div>{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+{# Counted narrowly on purpose: a call to the developer about a job this firm is
+   also on is not history with this firm. Overstating a relationship is the one
+   number here that nobody should be able to fake. #}
+<p class="note mb-4">No recorded conversation with anyone at this firm. Outreach logged
+  against a project counts here only when it names a contact who works for them.</p>
+{% endif %}
+
+<div class="sec-head"><div class="sec-title">People</div></div>
+{% if p.contacts %}
+<table class="tbl mb-4">
+<colgroup><col style="width:16rem"><col style="width:18rem"><col style="width:12rem"><col></colgroup>
+<thead><tr><th>Name</th><th>Title</th><th>Phone</th><th>Email</th></tr></thead>
+<tbody>
+{% for c in p.contacts %}
+<tr>
+  <td>{{ c.name }}</td><td>{{ c.title or '—' }}</td>
+  <td class="mono nowrap">{{ c.phone or '—' }}</td>
+  <td class="mono">{{ c.email or '—' }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="note mb-4">Nobody on file at this firm.</p>
+{% endif %}
+
+<div class="sec-head"><div class="sec-title">Projects</div></div>
+{% set projects = p.projects %}
+{% include "_project_rows.html" %}
+{% endblock %}

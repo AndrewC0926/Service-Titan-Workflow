@@ -11,12 +11,16 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.config import Config
 from app.http import PoliteClient
-from app.models import BackfillCheckpoint, SourceRun, TriageResult, RawDocument, utcnow
+from app.models import (
+    BACKFILL_RUN_MODE, BackfillCheckpoint, RawDocument, SourceRun, TokenSpend,
+    TriageResult, source_run_name, utcnow,
+)
 from app.pipeline.fetch import store_document
 from app.sources import get_adapter
 
@@ -112,7 +116,7 @@ def run_backfill(session: Session, cfg: Config, source: str, since: datetime,
     log.info("backfill %s since %s: %d chunks total, %d already done, %d to run",
              source, since.date(), len(chunks), len(chunks) - len(todo), len(todo))
 
-    run = SourceRun(source=f"{source}:backfill")
+    run = SourceRun(source=source_run_name(source, BACKFILL_RUN_MODE))
     session.add(run)
     session.commit()
     totals = {"chunks_run": 0, "chunks_skipped": len(chunks) - len(todo),
@@ -190,6 +194,132 @@ def run_backfill(session: Session, cfg: Config, source: str, since: datetime,
     return totals
 
 
+MIN_PASS_RATE_SAMPLE = 100  # below this a measured rate is noise, not a measurement
+
+# Phase B gate: an estimate must land within this of a measured actual.
+ESTIMATE_TOLERANCE = 0.10
+
+
+def validate_estimate(session: Session, cfg: Config, since: datetime, until: datetime,
+                      sources: list[str] | None = None) -> dict:
+    """Predicted vs actually-spent tokens, for a window whose corpus is known.
+
+    Invariant 8 says no estimate is trusted that has not been validated against
+    actuals, and until this existed the estimator had never been checked against
+    one. It had drifted: on 2026-08-06 it predicted triage input 10.9% under what
+    the same 673 documents actually cost.
+
+    Honest use requires a window in which the documents still in the table are
+    the documents that window paid for. That is not automatic — a purge and
+    re-backfill leaves spend behind for documents that no longer exist — so the
+    call count and the document count are both reported per stage, and a
+    mismatch between them is surfaced rather than absorbed. A validation run
+    across a purge boundary is not a measurement, and it must not read like one.
+    """
+    from app.sections import select_relevant_text, select_triage_text
+
+    cpt = cfg.get("llm.chars_per_token", 3.7)
+    ovh_t = cfg.get("llm.triage_prompt_overhead_tokens", 1087)
+    ovh_e = cfg.get("llm.extract_prompt_overhead_tokens", 1462)
+    out_t = cfg.get("llm.triage_output_tokens", 95)
+    out_e = cfg.get("llm.extract_output_tokens", 624)
+
+    actual: dict[str, dict] = {}
+    for stage, n, tin, tout, cost in session.exec(
+        select(TokenSpend.stage, func.count(TokenSpend.id),
+               func.sum(TokenSpend.input_tokens), func.sum(TokenSpend.output_tokens),
+               func.sum(TokenSpend.cost_usd))
+        .where(TokenSpend.ts >= since, TokenSpend.ts < until)
+        .group_by(TokenSpend.stage)
+    ).all():
+        actual[stage] = {"calls": n, "in": int(tin or 0), "out": int(tout or 0),
+                         "cost_usd": float(cost or 0)}
+
+    q = select(RawDocument).where(RawDocument.triage_result != TriageResult.pending)
+    if sources:
+        q = q.where(RawDocument.source.in_(sources))
+    docs = session.exec(q).all()
+    relevant = [d for d in docs if d.triage_result == TriageResult.relevant]
+
+    pred = {
+        "triage": {
+            "docs": len(docs),
+            "in": sum(select_triage_text(d.raw_text, cfg).body_chars / cpt + ovh_t
+                      for d in docs),
+            "out": len(docs) * out_t,
+        },
+        "extract": {
+            "docs": len(relevant),
+            "in": sum(select_relevant_text(d.raw_text, cfg).selected_chars / cpt + ovh_e
+                      for d in relevant),
+            "out": len(relevant) * out_e,
+        },
+    }
+
+    stages = {}
+    for stage in ("triage", "extract"):
+        a, p = actual.get(stage), pred[stage]
+        if not a:
+            stages[stage] = {"status": "no actual spend in window"}
+            continue
+        # Per-call, not per-total: the corpus and the call count need not agree
+        # (retries, a purge, a partial run), and comparing totals across that gap
+        # silently attributes the difference to the model instead of the mismatch.
+        entry = {"predicted_docs": p["docs"], "actual_calls": a["calls"]}
+        for field in ("in", "out"):
+            pc = p[field] / p["docs"] if p["docs"] else 0.0
+            ac = a[field] / a["calls"] if a["calls"] else 0.0
+            err = (pc - ac) / ac if ac else float("nan")
+            entry[f"tokens_{field}_per_call"] = {
+                "predicted": round(pc), "actual": round(ac),
+                "error_pct": round(err * 100, 1),
+                "within_tolerance": abs(err) <= ESTIMATE_TOLERANCE,
+            }
+        entry["corpus_matches_calls"] = abs(p["docs"] - a["calls"]) <= 0.02 * max(a["calls"], 1)
+        stages[stage] = entry
+
+    checked = [v for s in stages.values() if isinstance(s, dict)
+               for k, v in s.items() if k.startswith("tokens_")]
+    return {
+        "window": f"{since:%Y-%m-%d %H:%M} to {until:%Y-%m-%d %H:%M}",
+        "sources": sources or "all",
+        "tolerance_pct": ESTIMATE_TOLERANCE * 100,
+        "stages": stages,
+        "pass_rate": dict(zip(("value", "basis"), measured_pass_rate(session, cfg))),
+        "gate_passed": bool(checked) and all(c["within_tolerance"] for c in checked),
+    }
+
+
+def measured_pass_rate(session: Session, cfg: Config) -> tuple[float, str]:
+    """The share of triaged documents that go on to extraction, MEASURED.
+
+    Invariant 8 is explicit that the estimator must measure the real corpus
+    rather than carry an assumption, and this was the last hardcoded assumption
+    left in it. The config value said 0.39; the corpus on 2026-08-06 says 0.541
+    across 861 triaged documents (0.541 on the 673 CEQAnet documents alone). An
+    estimate built on 0.39 understates extraction — the expensive Sonnet stage —
+    by a third, and it understates it in the direction that gets a budget
+    approved and then overrun.
+
+    Falls back to config only when there is genuinely nothing to measure, and
+    says which happened in the returned basis string, because "estimated on 861
+    real documents" and "estimated on a number somebody typed in a YAML file"
+    must never look alike on the same report.
+    """
+    counts = dict(session.exec(
+        select(RawDocument.triage_result, func.count(RawDocument.id))
+        .where(RawDocument.triage_result != TriageResult.pending)
+        .group_by(RawDocument.triage_result)).all())
+    n_relevant = counts.get(TriageResult.relevant, 0)
+    n_judged = sum(counts.values())
+    if n_judged < MIN_PASS_RATE_SAMPLE:
+        return (cfg.get("llm.assumed_triage_pass_rate", 0.39),
+                f"config assumption (only {n_judged} triaged documents to measure, "
+                f"need {MIN_PASS_RATE_SAMPLE})")
+    return (n_relevant / n_judged,
+            f"measured over {n_judged} triaged documents ({n_relevant} relevant)")
+
+
 def estimate_cost(session: Session, cfg: Config, assumed_docs: dict[str, int] | None = None) -> dict:
     """Token/cost estimate for triaging + extracting the currently-pending corpus.
 
@@ -201,7 +331,7 @@ def estimate_cost(session: Session, cfg: Config, assumed_docs: dict[str, int] | 
     triage_model = cfg.get("llm.triage_model")
     extract_model = cfg.get("llm.extract_model")
     extract_chars = cfg.get("llm.extract_max_chars", 60000)
-    pass_rate = cfg.get("llm.assumed_triage_pass_rate", 0.39)
+    pass_rate, pass_rate_basis = measured_pass_rate(session, cfg)
     cpt = cfg.get("llm.chars_per_token", 3.7)
     ovh_t = cfg.get("llm.triage_prompt_overhead_tokens", 1087)
     ovh_e = cfg.get("llm.extract_prompt_overhead_tokens", 1462)
@@ -279,8 +409,9 @@ def estimate_cost(session: Session, cfg: Config, assumed_docs: dict[str, int] | 
     return {
         "basis": basis,
         "docs_to_triage": n_docs,
-        "docs_to_extract_at_assumed_pass_rate": extract_docs,
-        "assumed_triage_pass_rate": pass_rate,
+        "docs_to_extract_at_measured_pass_rate": extract_docs,
+        "triage_pass_rate": round(pass_rate, 3),
+        "triage_pass_rate_basis": pass_rate_basis,
         "by_document_type": by_type,
         "triage_tokens_in": int(triage_in), "triage_tokens_out": int(triage_out),
         "extract_tokens_in": int(extract_in), "extract_tokens_out": int(extract_out),

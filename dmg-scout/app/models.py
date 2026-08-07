@@ -88,10 +88,31 @@ class Category(str, enum.Enum):
 
     A plant that BUILDS servers is `industrial`, not `data_center` — it needs
     HVAC, it just isn't a computing facility. `other` means triage-negative.
+
+    `esco` is the odd one and the newest. It is not a new building at all: it is a
+    public agency awarding an energy services performance contract on buildings it
+    already owns. It earns a category rather than a keyword tag for the same
+    reason industrial did — triage only keeps what it can name, so anything
+    without a category of its own is classified `other`, and `other` means
+    discarded. Detection that ends in `other` captures nothing.
+
+    Two consequences that callers must handle rather than inherit:
+      - `esco` never uses the data-centre electrical sizing path. See
+        estimate_tons: a retrofit has no stated IT load, and borrowing data-centre
+        watts-per-square-foot would overstate it by an order of magnitude.
+      - `esco` is not one of the two construction boards. It is kept, counted and
+        reachable, but it does not silently join a ranking of new-build
+        opportunities it is not competing in.
     """
     data_center = "data_center"
     industrial = "industrial"
+    esco = "esco"
     other = "other"
+
+    @classmethod
+    def boards(cls) -> tuple["Category", ...]:
+        """The two new-construction boards, in board order."""
+        return (cls.data_center, cls.industrial)
 
 
 class FacilityType(str, enum.Enum):
@@ -298,6 +319,41 @@ class Outreach(SQLModel, table=True):
     next_action_date: datetime | None = None
 
 
+class SavedSearch(SQLModel, table=True):
+    """A standing question about the board, and whether to be told when it changes.
+
+    Three shapes were asked for and they are genuinely different questions:
+      - a THRESHOLD on the board          "anything over 10 MW in Storey County"
+      - a NAME appearing anywhere         "anything naming Southland or ACCO"
+      - a TRANSITION on a watched row     "any flagged project that changes stage"
+
+    The first two are filters over the current board and can be answered by a
+    query. The third is not: "changed" is a statement about two points in time, so
+    it needs the previous answer stored to compare against. `last_seen` carries
+    that, which is why it lives on the row rather than being recomputed.
+
+    Criteria are a dict rather than columns because the set of askable questions
+    will keep growing and a migration per question is a tax on asking them. The
+    keys are validated in app/searches.py — an unknown key raises rather than
+    silently matching everything, which is the failure mode a free-form filter
+    invites.
+    """
+    __tablename__ = "saved_searches"
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str
+    criteria: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False,
+                                                                  default=dict))
+    alert: bool = True          # include in the daily digest
+    alert_on_change: bool = False  # fire on stage transition, not on membership
+    # Project ids the search matched when it was last evaluated, plus the stage
+    # each was in. Only meaningful for alert_on_change; see app/searches.py.
+    last_seen: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False,
+                                                                   default=dict))
+    last_run_at: datetime | None = None
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class SourceRun(SQLModel, table=True):
     """Per-source health. Silent scraper failure is the #1 way this system dies."""
     __tablename__ = "source_runs"
@@ -310,6 +366,44 @@ class SourceRun(SQLModel, table=True):
     records_fetched: int = 0
     records_new: int = 0
     error: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+
+
+# `source_runs.source` is ONE namespace with three writers and three conventions:
+# run_fetch records a bare source name ("ceqanet"), run_backfill records
+# "<source>:backfill", and stage_run records a pipeline stage ("resolve",
+# "extract"). Reading the table therefore requires knowing the convention, and
+# `scout doctor` did not — it matched the bare name only, so seven sources whose
+# only runs were backfills all reported "no successful run recorded" against a
+# table holding nine successful ones.
+#
+# The naming lives here, next to the column, precisely so a writer and a reader
+# cannot drift apart again. Anything that writes a run name builds it with
+# `source_run_name`; anything that reads one attributes it with
+# `run_name_source`; and doctor checks that every name in the table is
+# attributable, so the next invented variant fails loudly instead of quietly
+# reopening this hole.
+BACKFILL_RUN_MODE = "backfill"
+STAGE_RUN_NAMES = frozenset({"resolve", "extract"})
+
+
+def source_run_name(source: str, mode: str | None = None) -> str:
+    """The `source_runs.source` value for a run of `source` in `mode`.
+
+    `mode=None` is the scheduled fetch and keeps the bare name, because that is
+    what is already in the table and renaming it would strand the history.
+    """
+    return f"{source}:{mode}" if mode else source
+
+
+def run_name_source(run_name: str) -> str:
+    """The source a run name belongs to: 'ceqanet:backfill' -> 'ceqanet'."""
+    return run_name.split(":", 1)[0]
+
+
+def run_name_mode(run_name: str) -> str | None:
+    """The mode a run name carries: 'ceqanet:backfill' -> 'backfill', 'ceqanet' -> None."""
+    _, sep, mode = run_name.partition(":")
+    return mode if sep else None
 
 
 class BackfillCheckpoint(SQLModel, table=True):

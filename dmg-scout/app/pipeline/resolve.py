@@ -19,7 +19,8 @@ from sqlmodel import Session, select
 from app.config import Config
 from app.llm import LLMUnavailable, adjudicate
 from app.models import (
-    DeveloperAlias, MatchCandidate, Project, ProjectSignal, Signal, utcnow,
+    ACTIVE_STATUSES, DeveloperAlias, MatchCandidate, Project, ProjectSignal, Signal,
+    utcnow,
 )
 from app.normalize import normalize_county, normalize_name
 from app.runguard import STALE_RUN_HOURS, ConcurrentStage, running_stage, stage_run
@@ -171,28 +172,58 @@ def pair_similarity(signal: Signal, project: Project, radius_km: float) -> float
         scores.append((3.0, 1.0))
         strong_evidence = True
 
-    if signal.project_name and project.name and not project.name.startswith("Unnamed"):
-        scores.append((2.0, fuzz.token_sort_ratio(
-            normalize_name(signal.project_name), normalize_name(project.name)) / 100.0))
+    # Both names must SURVIVE normalization, not merely exist. normalize_name is
+    # built for company names and strips legal suffixes, phase words, SPE codes and
+    # roman numerals, so a name like "Phase II LLC" reduces to "". Comparing that
+    # to anything scores 0 at the second-heaviest weight in the function AND sets
+    # strong_evidence, which is the APN failure mode exactly: a field that could
+    # not be parsed into a comparable value voting against instead of abstaining.
+    # Incidence on the 2026-08-06 corpus is zero, so this is a guard rather than a
+    # repair — but invariant 4 is stated as an absolute, and a term that is only
+    # safe because no filing has yet been named badly enough is not compliance.
+    sig_name = normalize_name(signal.project_name) if signal.project_name else ""
+    proj_name = (normalize_name(project.name)
+                 if project.name and not project.name.startswith("Unnamed") else "")
+    if sig_name and proj_name:
+        scores.append((2.0, fuzz.token_sort_ratio(sig_name, proj_name) / 100.0))
         strong_evidence = True
     if signal.developer_or_owner and project.developer:
-        scores.append((0.75, fuzz.token_sort_ratio(
-            normalize_name(signal.developer_or_owner), normalize_name(project.developer)) / 100.0))
+        sig_dev = normalize_name(signal.developer_or_owner)
+        proj_dev = normalize_name(project.developer)
+        if sig_dev and proj_dev:
+            scores.append((0.75, fuzz.token_sort_ratio(sig_dev, proj_dev) / 100.0))
 
+    # County agreement is only meaningful inside a state. "Washington County" is a
+    # real county in eighteen of them, and the term scored 1.0 for any two of
+    # those at weight 1.5. No collision exists in the current territory (CA + NV,
+    # 17 distinct counties, checked 2026-08-06), which is precisely why it would
+    # go unnoticed until Phase C widens the territory and it starts silently
+    # agreeing across state lines.
     sig_county, proj_county = normalize_county(signal.county), normalize_county(project.county)
     if sig_county and proj_county:
-        scores.append((1.5, 1.0 if sig_county == proj_county else 0.0))
+        same_state = (not signal.state or not project.state
+                      or signal.state == project.state)
+        scores.append((1.5, 1.0 if (sig_county == proj_county and same_state) else 0.0))
 
     if None not in (signal.latitude, signal.longitude, project.latitude, project.longitude):
         d = haversine_km(signal.latitude, signal.longitude, project.latitude, project.longitude)
         scores.append((2.0, max(0.0, 1.0 - d / radius_km)))
         strong_evidence = True
 
-    sig_mw = signal.mw_it or signal.mw_total
-    proj_mw = project.mw_it or project.mw_total
-    if sig_mw and proj_mw:
-        ratio = min(sig_mw, proj_mw) / max(sig_mw, proj_mw)
-        scores.append((1.0, ratio))
+    # IT load against IT load, total against total — never one against the other.
+    # `signal.mw_it or signal.mw_total` vs the same expression on the project will
+    # happily compare a signal's IT megawatts to a project's TOTAL megawatts, and
+    # those are different quantities: IT load runs roughly 60-75% of facility
+    # total, so the SAME campus described both ways scores ~0.65 here and votes
+    # against its own match. Comparing incomparable values is the invariant-4
+    # failure mode whatever the field, so when only unlike pairs are available the
+    # term abstains. Latent today — nothing in the corpus carries mw_it as of
+    # 2026-08-06 — and it bites the moment extraction starts filling that column.
+    mw_pairs = [(signal.mw_it, project.mw_it), (signal.mw_total, project.mw_total)]
+    comparable = [(a, b) for a, b in mw_pairs if a and b]
+    if comparable:
+        ratios = [min(a, b) / max(a, b) for a, b in comparable]
+        scores.append((1.0, sum(ratios) / len(ratios)))
 
     if not scores:
         return 0.0
@@ -208,22 +239,53 @@ def pair_similarity(signal: Signal, project: Project, radius_km: float) -> float
 def _blocked_candidates(session: Session, signal: Signal, radius_km: float) -> list[Project]:
     county = normalize_county(signal.county)
     candidates: dict[int, Project] = {}
+
+    # ONE status filter, applied to every key. The county and developer keys used
+    # to filter on status while SCH, APN and geography did not, so a merged-away
+    # project stayed reachable through three of the five keys. That is not
+    # theoretical: signal 503 still reaches project #963 via SCH, APN and geo, and
+    # #963 is the duplicate that the concurrent-resolve bug created and a merge
+    # cleaned up (see app/runguard.py). An SCH agreement short-circuits
+    # pair_similarity to 1.0, so the next resolve would auto-link the signal
+    # straight back onto the row that was merged away — silently rebuilding the
+    # duplicate that invariant 3 exists to catch.
+    #
+    # ACTIVE_STATUSES, not status == "active", and that widens the net on purpose.
+    # A project the rep has already contacted, specified or bid is emphatically
+    # still a live project: under the old literal it was invisible to the county
+    # and developer keys, so the next filing about it had nowhere to attach and
+    # would open a second row for a job already in progress. Same invariant, other
+    # direction.
+    def active(stmt):
+        return session.exec(stmt.where(Project.status.in_(ACTIVE_STATUSES))).all()
+
     if county:
-        for p in session.exec(select(Project).where(Project.county == county,
-                                                    Project.status == "active")).all():
+        for p in active(select(Project).where(Project.county == county)):
             candidates[p.id] = p
     # SCH first: it is the one exact project key, and it must reach the scorer even
     # when the signal has no county (a filing whose county field came back null
     # would otherwise be blocked out of its own project).
     if signal.sch_number:
-        for p in session.exec(
-                select(Project).where(Project.sch_number == signal.sch_number)).all():
+        for p in active(select(Project).where(Project.sch_number == signal.sch_number)):
             candidates[p.id] = p
-    if signal.apn_parcel:
-        for p in session.exec(select(Project).where(Project.apn_parcel == signal.apn_parcel)).all():
-            candidates[p.id] = p
+    # Parsed parcel OVERLAP, not string equality. parse_apns exists because this
+    # field is free text typed by a different agency clerk on every filing — the
+    # same parcels arrive as "4090-021-032 through -034" and as "4090-021-032,
+    # 4090-021-033, 4090-021-034". pair_similarity learned that and blocking did
+    # not, so the scorer could treat a shared parcel as near-dispositive evidence
+    # while the blocking key that feeds it never put the pair in front of it.
+    # Measured 2026-08-06: 13 of 294 APN-bearing signals have a parcel-overlap
+    # partner that exact equality misses. County blocking happens to reach all 13
+    # today, so this is latent rather than live — but a key that works only
+    # because a different key covers for it is one territory change from not
+    # working, and Phase C adds territory.
+    sig_apns = parse_apns(signal.apn_parcel)
+    if sig_apns:
+        for p in active(select(Project).where(Project.apn_parcel.is_not(None))):
+            if sig_apns & parse_apns(p.apn_parcel):
+                candidates[p.id] = p
     if signal.latitude is not None and signal.longitude is not None:
-        for p in session.exec(select(Project).where(Project.latitude.is_not(None))).all():
+        for p in active(select(Project).where(Project.latitude.is_not(None))):
             if haversine_km(signal.latitude, signal.longitude, p.latitude, p.longitude) <= radius_km:
                 candidates[p.id] = p
     # Shared canonical developer, same state. The scan is over the whole active
@@ -233,7 +295,7 @@ def _blocked_candidates(session: Session, signal: Signal, radius_km: float) -> l
     dev = canonical_with(aliases, signal.developer_or_owner)
     if dev:
         dev_norm = normalize_name(dev)
-        for p in session.exec(select(Project).where(Project.status == "active")).all():
+        for p in active(select(Project)):
             p_dev = canonical_with(aliases, p.developer)
             if p_dev and normalize_name(p_dev) == dev_norm and (
                 not signal.state or not p.state or signal.state == p.state

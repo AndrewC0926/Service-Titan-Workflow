@@ -1,0 +1,347 @@
+/* DMG Scout — "Submittal" design system.
+ *
+ * The brief is that this reads like an engineering submittal package, not like a
+ * dashboard. That is a real constraint with real consequences, so it is written
+ * down rather than left to taste:
+ *
+ *   - A submittal is PAPER. The sheet has a border, a title block that says what
+ *     you are looking at and when it was true, and a revision. You can hand it to
+ *     someone. That is why the default theme is bond-paper light and why the
+ *     layout is a bordered sheet rather than floating cards on a gradient.
+ *   - Numbers are DATA, not decoration. Every figure is monospace with tabular
+ *     figures so columns of tons and scores align on the digit. No number is ever
+ *     set in the prose face.
+ *   - Rules, not shadows. Depth on a drawing comes from line weight — hairline
+ *     for row separators, 1px for panel edges, 2px for the sheet border. There
+ *     are no drop shadows and no rounded cards anywhere in this file.
+ *   - Labels are drafting labels: uppercase, letter-spaced, small, quiet.
+ *
+ * There is no component library here on purpose. The whole system is the handful
+ * of classes below, and it should stay small enough to read in one sitting.
+ */
+@import "tailwindcss";
+
+@source "../templates/**/*.html";
+
+@theme {
+  /* Paper and ink. The greens and reds are drafting-marker colours, deliberately
+     desaturated — a board where everything shouts reads as though nothing is
+     urgent. */
+  --color-sheet:      #f7f6f1;   /* bond paper */
+  --color-panel:      #ffffff;
+  --color-panel-alt:  #f2f1ea;   /* banded table rows, title block cells */
+  --color-rule:       #cbc9bd;   /* hairline */
+  --color-rule-hard:  #8f8d82;   /* panel edge, sheet border */
+  --color-ink:        #191b18;
+  --color-ink-mid:    #4d5250;
+  --color-ink-dim:    #797d78;
+  --color-blueprint:  #1b4c8c;   /* the one accent: drafting blue */
+  --color-stamp-ok:   #1b6b41;
+  --color-stamp-warn: #8a5a06;
+  --color-stamp-bad:  #9d2720;
+
+  --font-sans: ui-sans-serif, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+
+  --text-micro: 0.625rem;   /* drafting labels */
+  --text-tiny:  0.6875rem;
+}
+
+/* Dark is a lighting condition, not a different design: same rules, same weights,
+   same everything, with the paper turned down. Only the surface tokens move. */
+@layer base {
+  :root[data-theme="dark"] {
+    --color-sheet:     #10131a;
+    --color-panel:     #171b24;
+    --color-panel-alt: #1c212c;
+    --color-rule:      #2b3240;
+    --color-rule-hard: #46506180;
+    --color-ink:       #dfe4ea;
+    --color-ink-mid:   #9aa4b0;
+    --color-ink-dim:   #6e7885;
+    --color-blueprint: #6ea8ff;
+    --color-stamp-ok:  #4cbd7c;
+    --color-stamp-warn:#d9a441;
+    --color-stamp-bad: #ff6b62;
+  }
+
+  html { color-scheme: light; }
+  :root[data-theme="dark"] { color-scheme: dark; }
+
+  body {
+    background: var(--color-sheet);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    line-height: 1.45;
+  }
+
+  /* Tabular figures everywhere a number can appear, set once rather than
+     remembered per-template. A column of tonnages that does not align on the
+     digit is unreadable at 289 rows. */
+  .mono, td.num, th.num, .num, input, select, textarea {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  a { color: var(--color-blueprint); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 2px; }
+}
+
+@layer components {
+  /* ---- sheet ------------------------------------------------------------ */
+  .sheet {
+    border: 2px solid var(--color-rule-hard);
+    background: var(--color-panel);
+  }
+
+  /* ---- title block ------------------------------------------------------
+     The thing that makes a drawing a document: what this is, when it was true,
+     how much of it there is. It is first because "data as of" is the question a
+     rep should ask before acting on any row below it. */
+  .titleblock { display: flex; flex-wrap: wrap; align-items: stretch; }
+  .tb-brand {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.5rem 1.1rem;
+    border-right: 2px solid var(--color-rule-hard);
+    font-weight: 700; letter-spacing: 0.18em; font-size: 1.05rem;
+  }
+  .tb-cell {
+    padding: 0.375rem 0.9rem;
+    border-right: 1px solid var(--color-rule);
+    min-width: 7rem;
+  }
+  .tb-cell:last-child { border-right: 0; }
+  .tb-lbl {
+    font-size: var(--text-micro); letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--color-ink-dim); white-space: nowrap;
+  }
+  .tb-val {
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    font-size: 0.9375rem; white-space: nowrap;
+  }
+
+  /* ---- sheet tabs ------------------------------------------------------- */
+  .tabs { display: flex; flex-wrap: wrap; gap: 2px; }
+  .tab {
+    padding: 0.4rem 1rem;
+    border: 1px solid var(--color-rule-hard); border-bottom: 0;
+    background: var(--color-panel-alt);
+    color: var(--color-ink-mid);
+    font-size: var(--text-tiny); letter-spacing: 0.11em; text-transform: uppercase;
+  }
+  .tab:hover { color: var(--color-ink); text-decoration: none; }
+  .tab[aria-current="page"] {
+    background: var(--color-panel); color: var(--color-ink);
+    border-color: var(--color-rule-hard);
+    box-shadow: inset 0 2px 0 0 var(--color-blueprint);
+  }
+  .tab-badge {
+    display: inline-block; margin-left: 0.35rem; padding: 0 0.35rem;
+    background: var(--color-stamp-bad); color: #fff;
+    font-size: var(--text-micro); font-family: var(--font-mono);
+  }
+
+  /* ---- section heading -------------------------------------------------- */
+  .sec-head {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
+    border-bottom: 2px solid var(--color-rule-hard);
+    padding-bottom: 0.4rem; margin-bottom: 0.6rem;
+  }
+  .sec-title {
+    font-size: var(--text-tiny); letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--color-ink-mid); font-weight: 600;
+  }
+
+  /* ---- data table -------------------------------------------------------
+     Dense on purpose. A submittal schedule fits the whole schedule on the sheet;
+     it does not paginate at twenty rows and it does not pad each row to 56px. */
+  /* Fixed layout with an explicit colgroup. Auto layout let the widest developer
+     string dictate the whole table, which starved the project column down to
+     ~9rem and wrapped names to five and six lines — a 289-row schedule that
+     scrolls like prose is not a schedule. Widths are declared once, in the
+     template's colgroup, and every long cell clips rather than reflows. */
+  .tbl { width: 100%; border-collapse: collapse; font-size: 0.8125rem; table-layout: fixed; }
+  .clamp2 {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .tbl th {
+    position: sticky; top: 0; z-index: 1;
+    background: var(--color-panel-alt);
+    font-size: var(--text-micro); letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--color-ink-mid); font-weight: 600;
+    text-align: left; padding: 0.45rem 0.6rem; white-space: nowrap;
+    border-bottom: 2px solid var(--color-rule-hard);
+  }
+  .tbl td {
+    padding: 0.35rem 0.6rem;
+    border-bottom: 1px solid var(--color-rule);
+    vertical-align: top;
+  }
+  .tbl td.num, .tbl th.num { text-align: right; white-space: nowrap; }
+  .tbl tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--color-panel-alt) 55%, transparent); }
+  .tbl tbody tr:hover td { background: color-mix(in srgb, var(--color-blueprint) 9%, transparent); }
+  .tbl .idx { color: var(--color-ink-dim); font-family: var(--font-mono); }
+
+  /* ---- stamps -----------------------------------------------------------
+     A QA stamp on a drawing: outlined, uppercase, no fill. Used for the buying
+     window, which is the single most decision-relevant field on the row. */
+  .stamp {
+    display: inline-block; padding: 0.05rem 0.4rem;
+    border: 1px solid currentColor;
+    font-family: var(--font-mono); font-size: var(--text-micro);
+    letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap;
+  }
+  .stamp-pre  { color: var(--color-stamp-ok); }
+  .stamp-in   { color: var(--color-stamp-warn); }
+  .stamp-post { color: var(--color-stamp-bad); }
+  .stamp-quiet{ color: var(--color-ink-dim); }
+
+  /* Score: a number and a bar, not a coloured chip.
+
+     The thermal gradient this replaces ran blue-to-red across the score range.
+     Two problems, both visible the moment it met real data. Semantically it read
+     as a traffic light — high scores rendered red, which on a ranked list says
+     "bad" when it means "act first". And the live board's scores cluster between
+     0.30 and 0.70, which is exactly the yellow-green middle of that ramp, so 250
+     of 289 rows came out near-identical and the colour discriminated nothing
+     while also being the worst zone for contrast on white.
+
+     A bar in one ink solves all of it: length is the ranking, it is scaled to the
+     board's own maximum so the visible range is the range that exists, and it
+     needs no colour semantics at all. It also survives a theme flip and a
+     greyscale print, which a hue ramp does not. */
+  .score { display: flex; align-items: center; justify-content: flex-end; gap: 0.45rem; }
+  .score .val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .score .bar {
+    display: block; width: 3.25rem; height: 0.5rem;
+    background: color-mix(in srgb, var(--color-rule) 55%, transparent);
+    border: 1px solid var(--color-rule);
+  }
+  .score .bar > i { display: block; height: 100%; background: var(--color-blueprint); }
+
+  /* A caveat on a number, not an alarm. LOW CONF is the NORM for industrial rows
+     (sized from floor area, no IT load), so setting it in warning red put a red
+     mark on most of the board and taught the eye to ignore red. */
+  .caveat {
+    font-family: var(--font-mono); font-size: var(--text-micro);
+    color: var(--color-ink-dim); letter-spacing: 0.04em;
+    border-bottom: 1px dotted var(--color-ink-dim); cursor: help;
+  }
+
+  /* One line, clipped. A contact wrapping to three lines made a 289-row schedule
+     scroll like a document; the full string stays in the title attribute. */
+  .clip { display: block; max-width: 22rem; overflow: hidden;
+          text-overflow: ellipsis; white-space: nowrap; }
+  .nowrap { white-space: nowrap; }
+
+  /* ---- callouts ---------------------------------------------------------
+     Reserved for statements about the board's own trustworthiness. Not for
+     marketing, not for tips. If one of these is on screen, something below it is
+     not safe to act on. */
+  .callout {
+    border-left: 3px solid currentColor;
+    border-top: 1px solid var(--color-rule);
+    border-right: 1px solid var(--color-rule);
+    border-bottom: 1px solid var(--color-rule);
+    padding: 0.55rem 0.85rem; margin-bottom: 0.75rem; font-size: 0.8125rem;
+  }
+  .callout-warn { color: var(--color-stamp-warn); }
+  .callout-bad  { color: var(--color-stamp-bad); }
+  .callout strong { letter-spacing: 0.06em; text-transform: uppercase; font-size: var(--text-tiny); }
+  .callout .body { color: var(--color-ink); display: block; margin-top: 0.15rem; }
+
+  /* ---- filter chips ----------------------------------------------------- */
+  .chip {
+    display: inline-block; padding: 0.2rem 0.6rem;
+    border: 1px solid var(--color-rule-hard); background: var(--color-panel);
+    color: var(--color-ink-mid);
+    font-size: var(--text-tiny); letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .chip:hover { color: var(--color-ink); text-decoration: none; }
+  .chip[aria-pressed="true"] {
+    background: var(--color-blueprint); border-color: var(--color-blueprint); color: #fff;
+  }
+  .chip .ct { font-family: var(--font-mono); opacity: 0.75; margin-left: 0.3rem; }
+
+  /* ---- key/value strip under the heading -------------------------------- */
+  .kv { display: flex; flex-wrap: wrap; gap: 0 1.6rem; }
+  .kv > div { padding: 0.15rem 0; }
+  .kv .k {
+    font-size: var(--text-micro); letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--color-ink-dim);
+  }
+  .kv .v { font-family: var(--font-mono); font-size: 0.9375rem; }
+
+  .note { color: var(--color-ink-dim); font-size: var(--text-tiny); }
+
+  /* ---- MIGRATION SHIM ---------------------------------------------------
+   *
+   * The sheets not yet rebuilt (project, review, contacts, health, brief,
+   * add-signal) were written against the previous stylesheet's vocabulary and its
+   * unclassed element styling. Without this they render as unstyled HTML — not
+   * merely plainer, but genuinely hard to read, with unruled tables and numbers
+   * set in the prose face.
+   *
+   * This is a shim and it is labelled as one rather than quietly absorbed into
+   * the system above. Every rule here maps a legacy name onto a token that
+   * already exists — `.dim` IS `.note`, `.tag` IS `.stamp` — so restyling a sheet
+   * means renaming its classes, not inventing anything. DELETE A RULE when the
+   * last sheet using it is rebuilt; `docs/UI-SPEC.md` tracks which are left.
+   */
+  main table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+  main table th {
+    background: var(--color-panel-alt);
+    font-size: var(--text-micro); letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--color-ink-mid); font-weight: 600;
+    text-align: left; padding: 0.45rem 0.6rem; white-space: nowrap;
+    border-bottom: 2px solid var(--color-rule-hard);
+  }
+  main table td { padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--color-rule); vertical-align: top; }
+  main table td.num, main table th.num { text-align: right; white-space: nowrap; }
+  main table tbody tr:hover td { background: color-mix(in srgb, var(--color-blueprint) 9%, transparent); }
+
+  main h2 {
+    font-size: var(--text-tiny); letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--color-ink-mid); font-weight: 600;
+    border-bottom: 2px solid var(--color-rule-hard);
+    padding-bottom: 0.4rem; margin: 0 0 0.7rem;
+  }
+
+  .dim  { color: var(--color-ink-dim); }          /* -> .note */
+  .ok   { color: var(--color-stamp-ok); }
+  .bad  { color: var(--color-stamp-bad); }
+  .warn { color: var(--color-stamp-warn); }
+  .resolved { color: var(--color-stamp-ok); font-weight: 700; }
+  .tag {                                           /* -> .stamp */
+    display: inline-block; padding: 0.05rem 0.4rem; border: 1px solid currentColor;
+    font-family: var(--font-mono); font-size: var(--text-micro);
+    letter-spacing: 0.08em; color: var(--color-ink-dim); white-space: nowrap;
+  }
+  .tag.PRE_BOD { color: var(--color-stamp-ok); }
+  .tag.IN_BOD  { color: var(--color-stamp-warn); }
+  .tag.POST_BOD, .tag.OPERATING { color: var(--color-stamp-bad); }
+  .scorechip {                                     /* -> .score */
+    display: inline-block; min-width: 3.1rem; text-align: center;
+    padding: 0.05rem 0.4rem; font-family: var(--font-mono); font-weight: 700;
+  }
+  form.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 0.6rem; }
+  @media print { .noprint { display: none; } }
+
+  /* Form controls: the previous stylesheet set these globally. */
+  input, select, textarea {
+    background: var(--color-panel); color: var(--color-ink);
+    border: 1px solid var(--color-rule-hard); padding: 0.35rem 0.5rem;
+    font: inherit; width: 100%;
+  }
+  input[type="checkbox"] { width: auto; }
+  textarea { min-height: 5rem; }
+  button {
+    background: var(--color-blueprint); color: #fff; border: 1px solid var(--color-blueprint);
+    padding: 0.35rem 0.9rem; font-size: var(--text-tiny); letter-spacing: 0.08em;
+    text-transform: uppercase; font-weight: 600; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.1); }
+  button.warn { background: var(--color-stamp-bad); border-color: var(--color-stamp-bad); }
+}

@@ -35,6 +35,23 @@ industrial — any other substantial non-residential building: manufacturing, as
   A plant that BUILDS servers, computing hardware or mining rigs belongs here: it is
   a factory, not a computing facility. So does an equipment maker of any kind.
 
+esco — a public agency is procuring or awarding an ENERGY SERVICES PERFORMANCE
+  CONTRACT on buildings it already owns. Energy services agreement, energy savings
+  performance contract, ESPC, guaranteed energy savings or guaranteed energy cost
+  savings agreement, investment grade audit, or an RFQ/RFP to select an energy
+  services company (ESCO).
+
+  This is the one category that is NOT a new or expanding building, and it is kept
+  anyway for one reason: the ESCO selects the equipment. An architect or CM award
+  tells you a project exists; an ESCO award tells you who will choose the
+  chillers, and that equipment gets bought in 12 to 24 months.
+
+  Use it when the document is about SELECTING OR AWARDING the contract — the
+  procurement itself. Routine energy-efficiency chatter, a utility rebate item, a
+  solar PPA, or a completed retrofit being accepted is `other`: there is no
+  upcoming selection to influence. If the document names a specific agency and a
+  specific facility or portfolio, that is enough to name a location.
+
 other — not relevant. Use this for:
   - rules about buildings in general with no specific project: moratoria,
     prohibitions, zoning or general-plan amendments, ordinances
@@ -76,10 +93,12 @@ TRIAGE_TOOL = {
         "properties": {
             "category": {
                 "type": "string",
-                "enum": ["data_center", "industrial", "other"],
+                "enum": ["data_center", "industrial", "esco", "other"],
                 "description": "data_center = operates computing capacity; "
                                "industrial = any other substantial new/expanding "
-                               "building; other = not relevant",
+                               "building; esco = a public agency awarding or "
+                               "procuring an energy services performance contract "
+                               "on buildings it already owns; other = not relevant",
             },
             "names_location": {"type": "boolean",
                                "description": "True if a specific site, city, county, or parcel is named"},

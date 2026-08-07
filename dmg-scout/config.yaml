@@ -43,8 +43,34 @@ llm:
   # live prompts; chars/token and output are fitted over 204 triage and 80 extract
   # calls. Re-measure after any prompt change — `scout backfill --estimate` is only
   # as honest as these.
-  assumed_triage_pass_rate: 0.39  # observed corpus-wide; was 0.30 assumed
-  chars_per_token: 3.7            # measured; 4.0 is prose, not filings
+  #
+  # VALIDATED against actuals on 2026-08-06 (`scout validate-estimate --since
+  # 2026-08-06T00:00 --until 2026-08-06T03:00 --source ceqanet`), the first time
+  # this estimator was ever checked against money actually spent. It was 10.9%
+  # low on triage input and 9.2% low on extract input, both in the direction that
+  # gets a budget approved and then overrun. See chars_per_token below.
+  assumed_triage_pass_rate: 0.39  # FALLBACK ONLY — the estimator now measures the
+                                  # real corpus (measured_pass_rate); this applies
+                                  # only when fewer than 100 documents are triaged.
+                                  # The measured rate on 2026-08-06 was 0.512 over
+                                  # 861 documents, so this figure ran a third low.
+  chars_per_token: 3.1            # was 3.7, which made every input estimate ~10% low.
+                                  # Triage and extract independently imply 3.07 and
+                                  # 3.11 from their recorded spend — two stages with
+                                  # different system prompts, different tool schemas
+                                  # and different text-selection paths landing on one
+                                  # number is what makes this a measurement and not a
+                                  # fudge. At 3.1 both stages come in under 1%.
+                                  #
+                                  # CAVEAT, so nobody re-derives it the hard way: an
+                                  # unmodelled fixed per-request overhead of ~330
+                                  # tokens fits the same two data points equally well,
+                                  # and the two hypotheses only diverge on documents
+                                  # far from this corpus's ~6,200-char mean. Telling
+                                  # them apart needs a count_tokens fit across the
+                                  # size range (free endpoint, see the note on
+                                  # overheads above) — blocked on 2026-08-06 by an
+                                  # exhausted account balance, not by the method.
   triage_prompt_overhead_tokens: 1087    # system + tool schema + scaffold
   extract_prompt_overhead_tokens: 1462   # EXTRACTION_JSON_SCHEMA is most of this
   triage_output_tokens: 95        # measured per document
@@ -104,6 +130,32 @@ keywords:
     - industrial park
     - business park
     - cold storage
+  # A public agency selecting an Energy Services Company for a performance
+  # contract. This is a RETROFIT signal, not new construction, and it is on this
+  # list because of one asymmetry: unlike an architect or CM award, the ESCO
+  # actually selects the equipment. An ESPC award means equipment gets bought in
+  # 12 to 24 months and there is a named party who decides what.
+  #
+  # These appear in the Legistar and CivicPlus agendas already being read — no new
+  # source. Deliberately tight: "energy services" alone matches every utility
+  # billing item on a consent calendar, so each term either names the instrument
+  # (ESPC, guaranteed energy savings) or pairs "energy services" with the
+  # contracting language that makes it an award.
+  esco:
+    - energy services agreement
+    - energy services contract
+    - energy savings performance contract
+    - energy service performance contract
+    - espc
+    - guaranteed energy savings
+    - guaranteed energy cost savings
+    - investment grade audit
+    - rfq for energy services
+    - rfp for energy services
+    - request for qualifications for energy services
+    - request for proposals for energy services
+    - energy services company
+    - esco
   supporting:
     - megawatt
     - substation
@@ -228,7 +280,24 @@ sources:
   edgar:
     enabled: true
     base_url: "https://efts.sec.gov/LATEST/search-index"
-    lookback_days: 14
+    # 90, not 14, and the reason is the source's cadence rather than its quality.
+    #
+    # A daily fetch on a 14-day window returned ONE document on 2026-08-07, which
+    # looks exactly like a broken adapter. It is not: measured over the same
+    # 28-query plan on the same day, 14 days yielded 16 page-0 hits and 2 filings
+    # past the issuer gate, while 90 days yielded 105 and 10. Data centre ABS and
+    # CMBS deals are episodic — three or four relevant filings a month across the
+    # whole issuer list — so a fortnight is simply below the resolution of the
+    # thing being measured.
+    #
+    # The fix is deliberately NOT a broader query. Precision here comes from
+    # issuer_patterns, not from search terms, and loosening that is what produced
+    # the first backfill's 3,016 rows averaging 202 characters of chip-company
+    # risk-factor boilerplate (see app/sources/edgar.py). Widening the window
+    # keeps every existing filter and just looks at enough time for the filings
+    # to exist. Re-seeing a filing is free: documents dedupe on (source,
+    # source_uid), so a 90-day window that overlaps yesterday's stores nothing new.
+    lookback_days: 90
     max_pages: 3              # full-text pages are 10 hits each, per query
     max_body_chars: 400000    # filing text stored; app/sections.py chunks it for the LLM
     min_body_chars: 2000      # below this, verify-sources reports FAIL (stub detection)
@@ -483,24 +552,133 @@ sizing:
 # fulfillment centre on packaged rooftops is a smaller opportunity than a 600 ton
 # cleanroom on custom AHUs.
 #
-# **The dollar magnitudes below are NOT from the DMG line card.** I have not seen
-# it. They encode only the ORDERING the field gave us — custom AHU and central
-# plant are worth a multiple of packaged rooftop tonnage — so that ranking moves
-# in the right direction. Every number is a tunable knob and all of them should be
-# replaced with real line-card figures before anyone quotes a dollar value.
+# TWO POINTS ON THIS TABLE ARE REAL, from DMG's VP of sales. Everything else is
+# interpolated between them and is an estimate. The `source` field on each row
+# says which is which, and nothing should be quoted in dollars without checking it.
+#
+#   VERIFIED  VU Flow CO2 simultaneous heating/cooling chiller, 100-ton modules:
+#             ~$850,000 per 100 tons = ~$8,500/ton. Premium specialty, top of the
+#             line card.
+#   VERIFIED  2 x 60-ton LG heat-or-cool chillers: ~$180,000 for 120 tons =
+#             ~$1,500/ton. Commodity, bottom of the line card.
+#
+# Those two anchor both the magnitude and the spread: 8,500 / 1,500 = 5.7x between
+# premium specialty and commodity on this exact line card. The table's endpoints
+# are set to the anchors and the middle rows are interpolated by what each
+# facility type actually buys, so the ratio across the board reproduces the
+# measured 5.7x rather than a guessed one.
+#
+# Caveat worth keeping in view: both anchors are chiller equipment prices, so rows
+# whose dominant equipment is packaged rooftop rather than chillers (distribution,
+# warehouse) are extrapolated slightly below the commodity chiller anchor and are
+# the least certain in the table.
 equipment_value:
   enabled: true
   # $ per installed ton, by the equipment a building of this type actually buys.
   value_per_ton_by_facility_type:
-    cleanroom:                {low: 3000, high: 6000, equipment: "custom AHU, tight-tolerance control"}
-    data_center:              {low: 2000, high: 4000, equipment: "central chiller plant, CRAH"}
-    heavy_manufacturing:      {low: 1200, high: 2500, equipment: "process cooling, custom AHU"}
-    office_rnd:               {low: 800,  high: 1600, equipment: "AHU plus terminal units"}
-    light_manufacturing:      {low: 700,  high: 1500, equipment: "packaged AHU, some process load"}
-    warehouse_conditioned:    {low: 400,  high: 900,  equipment: "packaged rooftop"}
-    distribution_fulfillment: {low: 250,  high: 700,  equipment: "packaged rooftop, spread thin"}
+    cleanroom:                {low: 6000, high: 8500, equipment: "custom AHU + specialty chiller, tight-tolerance control", source: "high end = VU Flow CO2 anchor, $8,500/ton (VERIFIED)"}
+    data_center:              {low: 3500, high: 6000, equipment: "central chiller plant, CRAH", source: "estimated between anchors"}
+    heavy_manufacturing:      {low: 2500, high: 4500, equipment: "process cooling, custom AHU", source: "estimated between anchors"}
+    office_rnd:               {low: 1800, high: 3000, equipment: "AHU plus terminal units", source: "estimated between anchors"}
+    light_manufacturing:      {low: 1500, high: 2500, equipment: "packaged AHU, some process load", source: "low end = LG commodity chiller anchor, $1,500/ton (VERIFIED)"}
+    warehouse_conditioned:    {low: 1200, high: 1800, equipment: "packaged rooftop", source: "estimated, extrapolated below the commodity chiller anchor"}
+    distribution_fulfillment: {low: 900,  high: 1500, equipment: "packaged rooftop, spread thin", source: "estimated, extrapolated below the commodity chiller anchor"}
     # No `unknown` row on purpose, same reasoning as the sizing table: without a
     # type there is no equipment category, so there is no value to state.
+
+# ---------------------------------------------------------------------------
+# SERVICE LIFE — when equipment is due for replacement.
+#
+# For the replacement module (charter product B). Nothing consumes this yet; it
+# is here so the constants are settled, sourced and reviewable before the
+# ingestion that will use them exists.
+#
+# **ASHRAE SERVICE LIFE CANNOT BE APPLIED UNIFORMLY**, and that is the whole
+# reason this table is branched rather than a single number per equipment type.
+# The mechanisms are genuinely different:
+#
+#   private commercial — RUN TO FAILURE. Equipment is replaced when it dies or
+#     when repair stops being economic, which is why a service agreement is worth
+#     having and why ASHRAE's median service life is the right predictor.
+#
+#   federal and government-owned — PLANNED REPLACEMENT on a 7-10 year cycle.
+#     There is little to no service agreement business, so equipment is programmed
+#     out rather than nursed along. A federal rooftop at year 8 is a live
+#     candidate; a commercial one is not until year 15.
+#
+# Getting this wrong is not a small error in one direction — it is a wrong ANSWER
+# on roughly half a decade of a building's life. A federal portfolio scored on
+# ASHRAE numbers would show nothing due until year 15, by which time the job was
+# bought, installed and warrantied years earlier.
+#
+# `source` on every row says where the figure came from and must be carried onto
+# anything quoted, exactly as with equipment_value above.
+replacement:
+  service_life:
+    # Used when a building's ownership cannot be determined. Deliberately the
+    # LONGEST cycle: guessing short would put buildings on a call list years
+    # before anyone is buying, and a rep who is early twice stops trusting the
+    # list. Better to miss a federal building than to invent a live one.
+    default_ownership: private_commercial
+
+    ownership:
+      private_commercial:
+        basis: "ASHRAE median service life (run-to-failure replacement)"
+        source: "ASHRAE Applications Handbook service life estimates"
+        verified: false   # not yet checked against a published edition — see note
+        equipment:
+          packaged_rooftop:      {low: 15, high: 17}
+          split_dx:              {low: 15, high: 17}
+          air_cooled_chiller:    {low: 18, high: 20}
+          water_cooled_chiller:  {low: 23, high: 25}
+          air_handling_unit:     {low: 25, high: 30}
+          boiler:                {low: 22, high: 25}
+          cooling_tower:         {low: 18, high: 20}
+          vav_terminal:          {low: 18, high: 20}
+
+      federal:
+        # NOT ASHRAE. Stated by a contractor in a customer conversation on
+        # 2026-08-07: federal and government-owned buildings replace on a planned
+        # 7-10 year cycle because there is little to no service agreement
+        # business, so replacement is programmed rather than run-to-failure.
+        # One source, one conversation, not yet corroborated against a published
+        # federal facility standard — treat it as a field report, which is what
+        # it is, and re-verify before anything is quoted off it.
+        basis: "planned replacement cycle, not condition-based"
+        source: "CONTRACTOR field report 2026-08-07 — not ASHRAE, single source"
+        verified: false
+        equipment:
+          packaged_rooftop:      {low: 7,  high: 10}
+          split_dx:              {low: 7,  high: 10}
+          air_cooled_chiller:    {low: 7,  high: 10}
+          water_cooled_chiller:  {low: 10, high: 15}
+          air_handling_unit:     {low: 10, high: 15}
+          boiler:                {low: 10, high: 15}
+          cooling_tower:         {low: 7,  high: 10}
+          vav_terminal:          {low: 10, high: 15}
+
+      state_municipal:
+        # The contractor's report covered FEDERAL specifically. State and
+        # municipal owners sit between the two mechanisms — some run programmed
+        # capital replacement, many run to failure on a tighter budget than
+        # private commercial — and NOBODY HAS GIVEN US A NUMBER FOR THEM.
+        #
+        # The band below is interpolated between the other two rows. It is a
+        # placeholder with a name, not a measurement, and it is marked so nobody
+        # quotes it. The right fix is to ask the same contractor, not to reason
+        # about it harder.
+        basis: "interpolated between federal and private commercial"
+        source: "ESTIMATED — no source, not stated by the contractor, not ASHRAE"
+        verified: false
+        equipment:
+          packaged_rooftop:      {low: 12, high: 15}
+          split_dx:              {low: 12, high: 15}
+          air_cooled_chiller:    {low: 15, high: 18}
+          water_cooled_chiller:  {low: 18, high: 22}
+          air_handling_unit:     {low: 18, high: 25}
+          boiler:                {low: 18, high: 22}
+          cooling_tower:         {low: 15, high: 18}
+          vav_terminal:          {low: 15, high: 18}
 
 scoring:
   window_multipliers:

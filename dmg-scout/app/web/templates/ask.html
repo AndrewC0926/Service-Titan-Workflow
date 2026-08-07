@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Ask{% endblock %}
+{% block sheet_no %}S-08{% endblock %}
+{% block content %}
+
+<div class="sec-head">
+  <div class="sec-title">Ask the board</div>
+  <span class="note">Plain language in; a filter you can read out</span>
+</div>
+
+<form method="get" action="/ask" class="mb-3 flex flex-wrap gap-2 items-center">
+  <input type="text" name="q" value="{{ r.question }}" class="flex-1 min-w-[22rem]"
+         placeholder="anything over 10 MW in Storey County; industrial in Riverside naming Southland">
+  <button type="submit">Ask</button>
+</form>
+
+{% if r.error %}
+<div class="callout callout-bad">
+  <strong>Could not answer that</strong>
+  <span class="body">{{ r.error }}</span>
+</div>
+{% endif %}
+
+{% if r.criteria is not none %}
+{# The filter is shown in full, always. A filter you cannot read is a filter you
+   cannot check, and an unchecked filter that quietly dropped half the market
+   looks exactly like a quiet market. #}
+<div class="sheet p-3 mb-3">
+  <div class="tb-lbl mb-1">Read as</div>
+  <div class="mb-2">{{ r.reading or '—' }}</div>
+  <div class="tb-lbl mb-1">Filter applied</div>
+  <div class="mono text-[0.8125rem]">
+    {%- if r.criteria -%}
+      {% for k, v in r.criteria.items() %}<span class="stamp stamp-quiet mr-1">{{ k }} = {{ v }}</span>{% endfor %}
+    {%- else -%}<span class="note">no filter — every active project</span>{%- endif -%}
+  </div>
+
+  {% if r.unsupported %}
+  <div class="callout callout-warn mt-3 mb-0">
+    <strong>Not answered</strong>
+    <span class="body">
+      The board cannot filter on {% for u in r.unsupported %}“{{ u }}”{% if not loop.last %}, {% endif %}{% endfor %}.
+      Those parts were left out rather than approximated — the rows below answer the
+      rest of the question only.
+    </span>
+  </div>
+  {% endif %}
+
+  {% if r.criteria %}
+  <form method="post" action="/searches" class="mt-3 flex flex-wrap gap-2 items-center">
+    <input type="hidden" name="criteria_json" value='{{ r.criteria | tojson }}'>
+    <input type="text" name="name" value="{{ r.question[:60] }}" class="max-w-[24rem]">
+    <label class="note"><input type="checkbox" name="alert" checked class="w-auto"> alert daily</label>
+    <label class="note"><input type="checkbox" name="alert_on_change" class="w-auto"> on stage change</label>
+    <button type="submit">Save this search</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if r.projects %}
+<div class="sec-head"><div class="sec-title">{{ r.projects | length }} matching</div></div>
+{% include "_project_rows.html" with context %}
+{% elif r.criteria and not r.error %}
+<p class="note">Nothing on the board matches that. The filter above is what was asked —
+  if it is not the question you meant, rephrase it.</p>
+{% endif %}
+{% endblock %}

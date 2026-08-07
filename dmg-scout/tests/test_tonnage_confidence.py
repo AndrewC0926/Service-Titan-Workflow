@@ -94,12 +94,35 @@ def test_known_type_bands_are_far_narrower_than_the_old_span(c):
 
 # ---- equipment value ------------------------------------------------------
 
-def test_value_follows_equipment_not_tonnage(c):
-    """The field's point: unit value beats tonnage spread across the line card."""
-    big_box = estimate_equipment_value(c, 5000, 5000, FacilityType.distribution_fulfillment)
-    small_clean = estimate_equipment_value(c, 600, 600, FacilityType.cleanroom)
-    assert small_clean.low > big_box.low, (
-        "a 600 ton cleanroom should outvalue a 5,000 ton fulfillment centre")
+def test_at_equal_tonnage_unit_value_decides(c):
+    """The field's correction, stated at the tonnage where it is unambiguous.
+
+    An earlier version of this test asserted that a 600 ton cleanroom outvalues a
+    5,000 ton fulfillment centre. That was true of the rates I had invented (a 12x
+    spread) and is false of the real line card (5.7x). The measured spread is what
+    it is; the test now says so rather than the other way round.
+    """
+    clean = estimate_equipment_value(c, 1000, 1000, FacilityType.cleanroom)
+    box = estimate_equipment_value(c, 1000, 1000, FacilityType.distribution_fulfillment)
+    assert clean.low / box.low >= 5.0
+    assert clean.high / box.high >= 5.0
+
+
+def test_the_crossover_is_the_measured_spread_not_infinity(c):
+    """How much bigger a commodity box must be to match a specialty job.
+
+    This is the number the field input actually buys us: unit value is worth
+    5.7x, so a fulfillment centre beats a cleanroom on absolute dollars once it
+    is more than ~6x the tonnage — and not before. Ranking on tonnage alone got
+    that wrong in both directions.
+    """
+    clean = estimate_equipment_value(c, 1000, 1000, FacilityType.cleanroom)
+
+    just_under = estimate_equipment_value(c, 5000, 5000, FacilityType.distribution_fulfillment)
+    assert just_under.high < clean.high, "5x the tonnage should not yet win"
+
+    well_over = estimate_equipment_value(c, 8000, 8000, FacilityType.distribution_fulfillment)
+    assert well_over.high > clean.high, "8x the tonnage should win"
 
 
 def test_value_is_none_without_tonnage(c):
@@ -112,10 +135,42 @@ def test_value_is_none_without_a_type(c):
     assert v.low is None and v.high is None
 
 
-def test_value_basis_admits_the_rates_are_placeholders(c):
-    """Nobody should quote these dollars believing they came from the line card."""
-    v = estimate_equipment_value(c, 1000, 2000, FacilityType.cleanroom)
-    assert "placeholder" in v.basis.lower()
+def test_value_basis_says_whether_the_rate_is_verified(c):
+    """A line-card figure and an interpolation are not the same claim."""
+    verified = estimate_equipment_value(c, 1000, 2000, FacilityType.cleanroom)
+    assert "VERIFIED" in verified.basis
+
+    estimated = estimate_equipment_value(c, 1000, 2000, FacilityType.office_rnd)
+    assert "ESTIMATED rate" in estimated.basis
+
+
+def test_table_is_anchored_to_the_two_real_line_card_figures(c):
+    """From DMG's VP of sales, and the whole magnitude rests on them.
+
+    VU Flow CO2 chiller ~$8,500/ton (premium specialty) and commodity LG chillers
+    ~$1,500/ton, a measured 5.7x spread. Before these the table encoded only an
+    ordering, with magnitudes I had invented.
+    """
+    table = c.get("equipment_value.value_per_ton_by_facility_type", {})
+    assert table["cleanroom"]["high"] == 8500, "lost the VU Flow anchor"
+    assert table["light_manufacturing"]["low"] == 1500, "lost the LG commodity anchor"
+
+    top = max(b["high"] for b in table.values())
+    bottom = min(b["low"] for b in table.values())
+    assert top == 8500
+    # The measured premium-to-commodity spread, reproduced across the table.
+    assert 5.0 <= top / table["distribution_fulfillment"]["high"] <= 6.5
+
+    for name, band in table.items():
+        assert "source" in band, f"{name} does not say whether its rate is verified"
+        assert band["low"] <= band["high"], name
+
+
+def test_only_the_anchored_rows_claim_to_be_verified(c):
+    """Guards against a later edit quietly promoting an estimate to a fact."""
+    table = c.get("equipment_value.value_per_ton_by_facility_type", {})
+    verified = {n for n, b in table.items() if "VERIFIED" in b.get("source", "")}
+    assert verified == {"cleanroom", "light_manufacturing"}, verified
 
 
 def test_value_scales_with_tonnage(c):

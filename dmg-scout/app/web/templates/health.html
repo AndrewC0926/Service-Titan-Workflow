@@ -1,6 +1,82 @@
 {% extends "base.html" %}
 {% block title %}Source Health{% endblock %}
+{% block sheet_no %}S-07{% endblock %}
 {% block content %}
+
+{# ── The first chart in the system, and it earns its place.
+     "Has this source been running, and when did it stop" is a shape over time: a
+     gap is instantly visible on a timeline and invisible in a list of the last
+     fifty runs sorted by date. Two series, one grammar — status as a heat strip,
+     volume as bars underneath, sharing an x axis so a green day that fetched
+     nothing lines up with the day it happened. #}
+<h2>Run history — last 14 days</h2>
+<div id="runchart" style="height:{{ 90 + 26 * (chart.sources | length) }}px;margin-bottom:6px"></div>
+<div id="volchart" style="height:150px;margin-bottom:16px"></div>
+<div class="note" style="margin-bottom:18px">
+  A source with no bar on a day did not run that day. Failures outrank successes:
+  if any run failed, the day reads failed.
+</div>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script>
+(function () {
+  const C = {{ chart | tojson }};
+  if (!window.echarts || !C.sources.length) {
+    // No CDN, no chart. The tables below still answer the question, so this
+    // degrades to "one section missing" rather than a broken page.
+    document.getElementById('runchart').innerHTML =
+      '<span class="dim">Chart unavailable (ECharts did not load) — the tables below carry the same data.</span>';
+    document.getElementById('volchart').remove();
+    return;
+  }
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const ink = css('--color-ink-mid'), rule = css('--color-rule'),
+        blue = css('--color-blueprint'), ok = css('--color-stamp-ok'),
+        bad = css('--color-stamp-bad'), panel = css('--color-panel');
+
+  const base = {
+    backgroundColor: 'transparent',
+    textStyle: {fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                fontSize: 11, color: ink},
+    grid: {left: 110, right: 20, top: 26, bottom: 28},
+    tooltip: {backgroundColor: panel, borderColor: rule, borderWidth: 1,
+              textStyle: {color: css('--color-ink'), fontSize: 11}},
+  };
+
+  // Status heat strip. Discrete states, so discrete colours — never a ramp.
+  const cells = [];
+  C.sources.forEach((s, y) => C.status[s].forEach((v, x) => cells.push([x, y, v])));
+  echarts.init(document.getElementById('runchart')).setOption(Object.assign({}, base, {
+    xAxis: {type: 'category', data: C.dates, axisLine: {lineStyle: {color: rule}},
+            axisLabel: {formatter: d => d.slice(5)}},
+    yAxis: {type: 'category', data: C.sources, axisLine: {lineStyle: {color: rule}}},
+    tooltip: Object.assign({}, base.tooltip, {formatter: p =>
+      `${C.sources[p.data[1]]}<br>${C.dates[p.data[0]]}<br>` +
+      (p.data[2] === 1 ? 'ran, ok' : p.data[2] === -1 ? 'ran, FAILED' : 'did not run')}),
+    series: [{
+      type: 'heatmap', data: cells,
+      itemStyle: {borderColor: panel, borderWidth: 2},
+      // A day with no run is not a pale success — it is absence, and it is drawn
+      // as an empty cell so it cannot be mistaken for a weak one.
+      color: [bad, 'transparent', ok],
+    }],
+    visualMap: {show: false, min: -1, max: 1, inRange: {color: [bad, rule, ok]}},
+  }));
+
+  echarts.init(document.getElementById('volchart')).setOption(Object.assign({}, base, {
+    grid: {left: 110, right: 20, top: 22, bottom: 30},
+    xAxis: {type: 'category', data: C.dates, axisLine: {lineStyle: {color: rule}},
+            axisLabel: {formatter: d => d.slice(5)}},
+    yAxis: {type: 'value', name: 'records fetched', nameTextStyle: {color: ink},
+            splitLine: {lineStyle: {color: rule, type: 'dashed'}}},
+    tooltip: Object.assign({}, base.tooltip, {trigger: 'axis'}),
+    series: C.sources.map(s => ({
+      name: s, type: 'bar', stack: 'total', data: C.fetched[s],
+      itemStyle: {color: blue, opacity: 0.35 + 0.65 * (C.sources.indexOf(s) + 1) / C.sources.length},
+    })),
+  }));
+})();
+</script>
+
 <h2>LLM spend</h2>
 <table style="max-width:640px;margin-bottom:14px">
 <tr><th>Today</th><th>Daily budget</th><th>This month</th><th>Status</th></tr>

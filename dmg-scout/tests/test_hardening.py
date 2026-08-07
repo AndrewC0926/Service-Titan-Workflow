@@ -111,3 +111,220 @@ def test_doctor_reports_missing_pieces(db_session, monkeypatch):
     assert checks["dead_mans_switch"][0] is False
     assert checks["source:ceqanet"][0] is False  # no successful run yet
     assert checks["llm_budget"][0] is True
+
+
+# ---- doctor reads source_runs through a naming convention -------------------
+#
+# All seven sources reported "no successful run recorded" against a table holding
+# nine successful backfill runs, because doctor matched `source == "ceqanet"` and
+# backfill writes "ceqanet:backfill". These pin the convention from both ends.
+
+def _doctor_checks(monkeypatch=None) -> dict:
+    """Run doctor. Pass monkeypatch to unset the API key first — the source-run
+    checks below do not care about the LLM and must not make a live call."""
+    from app.ops import doctor
+    if monkeypatch is not None:
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    return {name: (ok, detail) for name, ok, detail in doctor()}
+
+
+def _run(session, name: str, *, ok: bool | None, hours_ago: float = 1.0, error: str | None = None):
+    from datetime import timedelta
+
+    from app.models import SourceRun, utcnow
+    run = SourceRun(source=name, started_at=utcnow() - timedelta(hours=hours_ago),
+                    ok=ok, error=error)
+    session.add(run)
+    session.commit()
+    return run
+
+
+def test_backfill_run_counts_as_a_run_of_its_source(db_session, monkeypatch):
+    """The bug: a successful backfill left its source reading 'never ran'."""
+    _run(db_session, "ceqanet:backfill", ok=True)
+    checks = _doctor_checks(monkeypatch)
+    assert checks["source:ceqanet"][0] is True
+    # and it says which mode succeeded, so nobody reads a hand-run backfill as
+    # evidence the scheduled fetch is alive
+    assert "backfill" in checks["source:ceqanet"][1]
+
+
+def test_backfill_run_does_not_hide_staleness(db_session, monkeypatch):
+    """Counting backfills must not blind the 36h freshness check."""
+    _run(db_session, "ceqanet:backfill", ok=True, hours_ago=40)
+    checks = _doctor_checks(monkeypatch)
+    assert checks["source:ceqanet"][0] is False
+    assert "last success" in checks["source:ceqanet"][1]
+
+
+def test_failed_runs_are_not_never_ran(db_session, monkeypatch):
+    """A broken adapter and a scheduler that never fired are different diagnoses."""
+    _run(db_session, "ceqanet:backfill", ok=False, error="HTTPError: 503")
+    _run(db_session, "ceqanet", ok=False, error="HTTPError: 503")
+    ok, detail = _doctor_checks(monkeypatch)["source:ceqanet"]
+    assert ok is False
+    assert "2 run(s) recorded, none successful" in detail
+    assert "503" in detail
+    # a source with genuinely nothing in the table still says so
+    assert "no run of any kind recorded" in _doctor_checks(monkeypatch)["source:rss"][1]
+
+
+def test_unattributable_run_name_fails_loudly(db_session, monkeypatch):
+    """The invariant: no source_runs row may be invisible to the health check.
+
+    A run name no check can attribute is the same failure class as a source
+    reporting OK while producing nothing — the board goes green over a machine
+    nobody is watching. It must fail here, not silently degrade `source:ceqanet`
+    into a false alarm nobody can explain.
+    """
+    _run(db_session, "ceqanet-backfill", ok=True)  # hyphen, not the ':' convention
+    ok, detail = _doctor_checks(monkeypatch)["source_run_names"]
+    assert ok is False
+    assert "ceqanet-backfill" in detail
+
+
+def test_stage_and_source_run_names_are_attributable(db_session, monkeypatch):
+    """Both live conventions pass: stage names and every source:mode name."""
+    from app.models import BACKFILL_RUN_MODE, source_run_name
+    _run(db_session, "resolve", ok=True)
+    _run(db_session, "extract", ok=True)
+    _run(db_session, source_run_name("ceqanet", BACKFILL_RUN_MODE), ok=True)
+    _run(db_session, source_run_name("edgar"), ok=True)
+    # a disabled source's history is still attributable
+    _run(db_session, source_run_name("primegov", BACKFILL_RUN_MODE), ok=True)
+    assert _doctor_checks(monkeypatch)["source_run_names"][0] is True
+
+
+def test_key_check_fails_when_the_account_cannot_run_inference(db_session, monkeypatch):
+    """Authenticating is not the same as being able to work.
+
+    models.list() returned 200 on 2026-08-06 while every triage and extract call
+    failed with "credit balance is too low", so doctor reported the LLM healthy
+    against an account that could not run a single inference. count_tokens
+    exercises the billing check on the real path and is not itself billed.
+    """
+    import anthropic
+
+    class _Messages:
+        def count_tokens(self, **kw):
+            raise RuntimeError("credit balance is too low to access the Anthropic API")
+
+    class _Client:
+        def __init__(self, **kw):
+            self.messages = _Messages()
+            # the old probe: authenticates fine, tells you nothing about billing
+            self.models = type("M", (), {"list": staticmethod(lambda **k: ["ok"])})()
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setattr(anthropic, "Anthropic", _Client)
+    ok, detail = _doctor_checks()["anthropic_api_key"]
+    assert ok is False
+    assert "credit balance" in detail
+
+
+def test_key_check_passes_when_inference_is_available(db_session, monkeypatch):
+    import anthropic
+
+    class _Client:
+        def __init__(self, **kw):
+            self.messages = type("M", (), {
+                "count_tokens": staticmethod(
+                    lambda **k: type("R", (), {"input_tokens": 9})())})()
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setattr(anthropic, "Anthropic", _Client)
+    assert _doctor_checks()["anthropic_api_key"][0] is True
+
+
+# ---- invariant 2: no project carries a score with zero linked signals -------
+
+def _project(db_session, name: str, status: str = "active", score: float = 0.5):
+    from app.models import Category, Project, Stage
+    p = Project(name=name, category=Category.data_center, stage=Stage.entitlement,
+                status=status, score=score, in_territory=True)
+    db_session.add(p)
+    db_session.commit()
+    return p
+
+
+def test_scored_project_with_no_signal_fails(db_session, monkeypatch):
+    """A row with a name, a score and no evidence under any of it."""
+    p = _project(db_session, "Phantom Logistics Center")
+    ok, detail = _doctor_checks(monkeypatch)["project_evidence"]
+    assert ok is False
+    assert f"#{p.id}" in detail and "Phantom Logistics Center" in detail
+    assert "NO linked signal" in detail
+
+
+def test_merged_project_with_no_signal_is_expected(db_session, monkeypatch):
+    """Merging moves the signals to the survivor by design, so the merged row is
+    signal-less for the right reason — and it is off the board anyway."""
+    _project(db_session, "First Industrial Commerce Center II", status="merged")
+    assert _doctor_checks(monkeypatch)["project_evidence"][0] is True
+
+
+def test_project_with_a_linked_signal_passes(db_session, monkeypatch):
+    from app.models import (
+        Category, ProjectSignal, RawDocument, Signal, SignalType, Stage, TriageResult,
+    )
+    p = _project(db_session, "Real Campus")
+    doc = RawDocument(source="ceqanet", source_uid="ev1", url="https://x/ev1",
+                      title="NOP", raw_text="t", content_hash="hev1")
+    db_session.add(doc)
+    db_session.commit()
+    sig = Signal(raw_document_id=doc.id, signal_type=SignalType.ceqa_nop,
+                 triage_result=TriageResult.relevant, category=Category.data_center,
+                 stage=Stage.entitlement, project_name="Real Campus")
+    db_session.add(sig)
+    db_session.commit()
+    db_session.add(ProjectSignal(project_id=p.id, signal_id=sig.id,
+                                 match_confidence=1.0, match_method="manual"))
+    db_session.commit()
+    assert _doctor_checks(monkeypatch)["project_evidence"][0] is True
+
+
+def test_run_name_round_trips():
+    from app.models import BACKFILL_RUN_MODE, run_name_mode, run_name_source, source_run_name
+    name = source_run_name("ceqanet", BACKFILL_RUN_MODE)
+    assert name == "ceqanet:backfill"
+    assert run_name_source(name) == "ceqanet"
+    assert run_name_mode(name) == "backfill"
+    assert run_name_source("ceqanet") == "ceqanet"
+    assert run_name_mode("ceqanet") is None
+
+
+def test_backfill_writes_the_name_doctor_reads(db_session, cfg, monkeypatch):
+    """Writer and reader agree, pinned against the real backfill path.
+
+    The round-trip test above proves the helpers agree with each other; this
+    proves run_backfill actually uses them. That is the join the original bug
+    lived in.
+    """
+    from app.models import SourceRun, run_name_source
+    from app.pipeline import backfill as backfill_mod
+
+    monkeypatch.setattr(backfill_mod, "get_adapter",
+                        lambda source: _StubAdapter())
+    monkeypatch.setattr(backfill_mod, "PoliteClient", lambda **kw: _NullClient())
+    backfill_mod.run_backfill(db_session, cfg, "ceqanet",
+                              backfill_mod.utcnow(), force=True)
+    names = {r.source for r in db_session.exec(select(SourceRun)).all()}
+    assert names == {"ceqanet:backfill"}
+    assert run_name_source(names.pop()) == "ceqanet"
+    assert _doctor_checks(monkeypatch)["source:ceqanet"][0] is True
+
+
+class _StubAdapter:
+    def backfill_chunks(self, cfg, since):
+        return [{"key": "chunk-1"}]
+
+    def fetch_chunk(self, cfg, client, since, chunk):
+        return iter(())
+
+
+class _NullClient:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False

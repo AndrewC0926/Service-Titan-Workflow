@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Firms{% endblock %}
+{% block sheet_no %}S-10{% endblock %}
+{% block content %}
+<div class="sec-head">
+  <div class="sec-title">Firms on the board</div>
+  <span class="note">Firms with no linked project are omitted — a roster entry nobody
+    has been seen on is not intelligence</span>
+</div>
+<table class="tbl">
+<colgroup><col style="width:28rem"><col style="width:12rem"><col style="width:8rem"><col style="width:8rem"><col></colgroup>
+<thead><tr>
+  <th>Firm</th><th>Type</th><th class="num">Active</th><th class="num">All time</th><th>Also known as</th>
+</tr></thead>
+<tbody>
+{% for row in rows %}
+<tr>
+  <td><a href="/firm/{{ row.firm.id }}">{{ row.firm.name }}</a></td>
+  <td class="nowrap">{{ row.firm.firm_type }}</td>
+  <td class="num mono">{{ row.n_active }}</td>
+  <td class="num mono">{{ row.n_projects }}</td>
+  <td><span class="clip note">{{ row.firm.aliases | join(', ') if row.firm.aliases else '—' }}</span></td>
+</tr>
+{% else %}
+<tr><td colspan="5" class="note">No firms linked to projects yet.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}

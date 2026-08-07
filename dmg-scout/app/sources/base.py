@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime  # noqa: F401 — used in signatures
@@ -192,15 +193,42 @@ def keyword_match(text: str, cfg: Config) -> bool:
     """
     lower = text.lower()
     return (any(kw in lower for kw in cfg.get("keywords.data_center", []))
-            or any(kw in lower for kw in cfg.get("keywords.industrial", [])))
+            or any(kw in lower for kw in cfg.get("keywords.industrial", []))
+            or _esco_match(lower, cfg))
+
+
+# ESCO terms are matched on WORD BOUNDARIES, unlike the building keywords.
+# "esco" is a four-letter substring that occurs inside ordinary agenda words —
+# Tesco, fresco, frescoes, Escondido, and (in California agendas, constantly)
+# Escondido and escrow-adjacent text. Substring matching on it would put junk
+# through the narrowest funnel in the system. The multi-word terms do not need
+# this, but running them through the same path keeps one rule instead of two.
+_ESCO_PATTERNS: dict[int, list] = {}
+
+
+def _esco_match(lower: str, cfg: Config) -> bool:
+    terms = cfg.get("keywords.esco", []) or []
+    key = id(cfg)
+    pats = _ESCO_PATTERNS.get(key)
+    if pats is None or len(pats) != len(terms):
+        pats = [re.compile(rf"\b{re.escape(t.lower())}\b") for t in terms]
+        _ESCO_PATTERNS[key] = pats
+    return any(p.search(lower) for p in pats)
 
 
 def keyword_category(text: str, cfg: Config) -> str | None:
-    """Which list matched, for probes and diagnostics. data_center wins ties: a
-    filing naming both is a data center that mentions its warehouse."""
+    """Which list matched, for probes, diagnostics and document tagging.
+
+    data_center wins ties: a filing naming both is a data center that mentions its
+    warehouse. `esco` is checked LAST — an ESPC award at a facility that happens
+    to say "warehouse" is still best understood as new-construction-adjacent by
+    the boards that exist today, and calling it esco would quietly reroute it.
+    """
     lower = text.lower()
     if any(kw in lower for kw in cfg.get("keywords.data_center", [])):
         return "data_center"
     if any(kw in lower for kw in cfg.get("keywords.industrial", [])):
         return "industrial"
+    if _esco_match(lower, cfg):
+        return "esco"
     return None

@@ -1,0 +1,37 @@
+{# Compact project table, shared by /ask and /searches. Deliberately narrower than
+   the board: these pages answer "which projects", and the board answers "in what
+   order and who do I call". #}
+<table class="tbl">
+<colgroup>
+  <col style="width:22rem"><col style="width:14rem"><col style="width:10rem">
+  <col style="width:10rem"><col style="width:7rem"><col style="width:6rem"><col>
+</colgroup>
+<thead><tr>
+  <th>Project</th><th>Developer</th><th>County</th>
+  <th class="num">Est. tons</th><th>Window</th><th class="num">Score</th><th>Stage</th>
+</tr></thead>
+<tbody>
+{# Callers set `projects`. /ask passes its result object as `r`, so fall back to
+   r.projects — resolved here rather than inline in the loop, where a conditional
+   expression collides with Jinja's loop-filter syntax. #}
+{% set rows = projects if projects is defined else r.projects %}
+{% for p in rows %}
+<tr>
+  <td><a href="/project/{{ p.id }}" class="clamp2" title="{{ p.name }}">{{ p.name }}</a></td>
+  <td><span class="clip" title="{{ p.developer or '' }}">{{ p.developer or '—' }}</span></td>
+  <td class="nowrap">{{ p.county or '?' }}{{ ', ' + p.state if p.state }}</td>
+  <td class="num nowrap">
+    {%- if p.tons_estimate_low -%}
+      {{ '{:,.0f}'.format(p.tons_estimate_low) }}–{{ '{:,.0f}'.format(p.tons_estimate_high) }}
+    {%- else -%}<span class="note">—</span>{%- endif -%}
+  </td>
+  <td>
+    {%- set w = p.window.value -%}
+    <span class="stamp {{ 'stamp-pre' if w=='PRE_BOD' else 'stamp-in' if w=='IN_BOD' else 'stamp-post' }}">{{ w.replace('_','-') }}</span>
+  </td>
+  <td class="num mono">{{ '%.2f'|format(p.score) }}</td>
+  <td class="nowrap">{{ p.stage.value }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>

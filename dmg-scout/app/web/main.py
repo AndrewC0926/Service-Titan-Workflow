@@ -3,6 +3,7 @@ engineering submittal package: title block, dense tables, monospace numbers,
 thermal gradient on the score column."""
 from __future__ import annotations
 
+import json
 import os
 import secrets
 from datetime import datetime
@@ -11,6 +12,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, func, select
 
@@ -19,20 +21,39 @@ from app.db import get_session
 from app.manual import add_manual_signal
 from app.models import (
     ACTIVE_STATUSES, OUTCOME_STATUSES, Category, Contact, Firm, MatchCandidate, Outreach,
-    Project, ProjectContact, ProjectFirm, ProjectSignal, RawDocument, Signal, SignalType,
-    SourceRun, Stage, utcnow,
+    Project, ProjectContact, ProjectFirm, ProjectSignal, RawDocument, SavedSearch, Signal,
+    SignalType, SourceRun, Stage, utcnow,
 )
 
 
 def _parse_category(value: str | None) -> Category | None:
-    """None means every category — an unknown value falls back to that rather than
-    silently showing an empty board."""
+    """None means "the construction boards" — see _category_filter.
+
+    An unknown value falls back to that rather than silently showing an empty
+    board.
+    """
     if not value or value == "all":
         return None
     try:
         return Category(value)
     except ValueError:
         return None
+
+
+def _category_filter(cat: Category | None):
+    """The WHERE clause for a board selection.
+
+    `all` means BOTH CONSTRUCTION BOARDS, not literally every category, and the
+    distinction matters now that `esco` exists. An ESCO award is a retrofit
+    procurement on buildings that already exist: it has no tonnage, no developer
+    and no bid date, so dropping it into a list ranked by winnability of new
+    construction would add rows that cannot be compared with the ones around
+    them. It is kept, counted and reachable under its own chip — just not mixed
+    into a ranking it is not competing in.
+    """
+    if cat is None:
+        return Project.category.in_(Category.boards())
+    return Project.category == cat
 from app.normalize import normalize_name
 from app.pipeline.resolve import apply_review_decision
 
@@ -49,8 +70,26 @@ def score_color(score: float) -> str:
     return f"hsl({hue:.0f} 85% 55%)"
 
 
+def score_ink(score: float) -> str:
+    """Text colour for a chip sitting on score_color().
+
+    The gradient runs through mid-luminance blues and greens where white text
+    fails and through yellows where black text is the only readable choice, so the
+    chip cannot pick one ink and keep it. Computed from the same t as the
+    background so the pair always moves together.
+    """
+    t = max(0.0, min(1.0, score))
+    hue = 215 - t * 215
+    # Perceived luminance of hsl(hue 85% 55%) peaks around yellow-green (60-160).
+    return "#10131a" if 35 <= hue <= 195 else "#ffffff"
+
+
 templates.env.globals["score_color"] = score_color
+templates.env.globals["score_ink"] = score_ink
 templates.env.globals["now"] = utcnow
+
+app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")),
+          name="static")
 
 
 def auth(credentials: HTTPBasicCredentials = Depends(security)) -> str:
@@ -91,17 +130,18 @@ def board(request: Request, category: str = "data_center",
     # dilute it. `?category=all` shows both.
     cat = _parse_category(category)
     q = select(Project).where(Project.status.in_(ACTIVE_STATUSES),
-                              Project.in_territory == True)  # noqa: E712
-    if cat is not None:
-        q = q.where(Project.category == cat)
+                              Project.in_territory == True,  # noqa: E712
+                              _category_filter(cat))
     projects = session.exec(q.order_by(Project.score.desc())).all()
+    # Every category gets a count, including esco — a chip whose count is hidden
+    # is a category nobody will ever click.
     counts = {
         c.value: session.exec(
             select(func.count(Project.id)).where(
                 Project.status.in_(ACTIVE_STATUSES),
                 Project.in_territory == True,  # noqa: E712
                 Project.category == c)).one()
-        for c in (Category.data_center, Category.industrial)
+        for c in (*Category.boards(), Category.esco)
     }
     watch_count = session.exec(
         select(func.count(Project.id)).where(Project.status.in_(ACTIVE_STATUSES),
@@ -120,7 +160,64 @@ def board(request: Request, category: str = "data_center",
         "has_pre_bod": has_pre_bod, "watch_count": watch_count, "is_watchlist": False,
         "completeness": completeness, "category": category, "cat_counts": counts,
         "tb": _title_block(session), "active": "board",
+        **_board_extras(session, projects),
     })
+
+
+def _board_extras(session: Session, projects: list[Project]) -> dict:
+    """The contact column and the summary strip.
+
+    The charter's success criterion is "a project, early, plus at least one human
+    with a phone or email", and the board did not show the human. It showed the
+    project and left the rep to open each row to find out whether there was
+    anyone to call — which means the board could not be read as a call list, only
+    as a reading list. `build_ladders` makes the column affordable (289 rows in
+    under a second, against minutes for the per-project builder).
+    """
+    from app.ladder import build_ladders, contact_status
+    from app.staleness import stage_ages, staleness_summary
+
+    ladders = build_ladders(session, projects)
+    contacts: dict[int, dict] = {}
+    statuses: dict[int, str] = {}
+    for p in projects:
+        cs = contact_status(session, p, ladder=ladders[p.id])
+        statuses[p.id] = cs["status"]
+        contacts[p.id] = cs["best_reachable"]
+
+    # How old the evidence for each row's STAGE is. A stage is a claim about now,
+    # made from a document with a date on it, and the board prints a bid-date
+    # estimate derived from it — so a stale stage silently produces a confident
+    # wrong date.
+    threshold = load_config().get("board.stage_unverified_months", 12)
+    ages = stage_ages(session, projects)
+    stale = staleness_summary(ages, threshold)
+
+    windows: dict[str, int] = {}
+    for p in projects:
+        windows[p.window.value] = windows.get(p.window.value, 0) + 1
+    tons_low = sum(p.tons_estimate_low or 0 for p in projects)
+    tons_high = sum(p.tons_estimate_high or 0 for p in projects)
+    return {
+        "contacts": contacts,
+        "contact_statuses": statuses,
+        "stage_ages": ages,
+        "stale": stale,
+        "stale_months": threshold,
+        # Bars are scaled to the board's own maximum, not to 1.0. Scores cluster
+        # between 0.3 and 0.7, so a fixed 0-1 scale spends most of its length on
+        # range that never occurs and compresses the part that does.
+        "score_max": max([p.score for p in projects] or [1.0]) or 1.0,
+        "summary": {
+            "n": len(projects),
+            "callable": sum(1 for v in statuses.values() if v == "contactable"),
+            "name_only": sum(1 for v in statuses.values() if v == "name_only"),
+            "no_one": sum(1 for v in statuses.values() if v == "none"),
+            "sized": sum(1 for p in projects if p.tons_estimate_low),
+            "tons_low": tons_low, "tons_high": tons_high,
+            "windows": windows,
+        },
+    }
 
 
 @app.get("/watchlist", response_class=HTMLResponse)
@@ -137,6 +234,7 @@ def watchlist(request: Request, session: Session = Depends(get_session), _: str 
         "projects": projects, "days_since": days_since, "review_count": 0,
         "has_pre_bod": True, "watch_count": 0, "is_watchlist": True,
         "tb": _title_block(session), "active": "watchlist",
+        **_board_extras(session, projects),
     })
 
 
@@ -408,17 +506,204 @@ def add_contact(name: str = Form(...), title: str = Form(""), company: str = For
 @app.get("/map", response_class=HTMLResponse)
 def map_view(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
     projects = session.exec(
-        select(Project).where(Project.status == "active", Project.latitude.is_not(None))
-    ).all()
-    markers = [
-        {"lat": p.latitude, "lon": p.longitude, "name": p.name, "score": p.score,
-         "color": score_color(p.score), "id": p.id,
-         "tons": f"{p.tons_estimate_low:,.0f}-{p.tons_estimate_high:,.0f}"
-                 if p.tons_estimate_low else "?"}
-        for p in projects
-    ]
+        select(Project).where(Project.status.in_(ACTIVE_STATUSES),
+                              Project.latitude.is_not(None))).all()
+    ladders = None
+    if projects:
+        from app.ladder import build_ladders, contact_status
+        ladders = build_ladders(session, projects)
+
+    markers = []
+    for p in projects:
+        reach = (contact_status(session, p, ladder=ladders[p.id])["best_reachable"]
+                 if ladders else None)
+        markers.append({
+            "lat": p.latitude, "lon": p.longitude, "name": p.name, "score": p.score,
+            "id": p.id, "county": p.county or "?", "state": p.state or "?",
+            "window": p.window.value, "stage": p.stage.value,
+            "tons": (f"{p.tons_estimate_low:,.0f}–{p.tons_estimate_high:,.0f}"
+                     if p.tons_estimate_low else None),
+            # The map answers "what is near me", and near-me is only useful if the
+            # row tells you who to ring while you are standing there.
+            "who": (reach["name"] if reach else None),
+            "reach": (reach["phone"] or reach["email"]) if reach else None,
+        })
     return templates.TemplateResponse(request, "map.html", {
         "markers": markers, "tb": _title_block(session), "active": "map",
+    })
+
+
+# ---- saved searches ---------------------------------------------------------
+
+@app.get("/searches", response_class=HTMLResponse)
+def searches_view(request: Request, session: Session = Depends(get_session),
+                  _: str = Depends(auth)):
+    from app.searches import CRITERIA_KEYS, UnknownCriterion, run_search
+
+    rows = []
+    for s in session.exec(select(SavedSearch).order_by(SavedSearch.created_at)).all():
+        try:
+            hits = run_search(session, s.criteria)
+            error = None
+        except (UnknownCriterion, ValueError) as exc:
+            # Shown, never swallowed: a saved search that cannot run is a question
+            # the rep believes is being asked and is not.
+            hits, error = [], str(exc)
+        rows.append({"s": s, "n": len(hits), "top": hits[:5], "error": error})
+    return templates.TemplateResponse(request, "searches.html", {
+        "rows": rows, "criteria_keys": sorted(CRITERIA_KEYS),
+        "tb": _title_block(session), "active": "searches",
+    })
+
+
+@app.post("/searches")
+def searches_create(name: str = Form(...), criteria_json: str = Form("{}"),
+                    alert: str = Form(None), alert_on_change: str = Form(None),
+                    session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.searches import UnknownCriterion, validate
+    try:
+        criteria = json.loads(criteria_json or "{}")
+        if not isinstance(criteria, dict):
+            raise ValueError("criteria must be a JSON object")
+        validate(criteria)
+    except (json.JSONDecodeError, ValueError, UnknownCriterion) as exc:
+        raise HTTPException(400, detail=str(exc))
+    session.add(SavedSearch(name=name.strip() or "untitled", criteria=criteria,
+                            alert=bool(alert), alert_on_change=bool(alert_on_change)))
+    session.commit()
+    return RedirectResponse("/searches", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/searches/{search_id}/delete")
+def searches_delete(search_id: int, session: Session = Depends(get_session),
+                    _: str = Depends(auth)):
+    s = session.get(SavedSearch, search_id)
+    if s:
+        session.delete(s)
+        session.commit()
+    return RedirectResponse("/searches", status_code=status.HTTP_303_SEE_OTHER)
+
+
+# ---- plain-language search --------------------------------------------------
+
+@app.get("/ask", response_class=HTMLResponse)
+def ask_view(request: Request, q: str = "", session: Session = Depends(get_session),
+             _: str = Depends(auth)):
+    """Ask the board a question in plain language.
+
+    The model produces a validated criteria dict, never SQL, and the dict is shown
+    back on the page. A filter you cannot read is a filter you cannot check, and
+    an unchecked filter that quietly dropped half the market looks exactly like a
+    quiet market.
+    """
+    from app.llm import LLMUnavailable
+    from app.nlsearch import Uninterpretable, interpret
+    from app.searches import UnknownCriterion, run_search
+
+    result = {"question": q, "criteria": None, "unsupported": [], "reading": "",
+              "projects": [], "error": None}
+    if q.strip():
+        try:
+            parsed = interpret(q)
+            result.update(parsed)
+            result["projects"] = run_search(session, parsed["criteria"])
+        except (LLMUnavailable, Uninterpretable, UnknownCriterion) as exc:
+            result["error"] = str(exc)
+        except Exception as exc:  # noqa: BLE001 — surfaced, never a blank page
+            result["error"] = f"{type(exc).__name__}: {exc}"
+    return templates.TemplateResponse(request, "ask.html", {
+        "r": result, "tb": _title_block(session), "active": "ask",
+    })
+
+
+# ---- outreach ---------------------------------------------------------------
+
+@app.get("/outreach", response_class=HTMLResponse)
+def outreach_view(request: Request, session: Session = Depends(get_session),
+                  _: str = Depends(auth)):
+    """The call list: what is owed, what is cold, what has never been touched.
+
+    The board answers "which projects are worth calling". This answers "which call
+    do I make next", and they are not the same question — a high-scoring project
+    you rang yesterday is not today's call, and a mid-scoring one with a promise
+    attached to a date is.
+
+    Three sections, in the order a morning actually goes: promises with a date on
+    them, then rows that were worked and went quiet, then rows never touched at
+    all. Untouched is last on purpose — it is the biggest list and the least
+    urgent, and putting it first buries the commitments.
+    """
+    from app.ladder import build_ladders, contact_status
+
+    projects = session.exec(
+        select(Project).where(Project.status.in_(ACTIVE_STATUSES),
+                              Project.in_territory == True)).all()  # noqa: E712
+    by_id = {p.id: p for p in projects}
+    ladders = build_ladders(session, projects) if projects else {}
+
+    touches = session.exec(select(Outreach).order_by(Outreach.date.desc())).all()
+    last_touch: dict[int, Outreach] = {}
+    for o in touches:
+        last_touch.setdefault(o.project_id, o)
+
+    contacts = {c.id: c for c in session.exec(select(Contact)).all()}
+    now = utcnow()
+
+    def row(p: Project) -> dict:
+        reach = contact_status(session, p, ladder=ladders.get(p.id))["best_reachable"]
+        o = last_touch.get(p.id)
+        return {
+            "p": p, "o": o,
+            "contact": contacts.get(o.contact_id) if o and o.contact_id else None,
+            "days": (now - o.date).days if o else None,
+            "who": reach,
+        }
+
+    due, cold, untouched = [], [], []
+    for p in projects:
+        r = row(p)
+        o = r["o"]
+        if o and o.next_action and o.next_action_date:
+            r["overdue_by"] = (now - o.next_action_date).days
+            due.append(r)
+        elif o:
+            cold.append(r)
+        elif r["who"]:
+            # No contact method means no call to make, so an untouched row with
+            # nobody reachable is research, not an omission — it belongs on the
+            # board's `Research` count, not in a call queue that implies a duty.
+            untouched.append(r)
+
+    due.sort(key=lambda r: -r["overdue_by"])
+    cold.sort(key=lambda r: -(r["days"] or 0))
+    untouched.sort(key=lambda r: -(r["p"].score or 0))
+    return templates.TemplateResponse(request, "outreach.html", {
+        "due": due, "cold": cold, "untouched": untouched[:50],
+        "n_untouched": len(untouched),
+        "tb": _title_block(session), "active": "outreach",
+    })
+
+
+# ---- firm profiles ----------------------------------------------------------
+
+@app.get("/firms", response_class=HTMLResponse)
+def firms_index(request: Request, session: Session = Depends(get_session),
+                _: str = Depends(auth)):
+    from app.firmprofile import firm_index
+    return templates.TemplateResponse(request, "firms.html", {
+        "rows": firm_index(session), "tb": _title_block(session), "active": "firms",
+    })
+
+
+@app.get("/firm/{firm_id}", response_class=HTMLResponse)
+def firm_detail(firm_id: int, request: Request,
+                session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.firmprofile import firm_profile
+    prof = firm_profile(session, firm_id)
+    if prof is None:
+        raise HTTPException(404)
+    return templates.TemplateResponse(request, "firm.html", {
+        "p": prof, "tb": _title_block(session), "active": "firms",
     })
 
 
@@ -431,9 +716,47 @@ def source_health(request: Request, session: Session = Depends(get_session), _: 
         if entry["last_ok"] is None and run.ok:
             entry["last_ok"] = run
     from app.spend import budget_status
+
+    # ---- the chart series ------------------------------------------------
+    # Source health is the one view a chart genuinely beats a table at. The
+    # question is "has this source been running, and when did it stop", which is
+    # a shape over time: a gap is instantly visible on a timeline and invisible
+    # in a list of the last fifty rows sorted by date. The board earned nothing
+    # from a chart and did not get one.
+    from collections import defaultdict
+    from datetime import timedelta
+
+    from app.models import run_name_source
+
+    days = 14
+    today = utcnow().date()
+    dates = [(today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
+    index = {d: i for i, d in enumerate(dates)}
+
+    # Per source per day: 1 ok, -1 failed, 0 no run. Backfill runs count as runs
+    # of their source, same convention doctor uses.
+    grid: dict[str, list[int]] = defaultdict(lambda: [0] * days)
+    fetched: dict[str, list[int]] = defaultdict(lambda: [0] * days)
+    for run in runs:
+        key = run_name_source(run.source)
+        slot = index.get(run.started_at.date().isoformat())
+        if slot is None:
+            continue
+        if run.ok is False:
+            grid[key][slot] = -1          # a failure on a day outranks a success
+        elif run.ok and grid[key][slot] >= 0:
+            grid[key][slot] = 1
+        fetched[key][slot] += run.records_fetched or 0
+
+    chart = {
+        "dates": dates,
+        "sources": sorted(grid),
+        "status": {k: grid[k] for k in sorted(grid)},
+        "fetched": {k: fetched[k] for k in sorted(grid)},
+    }
     return templates.TemplateResponse(request, "health.html", {
         "sources": sources, "recent_runs": runs[:50], "budget": budget_status(),
-        "tb": _title_block(session), "active": "health",
+        "chart": chart, "tb": _title_block(session), "active": "health",
     })
 
 
@@ -442,7 +765,10 @@ def add_signal_form(request: Request, session: Session = Depends(get_session), _
     return templates.TemplateResponse(request, "add_signal.html", {
         "signal_types": [t.value for t in SignalType],
         "stages": [s.value for s in Stage],
-        "categories": [Category.data_center.value, Category.industrial.value],
+        # esco included: a rep who hears about an ESPC award at a city they cover
+        # has nowhere else to put it, and the manual path is the only way in until
+        # triage sees one of its own.
+        "categories": [c.value for c in (*Category.boards(), Category.esco)],
         "tb": _title_block(session), "active": "add",
     })
 

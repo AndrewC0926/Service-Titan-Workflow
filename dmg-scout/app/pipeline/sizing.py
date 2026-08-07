@@ -119,11 +119,21 @@ def estimate_tons(
     """
     rejected: list[str] = []
 
-    if category is Category.industrial:
+    # Industrial AND esco take the envelope path, never the electrical one.
+    #
+    # For esco the reason is sharper than for industrial. An energy services
+    # performance contract is a RETROFIT of buildings that already exist: there is
+    # no stated IT load, no generator fleet, and any megawatt figure in the
+    # document is far more likely to be the agency's annual electricity purchase
+    # than a cooling load. Falling through to the data-center branch would take
+    # such a number and multiply it into thousands of tons of chiller — the same
+    # order-of-magnitude error the industrial branch exists to prevent, on a
+    # building that may not need a single new machine.
+    if category in (Category.industrial, Category.esco):
         if building_sqft:
             return _industrial_from_sqft(cfg, building_sqft, facility_type)
-        # No area stated: an industrial building has no electrical shortcut worth
-        # trusting, so report unknown rather than borrow data-center physics.
+        # No area stated: neither has an electrical shortcut worth trusting, so
+        # report unknown rather than borrow data-center physics.
         return TonsEstimate(None, None, None)
 
     if mw_it:
@@ -256,9 +266,12 @@ def estimate_equipment_value(cfg: Config, tons_low: float | None, tons_high: flo
     without a type there is no equipment category, and inventing one here would
     reintroduce the guess that removing the 50x band just took out.
 
-    The dollar figures are config, and their magnitudes are placeholders standing
-    in for the DMG line card — see the note in config.yaml. The ordering is the
-    part that is load-bearing.
+    The dollar figures are config. Two points on that table are real line-card
+    figures from DMG's VP of sales — a VU Flow CO2 chiller at ~$8,500/ton and
+    commodity LG chillers at ~$1,500/ton — and they anchor both the magnitude and
+    the 5.7x spread. The rows between them are interpolated estimates, and each
+    row carries a `source` field saying which it is. The basis string repeats that
+    on every project so nobody quotes an interpolated number as a real one.
     """
     if not cfg.get("equipment_value.enabled", True):
         return EquipmentValue(None, None, None)
@@ -274,9 +287,14 @@ def estimate_equipment_value(cfg: Config, tons_low: float | None, tons_high: flo
 
     low = tons_low * band["low"]
     high = tons_high * band["high"]
+    source = band.get("source", "unverified")
+    # VERIFIED vs estimated travels with the number, on every row. A rate anchored
+    # to a real line-card figure and one interpolated between two of them are not
+    # the same claim, and the board must not present them as one.
+    tag = "line-card VERIFIED" if "VERIFIED" in source else "ESTIMATED rate"
     return EquipmentValue(
         low=low, high=high,
         basis=f"{tons_low:,.0f}-{tons_high:,.0f} tons of {band.get('equipment', facility_type.value)} "
               f"@ ${band['low']:,.0f}-{band['high']:,.0f}/ton -> ${low:,.0f}-${high:,.0f} "
-              f"(ORDER OF MAGNITUDE: rates are placeholders, not line-card figures)",
+              f"[{tag}: {source}]",
     )

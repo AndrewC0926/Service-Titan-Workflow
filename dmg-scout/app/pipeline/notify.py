@@ -29,14 +29,28 @@ def _already_sent(session: Session, kind: str, ref_id: int, fingerprint: str) ->
 
 
 def _mark(session: Session, kind: str, ref_id: int, fingerprint: str) -> None:
+    """Stage a 'reported' record. NOT durable until run_notify commits it.
+
+    session.add rather than a plain list on purpose: the sections below query
+    DigestLog to decide what to report, and autoflush makes marks staged earlier
+    in this same build visible to those queries. Losing that would change which
+    items a digest selects. The durability boundary is the commit, and the commit
+    belongs after the send — see run_notify.
+    """
     session.add(DigestLog(kind=kind, ref_id=ref_id, fingerprint=fingerprint))
 
 
 def build_digest(session: Session, cfg: Config) -> tuple[str, dict] | None:
-    """Returns (text, stats) or None when there is nothing new to say."""
+    """Returns (text, stats) or None when there is nothing new to say.
+
+    Leaves its DigestLog marks UNCOMMITTED. Nothing here has been reported to a
+    human yet — it has only been written down — and committing at this point is
+    what let a failed send mark a lead as delivered.
+    """
     min_score = cfg.get("scoring.min_digest_score", 0.15)
     sections: list[str] = []
-    stats = {"new_projects": 0, "stage_changes": 0, "reviews": 0, "failures": 0}
+    stats = {"new_projects": 0, "stage_changes": 0, "reviews": 0, "failures": 0,
+             "saved_searches": 0}
 
     # 1. New projects above threshold
     new_lines = []
@@ -107,6 +121,17 @@ def build_digest(session: Session, cfg: Config) -> tuple[str, dict] | None:
     if fail_lines:
         sections.append("SOURCE FAILURES\n" + "\n".join(fail_lines))
 
+    # 4b. Saved searches — standing questions the rep asked to be told about.
+    # Evaluated with commit=False: like every other section here, the marks and
+    # the last_seen cursor only become durable once the digest has actually been
+    # sent. A saved search whose cursor advanced on a failed send would skip the
+    # very change it was created to catch, and skip it silently.
+    from app.searches import digest_section
+    saved_text, saved_count = digest_section(session)
+    if saved_text:
+        sections.append(saved_text)
+        stats["saved_searches"] = saved_count
+
     # 5. Call recommendation: top PRE_BOD project with a named engineer of record
     rec = _call_recommendation(session)
     if rec:
@@ -122,10 +147,11 @@ def build_digest(session: Session, cfg: Config) -> tuple[str, dict] | None:
             f"${st['daily_budget_usd']:.2f} daily budget; ${st['month_usd']:.2f} this month"
         )
 
-    if not any([new_lines, stage_lines, review_lines, fail_lines]):
+    # saved_text counts: a saved search firing is a reason to send a digest
+    # even on a morning when nothing else moved — that is what it is for.
+    if not any([new_lines, stage_lines, review_lines, fail_lines, saved_text]):
         return None
     body = f"DMG Scout digest — {utcnow():%Y-%m-%d}\n\n" + "\n\n".join(sections) + "\n"
-    session.commit()
     return body, stats
 
 
@@ -199,11 +225,47 @@ def send_digest(cfg: Config, body: str) -> str:
 
 
 def run_notify(session: Session, cfg: Config) -> dict:
+    """Build, send, and only then record what was sent.
+
+    The order matters and it used to be wrong. build_digest committed a DigestLog
+    row for every item as it collected it, and send_digest ran afterwards — so an
+    SMTP timeout or a 500 from Resend left every item in that digest permanently
+    marked as reported. The items never reappear, because "already sent" is
+    exactly what DigestLog means. A lead would vanish between two runs and there
+    would be nothing anywhere to say it had ever existed.
+
+    Now the send is the commit's precondition. The failure direction is
+    deliberate: if the send succeeds and the commit then fails, the next digest
+    repeats a few items, which is noise a human notices and shrugs at. The
+    opposite trade loses the lead silently, and this system's whole value is that
+    somebody hears about the project.
+    """
     if not cfg.get("digest.enabled", True):
         return {"sent": False, "reason": "digest disabled"}
     built = build_digest(session, cfg)
     if built is None:
+        # Committed, NOT rolled back, and the distinction is easy to get backwards.
+        # Two kinds of row ride in DigestLog: "this was reported to a human", and
+        # section 2's stage observations, which are staged for every active project
+        # whether or not anything is reported. A stage change is only reported once
+        # a PREVIOUS stage was recorded, so discarding those observations because
+        # the digest happened to be empty means the project never accumulates a
+        # prior stage and its next stage change is silently never reported. Nothing
+        # was withheld from anyone on this path — there was nothing to send — so
+        # there is nothing to take back.
+        session.commit()
         return {"sent": False, "reason": "nothing new"}
     body, stats = built
-    transport = send_digest(cfg, body)
+    try:
+        transport = send_digest(cfg, body)
+    except Exception:
+        # Discard the marks. Re-raised rather than swallowed: a digest that did
+        # not go out is not a quiet no-op, it is the one failure mode that hides
+        # a lead, and the cron must exit non-zero so the dead man's switch and
+        # the run log both show it.
+        session.rollback()
+        log.error("digest send failed — %d items left unreported and will be "
+                  "included in the next run", sum(stats.values()))
+        raise
+    session.commit()
     return {"sent": True, "transport": transport, **stats}

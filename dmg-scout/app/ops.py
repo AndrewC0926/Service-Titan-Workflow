@@ -12,7 +12,10 @@ from sqlmodel import select
 
 from app.config import anthropic_api_key, load_config
 from app.db import get_engine, session_scope
-from app.models import SourceRun, utcnow
+from app.models import (
+    ACTIVE_STATUSES, STAGE_RUN_NAMES, Project, ProjectSignal, SourceRun,
+    run_name_mode, run_name_source, utcnow,
+)
 
 log = logging.getLogger(__name__)
 
@@ -77,12 +80,22 @@ def doctor() -> list[tuple[str, bool, str]]:
     if not key:
         checks.append(("anthropic_api_key", False, "ANTHROPIC_API_KEY not set — triage/extract will fail"))
     else:
+        # count_tokens, not models.list. Listing models authenticates the key and
+        # nothing else: on 2026-08-06 it returned 200 while every triage and
+        # extract call was failing with "credit balance is too low", so doctor
+        # reported the LLM healthy against an account that could not run a single
+        # inference. Same failure class as a source reporting OK while producing
+        # nothing. count_tokens exercises the billing check on the real path and
+        # is not itself billed, so it is a free probe that actually fails when
+        # the pipeline would fail.
         try:
             import anthropic
-            anthropic.Anthropic(api_key=key).models.list(limit=1)
-            checks.append(("anthropic_api_key", True, "key valid"))
+            anthropic.Anthropic(api_key=key).messages.count_tokens(
+                model=load_config().get("llm.triage_model"),
+                messages=[{"role": "user", "content": "ping"}])
+            checks.append(("anthropic_api_key", True, "key valid, account can run inference"))
         except Exception as exc:  # noqa: BLE001
-            checks.append(("anthropic_api_key", False, f"key rejected: {exc}"))
+            checks.append(("anthropic_api_key", False, f"unusable: {exc}"))
 
     total, used, free = shutil.disk_usage("/")
     free_gb = free / 1e9
@@ -91,18 +104,80 @@ def doctor() -> list[tuple[str, bool, str]]:
     cfg = load_config()
     stale_cutoff = utcnow() - timedelta(hours=36)
     with session_scope() as session:
+        # One pass over the table, grouped by the source a run name belongs to, so
+        # a backfill run counts as a run of its source. Matching `source == name`
+        # here meant a backfill was invisible: every source whose only runs were
+        # backfills read as "no successful run recorded" while its successful runs
+        # sat in the same table under "<name>:backfill". See app/models.py.
+        all_runs = session.exec(select(SourceRun)).all()
+        by_source: dict[str, list[SourceRun]] = {}
+        for run in all_runs:
+            by_source.setdefault(run_name_source(run.source), []).append(run)
+
         for name in [n for n in cfg.data.get("sources", {}) if cfg.source_enabled(n)]:
             if name == "manual":
                 continue
-            last_ok = session.exec(
-                select(SourceRun).where(SourceRun.source == name, SourceRun.ok == True)  # noqa: E712
-                .order_by(SourceRun.started_at.desc())).first()
-            if last_ok is None:
-                checks.append((f"source:{name}", False, "no successful run recorded"))
+            runs = by_source.get(name, [])
+            oks = sorted((r for r in runs if r.ok), key=lambda r: r.started_at)
+            if oks:
+                last_ok = oks[-1]
+                mode = run_name_mode(last_ok.source) or "fetch"
+                checks.append((f"source:{name}", last_ok.started_at >= stale_cutoff,
+                               f"last success {last_ok.started_at:%Y-%m-%d %H:%M}Z ({mode})"))
+            elif runs:
+                # Ran and failed is a different diagnosis from never ran, and the
+                # old message could not tell them apart. One is a broken adapter,
+                # the other is a scheduler that never fired.
+                last = max(runs, key=lambda r: r.started_at)
+                checks.append((f"source:{name}", False,
+                               f"{len(runs)} run(s) recorded, none successful; last "
+                               f"{last.started_at:%Y-%m-%d %H:%M}Z: {(last.error or 'no error recorded')[:80]}"))
             else:
-                fresh = last_ok.started_at >= stale_cutoff
-                checks.append((f"source:{name}", fresh,
-                               f"last success {last_ok.started_at:%Y-%m-%d %H:%M}Z"))
+                checks.append((f"source:{name}", False, "no run of any kind recorded"))
+
+        # THE CHECK THAT WOULD HAVE CAUGHT THE ABOVE. Every `source:` check reads
+        # source_runs through a naming convention, so an unrecognized name is a
+        # blind spot: its runs exist, they are healthy or not, and no check can
+        # see either. That is the same failure class as a source reporting OK
+        # while producing nothing — it ends in a green board over a broken
+        # machine — so it fails here rather than degrading some other check into
+        # a false alarm nobody can explain.
+        known = set(cfg.data.get("sources", {}))
+        unattributable = sorted({
+            r.source for r in all_runs
+            if r.source not in STAGE_RUN_NAMES and run_name_source(r.source) not in known
+        })
+        checks.append(("source_run_names", not unattributable,
+                       "every source_runs name maps to a source or a stage" if not unattributable
+                       else f"{len(unattributable)} run name(s) no check can see: "
+                            f"{', '.join(unattributable[:5])} — add the source to config.yaml, "
+                            f"or the stage to STAGE_RUN_NAMES, or build the name with "
+                            f"source_run_name()"))
+
+    # Invariant 2: no project carries a score with zero linked signals. A scored
+    # row with nothing behind it renders on the board like any other — a name, a
+    # tonnage, a window, a number a rep would act on — and there is no source
+    # document under any of it. Invariant 11 says every number on a deliverable
+    # traces to a public URL; this is the check that the trace exists at all.
+    #
+    # Merged rows are excluded and that is not a loophole. Merging moves the
+    # signals to the surviving project by design, so the merged row is signal-less
+    # for exactly the right reason, and it is off the board anyway (ACTIVE_STATUSES
+    # excludes it). Projects 710 and 963 are the two that exist today.
+    with session_scope() as session:
+        orphans = session.exec(
+            select(Project).where(
+                Project.status.in_(ACTIVE_STATUSES),
+                ~Project.id.in_(select(ProjectSignal.project_id)))).all()
+        # Rendered inside the session: these are ORM instances, and reading them
+        # after the scope closes raises DetachedInstanceError.
+        named = [f"#{p.id} {p.name[:30]} (score {p.score:.2f})" for p in orphans[:5]]
+        n_orphans = len(orphans)
+    checks.append(("project_evidence", not n_orphans,
+                   "every scored project has at least one linked signal" if not n_orphans else
+                   f"{n_orphans} scored project(s) with NO linked signal — "
+                   + ", ".join(named)
+                   + (f" and {n_orphans - 5} more" if n_orphans > 5 else "")))
 
     # A fragmenting board is a silent failure: nothing errors, the row count just
     # grows and every rate computed over it is wrong. See app/duplicates.py.

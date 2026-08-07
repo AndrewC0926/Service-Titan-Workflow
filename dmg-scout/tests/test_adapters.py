@@ -190,3 +190,22 @@ def test_ceqanet_keyword_lists_stay_separate(cfg, fixtures_dir):
     assert keyword_match("new distribution center", cfg)
     assert keyword_match("hyperscale campus", cfg)
     assert not keyword_match("sidewalk repair project", cfg)
+
+
+def test_edgar_lookback_covers_the_deal_cadence(cfg):
+    """EDGAR is episodic, and a window shorter than its cadence looks like a fault.
+
+    Measured live on 2026-08-07 over the same 28-query plan: a 14-day window
+    returned 16 page-0 hits and 2 filings past the issuer gate; 90 days returned
+    105 and 10. The daily fetch on 14 days stored ONE document, which is
+    indistinguishable from a broken adapter — and the fix is the window, never a
+    looser query. Precision here comes from issuer_patterns; loosening that is
+    what produced the first backfill's 3,016 rows of chip-company boilerplate.
+    """
+    src = cfg.source("edgar")
+    assert src["lookback_days"] >= 90, (
+        "EDGAR yields ~3-4 relevant filings a month across the whole issuer list; "
+        "a shorter window cannot tell a quiet quarter from a dead adapter")
+    # The precision controls that must NOT be relaxed to compensate.
+    assert src["issuer_patterns"], "issuer_patterns is the precision control"
+    assert src["min_doc_chars"] >= 2000, "stub floor keeps search-result stubs out"

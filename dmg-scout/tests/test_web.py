@@ -46,7 +46,38 @@ def test_board_renders(client, db_session, cfg):
     r = client.get("/", headers=AUTH)
     assert r.status_code == 200
     assert "Meridian DC" in r.text
-    assert "IN_BOD" in r.text  # design stage -> IN_BOD window
+    # The window stamp reads IN-BOD; the enum value is IN_BOD. Asserting on the
+    # rendered string is the point — the window has to be legible on the row, and
+    # colour alone never carries it.
+    assert "IN-BOD" in r.text  # design stage -> IN_BOD window
+
+
+def test_board_shows_whether_there_is_anyone_to_call(client, db_session, cfg):
+    """The charter's criterion is a project PLUS a human, so the board shows both.
+
+    Without this column the board cannot be read as a call list — a rep has to
+    open every row to find out whether there is anyone on the other end. The three
+    states are distinct on purpose: a name with no phone and no email is a
+    research task, and labelling it as coverage is how a board of 58 rows once
+    looked reachable when it was not.
+    """
+    seed(db_session, cfg)
+    r = client.get("/", headers=AUTH)
+    assert "Who to call" in r.text
+    assert ("No one" in r.text or "Research" in r.text
+            or "tel" in r.text or "@" in r.text)
+
+
+def test_board_score_bar_is_scaled_to_the_board_maximum(client, db_session, cfg):
+    """Scores cluster in a narrow band, so the bar scales to the range that exists.
+
+    A fixed 0-1 scale spends most of its length on range that never occurs. The
+    top-scoring row must therefore render a full-width bar whatever its raw score.
+    """
+    seed(db_session, cfg)
+    r = client.get("/", headers=AUTH)
+    assert 'class="bar"' in r.text
+    assert "width:100.0%" in r.text
 
 
 def test_project_detail_and_notes(client, db_session, cfg):
@@ -125,3 +156,52 @@ def test_gate5_views_and_exports(client, db_session, cfg):
 def test_no_password_fails_closed(client, monkeypatch):
     monkeypatch.delenv("DASHBOARD_PASSWORD")
     assert client.get("/", headers=AUTH).status_code == 503
+
+
+# ---- Phase C sheets ---------------------------------------------------------
+
+def test_phase_c_sheets_render(client, db_session, cfg):
+    seed(db_session, cfg)
+    for path in ("/searches", "/firms", "/outreach", "/map", "/ask"):
+        r = client.get(path, headers=AUTH)
+        assert r.status_code == 200, f"{path}: {r.status_code}"
+
+
+def test_saved_search_rejects_an_unknown_filter(client, db_session, cfg):
+    """The API boundary must refuse the same things the evaluator does — a filter
+    that widens silently is worse than one that errors."""
+    seed(db_session, cfg)
+    r = client.post("/searches", headers=AUTH,
+                    data={"name": "typo", "criteria_json": '{"mw_over": 10}'})
+    assert r.status_code == 400
+    r = client.post("/searches", headers=AUTH,
+                    data={"name": "bad json", "criteria_json": "not json"})
+    assert r.status_code == 400
+
+
+def test_saved_search_round_trips(client, db_session, cfg):
+    from sqlmodel import select
+
+    from app.models import SavedSearch
+    seed(db_session, cfg)
+    r = client.post("/searches", headers=AUTH, follow_redirects=False,
+                    data={"name": "Storey over 10",
+                          "criteria_json": '{"county": "Storey", "min_mw": 10}',
+                          "alert": "on"})
+    assert r.status_code == 303
+    saved = db_session.exec(select(SavedSearch)).all()
+    assert len(saved) == 1 and saved[0].criteria == {"county": "Storey", "min_mw": 10}
+    assert "Storey over 10" in client.get("/searches", headers=AUTH).text
+
+
+def test_esco_board_is_reachable_and_separate(client, db_session, cfg):
+    """esco rows are kept and counted, but do not join a ranking of new
+    construction they are not competing in."""
+    from app.models import Category, Project, Stage, Window
+    seed(db_session, cfg)
+    db_session.add(Project(name="City Hall ESPC", category=Category.esco,
+                           stage=Stage.procurement, status="active", in_territory=True,
+                           score=0.4, window=Window.PRE_BOD, county="Clark", state="NV"))
+    db_session.commit()
+    assert "City Hall ESPC" in client.get("/?category=esco", headers=AUTH).text
+    assert "City Hall ESPC" not in client.get("/?category=all", headers=AUTH).text

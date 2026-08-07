@@ -35,7 +35,8 @@ from app.http import PoliteClient
 from app.models import SignalType, utcnow
 from app.pdftext import pdf_to_text
 from app.sources.base import (
-    FetchedDoc, SourceAdapter, SourceFailure, TargetResult, fanout_verify, keyword_match,
+    FetchedDoc, SourceAdapter, SourceFailure, TargetResult, fanout_verify, keyword_category,
+    keyword_match,
 )
 
 log = logging.getLogger(__name__)
@@ -204,6 +205,10 @@ class CivicPlusAdapter(SourceAdapter):
             )
             if not keyword_match(header + text, cfg):
                 continue
+            # See the same tag in legistar._to_doc: an ESCO award is a retrofit
+            # signal that neither existing board describes, and without recording
+            # which list matched, finding one later means re-reading every packet.
+            matched = keyword_category(header + text, cfg)
             docs.append(FetchedDoc(
                 source=self.name,
                 source_uid=uid,
@@ -214,7 +219,8 @@ class CivicPlusAdapter(SourceAdapter):
                 meta={"jurisdiction": juris["name"], "county": juris.get("county"),
                       "state": juris.get("state"), "body": label,
                       "document_kind": row["kind"], "platform": "civicplus",
-                      "pdf_pages_parsed": max_pages},
+                      "pdf_pages_parsed": max_pages,
+                      "keyword_category": matched},
                 default_signal_type=SignalType.planning_agenda,
             ))
         return docs, len(rows)

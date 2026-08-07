@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Saved searches{% endblock %}
+{% block sheet_no %}S-09{% endblock %}
+{% block content %}
+
+<div class="sec-head">
+  <div class="sec-title">Saved searches — standing questions about the board</div>
+  <span class="note">Alerting searches appear in the daily digest</span>
+</div>
+
+<table class="tbl mb-4">
+<colgroup>
+  <col style="width:18rem"><col style="width:5rem"><col style="width:9rem"><col>
+  <col style="width:6rem">
+</colgroup>
+<thead><tr>
+  <th>Search</th><th class="num">Matches</th><th>Alerts</th><th>Filter</th><th></th>
+</tr></thead>
+<tbody>
+{% for row in rows %}
+<tr>
+  <td>{{ row.s.name }}
+    {% if row.s.last_run_at %}<div class="note">last run {{ row.s.last_run_at.strftime('%Y-%m-%d %H:%M') }}Z</div>{% endif %}
+  </td>
+  <td class="num mono">{% if row.error %}<span class="stamp stamp-post">ERR</span>{% else %}{{ row.n }}{% endif %}</td>
+  <td>
+    {%- if row.s.alert %}<span class="stamp stamp-pre">Daily</span>{% endif -%}
+    {%- if row.s.alert_on_change %} <span class="stamp stamp-in">On change</span>{% endif -%}
+    {%- if not row.s.alert and not row.s.alert_on_change %}<span class="note">off</span>{% endif -%}
+  </td>
+  <td>
+    {%- if row.error -%}
+      <span class="stamp stamp-post">Broken</span> <span class="note">{{ row.error }}</span>
+    {%- else -%}
+      {% for k, v in row.s.criteria.items() %}<span class="stamp stamp-quiet mr-1">{{ k }} = {{ v }}</span>{% endfor %}
+      {% if row.top %}<div class="note mt-1">
+        {% for p in row.top %}<a href="/project/{{ p.id }}">{{ p.name[:34] }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
+        {% if row.n > 5 %} +{{ row.n - 5 }} more{% endif %}
+      </div>{% endif %}
+    {%- endif -%}
+  </td>
+  <td>
+    <form method="post" action="/searches/{{ row.s.id }}/delete">
+      <button type="submit" class="bg-transparent border border-[color:var(--color-rule-hard)] text-[color:var(--color-ink-mid)] font-normal">Delete</button>
+    </form>
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="5" class="note">No saved searches yet. Add one below, or ask a question
+  on the <a href="/ask">Ask</a> sheet and save it.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+<div class="sec-head"><div class="sec-title">New search</div></div>
+<form method="post" action="/searches" class="sheet p-3">
+  <div class="grid gap-2 mb-2" style="grid-template-columns:repeat(auto-fit,minmax(14rem,1fr))">
+    <div>
+      <div class="tb-lbl mb-1">Name</div>
+      <input type="text" name="name" placeholder="Over 10 MW in Storey County" required>
+    </div>
+    <div class="col-span-2">
+      <div class="tb-lbl mb-1">Filter (JSON)</div>
+      <input type="text" name="criteria_json"
+             placeholder='{"county": "Storey", "min_mw": 10}'>
+    </div>
+  </div>
+  <div class="flex flex-wrap gap-4 items-center">
+    <label class="note"><input type="checkbox" name="alert" checked class="w-auto"> Include in daily digest</label>
+    {# Membership and transition prompt different actions: a project ENTERING the
+       search is a new opportunity, one already in it MOVING STAGE is a closing
+       window on something you already knew about. #}
+    <label class="note"><input type="checkbox" name="alert_on_change" class="w-auto"> Alert when a matching project changes stage</label>
+    <button type="submit">Save search</button>
+  </div>
+  <div class="note mt-3">
+    Available filters: <span class="mono">{{ criteria_keys | join(', ') }}</span>.
+    An unknown key is rejected rather than ignored — a filter that silently drops
+    what it does not understand matches everything, and a saved search that quietly
+    widens is worse than one that errors.
+  </div>
+</form>
+
+<div class="note mt-3">
+  Examples —
+  <span class="mono">{"county": "Storey", "min_mw": 10}</span> ·
+  <span class="mono">{"names": ["Southland", "ACCO"]}</span> ·
+  <span class="mono">{"min_score": 0.5}</span> with “on stage change” ticked.
+</div>
+{% endblock %}
