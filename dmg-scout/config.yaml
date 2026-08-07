@@ -772,10 +772,18 @@ resolution:
 digest:
   enabled: true
   to: ["acrane988@gmail.com"]
-  from_addr: "scout@dmgscout.local"
+  # Resend's own testing sender — no domain to verify, no DNS. Its one limit is
+  # exactly what this needs: it can only send to the email address on the
+  # Resend account itself, and `to` above is that same address. Upgrade to a
+  # verified custom domain later only if deliverability becomes a problem
+  # (SPF/DKIM on a sandbox sender is not as strong) or a second recipient is
+  # ever added. scout@dmgscout.local was never real and could not have sent.
+  from_addr: "onboarding@resend.dev"
   subject_prefix: "[DMG Scout]"
   # resend | smtp | console
-  transport: "console"
+  transport: "resend"
+  # How far out a next_action_date counts as "due" rather than silence.
+  due_soon_days: 3
   smtp: {host: "", port: 587, username: "", password_env: "SMTP_PASSWORD"}
   resend: {api_key_env: "RESEND_API_KEY"}
 

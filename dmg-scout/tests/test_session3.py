@@ -13,7 +13,7 @@ from app.firms import seed_firms
 from app.ladder import best_contact, build_ladder, ladder_distribution
 from app.manual import add_manual_signal
 from app.models import MatchCandidate, Project, RawDocument, Signal, TriageResult, utcnow
-from app.pipeline.notify import _call_recommendation
+from app.pipeline.notify import three_calls_today
 from app.pipeline.resolve import run_resolve
 from app.pipeline.size_score import run_size_score
 
@@ -76,12 +76,17 @@ def test_every_project_reaches_some_rung(db_session, cfg):
 
 
 def test_digest_call_pick_uses_ladder(db_session, cfg):
+    """three_calls_today requires reachability, unlike the old
+    _call_recommendation it replaces — a named person with no phone or email
+    is a research task, not a call, so the filing must supply one here."""
     seed_firms(db_session, cfg)
     make_project(db_session, cfg, people=[
-        {"name": "Dana Reyes", "title": "Principal Mechanical Engineer", "org": "kW MCE"}])
-    rec = _call_recommendation(db_session)
-    assert rec is not None
-    assert "Dana Reyes" in rec and "rung 1" in rec
+        {"name": "Dana Reyes", "title": "Principal Mechanical Engineer", "org": "kW MCE",
+         "phone": "(555) 010-2000"}])
+    calls = three_calls_today(db_session)
+    assert len(calls) == 1
+    assert calls[0]["contact"]["name"] == "Dana Reyes"
+    assert calls[0]["contact"]["rung"] == 1
 
 
 def test_coverage_flags_blind_counties(db_session, cfg):

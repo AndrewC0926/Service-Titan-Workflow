@@ -189,11 +189,19 @@ def test_digest_only_reports_new(db_session, cfg):
     assert built is not None
     body, stats = built
     assert "Meridian DC" in body
-    assert "SOURCE FAILURES" in body and "ceqanet" in body
-    assert stats["new_projects"] == 1
+    assert "ceqanet" in body and "ONE THING" in body
+    assert stats["changes"] == 1
 
-    # Second run: nothing new -> no digest
-    assert build_digest(db_session, cfg) is None
+    # Second run: nothing new on the board, but ceqanet is still failing, so
+    # the digest is not silent — it degrades to just the ONE THING line, which
+    # is the point: a persistent operational problem keeps surfacing daily
+    # rather than being reported once and forgotten.
+    built2 = build_digest(db_session, cfg)
+    assert built2 is not None
+    body2, stats2 = built2
+    assert "Meridian DC" not in body2
+    assert "ceqanet" in body2
+    assert stats2["changes"] == 0
     assert db_session.exec(select(DigestLog)).all()
 
 

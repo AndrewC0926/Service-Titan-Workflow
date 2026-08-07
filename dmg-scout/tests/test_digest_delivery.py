@@ -55,7 +55,7 @@ def test_items_survive_a_failed_send_and_go_out_next_run(board, cfg, monkeypatch
                         lambda cfg, body: bodies.append(body) or "console")
     result = run_notify(board, cfg)
     assert result["sent"] is True
-    assert result["new_projects"] == 3
+    assert result["changes"] == 3
     for i in range(3):
         assert f"Campus {i}" in bodies[0]
 
@@ -70,14 +70,14 @@ def test_successful_send_records_what_went_out(board, cfg, monkeypatch):
 
 def test_second_run_repeats_nothing(board, cfg, monkeypatch):
     monkeypatch.setattr("app.pipeline.notify.send_digest", lambda cfg, body: "console")
-    assert run_notify(board, cfg)["new_projects"] == 3
+    assert run_notify(board, cfg)["changes"] == 3
     assert run_notify(board, cfg)["sent"] is False   # nothing new to say
 
 
 def test_build_digest_leaves_its_marks_uncommitted(board, cfg):
     """Nothing has been reported to a human at this point — only written down."""
     body, stats = build_digest(board, cfg)
-    assert stats["new_projects"] == 3
+    assert stats["changes"] == 3
     board.rollback()
     assert _sent(board) == []
 
@@ -85,16 +85,16 @@ def test_build_digest_leaves_its_marks_uncommitted(board, cfg):
 def test_empty_digest_keeps_its_stage_observations(board, cfg, monkeypatch):
     """The empty path commits, and rolling it back would be a different bug.
 
-    Two kinds of row ride in DigestLog: "reported to a human", and section 2's
-    stage observations, staged for every active project whether or not anything
-    is reported. A stage change is only reported once a PREVIOUS stage was
-    recorded, so discarding those observations because a digest happened to be
-    empty means the project never accumulates a prior stage and its next stage
-    change is never reported at all.
+    Several kinds of row ride in DigestLog: "reported to a human", and the
+    stage/contactable bookkeeping, staged for every active project whether or
+    not anything is reported. A stage change is only reported once a PREVIOUS
+    stage was recorded, so discarding those observations because a digest
+    happened to be empty means the project never accumulates a prior stage
+    and its next stage change is never reported at all.
     """
     monkeypatch.setattr("app.pipeline.notify.send_digest", lambda cfg, body: "console")
     run_notify(board, cfg)
-    assert run_notify(board, cfg) == {"sent": False, "reason": "nothing new"}
+    assert run_notify(board, cfg) == {"sent": False, "reason": "nothing to report"}
     stage_rows = [d for d in _sent(board) if d.kind == "stage_change"]
     assert {d.ref_id for d in stage_rows} == {p.id for p in board.exec(select(Project)).all()}
 
@@ -114,5 +114,5 @@ def test_stage_change_is_reported_after_an_empty_run(board, cfg, monkeypatch):
     monkeypatch.setattr("app.pipeline.notify.send_digest",
                         lambda cfg, body: bodies.append(body) or "console")
     result = run_notify(board, cfg)
-    assert result["stage_changes"] == 1
-    assert "now design" in bodies[0]
+    assert result["changes"] == 1
+    assert "STAGE:" in bodies[0] and "-> design" in bodies[0]
