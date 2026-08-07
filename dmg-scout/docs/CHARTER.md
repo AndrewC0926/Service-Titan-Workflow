@@ -111,6 +111,10 @@ Reconstruct 15 to 20 recent wins and losses from DMG's history. At what stage di
 
 A CRM (RepFabric and ROM exist). Quoting or selection software (factories provide it). Energy modeling (TRACE, HAP, CBECC-Com own it). A/E selection extraction (measured and killed three ways). Accela scrapers. Anything touching BoardDocs, Granicus, PrimeGov or Simbli. LinkedIn scraping. The one-document-to-many-signals schema change, until a gate demands it.
 
+**ESCO / ESPC as a channel** (measured and killed). Detection was never the problem — two live hits both correctly rejected as not-genuine in testing. Volume was: a title-only, no-LLM scan of everything Legistar and CivicPlus cover, 24 months back, using the shipped `_esco_match` word-boundary matcher, verified against synthetic positives before trusting a null result. 19,173 Legistar matter titles across six tenants (Fontana, San Bernardino Co, Riverside Co, LA Co, Clark Co, Washoe Co) and 98 CivicPlus agenda packets (Storey County, Planning Commission + Board of Commissioners) — zero hits, either platform.
+
+Caveat that matters more than the number: six counties plus Storey is not the MUSH market ESPCs actually get awarded in. School districts run on BoardDocs, already out of scope and closed to us; universities and hospitals aren't in the tenant list at all. The null says we cannot see ESPC awards from here, not that they don't happen. Worth one more look if school district agendas ever become reachable. Until then: the `esco` keyword category, its detection code, and its tests stay in the repo as evidence it was tried — nothing gets built on top of it.
+
 ---
 
 ## 8. Definition of done
