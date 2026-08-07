@@ -101,18 +101,81 @@ def test_house_generators_are_named_but_excluded_from_the_math(cfg):
     assert "not sized to IT load" in with_house.basis
 
 
-def test_critical_split_beats_stated_total_but_loses_to_stated_it(cfg):
-    """The whole point: a filing that names critical vs house capacity has
-    already done what stated_total's divisor guesses at, so it outranks a
-    blended total MW — but an explicitly stated IT figure still wins outright."""
+def test_generator_data_alongside_total_mw_uses_permitted_capacity(cfg):
+    """A stated total MW figure alongside generator data is treated as a
+    permitted/site capacity, corroborated by (and capped at) the critical
+    fleet — NOT sized directly from the critical fleet with no ceiling. Sizing
+    directly from critical nameplate here double-counts: the fleet includes
+    N+1/N+2 sparing and the mechanical load the critical count also backs
+    (see permitted_capacity_to_it_mw). An explicitly stated IT figure still
+    wins outright over either."""
+    # 200/1.3 = 153.8 MW PUE-derived, but the 114 MW critical fleet caps it.
     against_total = estimate_tons(cfg, mw_total=200, generator_critical_count=38,
                                   generator_critical_mw_each=3.0)
-    assert against_total.basis_key == "gensets_critical"
+    assert against_total.basis_key == "permitted_capacity"
+    assert against_total.mw_it == pytest.approx(114.0)
 
     against_stated_it = estimate_tons(cfg, mw_it=50, generator_critical_count=38,
                                       generator_critical_mw_each=3.0)
     assert against_stated_it.basis_key == "stated_it"
     assert against_stated_it.mw_it == 50
+
+
+def test_permitted_capacity_capped_at_critical_fleet_nameplate(cfg):
+    """The critical fleet is an upper bound: a PUE-derived IT load that would
+    exceed what the backup fleet could even supply is physically impossible,
+    so the fleet wins."""
+    # 500 MW / 1.3 = 384.6 MW PUE-derived, but the fleet can only back 30 MW.
+    est = estimate_tons(cfg, mw_total=500, generator_critical_count=10,
+                        generator_critical_mw_each=3.0)
+    assert est.basis_key == "permitted_capacity"
+    assert est.mw_it == pytest.approx(30.0)
+    assert "capped at 30 MW" in est.basis
+
+
+def test_permitted_capacity_not_capped_when_pue_derived_is_lower(cfg):
+    est = estimate_tons(cfg, mw_total=99, generator_critical_count=38,
+                        generator_critical_mw_each=3.0)
+    assert est.mw_it == pytest.approx(99 / 1.3)  # well under the 114 MW fleet
+    assert "consistent with 114 MW" in est.basis
+
+
+def test_vernon_real_numbers_permitted_capacity_with_house_split(cfg):
+    """The motivating case, corrected: 99 MW filed against a CEC SPPE permit
+    ceiling, corroborated by 38 x 3 MW critical + 2 x 1 MW house."""
+    est = estimate_tons(cfg, mw_total=99, generator_critical_count=38,
+                        generator_critical_mw_each=3.0, generator_house_count=2,
+                        generator_house_mw_each=1.0)
+    assert est.basis_key == "permitted_capacity"
+    assert est.mw_it == pytest.approx(99 / 1.3)
+    mid = (99 / 1.3) * 325
+    assert est.low == pytest.approx(mid * 0.85)
+    assert est.high == pytest.approx(mid * 1.15)
+
+
+def test_generator_split_alone_still_falls_back_when_no_total_stated(cfg):
+    """No permitted/site capacity to corroborate against -> the critical fleet
+    becomes the estimate directly, exactly as before this correction."""
+    est = estimate_tons(cfg, generator_critical_count=38, generator_critical_mw_each=3.0)
+    assert est.basis_key == "gensets_critical"
+    assert est.mw_it == pytest.approx(114.0)
+
+
+def test_flat_generator_count_alongside_total_also_triggers_permitted_capacity(cfg):
+    """Even an undifferentiated generator count is enough co-occurring evidence
+    that a stated total is a site/permit figure, not a blended utility total —
+    just without a critical-fleet figure to corroborate or cap against."""
+    est = estimate_tons(cfg, mw_total=99, generator_count=40, generator_hp_each=3000)
+    assert est.basis_key == "permitted_capacity"
+    assert "consistent with" not in est.basis  # no critical split to corroborate with
+
+
+def test_total_mw_alone_with_no_generator_data_is_unaffected(cfg):
+    """The three real board rows this correction must NOT move: Colovore,
+    Blue Owl, PowerHouse all state a total MW with no generator data at all."""
+    est = estimate_tons(cfg, mw_total=140)
+    assert est.basis_key == "stated_total"
+    assert est.mw_it == pytest.approx(140 / 1.4)  # unchanged divisor
 
 
 def test_undifferentiated_fleet_keeps_the_old_divisor_and_wider_band(cfg):

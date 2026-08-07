@@ -29,7 +29,7 @@ class TonsEstimate:
     low: float | None
     high: float | None
     basis: str | None
-    basis_key: str | None = None  # stated_it | gensets_critical | stated_total | gensets | sqft | industrial_sqft
+    basis_key: str | None = None  # stated_it | permitted_capacity | gensets_critical | stated_total | gensets | sqft | industrial_sqft
     mw_it: float | None = None    # back-computed IT MW when derivable
     low_confidence: bool = False
     rejected_inputs: list[str] | None = None  # inputs discarded as implausible
@@ -63,16 +63,42 @@ def genset_mw_to_it_mw(genset_mw: float, cfg: Config) -> float:
 
 
 def critical_genset_mw_to_it_mw(critical_mw: float, cfg: Config) -> float:
-    """Critical-dedicated backup is engineered to cover the IT load it backs, so
-    unlike an undifferentiated fleet (genset_mw_to_it_mw's 1.4, which blends in
-    cooling and house load) this needs no divisor to guess a blend ratio — the
-    default is 1.0, i.e. trust the stated critical capacity directly. The one
-    real slack in that number is N+1/N+2 sparing within the critical count,
-    which this does not attempt to back out (the filing rarely states it), so
-    the band on this basis (see band_by_basis.gensets_critical) stays wider
-    than a directly stated IT figure to carry that residual uncertainty.
+    """Critical-dedicated NAMEPLATE capacity, as an upper bound — not sized from
+    directly. See the "permitted capacity" note on estimate_tons for why: the
+    critical count is a fleet built for N+1/N+2 redundancy plus mechanical load,
+    so its raw sum overstates IT load, sometimes by a lot (Vernon: 38 x 3 MW =
+    114 MW nameplate against what turned out to be ~76 MW IT once sized
+    correctly — 1.5x over). Divisor default 1.0 means "trust it as a ceiling,
+    not as the estimate."
     """
     return critical_mw / cfg.get("sizing.critical_genset_mw_to_it_mw_divisor", 1.0)
+
+
+def permitted_capacity_to_it_mw(permitted_mw: float, cfg: Config) -> float:
+    """A stated total/site MW figure, converted to IT load by a PUE-based ratio
+    (IT = total facility power / PUE; 1.3 is a reasonable default for a modern
+    facility, tunable because real PUE varies by climate and design).
+
+    THE LESSON THIS FUNCTION EXISTS TO RECORD: a number in a regulatory filing
+    can be a regulatory artifact rather than an engineering fact. Vernon's 99 MW
+    is not a measured or designed load — it is almost certainly the filer
+    staying just under the California Energy Commission's Small Power Plant
+    Exemption ceiling (SPPE covers 50-100 MW; at or above 100 MW the project
+    needs full CEC certification, which is far slower and more expensive). A
+    facility engineered to stay under a 100 MW regulatory line will state a
+    number shaped by that line, not by its actual power draw. The generator
+    fleet nameplate told the truer story here (116 MW across 40 units, average
+    2.6 MW/unit against a 99 MW permit — visible sparing), which is why this
+    basis takes the generator split as corroboration and a ceiling (see
+    critical_genset_mw_to_it_mw) rather than trusting either number in
+    isolation. Whenever a filing states a capacity figure that a known
+    regulatory threshold could plausibly be shaping, treat it as a permit
+    artifact first and an engineering fact only once something else confirms it
+    — the same caution belongs anywhere else a bright-line threshold exists in
+    a permitting regime this system reads (a size threshold that changes which
+    review track a project takes is the general shape to watch for).
+    """
+    return permitted_mw / cfg.get("sizing.permitted_capacity_to_it_mw_divisor", 1.3)
 
 
 def _band(cfg: Config, mw_it: float, basis_key: str, basis: str,
@@ -123,13 +149,24 @@ def estimate_tons(
     facility_type: FacilityType = FacilityType.unknown,
 ) -> TonsEstimate:
     """Best available input wins, in order of reliability:
-    stated IT MW > critical-dedicated generator fleet > stated total MW >
-    undifferentiated generator fleet > square footage.
+    stated IT MW > permitted/site capacity (corroborated by a generator split,
+    when one is stated) > critical-dedicated generator fleet alone > stated
+    total MW alone > undifferentiated generator fleet > square footage.
 
-    The critical-generator basis ranks above stated total MW on purpose: a
-    filing that names which gensets back IT load specifically has already done
-    the blend-ratio guessing stated_total's divisor exists to approximate, so
-    it is the better input where both are present.
+    A stated total MW figure alongside ANY generator data (critical/house split
+    or a flat count) is treated as a permitted/site capacity, not a blended
+    utility total — see permitted_capacity_to_it_mw for why, and its docstring
+    for the general lesson about regulatory-filing numbers. Sized with a
+    PUE-based divisor, and capped at the critical-dedicated fleet's nameplate
+    when that split is stated, since backup capacity is a hard physical ceiling
+    on what the site could ever draw. This ranks above the critical-fleet-alone
+    basis (below) on purpose: the earlier version of this function sized
+    directly from critical capacity with no ceiling and no correction for
+    N+1/N+2 sparing, and it double-counted — see Vernon in git history.
+
+    Where a generator split is stated but no total/site capacity is, there is
+    nothing to corroborate against, so the critical fleet becomes the estimate
+    directly rather than just a cap on one.
 
     A stated MW that implies an impossible watts-per-square-foot for the building
     type is discarded rather than trusted, and the discard is recorded in the basis
@@ -166,6 +203,36 @@ def estimate_tons(
         rejected.append(f"stated mw_it {mw_it:g} MW implies {implied:,.0f} W/sqft "
                         f"on {building_sqft:,.0f} sqft — implausible, discarded")
 
+    has_generator_data = bool(generator_critical_count or generator_count)
+    if mw_total and has_generator_data:
+        implied = implausible_watts_per_sqft(cfg, mw_total, building_sqft, category)
+        if implied is None:
+            it = permitted_capacity_to_it_mw(mw_total, cfg)
+            corroboration = ""
+            if generator_critical_count and generator_critical_mw_each:
+                critical_mw = generator_critical_count * generator_critical_mw_each
+                cap = critical_genset_mw_to_it_mw(critical_mw, cfg)
+                if it > cap:
+                    # The PUE-derived figure exceeds what the critical fleet could
+                    # even back — physically impossible, so the fleet wins.
+                    it = cap
+                    corroboration = (f"; capped at {critical_mw:.0f} MW critical-dedicated "
+                                     f"backup nameplate (the PUE-derived figure exceeded it)")
+                else:
+                    corroboration = (f"; consistent with {critical_mw:.0f} MW "
+                                     f"critical-dedicated backup capacity (upper bound, not "
+                                     f"exceeded)")
+            return _band(
+                cfg, it, "permitted_capacity",
+                f"permitted/site capacity {mw_total:g} MW (may be a regulatory ceiling, "
+                f"not necessarily the engineering load) / "
+                f"{cfg.get('sizing.permitted_capacity_to_it_mw_divisor', 1.3):.2g} PUE -> "
+                f"~{it:.0f} MW IT{corroboration}",
+                rejected=rejected or None,
+            )
+        rejected.append(f"stated mw_total {mw_total:g} MW implies {implied:,.0f} W/sqft "
+                        f"on {building_sqft:,.0f} sqft — implausible, discarded")
+
     if generator_critical_count and generator_critical_mw_each:
         critical_mw = generator_critical_count * generator_critical_mw_each
         implied = implausible_watts_per_sqft(cfg, critical_mw, building_sqft, category)
@@ -180,7 +247,8 @@ def estimate_tons(
                 cfg, it, "gensets_critical",
                 f"{generator_critical_count} critical-dedicated gensets x "
                 f"{generator_critical_mw_each:g} MW = {critical_mw:.1f} MW -> "
-                f"~{it:.0f} MW IT{house_note}",
+                f"~{it:.0f} MW IT{house_note} (no permitted/site capacity stated to size "
+                f"from instead — see permitted_capacity_to_it_mw)",
                 rejected=rejected or None,
             )
         rejected.append(f"critical genset capacity {critical_mw:g} MW implies "

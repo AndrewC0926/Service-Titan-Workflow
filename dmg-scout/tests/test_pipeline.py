@@ -110,10 +110,14 @@ def test_size_score_end_to_end(db_session, cfg):
     assert p.days_to_estimated_bid == 540
 
 
-def test_size_score_uses_critical_generator_split_end_to_end(db_session, cfg):
-    """Vernon-shaped signal: 38 x 3 MW dedicated to critical load, 2 x 1 MW
-    house — through resolve and size_score, the project sizes from the 114 MW
-    critical figure, not a blended total."""
+def test_size_score_uses_permitted_capacity_corroborated_by_generator_split(db_session, cfg):
+    """Vernon-shaped signal: 99 MW permitted/site capacity (a CEC SPPE filing —
+    see sizing.permitted_capacity_to_it_mw for why that number is treated as a
+    likely regulatory ceiling rather than an engineering fact), corroborated by
+    38 x 3 MW critical + 2 x 1 MW house. Sizes via the PUE divisor on the 99 MW
+    figure, well under the 114 MW critical-fleet ceiling — NOT sized directly
+    from the 114 MW fleet, which would double-count the fleet's own N+1/N+2
+    sparing and mechanical-load coverage."""
     _signal(db_session, project_name="Vernon Backup Generating Facility",
            county="Los Angeles", state="CA", mw_total=99,
            generator_critical_count=38, generator_critical_mw_each=3.0,
@@ -121,9 +125,10 @@ def test_size_score_uses_critical_generator_split_end_to_end(db_session, cfg):
     run_resolve(db_session, cfg, use_llm=False)
     run_size_score(db_session, cfg)
     p = db_session.exec(select(Project)).one()
-    assert p.estimate_basis and "critical-dedicated gensets" in p.estimate_basis
-    assert "114.0 MW" in p.estimate_basis
-    mid = 114.0 * 325
+    assert p.estimate_basis and "permitted/site capacity" in p.estimate_basis
+    assert "consistent with 114 MW" in p.estimate_basis
+    it = 99 / 1.3
+    mid = it * 325
     assert p.tons_estimate_low == pytest.approx(mid * 0.85)
     assert p.tons_estimate_high == pytest.approx(mid * 1.15)
 

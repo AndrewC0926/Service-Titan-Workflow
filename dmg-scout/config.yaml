@@ -505,22 +505,44 @@ sizing:
   # Band half-width around the midpoint, per estimate basis. The uncertainty of
   # the estimate comes from HOW we know the size, not a fixed ratio:
   band_by_basis:
-    stated_it: 0.10          # a filing states IT MW — tightest
-    gensets_critical: 0.15   # generator fleet the filing itself calls critical-
-                             # dedicated; narrower than stated_total because it
-                             # already isolates IT-serving capacity, wider than
-                             # stated_it because the N+1/N+2 spare margin inside
-                             # the critical count is unknown
-    stated_total: 0.18       # total/utility MW, IT share inferred
-    gensets: 0.28            # MW reverse-engineered from an UNDIFFERENTIATED
-                             # generator fleet (no critical/house split stated)
-    sqft: 0.45               # square footage only — widest, flagged low-confidence
+    stated_it: 0.10             # a filing states IT MW — tightest
+    permitted_capacity: 0.15    # a stated total/site MW figure CORROBORATED by a
+                                 # stated generator split (critical and/or house) —
+                                 # see permitted_capacity_to_it_mw_divisor below
+    gensets_critical: 0.15      # a generator split stated with NO total/site
+                                 # capacity to corroborate it against — the
+                                 # critical fleet becomes the estimate directly
+    stated_total: 0.18          # total/utility MW with no generator data at all —
+                                 # IT share inferred, no corroboration available
+    gensets: 0.28               # MW reverse-engineered from an UNDIFFERENTIATED
+                                 # generator fleet (no critical/house split stated)
+    sqft: 0.45                  # square footage only — widest, flagged low-confidence
   hp_to_kw: 0.7457
   genset_mw_to_it_mw_divisor: 1.4
-  # Critical-dedicated backup is engineered to cover the IT load it backs, so
-  # this needs no blend-ratio divisor the way genset_mw_to_it_mw_divisor does —
-  # 1.0 trusts the filing's critical-capacity figure directly. See
-  # app/pipeline/sizing.critical_genset_mw_to_it_mw.
+  # PUE-based: IT load = total facility power / PUE. Used ONLY when a stated
+  # total/site MW figure is accompanied by generator data (critical/house split
+  # or a flat count) — see app/pipeline/sizing.permitted_capacity_to_it_mw for
+  # the reason that combination gets different treatment than a bare mw_total:
+  # a filing that also describes its backup generator fleet is very often a
+  # power-plant-type filing (CEC SPPE and similar), where the stated MW is
+  # frequently a REGULATORY CEILING the project engineered to stay under, not
+  # a measured or designed load. Vernon: filed at 99 MW, one below the CEC's
+  # 100 MW Small Power Plant Exemption threshold above which a much slower,
+  # more expensive certification applies — and its 40-generator fleet averages
+  # 2.6 MW/unit against that permit, visible sparing a permit-ceiling number
+  # would otherwise hide. 1.3 is a reasonable default PUE; tune it if you have
+  # a better site-specific figure.
+  permitted_capacity_to_it_mw_divisor: 1.3
+  # Critical-dedicated backup fleet nameplate, as an UPPER BOUND on IT load when
+  # corroborating a permitted_capacity estimate (never exceed what the backup
+  # fleet could physically supply) and as the estimate itself in the rarer case
+  # where no total/site capacity is stated to corroborate it against. 1.0 means
+  # "trust the nameplate sum as a ceiling" — it does NOT attempt to back out
+  # N+1/N+2 sparing, because the filing essentially never states the redundancy
+  # configuration and guessing one would be exactly the kind of invented
+  # precision this system exists to avoid. See
+  # app/pipeline/sizing.critical_genset_mw_to_it_mw — and do not read a low
+  # number here as "sparing corrected for"; it is not.
   critical_genset_mw_to_it_mw_divisor: 1.0
   watts_per_sqft: 150            # used only when sqft is the only size input; low confidence
   sqft_utilization: 0.5          # fraction of building sqft assumed to be white space
