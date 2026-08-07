@@ -16,6 +16,7 @@ from app.models import (
     TriageResult,
     utcnow,
 )
+from app.normalize import normalize_state
 
 
 def add_manual_signal(
@@ -57,7 +58,7 @@ def add_manual_signal(
     session.flush()
     signal = Signal(
         raw_document_id=doc.id, signal_type=st, category=cat, project_name=project_name,
-        developer_or_owner=developer, county=county, state=state,
+        developer_or_owner=developer, county=county, state=normalize_state(state),
         mw_it=mw_it, mw_total=mw_total, stage=Stage(stage),
         summary_one_line=summary[:300], confidence=1.0,
         named_people=([{"name": person_name, "org": person_org}] if person_name else []),

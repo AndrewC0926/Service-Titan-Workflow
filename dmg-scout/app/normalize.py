@@ -61,3 +61,44 @@ def normalize_county(county: str | None) -> str | None:
     c = county.strip()
     c = re.sub(r"\s+county$", "", c, flags=re.IGNORECASE)
     return c.title()
+
+
+# Full name -> USPS code, for extraction that reports a state exactly as the
+# source document phrased it ("State of Nevada...") rather than as a code —
+# correct extraction behavior, not a bug, so this is where the normalizing
+# belongs, not in the extraction prompt. Every state-keyed lookup in this
+# codebase (territory in config.yaml, county adjacency, day-to-bid overrides)
+# assumes a 2-letter USPS code; a value that slips through as "Nevada" matches
+# none of them and silently drops out of every state-keyed decision.
+_STATE_NAME_TO_CODE = {
+    "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR",
+    "california": "CA", "colorado": "CO", "connecticut": "CT", "delaware": "DE",
+    "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID",
+    "illinois": "IL", "indiana": "IN", "iowa": "IA", "kansas": "KS",
+    "kentucky": "KY", "louisiana": "LA", "maine": "ME", "maryland": "MD",
+    "massachusetts": "MA", "michigan": "MI", "minnesota": "MN", "mississippi": "MS",
+    "missouri": "MO", "montana": "MT", "nebraska": "NE", "nevada": "NV",
+    "new hampshire": "NH", "new jersey": "NJ", "new mexico": "NM", "new york": "NY",
+    "north carolina": "NC", "north dakota": "ND", "ohio": "OH", "oklahoma": "OK",
+    "oregon": "OR", "pennsylvania": "PA", "rhode island": "RI",
+    "south carolina": "SC", "south dakota": "SD", "tennessee": "TN", "texas": "TX",
+    "utah": "UT", "vermont": "VT", "virginia": "VA", "washington": "WA",
+    "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY",
+    "district of columbia": "DC",
+}
+VALID_STATE_CODES = frozenset(_STATE_NAME_TO_CODE.values())
+
+
+def normalize_state(state: str | None) -> str | None:
+    """Best-effort full-name -> USPS-code normalization. An already-valid code
+    passes through unchanged (case-folded); an unrecognized value passes
+    through UNCHANGED rather than being dropped or guessed at — null over
+    inference applies here too, and app.ops.doctor's state_values check is
+    what catches whatever this function could not resolve, rather than this
+    function silently hiding it."""
+    if not state:
+        return None
+    s = state.strip()
+    if len(s) == 2 and s.upper() in VALID_STATE_CODES:
+        return s.upper()
+    return _STATE_NAME_TO_CODE.get(s.lower(), s)

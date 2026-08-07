@@ -23,7 +23,7 @@ from app.models import (
     ACTIVE_STATUSES, DeveloperAlias, MatchCandidate, Project, ProjectSignal, Signal,
     Stage, StageObservation, utcnow,
 )
-from app.normalize import normalize_county, normalize_name
+from app.normalize import normalize_county, normalize_name, normalize_state
 from app.runguard import STALE_RUN_HOURS, ConcurrentStage, running_stage, stage_run
 
 log = logging.getLogger(__name__)
@@ -367,7 +367,10 @@ def _absorb(project: Project, signal: Signal) -> None:
         project.name = signal.project_name
     project.developer = project.developer or signal.developer_or_owner
     project.county = project.county or normalize_county(signal.county)
-    project.state = project.state or signal.state
+    # Belt-and-suspenders with the normalization at write time (extract.py,
+    # manual.py): a signal written before that existed, or by a future writer
+    # that forgets it, must not park an unnormalized state on a project.
+    project.state = project.state or normalize_state(signal.state)
     project.apn_parcel = project.apn_parcel or signal.apn_parcel
     project.sch_number = project.sch_number or signal.sch_number
     if project.latitude is None and signal.latitude is not None:

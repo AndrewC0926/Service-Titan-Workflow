@@ -13,6 +13,7 @@ from app.config import Config
 from app.grounding import reject_ungrounded_numbers
 from app.http import PoliteClient
 from app.llm import LLMUnavailable, extract
+from app.normalize import normalize_state
 from app.models import (
     Category,
     FacilityType,
@@ -141,6 +142,13 @@ def _extract_docs(session: Session, cfg: Config, limit: int) -> dict:
                       "acres", "building_count", "cooling_type", "water_acre_feet_per_year",
                       "filing_type"):
                 setattr(signal, f, data.get(f))
+            # Normalized on write, not left for a downstream state-keyed lookup
+            # to silently miss: the extraction prompt correctly reports a state
+            # exactly as the document phrases it ("State of Nevada"), which is
+            # right for extraction fidelity but wrong for every state-keyed
+            # table in this codebase (territory, county adjacency, day-to-bid
+            # overrides), all of which assume a 2-letter USPS code.
+            signal.state = normalize_state(signal.state)
             # NOT from the LLM: the adapter read it off the source record, so it is
             # the one identifier on a signal that cannot be hallucinated. See
             # Signal.sch_number and pair_similarity().

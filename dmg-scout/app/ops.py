@@ -13,7 +13,7 @@ from sqlmodel import select
 from app.config import anthropic_api_key, load_config
 from app.db import get_engine, session_scope
 from app.models import (
-    ACTIVE_STATUSES, STAGE_RUN_NAMES, Project, ProjectSignal, SourceRun,
+    ACTIVE_STATUSES, STAGE_RUN_NAMES, Project, ProjectSignal, Signal, SourceRun,
     run_name_mode, run_name_source, utcnow,
 )
 
@@ -189,6 +189,25 @@ def doctor() -> list[tuple[str, bool, str]]:
                    f"{dup['n_groups']} suspect groups, {dup['n_excess_rows']} excess rows "
                    f"of {dup['n_projects']} — run `scout duplicates`"))
 
+    # A state value that is not a 2-letter USPS code is invisible to every
+    # state-keyed lookup in this codebase — territory, county adjacency, the
+    # Nevada/California day-to-bid split — not an error anywhere, just a row
+    # that silently never matches. "Nevada" instead of "NV" on a real project
+    # is what caught this; normalize_state() fixes it at write time, this
+    # catches whatever gets in anyway (a future writer that forgets to call
+    # it, a row from before the fix).
+    from app.normalize import VALID_STATE_CODES
+    with session_scope() as session:
+        bad_project_states = session.exec(
+            select(Project.state).where(Project.state.is_not(None)).distinct()).all()
+        bad_signal_states = session.exec(
+            select(Signal.state).where(Signal.state.is_not(None)).distinct()).all()
+    bad = sorted({s for s in (*bad_project_states, *bad_signal_states) if s not in VALID_STATE_CODES})
+    checks.append(("state_values", not bad,
+                   "every state value is a 2-letter USPS code" if not bad else
+                   f"{len(bad)} non-canonical state value(s) in use: {', '.join(bad)} — "
+                   f"run normalize_state() over existing rows"))
+
     armed = bool(os.environ.get(HEALTHCHECK_ENV))
     checks.append(("dead_mans_switch", armed,
                    "HEALTHCHECK_URL set" if armed else "HEALTHCHECK_URL not set — cron death would be silent"))
@@ -198,3 +217,23 @@ def doctor() -> list[tuple[str, bool, str]]:
     checks.append(("llm_budget", not st["exhausted"],
                    f"today ${st['today_usd']:.2f} / ${st['daily_budget_usd']:.2f}, month ${st['month_usd']:.2f}"))
     return checks
+
+
+def fix_state_values(session) -> dict:
+    """One-time (and safe to re-run) cleanup for rows written before
+    normalize_state() existed at the write sites — see the state_values
+    doctor check above. Returns what changed, per table, so a run against
+    production is auditable rather than a silent UPDATE."""
+    from app.normalize import normalize_state
+
+    changed: dict[str, list[str]] = {"projects": [], "signals": []}
+    for model, key in ((Project, "projects"), (Signal, "signals")):
+        rows = session.exec(select(model).where(model.state.is_not(None))).all()
+        for row in rows:
+            fixed = normalize_state(row.state)
+            if fixed != row.state:
+                changed[key].append(f"#{row.id}: {row.state!r} -> {fixed!r}")
+                row.state = fixed
+                session.add(row)
+    session.commit()
+    return changed

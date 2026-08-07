@@ -253,6 +253,25 @@ def doctor() -> None:
     typer.echo("all checks passing")
 
 
+@app.command("fix-state-values")
+def fix_state_values_cmd() -> None:
+    """One-time (and safe to re-run) cleanup: normalize any non-canonical
+    state value (e.g. "Nevada" instead of "NV") left over from before
+    normalize_state() existed at the write sites. See `scout doctor`'s
+    state_values check."""
+    from app.ops import fix_state_values
+    with session_scope() as session:
+        changed = fix_state_values(session)
+    total = len(changed["projects"]) + len(changed["signals"])
+    if not total:
+        typer.echo("nothing to fix — every state value already canonical")
+        return
+    for table, rows in changed.items():
+        for line in rows:
+            typer.echo(f"  {table}: {line}")
+    typer.echo(f"fixed {total} row(s)")
+
+
 @app.command("add-signal")
 def add_signal(
     signal_type: str = typer.Argument(..., help="e.g. engineer_move, prequal_invite, bid_invite, manual_tip"),
