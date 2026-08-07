@@ -10,6 +10,7 @@ from app.sources.ats import AtsAdapter
 from app.sources.ceqanet import CeqanetAdapter
 from app.sources.edgar import EdgarAdapter
 from app.sources.legistar import LegistarAdapter
+from app.sources.pucn import PucnAdapter
 
 
 def fast_client() -> PoliteClient:
@@ -190,6 +191,35 @@ def test_ceqanet_keyword_lists_stay_separate(cfg, fixtures_dir):
     assert keyword_match("new distribution center", cfg)
     assert keyword_match("hyperscale campus", cfg)
     assert not keyword_match("sidewalk repair project", cfg)
+
+
+@respx.mock
+def test_pucn_flat_cell_parsing(cfg, fixtures_dir):
+    """PUCN's GridView doesn't put one docket per <tr> — the real page nests
+    several layout <table>s around a single flat run of <td> cells, four per
+    docket (Dkt No., Date Filed, Description, "View"). Naive <tr>-based
+    traversal cross-reads into the nested tables (one row resolved 35,000+ <td>
+    descendants live); the adapter has to flat-chunk the biggest table's cells
+    instead. This fixture reproduces that nesting."""
+    from datetime import datetime
+    html = (fixtures_dir / "pucn_dktinfo.html").read_text()
+    respx.get(url__startswith="https://pucweb1.state.nv.us/PUC2/Dktinfo.aspx").mock(
+        return_value=httpx.Response(200, text=html)
+    )
+    docs = list(PucnAdapter().fetch(cfg, fast_client(), since=datetime(2026, 1, 1)))
+    uids = {d.source_uid for d in docs}
+    # Two LLESA dockets inside the lookback window, named counterparties intact.
+    assert uids == {"26-05028", "26-05026"}
+    vantage = next(d for d in docs if d.source_uid == "26-05028")
+    assert "Vantage Data Centers NV11, LLC" in vantage.raw_text
+    assert vantage.default_signal_type == SignalType.utility_load_request
+    amazon = next(d for d in docs if d.source_uid == "26-05026")
+    assert "Amazon Data Services, Inc." in amazon.raw_text
+    # A non-LLESA docket (Copia's UEPA notice, the rate case) must not pass the
+    # keyword gate even though it's inside the window.
+    assert "26-01035" not in uids and "25-11002" not in uids
+    # An LLESA docket outside the lookback window (2024) must be excluded by date.
+    assert "24-03017" not in uids
 
 
 def test_edgar_lookback_covers_the_deal_cadence(cfg):
