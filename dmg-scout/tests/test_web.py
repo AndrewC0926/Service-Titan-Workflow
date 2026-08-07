@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.db import get_session
 from app.manual import add_manual_signal
-from app.models import SourceRun
+from app.models import Signal, SourceRun
 from app.pipeline.resolve import run_resolve
 from app.pipeline.size_score import run_size_score
 from app.web.main import app
@@ -34,6 +34,22 @@ def seed(db_session, cfg):
     run_size_score(db_session, cfg)
 
 
+def seed_callable(db_session, cfg):
+    """Like seed(), but with a named person a rep could actually call — the
+    plain seed() fixture's project has a developer name but nobody with a
+    phone or email, so it never reaches THREE TO CALL on the Today page."""
+    s = add_manual_signal(db_session, "prequal_invite", "ACCO invited prequal for Meridian",
+                          project_name="Meridian DC", developer="Vantage Data Centers",
+                          county="San Bernardino", state="CA", mw_it=176, stage="design")
+    sig = db_session.get(Signal, s.id)
+    sig.named_people = [{"name": "Jane Doe", "title": "Mechanical Engineer",
+                        "org": "Vantage Data Centers", "phone": "555-0100"}]
+    db_session.add(sig)
+    db_session.commit()
+    run_resolve(db_session, cfg, use_llm=False)
+    run_size_score(db_session, cfg)
+
+
 def test_requires_auth(client):
     assert client.get("/").status_code == 401
     assert client.get("/", headers=BAD).status_code == 401
@@ -43,9 +59,39 @@ def test_healthz_open(client):
     assert client.get("/healthz").json() == {"ok": True}
 
 
+def test_today_is_the_landing_page(client, db_session, cfg):
+    """/ is Today now, not the board — the board moved to /board and stays
+    exactly as it is (see test_board_renders)."""
+    seed_callable(db_session, cfg)
+    r = client.get("/", headers=AUTH)
+    assert r.status_code == 200
+    assert "Jane Doe" in r.text and "Meridian DC" in r.text  # THREE TO CALL
+    assert "NEW: Meridian DC" in r.text  # a fresh project is itself a change
+
+    # A second load must show the SAME thing (changes_preview is read-only) —
+    # not "nothing changed", which would mean the first page view had
+    # silently consumed tomorrow's digest item.
+    r2 = client.get("/", headers=AUTH)
+    assert "NEW: Meridian DC" in r2.text
+
+
+def test_today_called_them_logs_outreach_without_navigating(client, db_session, cfg):
+    seed_callable(db_session, cfg)
+    r = client.get("/", headers=AUTH)
+    assert "hx-post" in r.text and "/project/1/outreach" in r.text
+
+    r = client.post("/project/1/outreach", headers={**AUTH, "HX-Request": "true"},
+                    data={"channel": "call", "notes": "Called Jane Doe"})
+    assert r.status_code == 200
+    assert "Logged" in r.text
+    assert "left VM" not in r.text  # a partial, not the full project page
+
+    assert "Called Jane Doe" in client.get("/project/1", headers=AUTH).text
+
+
 def test_board_renders(client, db_session, cfg):
     seed(db_session, cfg)
-    r = client.get("/", headers=AUTH)
+    r = client.get("/board", headers=AUTH)
     assert r.status_code == 200
     assert "Meridian DC" in r.text
     # The window stamp reads IN-BOD; the enum value is IN_BOD. Asserting on the
@@ -64,7 +110,7 @@ def test_board_shows_whether_there_is_anyone_to_call(client, db_session, cfg):
     looked reachable when it was not.
     """
     seed(db_session, cfg)
-    r = client.get("/", headers=AUTH)
+    r = client.get("/board", headers=AUTH)
     assert "Who to call" in r.text
     assert ("No one" in r.text or "Research" in r.text
             or "tel" in r.text or "@" in r.text)
@@ -77,7 +123,7 @@ def test_board_score_bar_is_scaled_to_the_board_maximum(client, db_session, cfg)
     top-scoring row must therefore render a full-width bar whatever its raw score.
     """
     seed(db_session, cfg)
-    r = client.get("/", headers=AUTH)
+    r = client.get("/board", headers=AUTH)
     assert 'class="bar"' in r.text
     assert "width:100.0%" in r.text
 
@@ -141,7 +187,7 @@ def test_add_signal_form_creates_project(client, db_session, cfg):
         "county": "Orange", "state": "CA",
     }, follow_redirects=False)
     assert r.status_code == 303
-    board = client.get("/", headers=AUTH).text
+    board = client.get("/board", headers=AUTH).text
     assert "Unnamed" in board or "Jane" in board
 
 
@@ -155,7 +201,7 @@ def test_gate5_views_and_exports(client, db_session, cfg):
     r = client.post("/project/1/outcome", headers=AUTH,
                     data={"status": "dead", "reason": "cancelled"}, follow_redirects=False)
     assert r.status_code == 303
-    assert "Meridian DC" not in client.get("/", headers=AUTH).text
+    assert "Meridian DC" not in client.get("/board", headers=AUTH).text
 
     # watchlist view + CSV exports
     assert client.get("/watchlist", headers=AUTH).status_code == 200
@@ -269,5 +315,5 @@ def test_esco_board_is_reachable_and_separate(client, db_session, cfg):
                            stage=Stage.procurement, status="active", in_territory=True,
                            score=0.4, window=Window.PRE_BOD, county="Clark", state="NV"))
     db_session.commit()
-    assert "City Hall ESPC" in client.get("/?category=esco", headers=AUTH).text
-    assert "City Hall ESPC" not in client.get("/?category=all", headers=AUTH).text
+    assert "City Hall ESPC" in client.get("/board?category=esco", headers=AUTH).text
+    assert "City Hall ESPC" not in client.get("/board?category=all", headers=AUTH).text

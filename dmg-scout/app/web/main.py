@@ -133,6 +133,22 @@ def _title_block(session: Session) -> dict:
 
 
 @app.get("/", response_class=HTMLResponse)
+def today(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
+    """The Today view: the same four sections as the digest email — three
+    calls, what changed, what's due, one thing worth knowing — clickable, and
+    the first thing seen rather than the board. See app/pipeline/notify.py's
+    module docstring for why these four; changes_preview() specifically (not
+    the digest's own _changes_since_last_digest) so loading this page never
+    consumes a change tomorrow's real digest email would otherwise report.
+    """
+    from app.pipeline.notify import today_brief
+    brief = today_brief(session, load_config())
+    return templates.TemplateResponse(request, "today.html", {
+        **brief, "tb": _title_block(session), "active": "today",
+    })
+
+
+@app.get("/board", response_class=HTMLResponse)
 def board(request: Request, category: str = "data_center",
           session: Session = Depends(get_session), _: str = Depends(auth)):
     # Two boards, one pipeline. Defaults to data centers: that is the book of
@@ -315,14 +331,22 @@ def save_notes(project_id: int, notes: str = Form(""), next_action: str = Form("
 
 
 @app.post("/project/{project_id}/outreach")
-def log_outreach(project_id: int, channel: str = Form("call"), notes: str = Form(""),
-                 next_action: str = Form(""),
+def log_outreach(project_id: int, request: Request, channel: str = Form("call"),
+                 notes: str = Form(""), next_action: str = Form(""),
                  session: Session = Depends(get_session), _: str = Depends(auth)):
-    if not session.get(Project, project_id):
+    project = session.get(Project, project_id)
+    if not project:
         raise HTTPException(404)
-    session.add(Outreach(project_id=project_id, channel=channel, notes=notes,
-                         next_action=next_action or None))
+    o = Outreach(project_id=project_id, channel=channel, notes=notes,
+                next_action=next_action or None)
+    session.add(o)
     session.commit()
+    # The Today page's one-tap "called them" button posts here via HTMX and
+    # must NOT navigate away — that is the whole point of one-tap. A plain
+    # browser form (the project page's own outreach log) has no HX-Request
+    # header and keeps the original redirect-to-project behavior.
+    if request.headers.get("HX-Request"):
+        return HTMLResponse(f'<span class="ok">✓ Logged {o.date:%-I:%M %p}</span>')
     return RedirectResponse(f"/project/{project_id}", status_code=303)
 
 

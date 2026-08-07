@@ -4,14 +4,18 @@ thing worth knowing — see app/pipeline/notify.py's module docstring for why
 these four and nothing else."""
 from datetime import timedelta
 
+from sqlmodel import select
+
 from app.models import (
-    Category, Outreach, Project, Signal, SignalType, SourceRun, Stage, Window, utcnow,
+    Category, DigestLog, Outreach, Project, Signal, SignalType, SourceRun, Stage, Window,
+    utcnow,
 )
 from app.pipeline.notify import (
     _one_thing_worth_knowing,
     _overdue_and_due,
     _quietest_county,
     _stale_sources,
+    changes_preview,
     three_calls_today,
 )
 
@@ -185,3 +189,34 @@ def test_one_thing_falls_back_to_change_count(db_session, cfg):
 
 def test_one_thing_none_when_nothing_notable(db_session, cfg):
     assert _one_thing_worth_knowing(db_session, cfg, n_changes=0) is None
+
+
+# ---- changes_preview: read-only, safe for the Today page --------------------
+
+def test_changes_preview_does_not_mutate_digest_log(db_session, cfg):
+    """The Today page calls this on every page load — it must never consume a
+    change tomorrow's real digest email would otherwise report."""
+    _project(db_session, "New DC", score=0.9)
+    lines = changes_preview(db_session, cfg)
+    assert any("New DC" in ln for ln in lines)
+    assert db_session.exec(select(DigestLog)).all() == []
+
+
+def test_changes_preview_shows_the_same_thing_twice(db_session, cfg):
+    _project(db_session, "New DC", score=0.9)
+    first = changes_preview(db_session, cfg)
+    second = changes_preview(db_session, cfg)
+    assert first == second
+
+
+def test_real_digest_still_reports_after_repeated_previews(db_session, cfg):
+    from app.pipeline.notify import _changes_since_last_digest
+
+    p = _project(db_session, "New DC", score=0.9)
+    changes_preview(db_session, cfg)
+    changes_preview(db_session, cfg)
+    real = _changes_since_last_digest(db_session, cfg)
+    assert any("New DC" in ln for ln in real)
+    assert db_session.exec(
+        select(DigestLog).where(DigestLog.kind == "new_project", DigestLog.ref_id == p.id)
+    ).first() is not None

@@ -69,7 +69,7 @@
   {% for key, label in [('data_center','Data centers'), ('industrial','Industrial'),
                         ('all','Both boards'), ('esco','ESCO retrofit')] %}
   {% set sel = (category or 'data_center') == key %}
-  <a href="/?category={{ key }}" class="chip" aria-pressed="{{ 'true' if sel else 'false' }}">{{ label }}{% if key != 'all' %}<span class="ct">{{ cat_counts.get(key, 0) }}</span>{% endif %}</a>
+  <a href="/board?category={{ key }}" class="chip" aria-pressed="{{ 'true' if sel else 'false' }}">{{ label }}{% if key != 'all' %}<span class="ct">{{ cat_counts.get(key, 0) }}</span>{% endif %}</a>
   {% endfor %}
   <span class="note ml-1">
     {%- if category == 'esco' -%}

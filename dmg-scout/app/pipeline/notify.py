@@ -92,14 +92,23 @@ def _call_reason(project: Project, age) -> str:
     return ", ".join(bits)
 
 
-def three_calls_today(session: Session) -> list[dict]:
-    """Top 3 contactable active projects by _call_priority — never more."""
+def three_calls_today(session: Session, projects: list[Project] | None = None,
+                      ladders: dict[int, list[dict]] | None = None) -> list[dict]:
+    """Top 3 contactable active projects by _call_priority — never more.
+
+    Accepts precomputed projects/ladders so a caller that also needs
+    _detect_changes (the Today page does) can build the one genuinely
+    expensive thing — build_ladders over every active project — ONCE rather
+    than once per section. See today_brief() below.
+    """
     from app.staleness import stage_ages
 
-    projects = session.exec(select(Project).where(Project.status.in_(ACTIVE_STATUSES))).all()
+    if projects is None:
+        projects = session.exec(select(Project).where(Project.status.in_(ACTIVE_STATUSES))).all()
     if not projects:
         return []
-    ladders = build_ladders(session, projects)
+    if ladders is None:
+        ladders = build_ladders(session, projects)
     ages = stage_ages(session, projects)
 
     ranked = []
@@ -130,11 +139,24 @@ def _render_calls(calls: list[dict]) -> str:
 
 # ---- section 2: what changed since yesterday -------------------------------
 
-def _changes_since_last_digest(session: Session, cfg: Config) -> list[str]:
+def _detect_changes(session: Session, cfg: Config, projects: list[Project] | None = None,
+                    ladders: dict[int, list[dict]] | None = None,
+                    ) -> tuple[list[str], list[tuple[str, int, str]]]:
+    """Read-only: what WOULD be reported, and the (kind, ref_id, fingerprint)
+    marks that recognizing it requires. Marking is a separate step (see
+    _changes_since_last_digest) so the Today page can show this same list on
+    every page load without consuming tomorrow's digest — see that function's
+    docstring for why interleaving detection and marking is the wrong shape
+    for anything called more than once a day. Accepts precomputed
+    projects/ladders for the same reason three_calls_today does.
+    """
     min_score = cfg.get("scoring.min_digest_score", 0.15)
     lines: list[str] = []
-    projects = session.exec(select(Project).where(Project.status.in_(ACTIVE_STATUSES))).all()
-    ladders = build_ladders(session, projects) if projects else {}
+    marks: list[tuple[str, int, str]] = []
+    if projects is None:
+        projects = session.exec(select(Project).where(Project.status.in_(ACTIVE_STATUSES))).all()
+    if ladders is None:
+        ladders = build_ladders(session, projects) if projects else {}
 
     # new, above threshold
     for p in sorted(projects, key=lambda p: -p.score):
@@ -143,10 +165,12 @@ def _changes_since_last_digest(session: Session, cfg: Config) -> list[str]:
         tons = (f"{p.tons_estimate_low:,.0f}-{p.tons_estimate_high:,.0f} tons"
                if p.tons_estimate_low else "size unknown")
         lines.append(f"NEW: {p.name} — {p.county or '?'} Co — {tons} — score {p.score:.2f}")
-        _mark(session, "new_project", p.id, "v1")
+        marks.append(("new_project", p.id, "v1"))
 
     # stage changes — only once a previous stage was itself recorded, so a
-    # project's first-ever stage reading never reads as a "change"
+    # project's first-ever stage reading never reads as a "change". Marked
+    # every run regardless of whether it was reported: that baseline is what
+    # lets a FUTURE stage change be recognized as one.
     for p in projects:
         fp = f"stage:{p.stage.value}"
         if _already_sent(session, "stage_change", p.id, fp):
@@ -156,7 +180,7 @@ def _changes_since_last_digest(session: Session, cfg: Config) -> list[str]:
                                     DigestLog.ref_id == p.id)).first()
         if prior is not None and _already_sent(session, "new_project", p.id, "v1"):
             lines.append(f"STAGE: {p.name} -> {p.stage.value} ({p.window.value})")
-        _mark(session, "stage_change", p.id, fp)
+        marks.append(("stage_change", p.id, fp))
 
     # newly contactable — same shape, fires once the first time a project
     # crosses into "contactable"
@@ -172,8 +196,26 @@ def _changes_since_last_digest(session: Session, cfg: Config) -> list[str]:
             best = cs["best_reachable"]
             reach = best.get("phone") or best.get("email")
             lines.append(f"NOW CALLABLE: {p.name} — {best['name']} ({reach})")
-        _mark(session, "contactable", p.id, fp)
+        marks.append(("contactable", p.id, fp))
 
+    return lines, marks
+
+
+def _changes_since_last_digest(session: Session, cfg: Config, projects: list[Project] | None = None,
+                               ladders: dict[int, list[dict]] | None = None) -> list[str]:
+    """For the real digest send: detect AND mark (staged, uncommitted — see
+    run_notify for why the commit belongs after the send)."""
+    lines, marks = _detect_changes(session, cfg, projects=projects, ladders=ladders)
+    for kind, ref_id, fingerprint in marks:
+        _mark(session, kind, ref_id, fingerprint)
+    return lines
+
+
+def changes_preview(session: Session, cfg: Config, projects: list[Project] | None = None,
+                    ladders: dict[int, list[dict]] | None = None) -> list[str]:
+    """For the Today page: the same detection, no marking. Safe to call on
+    every page load — tomorrow's digest still sees these as unreported."""
+    lines, _ = _detect_changes(session, cfg, projects=projects, ladders=ladders)
     return lines
 
 
@@ -185,25 +227,42 @@ def _render_changes(lines: list[str]) -> str:
 
 # ---- section 3: overdue and due --------------------------------------------
 
-def _overdue_and_due(session: Session, cfg: Config) -> list[str]:
+def _overdue_and_due(session: Session, cfg: Config,
+                     projects: list[Project] | None = None) -> list[str]:
     """The most recent Outreach entry per project that still carries an open
     next_action — a later outreach entry on the same project supersedes it,
-    same as the dashboard's own single next_action field works."""
+    same as the dashboard's own single next_action field works.
+
+    Two queries total regardless of board size, not one per project: an
+    earlier per-project query loop against 325 active projects was the
+    dominant cost on the Today page (each a network round trip to a remote
+    Postgres), not the ladder-building everyone assumes is the expensive
+    part — see app/ladder.py's own "289 rows in under a second" precedent
+    for build_ladders, which this now matches by the same batching move.
+    """
     due_soon_days = cfg.get("digest.due_soon_days", 3)
     horizon = utcnow() + timedelta(days=due_soon_days)
     now = utcnow()
 
-    projects = session.exec(select(Project).where(Project.status.in_(ACTIVE_STATUSES))).all()
+    if projects is None:
+        projects = session.exec(select(Project).where(Project.status.in_(ACTIVE_STATUSES))).all()
+    if not projects:
+        return []
+    by_id = {p.id: p for p in projects}
+
+    all_outreach = session.exec(
+        select(Outreach).where(Outreach.project_id.in_(by_id.keys()))
+        .order_by(Outreach.date.desc())
+    ).all()
+    latest_by_project: dict[int, Outreach] = {}
+    for o in all_outreach:
+        latest_by_project.setdefault(o.project_id, o)  # first hit per id = latest (sorted desc)
+
     rows = []
-    for p in projects:
-        latest = session.exec(
-            select(Outreach).where(Outreach.project_id == p.id)
-            .order_by(Outreach.date.desc())).first()
-        if latest is None or not latest.next_action or latest.next_action_date is None:
+    for pid, o in latest_by_project.items():
+        if not o.next_action or o.next_action_date is None or o.next_action_date > horizon:
             continue
-        if latest.next_action_date > horizon:
-            continue
-        rows.append((latest.next_action_date, p, latest))
+        rows.append((o.next_action_date, by_id[pid], o))
     rows.sort(key=lambda t: t[0])
 
     lines = []
@@ -311,9 +370,12 @@ def build_digest(session: Session, cfg: Config) -> tuple[str, dict] | None:
     Leaves its DigestLog marks UNCOMMITTED — see run_notify for why the commit
     belongs after the send.
     """
-    calls = three_calls_today(session)
-    change_lines = _changes_since_last_digest(session, cfg)
-    overdue_lines = _overdue_and_due(session, cfg)
+    projects = session.exec(select(Project).where(Project.status.in_(ACTIVE_STATUSES))).all()
+    ladders = build_ladders(session, projects) if projects else {}
+
+    calls = three_calls_today(session, projects=projects, ladders=ladders)
+    change_lines = _changes_since_last_digest(session, cfg, projects=projects, ladders=ladders)
+    overdue_lines = _overdue_and_due(session, cfg, projects=projects)
     one_thing = _one_thing_worth_knowing(session, cfg, len(change_lines))
 
     # A quiet day with nothing to call and nothing due is a genuinely empty
@@ -334,6 +396,24 @@ def build_digest(session: Session, cfg: Config) -> tuple[str, dict] | None:
         "calls": len(calls), "changes": len(change_lines), "overdue": len(overdue_lines),
     }
     return body, stats
+
+
+def today_brief(session: Session, cfg: Config) -> dict:
+    """The Today page's data, in one pass: the same four sections as the
+    email, sharing the one genuinely expensive query (build_ladders over
+    every active project) across all of them instead of recomputing it per
+    section. Read-only throughout — changes_preview, not
+    _changes_since_last_digest, so loading this page never consumes a change
+    tomorrow's real digest email would otherwise report.
+    """
+    projects = session.exec(select(Project).where(Project.status.in_(ACTIVE_STATUSES))).all()
+    ladders = build_ladders(session, projects) if projects else {}
+
+    calls = three_calls_today(session, projects=projects, ladders=ladders)
+    changes = changes_preview(session, cfg, projects=projects, ladders=ladders)
+    overdue = _overdue_and_due(session, cfg, projects=projects)
+    one_thing = _one_thing_worth_knowing(session, cfg, len(changes))
+    return {"calls": calls, "changes": changes, "overdue": overdue, "one_thing": one_thing}
 
 
 def send_digest(cfg: Config, body: str) -> str:

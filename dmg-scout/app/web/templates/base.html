@@ -31,11 +31,11 @@
       <div class="tb-lbl">Data as of</div>
       <div class="tb-val">{{ tb.data_as_of.strftime('%Y-%m-%d %H:%M') if tb.data_as_of else '—' }}</div>
     </div>
-    <div class="tb-cell"><div class="tb-lbl">Projects</div><div class="tb-val">{{ '{:,}'.format(tb.record_count) }}</div></div>
-    <div class="tb-cell"><div class="tb-lbl">Signals</div><div class="tb-val">{{ '{:,}'.format(tb.signal_count) }}</div></div>
-    <div class="tb-cell"><div class="tb-lbl">Documents</div><div class="tb-val">{{ '{:,}'.format(tb.doc_count) }}</div></div>
-    <div class="tb-cell"><div class="tb-lbl">Sheet</div><div class="tb-val">{% block sheet_no %}—{% endblock %}</div></div>
-    <div class="tb-cell"><div class="tb-lbl">Printed</div><div class="tb-val">{{ now().strftime('%Y-%m-%d %H:%M') }}Z</div></div>
+    <div class="tb-cell tb-cell-detail"><div class="tb-lbl">Projects</div><div class="tb-val">{{ '{:,}'.format(tb.record_count) }}</div></div>
+    <div class="tb-cell tb-cell-detail"><div class="tb-lbl">Signals</div><div class="tb-val">{{ '{:,}'.format(tb.signal_count) }}</div></div>
+    <div class="tb-cell tb-cell-detail"><div class="tb-lbl">Documents</div><div class="tb-val">{{ '{:,}'.format(tb.doc_count) }}</div></div>
+    <div class="tb-cell tb-cell-detail"><div class="tb-lbl">Sheet</div><div class="tb-val">{% block sheet_no %}—{% endblock %}</div></div>
+    <div class="tb-cell tb-cell-detail"><div class="tb-lbl">Printed</div><div class="tb-val">{{ now().strftime('%Y-%m-%d %H:%M') }}Z</div></div>
     <div class="tb-cell ml-auto border-r-0">
       <div class="tb-lbl">Sheet tone</div>
       <button type="button" onclick="toggleTheme()"
@@ -46,7 +46,8 @@
 
   {# SHEET TABS #}
   <nav class="tabs mt-2.5" aria-label="Sheets">
-    <a href="/" class="tab" {% if active=='board' %}aria-current="page"{% endif %}>Board</a>
+    <a href="/" class="tab" {% if active=='today' %}aria-current="page"{% endif %}>Today</a>
+    <a href="/board" class="tab" {% if active=='board' %}aria-current="page"{% endif %}>Board</a>
     <a href="/watchlist" class="tab" {% if active=='watchlist' %}aria-current="page"{% endif %}>Watch list{% if watch_count %} <span class="tab-badge">{{ watch_count }}</span>{% endif %}</a>
     <a href="/review" class="tab" {% if active=='review' %}aria-current="page"{% endif %}>Review queue{% if review_count %} <span class="tab-badge">{{ review_count }}</span>{% endif %}</a>
     <a href="/ask" class="tab" {% if active=='ask' %}aria-current="page"{% endif %}>Ask</a>

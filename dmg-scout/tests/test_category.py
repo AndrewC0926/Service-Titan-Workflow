@@ -145,28 +145,28 @@ def _seed_both(db_session, cfg):
 
 def test_board_defaults_to_data_center(client, db_session, cfg):
     _seed_both(db_session, cfg)
-    body = client.get("/", headers=AUTH).text
+    body = client.get("/board", headers=AUTH).text
     assert "Alpha Data Center" in body
     assert "Beta Manufacturing Plant" not in body
 
 
 def test_board_industrial_tab(client, db_session, cfg):
     _seed_both(db_session, cfg)
-    body = client.get("/?category=industrial", headers=AUTH).text
+    body = client.get("/board?category=industrial", headers=AUTH).text
     assert "Beta Manufacturing Plant" in body
     assert "Alpha Data Center" not in body
 
 
 def test_board_all_shows_both(client, db_session, cfg):
     _seed_both(db_session, cfg)
-    body = client.get("/?category=all", headers=AUTH).text
+    body = client.get("/board?category=all", headers=AUTH).text
     assert "Alpha Data Center" in body and "Beta Manufacturing Plant" in body
 
 
 def test_unknown_category_shows_everything_not_nothing(client, db_session, cfg):
     """A typo in the query string must not render a convincingly empty board."""
     _seed_both(db_session, cfg)
-    body = client.get("/?category=nonsense", headers=AUTH).text
+    body = client.get("/board?category=nonsense", headers=AUTH).text
     assert "Alpha Data Center" in body and "Beta Manufacturing Plant" in body
 
 
@@ -179,7 +179,7 @@ def test_manual_signal_defaults_onto_the_data_center_board(client, db_session, c
     run_resolve(db_session, cfg, use_llm=False)
     run_size_score(db_session, cfg)
     assert db_session.exec(select(Project)).one().category is Category.data_center
-    assert "Gamma Data Center" in client.get("/", headers=AUTH).text
+    assert "Gamma Data Center" in client.get("/board", headers=AUTH).text
 
 
 def test_csv_export_respects_category(client, db_session, cfg):

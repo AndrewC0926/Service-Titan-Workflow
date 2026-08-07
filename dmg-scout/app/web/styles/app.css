@@ -348,4 +348,52 @@
   }
   button:hover { filter: brightness(1.1); }
   button.warn { background: var(--color-stamp-bad); border-color: var(--color-stamp-bad); }
+
+  /* ---- Today ------------------------------------------------------------
+   * The one deliberate exception to "density is the feature" (section 2):
+   * Today is read one-handed on a phone in the sixty seconds before a laptop
+   * opens, so it trades the submittal's density for a single column and
+   * large tap targets. Same tokens, same ink, same rules-not-shadows — laid
+   * out for a thumb instead of a desk. The board is unchanged; this is the
+   * only sheet that gets its own layout register.
+   */
+  .today { display: flex; flex-direction: column; gap: 1.1rem; max-width: 30rem; }
+  .today-section { border: 1px solid var(--color-rule-hard); background: var(--color-panel); }
+  .today-section > h2 {
+    font-size: var(--text-tiny); letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--color-ink-mid); font-weight: 600;
+    border-bottom: 2px solid var(--color-rule-hard);
+    padding: 0.6rem 0.9rem; margin: 0;
+  }
+  .call-card { padding: 0.9rem; border-bottom: 1px solid var(--color-rule); }
+  .call-card:last-child { border-bottom: 0; }
+  .call-name { font-size: 1.0625rem; font-weight: 700; }
+  .call-reach {
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    font-size: 0.9375rem; margin-top: 0.2rem;
+  }
+  /* tel:/mailto: links are the actual one-handed action here, so they get a
+     tap target well past the text's own line height. */
+  .call-reach a { display: inline-block; padding: 0.2rem 0; }
+  .call-project { margin-top: 0.4rem; }
+  .call-project a { color: var(--color-ink); font-weight: 600; }
+  .call-why { color: var(--color-ink-dim); font-size: var(--text-tiny); margin-top: 0.25rem; }
+  .call-action { margin-top: 0.7rem; }
+  .call-action button { width: 100%; padding: 0.8rem; font-size: 0.8125rem; }
+  .today-list { padding: 0.9rem; }
+  .today-list li { padding: 0.4rem 0; border-bottom: 1px solid var(--color-rule); }
+  .today-list li:last-child { border-bottom: 0; }
+  .today-empty { padding: 0.9rem; color: var(--color-ink-dim); }
+  .today-onething { border-left: 3px solid var(--color-blueprint); }
+  .today-onething p { padding: 0.9rem; margin: 0; }
+
+  @media (max-width: 30rem) {
+    /* The chrome above Today (title block, tab bar) must not eat the whole
+       first screen on a phone. Keep the brand, "data as of", and the theme
+       toggle; drop the rest of the title block, and let the tab bar scroll
+       horizontally in one row instead of wrapping into a multi-row stack. */
+    .tb-cell-detail { display: none; }
+    .tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .tab { flex: 0 0 auto; }
+  }
 }
