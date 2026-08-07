@@ -79,6 +79,82 @@ def test_stated_it_beats_everything(cfg):
     assert est.basis_key == "stated_it"
 
 
+# --- critical-vs-house generator split (item 2: tighten generator tonnage) --
+
+def test_critical_generators_size_directly_no_blend_divisor(cfg):
+    """38 x 3 MW dedicated to critical load -> 114 MW IT directly (divisor 1.0),
+    not run through the 1.4 blend-ratio divisor a total/undifferentiated fleet
+    needs."""
+    est = estimate_tons(cfg, generator_critical_count=38, generator_critical_mw_each=3.0)
+    assert est.basis_key == "gensets_critical"
+    assert est.mw_it == pytest.approx(114.0)
+    assert "114.0 MW" in est.basis
+
+
+def test_house_generators_are_named_but_excluded_from_the_math(cfg):
+    """House gensets back non-IT load — see them in the basis, not in mw_it."""
+    with_house = estimate_tons(cfg, generator_critical_count=38, generator_critical_mw_each=3.0,
+                               generator_house_count=2, generator_house_mw_each=1.0)
+    without_house = estimate_tons(cfg, generator_critical_count=38, generator_critical_mw_each=3.0)
+    assert with_house.mw_it == without_house.mw_it == pytest.approx(114.0)
+    assert "2 house genset(s)" in with_house.basis
+    assert "not sized to IT load" in with_house.basis
+
+
+def test_critical_split_beats_stated_total_but_loses_to_stated_it(cfg):
+    """The whole point: a filing that names critical vs house capacity has
+    already done what stated_total's divisor guesses at, so it outranks a
+    blended total MW — but an explicitly stated IT figure still wins outright."""
+    against_total = estimate_tons(cfg, mw_total=200, generator_critical_count=38,
+                                  generator_critical_mw_each=3.0)
+    assert against_total.basis_key == "gensets_critical"
+
+    against_stated_it = estimate_tons(cfg, mw_it=50, generator_critical_count=38,
+                                      generator_critical_mw_each=3.0)
+    assert against_stated_it.basis_key == "stated_it"
+    assert against_stated_it.mw_it == 50
+
+
+def test_undifferentiated_fleet_keeps_the_old_divisor_and_wider_band(cfg):
+    """No critical/house split stated -> falls straight to the unchanged flat
+    gensets branch, same divisor (1.4) and same wide band (0.28) as before."""
+    est = estimate_tons(cfg, generator_count=40, generator_hp_each=3000)
+    assert est.basis_key == "gensets"
+
+
+def test_incomplete_critical_split_does_not_trigger_the_branch(cfg):
+    """A count with no per-unit MW (or vice versa) is not enough to size from —
+    falls through exactly like the flat fields require both count and a size."""
+    est = estimate_tons(cfg, generator_critical_count=38, generator_count=40,
+                        generator_hp_each=3000)
+    assert est.basis_key == "gensets"
+
+
+def test_gensets_critical_band_sits_between_stated_it_and_stated_total(cfg):
+    """Band width reflects reliability: a named critical split is more trustworthy
+    than a blended total MW (which still needs a guessed blend ratio) but less
+    certain than an explicitly stated IT figure."""
+    stated_it = estimate_tons(cfg, mw_it=100)
+    critical = estimate_tons(cfg, generator_critical_count=34, generator_critical_mw_each=3.0)
+    total = estimate_tons(cfg, mw_total=140)
+
+    def rel_width(e):
+        return (e.high - e.low) / e.midpoint
+
+    assert rel_width(stated_it) < rel_width(critical) < rel_width(total)
+
+
+def test_vernon_style_critical_house_split(cfg):
+    """The motivating case: 38 x 3 MW critical + 2 x 1 MW house, as CEC filings
+    state it. Sizes from the 114 MW critical figure only."""
+    est = estimate_tons(cfg, generator_critical_count=38, generator_critical_mw_each=3.0,
+                        generator_house_count=2, generator_house_mw_each=1.0)
+    assert est.mw_it == pytest.approx(114.0)
+    mid = 114.0 * 325
+    assert est.low == pytest.approx(mid * 0.85)
+    assert est.high == pytest.approx(mid * 1.15)
+
+
 def test_no_input_returns_nulls(cfg):
     est = estimate_tons(cfg)
     assert est.low is None and est.high is None and est.basis is None

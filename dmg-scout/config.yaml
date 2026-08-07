@@ -505,12 +505,23 @@ sizing:
   # Band half-width around the midpoint, per estimate basis. The uncertainty of
   # the estimate comes from HOW we know the size, not a fixed ratio:
   band_by_basis:
-    stated_it: 0.10       # a filing states IT MW — tightest
-    stated_total: 0.18    # total/utility MW, IT share inferred
-    gensets: 0.28         # MW reverse-engineered from generator fleet
-    sqft: 0.45            # square footage only — widest, flagged low-confidence
+    stated_it: 0.10          # a filing states IT MW — tightest
+    gensets_critical: 0.15   # generator fleet the filing itself calls critical-
+                             # dedicated; narrower than stated_total because it
+                             # already isolates IT-serving capacity, wider than
+                             # stated_it because the N+1/N+2 spare margin inside
+                             # the critical count is unknown
+    stated_total: 0.18       # total/utility MW, IT share inferred
+    gensets: 0.28            # MW reverse-engineered from an UNDIFFERENTIATED
+                             # generator fleet (no critical/house split stated)
+    sqft: 0.45               # square footage only — widest, flagged low-confidence
   hp_to_kw: 0.7457
   genset_mw_to_it_mw_divisor: 1.4
+  # Critical-dedicated backup is engineered to cover the IT load it backs, so
+  # this needs no blend-ratio divisor the way genset_mw_to_it_mw_divisor does —
+  # 1.0 trusts the filing's critical-capacity figure directly. See
+  # app/pipeline/sizing.critical_genset_mw_to_it_mw.
+  critical_genset_mw_to_it_mw_divisor: 1.0
   watts_per_sqft: 150            # used only when sqft is the only size input; low confidence
   sqft_utilization: 0.5          # fraction of building sqft assumed to be white space
   # Industrial buildings are sized from floor area, not IT watts — their load is

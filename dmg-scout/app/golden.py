@@ -37,11 +37,14 @@ DOCS_DIR = EVALS_DIR / "docs"
 # tolerance); list fields match items by normalized name.
 SCALAR_FIELDS = [
     "project_name", "developer_or_owner", "county", "state", "mw_it", "mw_total",
-    "generator_count", "generator_hp_each", "generator_kw_each", "building_sqft",
+    "generator_count", "generator_hp_each", "generator_kw_each",
+    "generator_critical_count", "generator_critical_mw_each",
+    "generator_house_count", "generator_house_mw_each", "building_sqft",
     "acres", "stage", "apn_parcel", "cooling_type",
 ]
 NUMERIC = {"mw_it", "mw_total", "generator_count", "generator_hp_each",
-           "generator_kw_each", "building_sqft", "acres"}
+           "generator_kw_each", "generator_critical_count", "generator_critical_mw_each",
+           "generator_house_count", "generator_house_mw_each", "building_sqft", "acres"}
 LIST_FIELDS = ["named_people", "named_firms"]
 # Fabrication is only meaningful for facts, not judgment calls like stage.
 FABRICATION_FIELDS = NUMERIC | {"apn_parcel", "project_name", "developer_or_owner"}
@@ -446,7 +449,8 @@ def score(entries: list[dict] | None = None, model_key: str = "model") -> dict:
 # Called out by name because burying mw_it in an alphabetical table is how a 0% recall
 # goes unnoticed while 38 of 43 estimates quietly fall back to guessing from sqft.
 SIZING_FIELDS = ["mw_it", "mw_total", "generator_count", "generator_hp_each",
-                 "generator_kw_each", "building_sqft"]
+                 "generator_kw_each", "generator_critical_count", "generator_critical_mw_each",
+                 "generator_house_count", "generator_house_mw_each", "building_sqft"]
 RECALL_FLOOR = 0.50
 
 

@@ -187,6 +187,16 @@ class Signal(SQLModel, table=True):
     generator_count: int | None = None
     generator_hp_each: float | None = None
     generator_kw_each: float | None = None
+    # Some filings (CEC power filings routinely) split the fleet into gensets
+    # dedicated to data center critical/IT load and gensets backing house load
+    # (office, cooling plant, everything else). Stated directly in MW, not
+    # hp/kW, so this holds the number as written rather than forcing a
+    # conversion the no-conversion extraction rule would then reject. See
+    # app/pipeline/sizing.py's "gensets_critical" basis.
+    generator_critical_count: int | None = None
+    generator_critical_mw_each: float | None = None
+    generator_house_count: int | None = None
+    generator_house_mw_each: float | None = None
     building_sqft: float | None = None
     acres: float | None = None
     building_count: int | None = None

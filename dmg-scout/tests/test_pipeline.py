@@ -1,5 +1,6 @@
 """Pipeline logic tests: dedupe idempotency, resolution, size/score, digest dedupe."""
 
+import pytest
 from sqlmodel import select
 
 from app.models import (
@@ -107,6 +108,24 @@ def test_size_score_end_to_end(db_session, cfg):
     assert p.window == Window.PRE_BOD
     assert p.score > 0
     assert p.days_to_estimated_bid == 540
+
+
+def test_size_score_uses_critical_generator_split_end_to_end(db_session, cfg):
+    """Vernon-shaped signal: 38 x 3 MW dedicated to critical load, 2 x 1 MW
+    house — through resolve and size_score, the project sizes from the 114 MW
+    critical figure, not a blended total."""
+    _signal(db_session, project_name="Vernon Backup Generating Facility",
+           county="Los Angeles", state="CA", mw_total=99,
+           generator_critical_count=38, generator_critical_mw_each=3.0,
+           generator_house_count=2, generator_house_mw_each=1.0)
+    run_resolve(db_session, cfg, use_llm=False)
+    run_size_score(db_session, cfg)
+    p = db_session.exec(select(Project)).one()
+    assert p.estimate_basis and "critical-dedicated gensets" in p.estimate_basis
+    assert "114.0 MW" in p.estimate_basis
+    mid = 114.0 * 325
+    assert p.tons_estimate_low == pytest.approx(mid * 0.85)
+    assert p.tons_estimate_high == pytest.approx(mid * 1.15)
 
 
 def test_scoring_integration_small_early_beats_big_late(db_session, cfg):

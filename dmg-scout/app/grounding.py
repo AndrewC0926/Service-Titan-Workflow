@@ -28,6 +28,8 @@ from app.models import RawDocument, Signal
 # DMS to decimal, so the digits legitimately differ from the source text.
 NUMERIC_FIELDS = [
     "mw_it", "mw_total", "generator_count", "generator_hp_each", "generator_kw_each",
+    "generator_critical_count", "generator_critical_mw_each",
+    "generator_house_count", "generator_house_mw_each",
     "building_sqft", "acres", "water_acre_feet_per_year", "building_count",
 ]
 # Small integers appear everywhere by chance (page numbers, dates, item numbers), so
@@ -49,6 +51,10 @@ UNIT_TOKENS: dict[str, str] = {
     "mw_total": r"(?<![a-z])(?:mw|megawatts?)\b",
     "mw_it": r"(?<![a-z])(?:mw|megawatts?)\b",
     "generator_kw_each": r"(?<![a-z])(?:kw|kilowatts?)\b",
+    # Stated directly in MW by the filing (CEC power filings routinely do this
+    # for genset ratings), same token as mw_total/mw_it — not a conversion.
+    "generator_critical_mw_each": r"(?<![a-z])(?:mw|megawatts?)\b",
+    "generator_house_mw_each": r"(?<![a-z])(?:mw|megawatts?)\b",
     "building_sqft": r"(?<![a-z])(?:sq\.?\s?ft\.?|sqft|sf|square[\s-]f(?:ee|oo)t)\b",
     "acres": r"(?<![a-z])acres?\b",
 }

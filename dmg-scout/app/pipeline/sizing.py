@@ -29,7 +29,7 @@ class TonsEstimate:
     low: float | None
     high: float | None
     basis: str | None
-    basis_key: str | None = None  # stated_it | stated_total | gensets | sqft | industrial_sqft
+    basis_key: str | None = None  # stated_it | gensets_critical | stated_total | gensets | sqft | industrial_sqft
     mw_it: float | None = None    # back-computed IT MW when derivable
     low_confidence: bool = False
     rejected_inputs: list[str] | None = None  # inputs discarded as implausible
@@ -60,6 +60,19 @@ def hp_to_kw(hp: float, cfg: Config) -> float:
 def genset_mw_to_it_mw(genset_mw: float, cfg: Config) -> float:
     # Gensets back cooling and house load too, not just IT.
     return genset_mw / cfg.get("sizing.genset_mw_to_it_mw_divisor", 1.4)
+
+
+def critical_genset_mw_to_it_mw(critical_mw: float, cfg: Config) -> float:
+    """Critical-dedicated backup is engineered to cover the IT load it backs, so
+    unlike an undifferentiated fleet (genset_mw_to_it_mw's 1.4, which blends in
+    cooling and house load) this needs no divisor to guess a blend ratio — the
+    default is 1.0, i.e. trust the stated critical capacity directly. The one
+    real slack in that number is N+1/N+2 sparing within the critical count,
+    which this does not attempt to back out (the filing rarely states it), so
+    the band on this basis (see band_by_basis.gensets_critical) stays wider
+    than a directly stated IT figure to carry that residual uncertainty.
+    """
+    return critical_mw / cfg.get("sizing.critical_genset_mw_to_it_mw_divisor", 1.0)
 
 
 def _band(cfg: Config, mw_it: float, basis_key: str, basis: str,
@@ -101,12 +114,22 @@ def estimate_tons(
     generator_count: int | None = None,
     generator_hp_each: float | None = None,
     generator_kw_each: float | None = None,
+    generator_critical_count: int | None = None,
+    generator_critical_mw_each: float | None = None,
+    generator_house_count: int | None = None,
+    generator_house_mw_each: float | None = None,
     building_sqft: float | None = None,
     category: Category = Category.data_center,
     facility_type: FacilityType = FacilityType.unknown,
 ) -> TonsEstimate:
     """Best available input wins, in order of reliability:
-    stated IT MW > stated total MW > generator fleet > square footage.
+    stated IT MW > critical-dedicated generator fleet > stated total MW >
+    undifferentiated generator fleet > square footage.
+
+    The critical-generator basis ranks above stated total MW on purpose: a
+    filing that names which gensets back IT load specifically has already done
+    the blend-ratio guessing stated_total's divisor exists to approximate, so
+    it is the better input where both are present.
 
     A stated MW that implies an impossible watts-per-square-foot for the building
     type is discarded rather than trusted, and the discard is recorded in the basis
@@ -142,6 +165,27 @@ def estimate_tons(
             return _band(cfg, mw_it, "stated_it", f"stated IT load {mw_it:g} MW")
         rejected.append(f"stated mw_it {mw_it:g} MW implies {implied:,.0f} W/sqft "
                         f"on {building_sqft:,.0f} sqft — implausible, discarded")
+
+    if generator_critical_count and generator_critical_mw_each:
+        critical_mw = generator_critical_count * generator_critical_mw_each
+        implied = implausible_watts_per_sqft(cfg, critical_mw, building_sqft, category)
+        if implied is None:
+            it = critical_genset_mw_to_it_mw(critical_mw, cfg)
+            house_note = (
+                f" (excludes {generator_house_count} house genset(s) x "
+                f"{generator_house_mw_each:g} MW — not sized to IT load)"
+                if generator_house_count and generator_house_mw_each else ""
+            )
+            return _band(
+                cfg, it, "gensets_critical",
+                f"{generator_critical_count} critical-dedicated gensets x "
+                f"{generator_critical_mw_each:g} MW = {critical_mw:.1f} MW -> "
+                f"~{it:.0f} MW IT{house_note}",
+                rejected=rejected or None,
+            )
+        rejected.append(f"critical genset capacity {critical_mw:g} MW implies "
+                        f"{implied:,.0f} W/sqft on {building_sqft:,.0f} sqft — "
+                        f"implausible, discarded")
 
     if mw_total:
         implied = implausible_watts_per_sqft(cfg, mw_total, building_sqft, category)

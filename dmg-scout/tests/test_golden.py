@@ -71,8 +71,10 @@ def test_review_entry_accept_and_correct(tmp_path, monkeypatch):
     answers = iter(
         # scalar fields in SCALAR_FIELDS order:
         # project_name, developer, county(correct typo), state, mw_it, mw_total(accept),
-        # generator_count, hp, kw, sqft, acres, stage, apn, cooling
+        # generator_count, hp, kw, critical_count, critical_mw, house_count, house_mw,
+        # sqft, acres, stage, apn, cooling
         ["null", "null", "San Bernardino", "CA", "null", "", "null", "null", "null",
+         "null", "null", "null", "null",
          "null", "null", "unknown", "null", "null",
          "", ""]  # two list fields accepted
     )

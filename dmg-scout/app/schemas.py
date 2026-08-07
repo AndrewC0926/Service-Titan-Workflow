@@ -18,6 +18,13 @@ EXTRACTION_JSON_SCHEMA: dict = {
         "generator_count": {"type": ["integer", "null"]},
         "generator_hp_each": {"type": ["number", "null"]},
         "generator_kw_each": {"type": ["number", "null"]},
+        # Only when the document itself splits the generator fleet into
+        # critical/dedicated vs house — do not infer a split from an
+        # undifferentiated count. See EXTRACT_SYSTEM.
+        "generator_critical_count": {"type": ["integer", "null"]},
+        "generator_critical_mw_each": {"type": ["number", "null"]},
+        "generator_house_count": {"type": ["integer", "null"]},
+        "generator_house_mw_each": {"type": ["number", "null"]},
         "building_sqft": {"type": ["number", "null"]},
         "acres": {"type": ["number", "null"]},
         "building_count": {"type": ["integer", "null"]},
@@ -81,9 +88,10 @@ EXTRACTION_JSON_SCHEMA: dict = {
 
 NUMERIC_FIELDS = [
     "latitude", "longitude", "mw_it", "mw_total", "generator_hp_each", "generator_kw_each",
+    "generator_critical_mw_each", "generator_house_mw_each",
     "building_sqft", "acres", "water_acre_feet_per_year",
 ]
-INT_FIELDS = ["generator_count", "building_count"]
+INT_FIELDS = ["generator_count", "generator_critical_count", "generator_house_count", "building_count"]
 STR_FIELDS = [
     "project_name", "developer_or_owner", "jurisdiction", "county", "state", "street_address",
     "apn_parcel", "cooling_type", "filing_type", "facility_type",

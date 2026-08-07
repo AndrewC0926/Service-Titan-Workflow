@@ -116,6 +116,16 @@ Rules — these are absolute:
 - Do not convert units or interpolate. Report numbers exactly as stated.
 - mw_it is IT/critical load only when the document explicitly says so; a generic
   "megawatts" figure goes in mw_total.
+- generator_critical_count/generator_critical_mw_each and generator_house_count/
+  generator_house_mw_each: use these ONLY when the document itself splits the
+  generator fleet into units dedicated to data center critical/IT load versus
+  units backing house load (office, cooling plant, everything else) — CEC power
+  filings state this routinely, e.g. "thirty eight (38) 3 MW units dedicated to
+  data center critical loads, and two 1 MW house generators". Report the MW
+  figure exactly as stated per unit; do not convert from hp or kW to fill these.
+  An undifferentiated generator count with no critical/house split goes in the
+  plain generator_count/generator_hp_each/generator_kw_each fields instead, and
+  the critical/house fields stay null — do not guess which bucket it belongs to.
 - named_people: only people named in the document with a role related to the project.
 - confidence reflects how clearly the document supports the extracted fields overall.
 - summary_one_line: one factual sentence, no speculation.

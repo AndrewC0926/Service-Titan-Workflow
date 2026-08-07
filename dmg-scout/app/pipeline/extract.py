@@ -135,7 +135,9 @@ def _extract_docs(session: Session, cfg: Config, limit: int) -> dict:
             signal.event_date = event_date or doc.published_at
             for f in ("project_name", "developer_or_owner", "jurisdiction", "county", "state",
                       "street_address", "apn_parcel", "latitude", "longitude", "mw_it", "mw_total",
-                      "generator_count", "generator_hp_each", "generator_kw_each", "building_sqft",
+                      "generator_count", "generator_hp_each", "generator_kw_each",
+                      "generator_critical_count", "generator_critical_mw_each",
+                      "generator_house_count", "generator_house_mw_each", "building_sqft",
                       "acres", "building_count", "cooling_type", "water_acre_feet_per_year",
                       "filing_type"):
                 setattr(signal, f, data.get(f))

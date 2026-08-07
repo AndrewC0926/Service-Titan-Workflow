@@ -148,6 +148,18 @@ def test_vernon_converted_generator_value_is_rejected():
     assert rej[0]["field"] == "generator_kw_each"
 
 
+def test_vernon_critical_and_house_mw_ground_without_any_conversion():
+    """The gap the previous test documents, closed: the document says '3 MW' and
+    '1 MW' per unit, and generator_critical_mw_each/generator_house_mw_each hold
+    those figures AS STATED — no hp/kW conversion, so nothing here is forced into
+    a null the way generator_kw_each=3000 was."""
+    data, rej = reject_ungrounded_numbers(
+        {"generator_critical_mw_each": 3.0, "generator_house_mw_each": 1.0}, VERNON)
+    assert data["generator_critical_mw_each"] == 3.0
+    assert data["generator_house_mw_each"] == 1.0
+    assert rej == []
+
+
 def test_unit_before_or_after_the_value_both_count():
     assert unit_grounded("mw_total", 99.0, "a 99 MW emergency system") is True
     assert unit_grounded("mw_total", 99.0, "NOC Development Type: Megawatts 99") is True
@@ -155,10 +167,14 @@ def test_unit_before_or_after_the_value_both_count():
 
 def test_non_unit_fields_are_untouched():
     """generator_count and building_count carry no unit; the guard must not null
-    them, since the plain grounding audit already reports on them."""
+    them, since the plain grounding audit already reports on them. Same for the
+    critical/house generator counts — only their per-unit MW figures are
+    unit-checked."""
     data, rej = reject_ungrounded_numbers(
-        {"generator_count": 40, "building_count": 2}, VERNON)
+        {"generator_count": 40, "building_count": 2, "generator_critical_count": 38,
+         "generator_house_count": 2}, VERNON)
     assert data["generator_count"] == 40 and data["building_count"] == 2
+    assert data["generator_critical_count"] == 38 and data["generator_house_count"] == 2
     assert rej == []
 
 
