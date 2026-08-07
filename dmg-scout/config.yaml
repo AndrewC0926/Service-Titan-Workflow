@@ -505,6 +505,18 @@ sources:
   manual:
     enabled: true
 
+# County-level forward-MW layer imported by hand from utility CEC IEPR
+# filings — see app/pipeline/iepr.py. Not a fetched source: no adapter, no
+# lookback, no schedule. `scout import-iepr` is the entire feed.
+iepr:
+  # Comparing SCE's 2024 and 2025 IEPR filings, ~44% of tracked
+  # interconnection requests did not survive unchanged year over year
+  # (canceled, or otherwise dropped). An interconnection request is not a
+  # project — this discount is applied wherever this layer feeds a score
+  # (Phase 4 county-adjacency spillover, app/pipeline/scoring.py), never
+  # baked into the import itself, so the raw filed MW stays inspectable.
+  churn_discount: 0.44
+
 sizing:
   tons_per_mw_it: 284            # 1 MW IT: W*3.412 BTU/hr / 12000
   tons_per_mw_installed_low: 300 # installed incl. non-IT heat + N+1

@@ -272,6 +272,29 @@ def fix_state_values_cmd() -> None:
     typer.echo(f"fixed {total} row(s)")
 
 
+@app.command("import-iepr")
+def import_iepr_cmd(
+    path: str = typer.Argument(..., help="Path to the downloaded IEPR .xlsx filing"),
+    utility: str = typer.Option(..., help='e.g. "SCE"'),
+    docket_tn: str = typer.Option(..., help="CEC transaction number, e.g. 266008"),
+    source_url: str = typer.Option(..., help="Public efiling.energy.ca.gov URL this file came from"),
+) -> None:
+    """Manual, twice-yearly import of a utility's CEC IEPR large-load forecast
+    filing into the county-level forward-MW layer (see app/pipeline/iepr.py).
+    Not a scraper: download the .xlsx from efiling.energy.ca.gov by hand first.
+    Re-running with the same --utility/--docket-tn replaces that filing's rows."""
+    from app.pipeline.iepr import import_iepr_workbook
+    with session_scope() as session:
+        stats = import_iepr_workbook(session, path, utility=utility, docket_tn=docket_tn,
+                                     source_url=source_url)
+    typer.echo(f"{stats['utility']} TN{stats['docket_tn']}: "
+               f"{stats['rows_stored']}/{stats['rows_in_sheet']} rows stored")
+    if stats["unmapped_cities"]:
+        typer.echo("  unmapped cities (county left null — add to _CITY_TO_COUNTY if real):")
+        for city, n in sorted(stats["unmapped_cities"].items(), key=lambda kv: -kv[1]):
+            typer.echo(f"    {city!r}: {n} row(s)")
+
+
 @app.command("add-signal")
 def add_signal(
     signal_type: str = typer.Argument(..., help="e.g. engineer_move, prequal_invite, bid_invite, manual_tip"),

@@ -683,3 +683,38 @@ class AccountCoverage(SQLModel, table=True):
     dollar_value: float | None = None
     notes: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
     updated_at: datetime = Field(default_factory=utcnow)
+
+
+class IeprForwardLoad(SQLModel, table=True):
+    """One row from a utility's CEC IEPR large-load forecast filing (see
+    app/pipeline/iepr.py) — a county-level FORWARD MW LAYER, not a project
+    detector. The source spreadsheet is redacted to status/city/region/MW: no
+    developer name, no address, nothing a lead could be built from. That is
+    the point — this table feeds Phase 4's county-adjacency spillover score
+    as an aggregate, and must never be joined against a Project or Signal as
+    if a row here named one.
+
+    Imported by hand, twice a year, from a downloaded CEC docket filing (see
+    `scout import-iepr`) — deliberately NOT a scraper against TN-numbered
+    filings pretending to be a live feed. Each import replaces every prior
+    row for the same (utility, docket_tn): the filing is a point-in-time
+    snapshot, not an appendable stream, and importing it a second time under
+    the same docket_tn means "I re-downloaded the same filing," not "here are
+    more rows."
+    """
+    __tablename__ = "iepr_forward_loads"
+
+    id: int | None = Field(default=None, primary_key=True)
+    utility: str = Field(index=True)          # e.g. "SCE"
+    docket_tn: str = Field(index=True)        # CEC transaction number this row came from
+    source_url: str                           # traces every row to a public filing
+    status: str | None = None                 # raw status string from the filing
+    cec_grouping: str | None = None           # raw grouping value; meaning undocumented upstream, stored as-is
+    region: str | None = None                 # utility's internal planning region, not a county
+    city: str | None = None                   # as filed — may be a typo, a placeholder ("Open"), or missing
+    county: str | None = Field(default=None, index=True)  # derived from city; null when city can't be confidently mapped
+    state: str = Field(default="CA", index=True)
+    voltage: float | None = None
+    requested_energization_year: int | None = None
+    requested_peak_mw: float | None = None
+    imported_at: datetime = Field(default_factory=utcnow, index=True)
