@@ -20,6 +20,7 @@ from app.accounts import ACCOUNT_TYPES, COVERAGE_STATUSES
 from app.config import load_config
 from app.db import get_session
 from app.manual import add_manual_signal
+from app.mcp_server import mcp_app, mounted_middleware, mounted_routes
 from app.models import (
     ACTIVE_STATUSES, OUTCOME_STATUSES, Account, AccountCoverage, Category, Contact, Firm,
     MatchCandidate, Outreach, Project, ProductLine, ProjectContact, ProjectFirm, ProjectSignal,
@@ -58,7 +59,15 @@ def _category_filter(cat: Category | None):
 from app.normalize import normalize_name
 from app.pipeline.resolve import apply_review_decision
 
-app = FastAPI(title="DMG Scout")
+app = FastAPI(title="DMG Scout", lifespan=mcp_app.lifespan)
+# Flattened onto the route list directly rather than app.mount("/mcp", mcp_app):
+# mounting would prefix the OAuth well-known discovery routes with /mcp too, and
+# RFC 8414/9728 require those at the domain root. See app/mcp_server.py. Flattening
+# routes bypasses mcp_app's own middleware stack too, so it has to be reapplied
+# here explicitly or every Bearer-token request 401s regardless of validity.
+for _mw in mounted_middleware():
+    app.add_middleware(_mw.cls, *_mw.args, **_mw.kwargs)
+app.router.routes.extend(mounted_routes())
 security = HTTPBasic()
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))

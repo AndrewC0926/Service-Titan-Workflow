@@ -558,6 +558,50 @@ class StageObservation(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class McpOAuthClient(SQLModel, table=True):
+    """An OAuth client Claude (or any MCP client) registered via Dynamic Client
+    Registration. DCR is left open — anyone can register a client — because the
+    real security boundary is the password check at /authorize, not the
+    registration step; see app/mcp_auth.py.
+
+    `data` holds the full mcp.shared.auth.OAuthClientInformationFull payload as
+    JSON rather than one column per field, so a new field the SDK adds never
+    needs a migration here.
+    """
+    __tablename__ = "mcp_oauth_clients"
+
+    client_id: str = Field(primary_key=True)
+    data: dict = Field(sa_column=Column(JSON, nullable=False))
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class McpAuthCode(SQLModel, table=True):
+    """A short-lived authorization code between /authorize and /token. DB-backed
+    (not in-memory, unlike the SDK's demo provider) so a Render restart between
+    the two calls doesn't orphan an in-flight login — see app/mcp_auth.py.
+    """
+    __tablename__ = "mcp_auth_codes"
+
+    code: str = Field(primary_key=True)
+    data: dict = Field(sa_column=Column(JSON, nullable=False))
+    expires_at: float = Field(index=True)  # unix timestamp, matching mcp.server.auth.provider.AuthorizationCode
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class McpAccessToken(SQLModel, table=True):
+    """A bearer token issued to an MCP client after a successful password login.
+    DB-backed for the same reason as McpAuthCode — see app/mcp_auth.py for the
+    lifetime (long, no refresh flow: single user, the password gate is the real
+    boundary).
+    """
+    __tablename__ = "mcp_access_tokens"
+
+    token: str = Field(primary_key=True)
+    data: dict = Field(sa_column=Column(JSON, nullable=False))
+    expires_at: float | None = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class ProductLine(SQLModel, table=True):
     """DMG/ToroAire line card, one row per manufacturer line. Seeded from
     config.yaml accounts.line_card (app/accounts.py:seed_product_lines) and
