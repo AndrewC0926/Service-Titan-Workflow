@@ -690,6 +690,15 @@ scoring:
   corroboration_bonus: 0.25      # added certainty per extra independent signal type (capped)
   corroboration_cap: 2           # max extra types counted
   min_digest_score: 0.15
+  # Multiplier by count of {name, developer, county} a project is missing (see
+  # identity_factor() in app/pipeline/scoring.py). Steep on purpose: a row
+  # missing two of the three is not a call-list entry, it is a placeholder, and
+  # no amount of certainty/window/size should be able to buy it back into the
+  # top of a short board. Missing zero is untouched (1.0).
+  identity_penalty:
+    1: 0.7
+    2: 0.25
+    3: 0.1
   # Certainty priors by signal type (0-1)
   signal_certainty:
     utility_load_request: 0.25

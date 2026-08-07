@@ -11,7 +11,9 @@ from app.models import (
     ACTIVE_STATUSES, Category, FacilityType, Project, ProjectSignal, Signal, Window, utcnow,
 )
 from app.normalize import normalize_county
-from app.pipeline.scoring import classify_window, days_to_estimated_bid, priority_score
+from app.pipeline.scoring import (
+    classify_window, days_to_estimated_bid, identity_factor, priority_score,
+)
 from app.pipeline.sizing import estimate_equipment_value, estimate_tons
 
 log = logging.getLogger(__name__)
@@ -105,8 +107,11 @@ def run_size_score(session: Session, cfg: Config) -> dict:
         window = classify_window(project.stage, filing_types)
         project.window = window
         types = [s.signal_type for s in signals]
-        project.score = priority_score(
+        base_score = priority_score(
             cfg, types, window, est.midpoint, project.last_signal_at
+        )
+        project.score = round(
+            base_score * identity_factor(cfg, project.name, project.developer, project.county), 4
         )
         project.days_to_estimated_bid = days_to_estimated_bid(cfg, project.stage)
         project.in_territory = in_territory(cfg, project.state, project.county)

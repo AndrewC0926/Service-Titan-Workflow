@@ -5,6 +5,7 @@ from app.pipeline.scoring import (
     certainty,
     classify_window,
     days_to_estimated_bid,
+    identity_factor,
     priority_score,
     recency_decay,
     size_factor,
@@ -91,3 +92,38 @@ def test_days_to_bid(cfg):
     assert days_to_estimated_bid(cfg, Stage.entitlement) == 540
     assert days_to_estimated_bid(cfg, Stage.procurement) == 60
     assert days_to_estimated_bid(cfg, Stage.unknown) == 540
+
+
+def test_identity_factor_fully_identified_is_untouched(cfg):
+    assert identity_factor(cfg, "Vantage Data Centers NV12", "Vantage Data Centers NV12, LLC",
+                            "Storey") == 1.0
+
+
+def test_identity_factor_unnamed_prefix_counts_as_missing_name(cfg):
+    # "Unnamed ..." is the literal marker resolve.py writes for no stated project_name.
+    named = identity_factor(cfg, "Real Project", "Some Developer", "Storey")
+    unnamed = identity_factor(cfg, "Unnamed project (Storey)", "Some Developer", "Storey")
+    assert unnamed < named == 1.0
+
+
+def test_identity_factor_penalizes_by_missing_count(cfg):
+    one_missing = identity_factor(cfg, "Real Project", "Some Developer", None)
+    two_missing = identity_factor(cfg, "Unnamed project (Storey)", None, "Storey")
+    three_missing = identity_factor(cfg, None, None, None)
+    assert 1.0 > one_missing > two_missing > three_missing > 0
+
+
+def test_identity_factor_cannot_rank_unnamed_above_fully_identified(cfg):
+    """The actual bug: 'Unnamed project (Storey)' outranked fully-identified rows
+    with a lower certainty/window/size score. The penalty must be steep enough
+    that identity alone can flip that ordering back."""
+    now = utcnow()
+    unnamed_high_prior = priority_score(
+        cfg, [SignalType.abatement_application], Window.PRE_BOD,
+        tons_midpoint=None, last_signal_at=now, now=now,
+    ) * identity_factor(cfg, "Unnamed project (Storey)", None, "Storey")
+    named_lower_prior = priority_score(
+        cfg, [SignalType.planning_agenda], Window.PRE_BOD,
+        tons_midpoint=None, last_signal_at=now, now=now,
+    ) * identity_factor(cfg, "1977 Saturn Data Center Project", "Some LLC", "Los Angeles")
+    assert named_lower_prior > unnamed_high_prior

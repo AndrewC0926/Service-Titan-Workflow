@@ -1,12 +1,20 @@
 """Priority scoring: rank by winnability, not size.
 
-priority = certainty x window_multiplier x size_factor x recency_decay
+priority = certainty x window_multiplier x size_factor x recency_decay x identity_factor
 
 The window multiplier is the sales-critical piece: a 500 MW project already out
 to bid (POST_BOD, x0.15) must rank below a 40 MW project at NOP stage
 (PRE_BOD, x1.0). Certainty weights corroboration heavily — two independent
 signal types on one project is the threshold separating a real build from a
 speculative queue entry.
+
+identity_factor is the fifth term, applied by the caller (run_size_score) rather
+than inside priority_score(): it exists because the other four terms only ever
+reward a row — none of them can tell "no name, no developer, no county" from a
+fully worked lead, so a thin signal with a decent certainty prior could out-rank
+a project a rep can actually act on. It is the one term that only ever discounts,
+and it is kept separate from priority_score() so callers that do not have a
+Project on hand (tests, scoring-only callers) are unaffected.
 """
 from __future__ import annotations
 
@@ -68,6 +76,31 @@ def size_factor(tons_midpoint: float | None) -> float:
     if not tons_midpoint or tons_midpoint <= 0:
         return 0.5
     return max(0.25, math.log10(tons_midpoint) - 2.0)
+
+
+def identity_factor(cfg: Config, name: str | None, developer: str | None,
+                     county: str | None) -> float:
+    """Discount a row for each of {name, developer, county} it cannot supply.
+
+    A project with no stated name, no developer, and no county is not a call-list
+    entry — it is a placeholder that happens to have a decent certainty prior.
+    "Unnamed project (Storey)" and "Unnamed Phoenix Data Center Acquisitions LLC"
+    ranked #7 and #11 on a 17-row board on certainty/window/size alone, ahead of
+    fully-identified rows with lower priors, because nothing before this function
+    ever looked at whether the row was actionable.
+
+    `name` is checked against the "Unnamed" prefix, not just None: that is the
+    literal marker _new_project() in resolve.py writes when no signal ever stated
+    a project_name (see app/pipeline/resolve.py), so it is exactly what a rep
+    sees as "no name" on the board.
+    """
+    missing = sum([
+        not name or name.startswith("Unnamed"),
+        not developer,
+        not county,
+    ])
+    penalties = cfg.get("scoring.identity_penalty", {})
+    return penalties.get(missing, 1.0)
 
 
 def recency_decay(cfg: Config, last_signal_at: datetime | None, now: datetime | None = None) -> float:
