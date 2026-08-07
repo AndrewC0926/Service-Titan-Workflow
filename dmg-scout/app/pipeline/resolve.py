@@ -20,7 +20,7 @@ from app.config import Config
 from app.llm import LLMUnavailable, adjudicate
 from app.models import (
     ACTIVE_STATUSES, DeveloperAlias, MatchCandidate, Project, ProjectSignal, Signal,
-    utcnow,
+    Stage, StageObservation, utcnow,
 )
 from app.normalize import normalize_county, normalize_name
 from app.runguard import STALE_RUN_HOURS, ConcurrentStage, running_stage, stage_run
@@ -335,8 +335,29 @@ def _link(session: Session, signal: Signal, project: Project, confidence: float,
         session.add(ProjectSignal(project_id=project.id, signal_id=signal.id,
                                   match_confidence=confidence, match_method=method))
     _absorb(project, signal)
+    _record_stage_observation(session, project, signal)
     session.add(project)
     resolve_signal_firms(session, project.id, signal.named_firms)
+
+
+def _record_stage_observation(session: Session, project: Project, signal: Signal) -> None:
+    """One row per signal that stated a stage, kept forever — see StageObservation's
+    docstring. Written for every signal.stage != unknown, whether or not it moved
+    project.stage forward, and deduped on signal_id so a re-resolve of an
+    already-linked signal (concurrent run, backfill) never double-records it.
+    """
+    if signal.stage == Stage.unknown:
+        return
+    exists = session.exec(
+        select(StageObservation).where(StageObservation.signal_id == signal.id)
+    ).first()
+    if exists:
+        return
+    observed_at = signal.event_date or signal.created_at
+    session.add(StageObservation(
+        project_id=project.id, stage=signal.stage, observed_at=observed_at,
+        from_event=signal.event_date is not None, signal_id=signal.id,
+    ))
 
 
 def _absorb(project: Project, signal: Signal) -> None:
@@ -386,6 +407,7 @@ def _new_project(session: Session, signal: Signal) -> Project:
                         "absorbing into it instead of creating a duplicate",
                         signal.id, project.id)
             _absorb(project, signal)
+            _record_stage_observation(session, project, signal)
             session.add(project)
             return project
 

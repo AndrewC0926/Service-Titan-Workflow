@@ -510,6 +510,44 @@ class DigestLog(SQLModel, table=True):
     sent_at: datetime = Field(default_factory=utcnow)
 
 
+class StageObservation(SQLModel, table=True):
+    """Every stage a project has ever been observed at, kept forever — an
+    append-only ledger, same shape as TokenSpend/HttpLog (insert only, never
+    updated). `Project.stage` is still a single column, still set only by
+    app.pipeline.resolve._absorb, and still moves forward only (see the
+    comment there) — nothing about that changes. This table is what that
+    single column always lacked: WHEN each claim was made and from WHAT, so
+    staleness can be measured against evidence for the stage a project shows
+    TODAY specifically, rather than against evidence of any kind (the gap
+    app/staleness.py's original stage_ages() had — see its module docstring
+    for the case that exposed it), and so the project page can show the
+    progression instead of only the present.
+
+    One row per signal that stated a stage — written in app.pipeline.resolve
+    right after _absorb(), for EVERY signal.stage != unknown, whether or not
+    it actually moved project.stage forward. A signal that reports an earlier
+    stage than the project already shows is still a real observation, worth
+    keeping for the history even though the forward-only rule means it cannot
+    become the current value.
+    """
+    __tablename__ = "stage_observations"
+    __table_args__ = (UniqueConstraint("signal_id", name="uq_stage_observation_signal"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="projects.id", index=True)
+    stage: Stage = Field(index=True)
+    observed_at: datetime = Field(index=True)
+    # True when observed_at is the signal's stated event date; False when it
+    # fell back to when we saw the document — same distinction staleness.py's
+    # StageAge has always carried, preserved here rather than lost.
+    from_event: bool = True
+    # Null only for a manually-entered correction (none exist yet, but the
+    # column exists so one never has to be faked as a fake signal_id).
+    signal_id: int | None = Field(default=None, foreign_key="signals.id", index=True)
+    source: str = "signal"  # signal | manual
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class ProductLine(SQLModel, table=True):
     """DMG/ToroAire line card, one row per manufacturer line. Seeded from
     config.yaml accounts.line_card (app/accounts.py:seed_product_lines) and

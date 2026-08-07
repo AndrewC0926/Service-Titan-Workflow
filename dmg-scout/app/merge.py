@@ -27,6 +27,7 @@ from app.models import (
     ProjectContact,
     ProjectFirm,
     ProjectSignal,
+    StageObservation,
     utcnow,
 )
 
@@ -41,6 +42,7 @@ _LINK_TABLES = (
     (ProjectSignal, ("signal_id",)),
     (ProjectContact, ("contact_id", "role")),
     (ProjectFirm, ("firm_id", "role")),
+    (StageObservation, ("signal_id",)),
 )
 # No uniqueness to worry about: repoint every row.
 _PLAIN_TABLES = (MatchCandidate, Outreach, OutcomeEvent, FalsePositiveMark)
