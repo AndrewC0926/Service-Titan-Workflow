@@ -1,5 +1,12 @@
 # Render blueprint: one web service, one daily cron, one Postgres.
 # Root directory is dmg-scout/ within the repo.
+#
+# No backup cron: Render's paid Postgres plans (basic-256mb here) run
+# continuous point-in-time recovery already. A nightly pg_dump to S3 on top of
+# that was pure redundancy, and it failed every run for want of AWS
+# credentials that were never provisioned. scripts/backup.sh is left in the
+# repo for anyone on a Render plan without PITR, or a future migration off
+# Render, but nothing in this blueprint calls it.
 databases:
   - name: dmg-scout-db
     plan: basic-256mb
@@ -41,24 +48,3 @@ services:
         sync: false
       - key: LOG_FORMAT
         value: json
-
-  - type: cron
-    name: dmg-scout-backup
-    runtime: docker
-    rootDir: dmg-scout
-    plan: starter
-    schedule: "30 9 * * *"   # nightly, offset from the pipeline
-    dockerCommand: bash scripts/backup.sh
-    envVars:
-      - key: DATABASE_URL
-        fromDatabase: {name: dmg-scout-db, property: connectionString}
-      - key: BACKUP_S3_URI
-        sync: false
-      - key: AWS_ACCESS_KEY_ID
-        sync: false
-      - key: AWS_SECRET_ACCESS_KEY
-        sync: false
-      - key: AWS_ENDPOINT_URL
-        sync: false
-      - key: BACKUP_HEALTHCHECK_URL
-        sync: false

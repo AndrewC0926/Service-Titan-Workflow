@@ -299,18 +299,20 @@ form's category select) sets it. It defaults to `data_center`; if it defaulted t
 
 ## Restore from backup
 
-Backups: nightly `pg_dump` custom-format to `$BACKUP_S3_URI/scout-YYYY-MM-DD.dump`,
-30-day retention (`scripts/backup.sh` on the dmg-scout-backup cron).
+No `pg_dump` cron — Render's paid Postgres plans run continuous point-in-time
+recovery, which covers this without a separate job that can fail quietly (the
+old dmg-scout-backup cron failed every night for want of AWS credentials that
+were never set). Restore from the Render dashboard: database → Backups → pick
+a timestamp → Restore, which creates a new database you point `DATABASE_URL`
+at after verifying it.
 
-```
-aws s3 ls "$BACKUP_S3_URI/"                                   # pick a dump
-aws s3 cp "$BACKUP_S3_URI/scout-2026-08-03.dump" /tmp/r.dump
-pg_restore --clean --if-exists --no-owner -d "$DATABASE_URL" /tmp/r.dump
-```
-Test this quarterly against a scratch Postgres (Render lets you spin one up):
-restore there first, `SELECT count(*) FROM projects;`, then trust it.
-The irreplaceable data is `match_candidates`/`project_signals` (my hand merges),
-`outcome_events`, `outreach`, and `contacts` — everything else refetches.
+Test this quarterly: restore to a scratch database first, `SELECT count(*)
+FROM projects;`, then trust it. The irreplaceable data is
+`match_candidates`/`project_signals` (my hand merges), `outcome_events`,
+`outreach`, and `contacts` — everything else refetches.
+
+`scripts/backup.sh` (nightly `pg_dump` to S3) still exists for a Render plan
+without PITR, or a future migration off Render — nothing calls it today.
 
 ## Rotate the API key
 
@@ -348,7 +350,7 @@ The irreplaceable data is `match_candidates`/`project_signals` (my hand merges),
 - [ ] Spot-check 3 extractions against their source URLs (project detail → source links).
 - [ ] `scout golden report` still zero fabrications; add ~5 fresh docs to the
       golden set (`scout golden collect --limit 5 && scout golden review`).
-- [ ] Confirm last night's backup object exists; quarterly: test restore.
+- [ ] Quarterly: test restore from Render's point-in-time recovery.
 - [ ] `scout outcomes` — once ≥20 closed outcomes, consider retuning
       `scoring.signal_certainty` toward what actually converts.
 - [ ] Prune watch list (`/watchlist`): archive anything not worth tracking.
@@ -413,5 +415,5 @@ seconds, and backs off on 429/5xx. It does not scrape LinkedIn or any
 authenticated service. It stores names, titles, and contact details of people
 **as they appear in public government filings and press**, for sales research
 use. Raw documents and the request log are retained indefinitely by default;
-if that changes, add a retention job and note it here. Backups live in
-`$BACKUP_S3_URI` with 30-day retention.
+if that changes, add a retention job and note it here. Point-in-time recovery
+is Render's, on the Postgres instance itself — see "Restore from backup" above.
