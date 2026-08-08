@@ -68,6 +68,26 @@ def test_rank_buildings_unknown_equipment_gets_zero_life_weight():
     assert unknown < known_not_due
 
 
+def test_rank_buildings_urgency_beats_any_size_never_the_reverse():
+    """The bug this regression-tests: a first version weighted service life,
+    size and regulatory proximity into one linear blend, and a big enough
+    'not_due' skyscraper (recently-serviced) outscored a small 'overdue'
+    building. That put the buildings LEAST worth calling at the top. Service
+    life status must be a tier no amount of size or regulatory pressure can
+    cross -- same fix as ladder.py's reachability-first sort."""
+    tiny_overdue = rank_buildings(service_life_status="overdue", sqft=2000,
+                                  sb1206_trigger_status=None, ebewe_candidate=False, carb_candidate=False)
+    huge_not_due = rank_buildings(service_life_status="not_due", sqft=2_000_000,
+                                  sb1206_trigger_status="in_effect", ebewe_candidate=True, carb_candidate=True)
+    assert tiny_overdue > huge_not_due
+
+    small_due = rank_buildings(service_life_status="due", sqft=5000,
+                               sb1206_trigger_status=None, ebewe_candidate=False, carb_candidate=False)
+    huge_approaching = rank_buildings(service_life_status="approaching", sqft=2_000_000,
+                                      sb1206_trigger_status="in_effect", ebewe_candidate=True, carb_candidate=True)
+    assert small_due > huge_approaching
+
+
 def test_rank_buildings_size_is_capped():
     huge = rank_buildings(service_life_status="not_due", sqft=50_000_000,
                           sb1206_trigger_status=None, ebewe_candidate=False, carb_candidate=False)

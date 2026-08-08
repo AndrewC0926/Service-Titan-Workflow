@@ -94,21 +94,26 @@ def fetch_parcel_characteristics(client: PoliteClient, ains: list[str],
 def rank_buildings(*, service_life_status: str | None, sqft: float | None,
                    sb1206_trigger_status: str | None, ebewe_candidate: bool,
                    carb_candidate: bool) -> float:
-    """A transparent, documented composite — not a black box. Every input is
-    itself a stored, inspectable field on the row.
+    """Hierarchy first, composite within tier — the same fix ladder.py's
+    reachability-first sort applies to contacts, applied here to buildings.
 
-    - Service life status dominates: an overdue building is the whole point
-      of this board, and a building we can't even place on the service-life
-      curve (no confidently-typed equipment) scores 0 on this term.
-    - Building size is a log scale on sqft, capped at 1.0 around 1,000,000
-      sqft — deal value matters, but should not let one enormous warehouse
-      swamp the ranking the way raw sqft would.
-    - Regulatory proximity adds a modest bonus, capped low deliberately:
-      corroborating urgency, not the primary signal — same philosophy as
-      Phase 4's spillover weight.
+    A first attempt weighted service life, size and regulatory proximity
+    into one linear blend (0.5/0.3/0.2) and it was wrong the same way the
+    ladder's proximity-first sort was wrong: a big enough "not_due" building
+    (a downtown high-rise with equipment installed 2 years ago) outscored a
+    genuinely "overdue" one, because size alone could buy back urgency. That
+    is not a ranking bug at the margins — it puts the buildings LEAST worth
+    calling at the top.
+
+    So service life status is now a TIER, not a weighted term: every overdue
+    building scores strictly higher than every due building, which scores
+    strictly higher than every approaching building, and so on, regardless
+    of size. Size and regulatory proximity only break ties WITHIN a tier —
+    among buildings equally overdue, the bigger and more regulation-pressed
+    one still sorts first, which is the deal-value/urgency signal the size
+    and regulatory terms were meant to carry in the first place.
     """
-    life_weight = {"overdue": 1.0, "due": 0.7, "approaching": 0.4, "not_due": 0.1}.get(
-        service_life_status, 0.0)
+    life_tier = {"overdue": 3, "due": 2, "approaching": 1, "not_due": 0}.get(service_life_status, -1)
 
     size_factor = 0.0
     if sqft and sqft > 0:
@@ -125,7 +130,10 @@ def rank_buildings(*, service_life_status: str | None, sqft: float | None,
     if carb_candidate:
         reg_weight = max(reg_weight, 0.1)
 
-    return round(life_weight * 0.5 + size_factor * 0.3 + reg_weight * 0.2, 4)
+    # size_factor and reg_weight are each capped well under 1.0 combined, so
+    # they can only ever break ties WITHIN a tier, never cross one.
+    within_tier = round(size_factor * 0.7 + reg_weight, 4)
+    return round(life_tier + within_tier, 4)
 
 
 def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict:
