@@ -138,6 +138,7 @@
   <td class="num">
     <span class="score">
       <span class="val">{{ '%.2f'|format(p.score) }}</span>
+      {%- if p.spillover_basis %}&nbsp;<span class="caveat" title="{{ p.spillover_basis }}">sp</span>{% endif -%}
       <span class="bar" aria-hidden="true"><i style="width:{{ (100 * p.score / score_max)|round(1) }}%"></i></span>
     </span>
   </td>

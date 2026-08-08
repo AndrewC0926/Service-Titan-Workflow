@@ -21,6 +21,9 @@
 <tr><th>Est. tonnage</th>
     <td class="num">{% if p.tons_estimate_low %}{{ '{:,.0f}'.format(p.tons_estimate_low) }}–{{ '{:,.0f}'.format(p.tons_estimate_high) }} tons{% if p.estimate_low_confidence %} <span class="bad">⚠ LOW CONFIDENCE</span>{% endif %}{% else %}—{% endif %}</td>
     <th>Basis</th><td>{{ p.estimate_basis or 'no size input yet' }}</td></tr>
+{%- if p.spillover_basis %}
+<tr><th>Spillover</th><td colspan="3">{{ p.spillover_basis }}</td></tr>
+{%- endif %}
 </table>
 
 <h2>Stage progression</h2>

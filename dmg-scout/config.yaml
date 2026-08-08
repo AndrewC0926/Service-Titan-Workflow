@@ -779,6 +779,56 @@ scoring:
     procurement: 60
     construction: 0
     operating: -1
+  # Phase 4: county-adjacency data center spillover. A scoring INPUT on rows
+  # that already passed the keyword gate (app/sources/base.py:keyword_match)
+  # — it never widens that gate to residential/retail, and it never creates
+  # a project. See app/pipeline/spillover.py.
+  spillover:
+    enabled: true
+    # Max multiplicative bonus, reached once a project's county + adjacent
+    # counties carry >= saturation_mw of recent/queued DC activity. Modest on
+    # purpose: this is a corroborating market signal, not a certainty proxy —
+    # it should nudge a ranking, not remake one.
+    weight: 0.15
+    saturation_mw: 500
+    # Scout's own board decays with this half-life: the construction
+    # workforce effect is front-loaded and temporary, so a project finished
+    # two years ago shouldn't still be inflating its neighbors' scores.
+    # (Separate from scoring.recency_halflife_days, which measures evidence
+    # staleness for a DIFFERENT purpose — this measures how long a completed
+    # or in-progress build still plausibly holds labor-market weight.)
+    halflife_days: 365
+    # Which statuses count as "real" recent activity: still open, or sold —
+    # not "lost"/"dead"/"archived", which means it never actually built.
+    qualifying_statuses: ["active", "contacted", "specified", "bidding", "won"]
+    # county -> adjacent counties, by state. Standard county-line geography,
+    # scoped to counties currently on the board or in the IEPR layer (CA + NV)
+    # rather than a full 58+17-county gazetteer — add a county here the same
+    # way: list the counties whose line it actually touches. Storey/Washoe is
+    # the case that motivated this: TRIC (Storey County) construction and
+    # operations workers commute from Reno/Sparks (Washoe County), so a
+    # same-county-only match would miss the real labor market entirely.
+    county_adjacency:
+      CA:
+        Imperial: [San Diego, Riverside, San Bernardino]
+        Kern: [Los Angeles, Ventura, Santa Barbara, San Luis Obispo, Kings, Tulare, San Bernardino]
+        Los Angeles: [Ventura, Kern, San Bernardino, Orange]
+        Orange: [Los Angeles, San Bernardino, Riverside, San Diego]
+        Riverside: [San Bernardino, Orange, San Diego, Imperial]
+        San Bernardino: [Los Angeles, Kern, Orange, Riverside, San Diego, Inyo]
+        San Diego: [Orange, Riverside, Imperial]
+        Santa Clara: [San Mateo, Santa Cruz, San Benito, Merced, Stanislaus, Alameda]
+        Santa Barbara: [San Luis Obispo, Kern, Ventura]
+        Tulare: [Fresno, Kings, Kern, Inyo]
+        Ventura: [Santa Barbara, Kern, Los Angeles]
+      NV:
+        Carson City: [Washoe, Douglas, Lyon]
+        Churchill: [Pershing, Lyon, Lander, Mineral, Humboldt]
+        Clark: [Nye, Lincoln]
+        Douglas: [Carson City, Lyon, Washoe]
+        Lyon: [Storey, Washoe, Churchill, Douglas, Carson City, Mineral]
+        Storey: [Washoe, Lyon]
+        Washoe: [Storey, Lyon, Carson City, Douglas, Churchill, Humboldt, Pershing]
 
 resolution:
   block_radius_km: 5

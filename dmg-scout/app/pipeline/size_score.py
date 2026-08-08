@@ -15,6 +15,7 @@ from app.pipeline.scoring import (
     classify_window, days_to_estimated_bid, identity_factor, priority_score,
 )
 from app.pipeline.sizing import estimate_equipment_value, estimate_tons
+from app.pipeline.spillover import county_spillover_mw, project_spillover, spillover_factor
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +65,12 @@ def _facility_type(signals: list[Signal]) -> FacilityType:
 def run_size_score(session: Session, cfg: Config) -> dict:
     projects = session.exec(select(Project).where(Project.status.in_(ACTIVE_STATUSES))).all()
     stats = {"sized": 0, "scored": 0}
+    # Computed ONCE per run, not per project: every project's spillover input
+    # reads the same county totals, so this stays a single pass over the
+    # board + IEPR layer rather than one per row. See app/pipeline/spillover.py.
+    spillover_enabled = cfg.get("scoring.spillover.enabled", False)
+    spillover_now = utcnow()
+    county_totals = county_spillover_mw(session, cfg, spillover_now) if spillover_enabled else {}
     for project in projects:
         signals = project_signals(session, project.id)
 
@@ -114,9 +121,18 @@ def run_size_score(session: Session, cfg: Config) -> dict:
         base_score = priority_score(
             cfg, types, window, est.midpoint, project.last_signal_at
         )
-        project.score = round(
-            base_score * identity_factor(cfg, project.name, project.developer, project.county), 4
-        )
+        score = base_score * identity_factor(cfg, project.name, project.developer, project.county)
+
+        if spillover_enabled:
+            mw, basis = project_spillover(cfg, county_totals, project, spillover_now)
+            project.spillover_mw = mw or None
+            project.spillover_basis = basis
+            score *= spillover_factor(cfg, mw)
+        else:
+            project.spillover_mw = None
+            project.spillover_basis = None
+
+        project.score = round(score, 4)
         project.days_to_estimated_bid = days_to_estimated_bid(cfg, project.stage)
         project.in_territory = in_territory(cfg, project.state, project.county)
         project.updated_at = utcnow()

@@ -240,6 +240,13 @@ class Project(SQLModel, table=True):
     stage: Stage = Field(default=Stage.unknown, index=True)
     window: Window = Field(default=Window.PRE_BOD)
     score: float = Field(default=0.0, index=True)
+    # Phase 4: county-adjacency data center spillover multiplier applied to
+    # `score` (see app/pipeline/spillover.py). spillover_mw is the raw
+    # recent/queued DC MW its county + neighbors carried at last scoring run;
+    # spillover_basis is the human-readable "why", shown on the board row.
+    # Both null when the feature is disabled or the county resolved no MW.
+    spillover_mw: float | None = None
+    spillover_basis: str | None = None
     days_to_estimated_bid: int | None = None
     in_territory: bool = Field(default=True, index=True)
     # active | contacted | specified | bidding | won | lost | dead | archived
