@@ -834,3 +834,75 @@ class AssessorCandidate(SQLModel, table=True):
     sqft: float | None = None
     source_url: str
     imported_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class RetrofitBuilding(SQLModel, table=True):
+    """One BUILDING (not permit) — the retrofit board's unit of record. See
+    app/pipeline/retrofit.py: this is a deduplication of EquipmentPermit
+    (one building often carries several permits over the years) joined
+    against assessor parcel characteristics (sqft, year built, use code).
+
+    Deliberately NO owner name / owner mailing address field: verified live
+    that no free, bulk-queryable source of that data exists for LA County —
+    every parcel API and the Assessor's own portal API strip ownership
+    fields entirely. `address` (situs/property address) is the only location
+    identifier here; this is a call list built from public equipment and
+    building records, not a mailing list.
+
+    A separate population from Project — a building that pulled a mechanical
+    permit is not a building filing new construction, and the two tables
+    should never be joined as if a row in one implies a row in the other
+    (measured: zero APN overlap between this table and Project as of the
+    first build).
+    """
+    __tablename__ = "retrofit_buildings"
+
+    id: int | None = Field(default=None, primary_key=True)
+    apn: str = Field(index=True, unique=True)
+    county: str = Field(default="Los Angeles", index=True)
+    state: str = Field(default="CA", index=True)
+    address: str | None = None
+
+    # From the assessor parcel join (never owner fields — see docstring)
+    use_code: str | None = None
+    use_desc: str | None = None
+    sqft: float | None = None
+    year_built: int | None = None
+
+    # From the deduplicated permit history for this APN
+    permit_count: int = 0
+    latest_permit_nbr: str | None = None
+    latest_install_year: int | None = None
+    # packaged_rooftop | split_dx | air_cooled_chiller | water_cooled_chiller |
+    # air_handling_unit | boiler | cooling_tower | vav_terminal | null (see
+    # app/pipeline/retrofit.py:infer_equipment_type — never guessed past what
+    # the work-description text actually supports)
+    equipment_type: str | None = None
+    mined_tons_each: float | None = None
+    mined_equipment_count: int | None = None
+    inferred_refrigerant: str | None = None
+
+    # Which regulations fire on this building (evaluated at build time
+    # against config.yaml's verified regulatory_triggers)
+    sb1206_trigger_status: str | None = None  # in_effect | upcoming | null
+    sb1206_detail: str | None = None
+    carb_candidate: bool = Field(default=False, index=True)
+    carb_use_code: str | None = None
+    ebewe_candidate: bool = Field(default=False, index=True)
+
+    # From app/replacement.py's ownership-branched service life table.
+    # ownership is always "private_commercial" (the default, longest cycle)
+    # because ownership type cannot be determined without owner data — see
+    # replacement.py's own stated rule: better to miss a federal building
+    # than invent a live one.
+    service_life_status: str | None = Field(default=None, index=True)  # not_due | approaching | due | overdue
+    service_life_basis: str | None = None
+    equipment_age_years: float | None = None
+
+    # A number a rep can sort by, with every input traceable above — see
+    # app/pipeline/retrofit.py:rank_buildings for the exact formula.
+    rank_score: float | None = Field(default=None, index=True)
+
+    permit_source_url: str | None = None
+    assessor_source_url: str | None = None
+    built_at: datetime = Field(default_factory=utcnow, index=True)

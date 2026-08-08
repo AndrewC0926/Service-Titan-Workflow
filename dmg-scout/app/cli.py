@@ -429,6 +429,23 @@ def fetch_permits_cmd(
         raise typer.Exit(1)
 
 
+@app.command("build-retrofit-buildings")
+def build_retrofit_buildings_cmd() -> None:
+    """Dedup EquipmentPermit to one row per building, join assessor parcel
+    characteristics, evaluate regulatory triggers, rank. See
+    app/pipeline/retrofit.py. Replaces the whole retrofit_buildings table —
+    it's a derived view over permits/assessor data, not its own source."""
+    from app.http import PoliteClient
+    from app.pipeline.retrofit import build_retrofit_buildings
+    with session_scope() as session, PoliteClient() as client:
+        stats = build_retrofit_buildings(session, load_config(), client)
+    typer.echo(f"{stats['permits_considered']} permits considered "
+               f"({stats['permits_masked_apn_skipped']} skipped, privacy-masked APN)")
+    typer.echo(f"{stats['distinct_buildings']} distinct buildings")
+    typer.echo(f"assessor join: {stats['assessor_matched']} matched, "
+               f"{stats['assessor_unmatched']} unmatched")
+
+
 @app.command("fetch-assessor-candidates")
 def fetch_assessor_candidates_cmd(
     trigger: str = typer.Option("all", help="carb | ebewe | all"),

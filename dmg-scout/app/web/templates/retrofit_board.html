@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Retrofit{% endblock %}
+{% block sheet_no %}S-03{% endblock %}
+{% block content %}
+
+<div class="callout callout-warn">
+  <strong>A separate population from the project board</strong>
+  <span class="body">These are EXISTING buildings identified from mechanical permit history and
+    assessor parcel records — not new-construction filings. No owner name or mailing address:
+    verified no free, bulk-queryable source of that data exists for LA County. Situs address and
+    APN are the entity key; a rep still looks the phone number up, same as any "pending" contact
+    elsewhere in this system.</span>
+</div>
+
+<div class="sec-head">
+  <div><div class="sec-title">Retrofit register — ranked by service life, size, regulatory proximity</div></div>
+</div>
+
+<div class="kv mb-3">
+  <div><div class="k">Buildings</div><div class="v">{{ '{:,}'.format(summary.n) }}</div></div>
+  <div><div class="k">Overdue</div><div class="v">{{ summary.overdue }}</div></div>
+  <div><div class="k">Due</div><div class="v">{{ summary.due }}</div></div>
+  <div><div class="k">SB 1206</div><div class="v">{{ summary.sb1206 }}</div></div>
+  <div><div class="k">CARB candidate</div><div class="v">{{ summary.carb }}</div></div>
+  <div><div class="k">EBEWE candidate</div><div class="v">{{ summary.ebewe }}</div></div>
+</div>
+
+<div class="mb-2 flex flex-wrap items-center gap-1.5">
+  {% for c in counties %}
+  <a href="/retrofit?county={{ c }}{% if min_status %}&min_status={{ min_status }}{% endif %}"
+     class="chip" aria-pressed="{{ 'true' if county == c else 'false' }}">{{ c }}</a>
+  {% endfor %}
+  <a href="/retrofit{% if min_status %}?min_status={{ min_status }}{% endif %}" class="chip" aria-pressed="{{ 'true' if not county else 'false' }}">All counties</a>
+  <span class="note ml-1">|</span>
+  {% for key, label in [('overdue','Overdue only'), ('due','Due+'), ('approaching','Approaching+'), ('', 'All statuses')] %}
+  <a href="/retrofit?{% if county %}county={{ county }}&{% endif %}min_status={{ key }}" class="chip" aria-pressed="{{ 'true' if min_status == key else 'false' }}">{{ label }}</a>
+  {% endfor %}
+  {% if county %}
+  <a href="/retrofit/report?county={{ county }}" class="chip ml-1">🖨 Printable contractor report ↗</a>
+  {% endif %}
+</div>
+
+<table class="tbl">
+<colgroup>
+  <col style="width:2.6rem"><col style="width:18rem"><col style="width:8rem">
+  <col style="width:7rem"><col style="width:8rem"><col style="width:9rem">
+  <col style="width:10rem"><col style="width:9rem"><col>
+</colgroup>
+<thead><tr>
+  <th class="num">#</th>
+  <th>Building</th>
+  <th class="num">Sq ft</th>
+  <th class="num">Built</th>
+  <th>Equipment</th>
+  <th>Service life</th>
+  <th>Regulations</th>
+  <th class="num">Score</th>
+  <th>Basis</th>
+</tr></thead>
+<tbody>
+{% for b in buildings %}
+<tr>
+  <td class="num idx">{{ loop.index }}</td>
+  <td>
+    <span class="clamp2" title="{{ b.address or 'address unknown' }}">{{ b.address or 'APN ' + b.apn }}</span>
+    <div class="note">APN {{ b.apn }} · {{ b.county }}, {{ b.state }}{% if b.use_desc %} · {{ b.use_desc }}{% endif %}
+      · <a href="https://portal.assessor.lacounty.gov/" target="_blank" rel="noopener">look up on Assessor portal ↗</a></div>
+  </td>
+  <td class="num nowrap">{{ '{:,.0f}'.format(b.sqft) if b.sqft else '—' }}</td>
+  <td class="num nowrap">{{ b.year_built or '—' }}</td>
+  <td class="nowrap">
+    {%- if b.equipment_type -%}
+      {{ b.equipment_type.replace('_',' ') }}
+      {%- if b.mined_equipment_count %} ×{{ b.mined_equipment_count }}{% endif -%}
+      {%- if b.mined_tons_each %} @ {{ b.mined_tons_each|int }}t{% endif -%}
+    {%- else -%}<span class="note">unspecified (permit text)</span>{%- endif -%}
+  </td>
+  <td>
+    {%- if b.service_life_status -%}
+      <span class="stamp {{ 'stamp-post' if b.service_life_status in ('overdue','due') else 'stamp-in' if b.service_life_status == 'approaching' else 'stamp-pre' }}"
+            title="{{ b.service_life_basis }}">{{ b.service_life_status.replace('_',' ') }} ({{ b.equipment_age_years|int }}yr)</span>
+    {%- else -%}<span class="note">unknown equipment type</span>{%- endif -%}
+  </td>
+  <td class="nowrap">
+    {%- if b.sb1206_trigger_status -%}
+      <span class="stamp stamp-post" title="{{ b.sb1206_detail }}">SB 1206 {{ b.sb1206_trigger_status }}</span><br>
+    {%- endif -%}
+    {%- if b.carb_candidate -%}<span class="note">CARB candidate ({{ b.carb_use_code }})</span><br>{%- endif -%}
+    {%- if b.ebewe_candidate -%}<span class="note">EBEWE candidate</span>{%- endif -%}
+    {%- if not b.sb1206_trigger_status and not b.carb_candidate and not b.ebewe_candidate -%}<span class="note">—</span>{%- endif -%}
+  </td>
+  <td class="num">
+    <span class="score">
+      <span class="val">{{ '%.2f'|format(b.rank_score) if b.rank_score else '—' }}</span>
+      {% if b.rank_score %}<span class="bar" aria-hidden="true"><i style="width:{{ (100 * b.rank_score / score_max)|round(1) }}%"></i></span>{% endif %}
+    </span>
+  </td>
+  <td class="note">
+    {{ b.permit_count }} permit{{ 's' if b.permit_count != 1 }} on file, latest {{ b.latest_install_year or '?' }}
+    {%- if b.inferred_refrigerant %}, {{ b.inferred_refrigerant }} inferred{% endif -%}
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="9" class="note">No retrofit buildings yet. Run <span class="mono">scout fetch-permits</span> →
+  <span class="mono">scout fetch-assessor-candidates</span> → <span class="mono">scout build-retrofit-buildings</span>.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Retrofit report — {{ county }}{% endblock %}
+{% block content %}
+<style>
+@media print {
+  body { background: #fff; color: #000; font-size: 10.5pt; }
+  .titleblock, nav, .noprint { display: none !important; }
+  main { border: none; background: #fff; margin: 0; padding: 0; }
+  a { color: #000; }
+  th, td { border-color: #999 !important; }
+  h2 { color: #000; }
+  .tag { border: 1px solid #000; background: none !important; color: #000 !important; }
+}
+</style>
+<p class="noprint"><button onclick="window.print()">🖨 Print / save PDF</button>
+  <a href="/retrofit{% if county != 'All counties' %}?county={{ county }}{% endif %}" style="margin-left:12px">← back to retrofit board</a></p>
+
+<h2 style="font-size:18px">Retrofit candidates — {{ county }}</h2>
+<p class="dim">DMG Scout — generated {{ generated_at.strftime('%Y-%m-%d %H:%M') }}Z.
+Filtered to service-life status: {{ min_status }} or worse. Every figure below traces to a public
+record: LA City mechanical permit history (install year, equipment count/tonnage mined from the
+permit's own work description) and LA County assessor parcel data (square footage, year built, use
+code). No owner name or mailing address — verified no free bulk source of that exists for LA
+County; this is a call list built from public equipment and building records, not a mailing list.
+Service life is scored under private_commercial ownership (the default, longest cycle) because
+actual ownership type could not be determined — see each row's basis line.</p>
+
+<table class="tbl" style="width:100%">
+<thead><tr>
+  <th>Address / APN</th>
+  <th class="num">Sq ft</th>
+  <th>Equipment</th>
+  <th>Service life</th>
+  <th>Regulations forcing replacement</th>
+  <th>Basis</th>
+</tr></thead>
+<tbody>
+{% for b in buildings %}
+<tr>
+  <td>{{ b.address or 'address unknown' }}<br><span class="note">APN {{ b.apn }}{% if b.use_desc %} · {{ b.use_desc }}{% endif %}</span></td>
+  <td class="num nowrap">{{ '{:,.0f}'.format(b.sqft) if b.sqft else '—' }}</td>
+  <td class="nowrap">
+    {%- if b.equipment_type -%}
+      {{ b.equipment_type.replace('_',' ') }}
+      {%- if b.mined_equipment_count %} ×{{ b.mined_equipment_count }}{% endif -%}
+      {%- if b.mined_tons_each %} @ {{ b.mined_tons_each|int }}t{% endif -%}
+    {%- else -%}unspecified{%- endif -%}
+  </td>
+  <td>{{ b.service_life_status.replace('_',' ') if b.service_life_status else '—' }}
+    {%- if b.equipment_age_years %} ({{ b.equipment_age_years|int }}yr old){% endif -%}</td>
+  <td>
+    {%- if b.sb1206_trigger_status -%}SB 1206 ({{ b.sb1206_trigger_status }}){% endif -%}
+    {%- if b.carb_candidate %}{% if b.sb1206_trigger_status %}, {% endif %}CARB RMP candidate{% endif -%}
+    {%- if b.ebewe_candidate %}{% if b.sb1206_trigger_status or b.carb_candidate %}, {% endif %}LA EBEWE candidate{% endif -%}
+    {%- if not b.sb1206_trigger_status and not b.carb_candidate and not b.ebewe_candidate %}—{% endif -%}
+  </td>
+  <td class="note" style="font-size:9.5pt">
+    {{ b.service_life_basis or (b.permit_count|string + ' permit(s) on file, equipment type not confidently identified from permit text') }}
+    <br>Permit source: {{ b.permit_source_url }}
+    <br>Parcel source: {{ b.assessor_source_url }}
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="6" class="note">No buildings match this filter.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}

@@ -24,7 +24,8 @@ from app.mcp_server import mcp_app, mounted_middleware, mounted_routes
 from app.models import (
     ACTIVE_STATUSES, OUTCOME_STATUSES, Account, AccountCoverage, Category, Contact, Firm,
     MatchCandidate, Outreach, Project, ProductLine, ProjectContact, ProjectFirm, ProjectSignal,
-    RawDocument, SavedSearch, Signal, SignalType, SourceRun, Stage, StageObservation, utcnow,
+    RawDocument, RetrofitBuilding, SavedSearch, Signal, SignalType, SourceRun, Stage,
+    StageObservation, utcnow,
 )
 
 
@@ -256,6 +257,61 @@ def _board_extras(session: Session, projects: list[Project]) -> dict:
             "windows": windows,
         },
     }
+
+
+@app.get("/retrofit", response_class=HTMLResponse)
+def retrofit_board(request: Request, county: str = None, min_status: str = None,
+                   session: Session = Depends(get_session), _: str = Depends(auth)):
+    """The retrofit population: existing buildings with mechanical-permit
+    history, ranked by service life / size / regulatory proximity. A
+    SEPARATE population from /board (see RetrofitBuilding's docstring) —
+    same design language, deliberately not merged into one list."""
+    q = select(RetrofitBuilding)
+    if county:
+        q = q.where(RetrofitBuilding.county == county)
+    STATUS_ORDER = ["overdue", "due", "approaching", "not_due"]
+    if min_status and min_status in STATUS_ORDER:
+        q = q.where(RetrofitBuilding.service_life_status.in_(
+            STATUS_ORDER[:STATUS_ORDER.index(min_status) + 1]))
+    buildings = session.exec(q.order_by(RetrofitBuilding.rank_score.desc().nulls_last())).all()
+
+    counties = sorted({b.county for b in session.exec(select(RetrofitBuilding)).all()})
+    summary = {
+        "n": len(buildings),
+        "overdue": sum(1 for b in buildings if b.service_life_status == "overdue"),
+        "due": sum(1 for b in buildings if b.service_life_status == "due"),
+        "sb1206": sum(1 for b in buildings if b.sb1206_trigger_status),
+        "carb": sum(1 for b in buildings if b.carb_candidate),
+        "ebewe": sum(1 for b in buildings if b.ebewe_candidate),
+    }
+    return templates.TemplateResponse(request, "retrofit_board.html", {
+        "buildings": buildings, "summary": summary, "counties": counties,
+        "county": county, "min_status": min_status,
+        "score_max": max([b.rank_score for b in buildings if b.rank_score] or [1.0]),
+        "tb": _title_block(session), "active": "retrofit",
+    })
+
+
+@app.get("/retrofit/report", response_class=HTMLResponse)
+def retrofit_report(request: Request, county: str = None, min_status: str = "due", limit: int = 100,
+                    session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Printable per-territory retrofit list: buildings past service life,
+    with the regulations forcing replacement and every figure's basis. Hand
+    this to a service contractor — every fact traces to a public record."""
+    q = select(RetrofitBuilding)
+    if county:
+        q = q.where(RetrofitBuilding.county == county)
+    STATUS_ORDER = ["overdue", "due", "approaching", "not_due"]
+    if min_status in STATUS_ORDER:
+        q = q.where(RetrofitBuilding.service_life_status.in_(
+            STATUS_ORDER[:STATUS_ORDER.index(min_status) + 1]))
+    buildings = session.exec(
+        q.order_by(RetrofitBuilding.rank_score.desc().nulls_last()).limit(limit)).all()
+    return templates.TemplateResponse(request, "retrofit_report.html", {
+        "buildings": buildings, "county": county or "All counties",
+        "min_status": min_status, "generated_at": utcnow(),
+        "tb": _title_block(session), "active": "retrofit",
+    })
 
 
 @app.get("/watchlist", response_class=HTMLResponse)
