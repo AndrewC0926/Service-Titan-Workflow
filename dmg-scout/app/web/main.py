@@ -206,10 +206,21 @@ def _board_extras(session: Session, projects: list[Project]) -> dict:
     ladders = build_ladders(session, projects)
     contacts: dict[int, dict] = {}
     statuses: dict[int, str] = {}
+    # "Research" used to mean the board simply didn't say who — it fires
+    # whenever a named person exists with no phone/email (see
+    # contact_status), which since Phase 5's Apollo/Lusha search-only pass
+    # (app/enrichment.py:import_pending_contact) now regularly means "we know
+    # exactly who, call the firm's main line and ask for them by name." The
+    # stamp is worthless without the name, so it's carried separately here.
+    research_names: dict[int, dict] = {}
     for p in projects:
         cs = contact_status(session, p, ladder=ladders[p.id])
         statuses[p.id] = cs["status"]
         contacts[p.id] = cs["best_reachable"]
+        if cs["status"] == "name_only":
+            person = next((r for r in ladders[p.id] if r["kind"] == "person"), None)
+            if person:
+                research_names[p.id] = person
 
     # How old the evidence for each row's STAGE is. A stage is a claim about now,
     # made from a document with a date on it, and the board prints a bid-date
@@ -227,6 +238,7 @@ def _board_extras(session: Session, projects: list[Project]) -> dict:
     return {
         "contacts": contacts,
         "contact_statuses": statuses,
+        "research_names": research_names,
         "stage_ages": ages,
         "stale": stale,
         "stale_months": threshold,

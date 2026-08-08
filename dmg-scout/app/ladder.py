@@ -27,7 +27,8 @@ from rapidfuzz import fuzz
 from sqlmodel import Session, select
 
 from app.models import (
-    ACTIVE_STATUSES, Firm, Project, ProjectFirm, ProjectSignal, RawDocument, Signal,
+    ACTIVE_STATUSES, Contact, Firm, Project, ProjectContact, ProjectFirm, ProjectSignal,
+    RawDocument, Signal,
 )
 from app.normalize import normalize_name, normalize_person_name
 
@@ -165,8 +166,20 @@ def build_ladders(session: Session, projects: list[Project]) -> dict[int, list[d
                                             Firm.id == ProjectFirm.firm_id)).all():
         firms_by_project.setdefault(pf.project_id, []).append((pf, firm))
 
+    # Apollo/Lusha-enriched contacts (see app/enrichment.py), keyed per project
+    # by the normalized firm name they were enriched for — a firm-level rung
+    # upgrades to this real person instead of a bare company name when present.
+    enriched_by_project: dict[int, dict[str, Contact]] = {}
+    for pc, contact in session.exec(
+            select(ProjectContact, Contact).where(
+                ProjectContact.project_id.in_(ids), Contact.id == ProjectContact.contact_id,
+                Contact.source.in_(("apollo", "lusha")))).all():
+        if contact.company:
+            enriched_by_project.setdefault(pc.project_id, {})[normalize_name(contact.company)] = contact
+
     return {p.id: _ladder_for(p, links_by_project.get(p.id, []), signals, docs,
-                              firms_by_project.get(p.id, []), firm_types)
+                              firms_by_project.get(p.id, []), firm_types,
+                              enriched_by_project.get(p.id, {}))
             for p in projects}
 
 
@@ -178,15 +191,18 @@ def build_ladder(session: Session, project: Project) -> list[dict]:
 def _ladder_for(project: Project, links: list[ProjectSignal],
                 signals: dict[int, Signal], docs: dict[int, RawDocument],
                 firm_rows: list[tuple[ProjectFirm, Firm]],
-                firm_types: dict[str, str]) -> list[dict]:
+                firm_types: dict[str, str],
+                enriched_by_firm: dict[str, Contact] | None = None) -> list[dict]:
     developer_norm = normalize_name(project.developer) if project.developer else None
+    enriched_by_firm = enriched_by_firm or {}
 
     rungs: list[dict] = []
     seen: set[tuple] = set()
 
     def add(rung: int, name: str, title: str | None, company: str | None,
             source_url: str | None, kind: str,
-            phone: str | None = None, email: str | None = None) -> None:
+            phone: str | None = None, email: str | None = None,
+            contact_source: str = "extracted") -> None:
         # People and firms normalize differently: normalize_name is built for
         # companies and would reduce 'Di Wu' to 'wu', merging distinct people.
         norm = normalize_person_name(name) if kind == "person" else normalize_name(name)
@@ -198,7 +214,12 @@ def _ladder_for(project: Project, links: list[ProjectSignal],
                       "title": title, "company": company, "source_url": source_url,
                       "kind": kind,
                       "phone": (phone or "").strip() or None,
-                      "email": (email or "").strip() or None})
+                      "email": (email or "").strip() or None,
+                      # extracted = named in a public filing; firm = a bare
+                      # company name, no individual; apollo/lusha = pulled
+                      # from a paid contact database. Never renders the same
+                      # on the board — see board.html/project.html.
+                      "contact_source": contact_source})
 
     # People named in filings
     for link in links:
@@ -222,18 +243,27 @@ def _ladder_for(project: Project, links: list[ProjectSignal],
             if company and developer_norm and normalize_name(company) == developer_norm:
                 add(5, f"{company} (hiring in geo — see posting)", None, company, url, "evidence")
 
-    # Firms linked to the project fill firm-level rungs
+    # Firms linked to the project fill firm-level rungs — UNLESS an Apollo/
+    # Lusha enrichment already put a real named person at that firm, in which
+    # case the person replaces the bare company name at the same rung. See
+    # app/enrichment.py.
     firm_rung = {"mep": 2, "mech_contractor": 3, "gc": 4, "consultant": 6}
     for pf, firm in firm_rows:
         rung = 2 if pf.role == "engineer_of_record" else firm_rung.get(firm.firm_type)
-        if rung:
-            add(rung, firm.name, None, firm.name, None, "firm")
+        if not rung:
+            continue
+        enriched = enriched_by_firm.get(firm.name_norm)
+        if enriched:
+            add(rung, enriched.name, enriched.title, firm.name, None, "person",
+                phone=enriched.phone, email=enriched.email, contact_source=enriched.source)
+        else:
+            add(rung, firm.name, None, firm.name, None, "firm", contact_source="firm")
     # Bare developer company name is a LAST resort only — a named consultant or
     # planner from the filing is a better first call than a main line. It exists
     # so no project ever shows zero rungs when a developer is known.
     if not rungs and project.developer:
         add(5, f"{project.developer} (no individual named — company-level)",
-            None, project.developer, None, "firm")
+            None, project.developer, None, "firm", contact_source="firm")
 
     rungs.sort(key=_reachability_first)
     return rungs

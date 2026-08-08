@@ -12,6 +12,7 @@ llm:
   triage_model: "claude-haiku-4-5-20251001"
   extract_model: "claude-sonnet-4-6"
   adjudicate_model: "claude-sonnet-4-6"
+  outreach_model: "claude-sonnet-4-6"  # see app/pipeline/fathom_outreach.py
   # Triage reads the WHOLE document up to this, then falls to a spanning sample.
   # Was 6000, which meant 144 of 204 documents were classified on their first few
   # pages and 86% of all stored text never reached triage at all — an 82,724-char
@@ -860,6 +861,201 @@ digest:
 dashboard:
   basic_auth_username: "andrew"
   basic_auth_password_env: "DASHBOARD_PASSWORD"
+
+# =============================================================================
+# REGULATORY TRIGGERS (Phase 6) — a customer-facing citation table, not a
+# scoring input. Every entry was traced to bill text, CCR text, or the
+# regulator's own page (not trade press) before it was hard-coded here — see
+# the research trail referenced in each entry's verification.notes.
+#
+# docs/CHARTER.md's verification-status rule governs this block: an entry
+# missing `verification.status: verified` is EXCLUDED from customer-facing
+# output by every caller (see app/pipeline/regulatory.py's
+# customer_facing_triggers()) — never rendered with a caveat. A caveated wrong
+# date is still a wrong date in front of a customer; the exclusion is the
+# safety mechanism, not a warning label.
+#
+# The "2030 gas furnace ban" is deliberately NOT an entry here. Both the
+# statewide CARB rulemaking (Board vote delayed past 2025) and the LA-region
+# SCAQMD rule covering the same target (PAR 1111/1121) were REJECTED 7-5 by
+# its Governing Board in June 2025 -- as of this writing neither is adopted
+# law. Presenting a rejected rule as an enacted deadline is exactly the
+# mistake this table exists to prevent. It's tracked as a watch item in
+# docs/CHARTER.md instead, not encoded as a trigger.
+# =============================================================================
+regulatory_triggers:
+  sb_1206_hfc_phasedown:
+    name: "SB 1206 — Virgin HFC Refrigerant Sale Ban"
+    citation: "Health & Safety Code §§ 39735-39736 (SB 1206, Ch. 884, Stats. 2022); reclaimed-content cap via AB 663 (Ch. 161, Stats. 2025)"
+    jurisdiction: "CA"
+    # The single largest trigger: nearly all commercial DX equipment installed
+    # ~2010-2024 runs R-410A (GWP ~2,088) -- see app/pipeline/regulatory.py's
+    # date-range inference, which needs no nameplate data, only permit
+    # install year.
+    affected_categories: ["existing_dx_refrigeration", "existing_dx_hvac"]
+    # Bans the SALE of virgin refrigerant above each GWP ceiling, effective
+    # the stated date. R-410A (GWP ~2,088) becomes unpurchaseable virgin
+    # starting the 2030 tier.
+    tiers:
+      - gwp_max: 2200
+        effective_date: "2025-01-01"
+      - gwp_max: 1500
+        effective_date: "2030-01-01"
+      - gwp_max: 750
+        effective_date: "2033-01-01"
+    reclaimed_exempt: true
+    reclaimed_new_content_cap_pct: 15  # AB 663: reclaimed refrigerant must be <=15% newly-produced HFC by weight
+    source_url: "https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202120220SB1206"
+    verification:
+      status: verified
+      checked_date: "2026-08-07"
+      notes: >
+        Bill text (leginfo) confirms three GWP tiers at the stated dates.
+        AB 663 text confirms the 15% new-content cap on the reclaimed
+        exemption. No implementing CCR section found distinct from the
+        statute -- treat H&SC §39735 itself as the citation.
+
+  carb_refrigerant_management_program:
+    name: "CARB Refrigerant Management Program (RMP)"
+    citation: "17 CCR §§ 95380-95398"
+    jurisdiction: "CA"
+    affected_categories: ["existing_commercial_refrigeration"]
+    # Two distinct duties by system size -- do not collapse into one
+    # "50 lbs = report" rule, which overstates who actually files annually.
+    thresholds:
+      register_only_lbs_min: 50    # 50-200 lbs: register, no annual report, no fee
+      annual_report_lbs_min: 200   # >=200 lbs: register AND report annually
+      annual_report_due: "March 1"
+      large_facility_lbs_min: 2000 # higher fee tier, same March 1 report duty
+    gwp_threshold: 150  # applies to systems whose refrigerant charge is >=50 lbs at GWP >= this
+    # No public facility-level list exists (confirmed: CARB's R3 portal is a
+    # login-gated filer system, not a public lookup; data.ca.gov has no
+    # dataset). A facility becomes a CANDIDATE via assessor use code (see
+    # app/pipeline/regulatory.py), not a confirmed R3 filer -- the table
+    # cannot say who actually reported, only who is a plausible target.
+    source_url: "https://ww2.arb.ca.gov/our-work/programs/refrigerant-management-program"
+    verification:
+      status: verified
+      checked_date: "2026-08-07"
+      notes: >
+        Confirmed on CARB's own RMP program page: 50 lb register-only
+        threshold, 200 lb annual-report threshold, March 1 due date. This
+        entry was originally drafted conflating it with a separate
+        retail-food-specific GWP rule (see carb_retail_food_refrigeration_gwp
+        below) -- kept deliberately separate after the correction.
+
+  carb_retail_food_refrigeration_gwp:
+    name: "CARB Retail Food Refrigeration Weighted-Average GWP Phasedown"
+    citation: "17 CCR §§ 95370-95379 (implementing SB 1013, Stats. 2018)"
+    jurisdiction: "CA"
+    # Narrower than general commercial refrigeration -- retail food facilities
+    # specifically (supermarkets, grocery, convenience stores with coolers).
+    affected_categories: ["retail_food_refrigeration"]
+    tiers:
+      - weighted_avg_gwp_max: 2500
+        effective_date: "2026-12-31"
+      - weighted_avg_gwp_max: 1400
+        effective_date: "2030-01-01"
+    source_url: "https://www.law.cornell.edu/regulations/california/17-CCR-95374"
+    verification:
+      status: verified
+      checked_date: "2026-08-07"
+      notes: >
+        A DIFFERENT regulation from the RMP above, easy to conflate because
+        both concern refrigerant GWP -- this one is a weighted-average
+        composition requirement scoped to retail food refrigeration, not a
+        general leak-rate/emissions duty. Cornell's CCR mirror used for
+        section numbers; recommend a final check against the official CCR
+        (OAL) text before the first customer-facing use.
+
+  title24_2025_heat_pump_baseline:
+    name: "California Title 24 (2025), Part 6 — Heat Pump Prescriptive Baseline"
+    citation: "California Building Energy Efficiency Standards, Title 24 Part 6 (2025 edition)"
+    jurisdiction: "CA"
+    affected_categories: ["existing_rooftop_dx_replacement", "new_construction_space_conditioning"]
+    effective_date: "2026-01-01"  # applies to permit applications submitted on/after this date
+    # Heat pump becomes the new PRESCRIPTIVE DEFAULT for single-zone gas RTU
+    # replacement -- not an absolute mandate. An alternate prescriptive path
+    # and the performance compliance path both remain legally available, so
+    # "must be heat pump" overstates it. The exact Btu/h cutoff for which RTU
+    # replacements this applies to is deliberately NOT hard-coded here --
+    # medium-confidence secondary-sourced only, not independently confirmed
+    # against the actual Nonresidential Compliance Manual section.
+    source_url: "https://www.energy.ca.gov/programs-and-topics/programs/building-energy-efficiency-standards/2025-building-energy-efficiency"
+    verification:
+      status: verified
+      checked_date: "2026-08-07"
+      notes: >
+        Effective date and prescriptive-default-with-escape-valves framing
+        confirmed via energy.ca.gov and a CEC docket document. The specific
+        Btu/h threshold is left unspecified pending a direct pull of the
+        Nonresidential Compliance Manual -- do not add it without that check.
+
+  la_ebewe_audit_retrocommissioning:
+    name: "LA EBEWE — ASHRAE Level II Audit + Retro-Commissioning"
+    citation: "LAMC Division 97 (Ord. No. 184674, amended Ord. No. 185198); requirement at LAMC §91.9706"
+    jurisdiction: "City of Los Angeles"  # NOT LA County, NOT statewide
+    affected_categories: ["existing_commercial_building_gt_20000sqft"]
+    cycle_years: 5
+    sqft_threshold: 20000  # 7,500 for municipal buildings
+    standard: "ASHRAE Level II Energy & Water Audit (per Procedures for Commercial Building Energy Audits); retro-commissioning per ASHRAE Guideline 0.2"
+    source_url: "https://dbs.lacity.gov/services/green-building-sustainability/ebewe"
+    verification:
+      status: verified
+      checked_date: "2026-08-07"
+      notes: >
+        Ordinance numbers, 5-year cycle and 20,000 sqft threshold corroborated
+        directly on LADBS's own program page. Full LAMC §91.9706 text itself
+        was blocked (403) in this research pass -- recommend one manual pull
+        of the code section before the first customer-facing use, but
+        confidence is high given it comes from the regulator's own materials.
+
+  hcai_sb1953_hospital_seismic:
+    name: "HCAI SB 1953 — Hospital Seismic Safety"
+    citation: "Health & Safety Code §130060 et seq. (SB 1953, 1994, as amended)"
+    jurisdiction: "CA"
+    affected_categories: ["general_acute_care_hospital"]
+    # SPC-1 (highest risk) deadline of Jan 1 2020 has already passed.
+    spc2_phaseout_date: "2030-01-01"
+    npc5_operational_date: "2030-01-01"  # fully operational post-earthquake
+    # SB 1432 (2024) would have granted a 5-year extension to 2035 -- it was
+    # VETOED by the Governor in September 2024 and never became law. 2030
+    # remains the current, operative deadline.
+    source_url: "https://hcai.ca.gov/facilities/building-safety/seismic-compliance-and-safety/hospital-seismic-safety/"
+    verification:
+      status: verified
+      checked_date: "2026-08-07"
+      notes: >
+        Confirmed directly on hcai.ca.gov. The would-be 2035 extension
+        (SB 1432) veto was independently confirmed via the Governor's veto
+        message. No extension currently on the books.
+
+  ashrae_241_infectious_aerosols:
+    name: "ASHRAE 241-2023 — Control of Infectious Aerosols"
+    citation: "ANSI/ASHRAE Standard 241-2023 (plus Addendum a, Oct 2024)"
+    jurisdiction: "US"  # voluntary standard; not yet adopted by reference into Title 24 or LAMC
+    affected_categories: ["all_mechanically_ventilated_commercial"]
+    metric: "Equivalent Clean Airflow (ECAi) — per-occupant clean-air delivery target"
+    # MERV-A is a DISTINCT rating from plain MERV, via an optional ASHRAE
+    # 52.2 Appendix J conditioning test that simulates real-world efficiency
+    # degradation -- quoting "MERV 11" instead of "MERV-A 11" is a real error.
+    filtration_minimum: "MERV-A 11 (or equivalent air cleaning)"
+    plain_merv_grace_period_ended: "2025-01-01"  # after this, only MERV-A-rated filters count toward compliance credit
+    # EPA references this standard directly (confirmed by direct fetch of
+    # epa.gov's ventilation guidance page). A CDC reference is claimed in
+    # secondary sources but was NOT independently confirmed against cdc.gov
+    # in this research pass -- deliberately omitted from this entry rather
+    # than asserted on secondary sourcing alone.
+    referenced_by: ["EPA"]
+    source_url: "https://www.epa.gov/indoor-air-quality-iaq/ventilation-and-coronavirus-covid-19"
+    verification:
+      status: verified
+      checked_date: "2026-08-07"
+      notes: >
+        ECAi metric and MERV-A 11 distinction confirmed via ASHRAE's own fact
+        sheet. EPA reference confirmed via direct fetch. CDC reference
+        deliberately left out of `referenced_by` pending independent
+        confirmation -- add it only after a direct cdc.gov check.
 
 # =============================================================================
 # ACCOUNTS — line-card coverage for the ~100 dormant accounts, gap ranking, and

@@ -275,3 +275,90 @@ def adjudicate(record_a: dict, record_b: dict) -> dict:
         + "\n\nRecord B:\n" + json.dumps(record_b, indent=2, default=str)
     )
     return _tool_call(model, ADJUDICATE_SYSTEM, ADJUDICATE_TOOL, content, max_tokens=1024, stage="adjudicate")
+
+
+OUTREACH_SYSTEM = """You are summarizing a sales call transcript into a CRM outreach
+log entry for an HVAC/mechanical equipment manufacturers' rep firm. Write what
+actually happened on THIS call, specific to the project/deal discussed — not a
+generic recap of the meeting format. If no next step was stated or clearly implied,
+leave next_action null rather than inventing one. If no date or timeframe for the
+next step was stated, leave next_action_date null rather than guessing."""
+
+OUTREACH_TOOL = {
+    "name": "outreach_log",
+    "description": "Record what happened on this call for the outreach log.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "notes": {"type": "string",
+                      "description": "2-4 sentence summary of what was discussed on "
+                                     "this specific call"},
+            "next_action": {"type": ["string", "null"],
+                            "description": "The single next step, if one was stated "
+                                           "or clearly implied. Null if none."},
+            "next_action_date": {"type": ["string", "null"],
+                                 "description": "ISO date (YYYY-MM-DD) for the next "
+                                                "action, only if a specific date or "
+                                                "timeframe was actually mentioned. "
+                                                "Null otherwise -- do not guess."},
+        },
+        "required": ["notes", "next_action", "next_action_date"],
+    },
+}
+
+
+def outreach_from_transcript(transcript: str, summary: str | None = None) -> dict:
+    """Returns {notes, next_action, next_action_date} extracted from a Fathom
+    call transcript. See app/pipeline/fathom_outreach.py."""
+    cfg = load_config()
+    model = cfg.get("llm.outreach_model", cfg.get("llm.extract_model"))
+    content = transcript
+    if summary:
+        content = f"Meeting summary (from Fathom):\n{summary}\n\nFull transcript:\n{transcript}"
+    return _tool_call(model, OUTREACH_SYSTEM, OUTREACH_TOOL, content,
+                      max_tokens=1024, stage="fathom_outreach")
+
+
+DC_NEWS_SYSTEM = """You extract facts from a data center trade-press article's title
+and summary/description ONLY — never invent details beyond what this short text
+states. This is used to match a news item against data center projects a sales
+intelligence tool already tracks from other public filings, as a corroborating
+signal, not to create new project records. Null over inference: if the developer,
+location, or MW figure is not stated in this text, leave it null rather than
+guessing."""
+
+DC_NEWS_TOOL = {
+    "name": "dc_news_facts",
+    "description": "Record what this article title/summary states.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "developer": {"type": ["string", "null"],
+                          "description": "The company developing/operating the data "
+                                         "center, if named. Null if not stated."},
+            "location_text": {"type": ["string", "null"],
+                              "description": "City, county, or state named as the "
+                                             "project's location, verbatim as stated. "
+                                             "Null if not stated."},
+            "mw": {"type": ["number", "null"],
+                  "description": "The MW figure stated, if any. Null if not stated."},
+            "is_data_center_project": {"type": "boolean",
+                                       "description": "True only if this is about a "
+                                                       "specific data center construction/"
+                                                       "development project (not general "
+                                                       "industry news, an executive move, "
+                                                       "a funding round with no named site, etc)"},
+        },
+        "required": ["developer", "location_text", "mw", "is_data_center_project"],
+    },
+}
+
+
+def dc_news_facts(title: str, summary: str) -> dict:
+    """Returns {developer, location_text, mw, is_data_center_project} from an
+    RSS entry's title+summary only — see app/pipeline/dc_news_enrichment.py."""
+    cfg = load_config()
+    model = cfg.get("llm.triage_model")  # cheap model: short text, simple extraction
+    content = f"Title: {title}\n\nSummary: {summary}"
+    return _tool_call(model, DC_NEWS_SYSTEM, DC_NEWS_TOOL, content,
+                      max_tokens=256, stage="dc_news_enrichment")

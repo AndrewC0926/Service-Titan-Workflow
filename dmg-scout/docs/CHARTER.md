@@ -54,6 +54,7 @@ These are the lessons of twelve silent failures, turned into automated checks. *
 10. **robots.txt is absolute.** A disallowed host is not fetched. The user-agent is never altered to evade a block. A blocked source ships disabled with the finding recorded.
 11. **Every number on a deliverable traces to a public URL.**
 12. **Null over inference, always.** A missed field is acceptable. An invented one is a system failure.
+13. **Every regulatory-trigger entry carries a verification status and a check date; anything not `verified` is EXCLUDED from customer-facing output, never caveated.** A caveated wrong date is still a wrong date in front of a customer — the trigger table's whole value is that it can be quoted cold, so exclusion is the only safety mechanism that actually protects that. See config.yaml's `regulatory_triggers` block and app/pipeline/regulatory.py's `customer_facing_triggers()`.
 
 ---
 
@@ -114,6 +115,12 @@ A CRM (RepFabric and ROM exist). Quoting or selection software (factories provid
 **ESCO / ESPC as a channel** (measured and killed). Detection was never the problem — two live hits both correctly rejected as not-genuine in testing. Volume was: a title-only, no-LLM scan of everything Legistar and CivicPlus cover, 24 months back, using the shipped `_esco_match` word-boundary matcher, verified against synthetic positives before trusting a null result. 19,173 Legistar matter titles across six tenants (Fontana, San Bernardino Co, Riverside Co, LA Co, Clark Co, Washoe Co) and 98 CivicPlus agenda packets (Storey County, Planning Commission + Board of Commissioners) — zero hits, either platform.
 
 Caveat that matters more than the number: six counties plus Storey is not the MUSH market ESPCs actually get awarded in. School districts run on BoardDocs, already out of scope and closed to us; universities and hospitals aren't in the tenant list at all. The null says we cannot see ESPC awards from here, not that they don't happen. Worth one more look if school district agendas ever become reachable. Until then: the `esco` keyword category, its detection code, and its tests stay in the repo as evidence it was tried — nothing gets built on top of it.
+
+---
+
+## 7a. Watch items — not built, not adopted, tracked so it isn't re-litigated from zero
+
+**"2030 gas furnace ban."** Neither the statewide CARB zero-emission space/water heater rulemaking (Board vote delayed past 2025, not yet adopted as of Aug 2026) nor the LA-region SCAQMD rule targeting the same outcome (Proposed Amended Rules 1111/1121) is enacted law — PAR 1111/1121 was REJECTED 7-5 by the SCAQMD Governing Board in June 2025. Do not add this to `regulatory_triggers` in config.yaml as an enacted deadline. Worth re-checking if either rulemaking closes: CARB program page (https://ww2.arb.ca.gov/our-work/programs/building-decarbonization/zero-emission-space-and-water-heater-standards) and SCAQMD's PAR 1111/1121 status page (https://www.aqmd.gov/home/rules-compliance/rules/scaqmd-rule-book/proposed-rules/rule-1111-and-rule-1121).
 
 ---
 

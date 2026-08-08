@@ -311,6 +311,22 @@ class Contact(SQLModel, table=True):
     email: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
     notes: str = ""
+    # manual | filing | apollo | lusha. A name typed into the dashboard, a name
+    # extracted from a public CEQA/GOED filing, and a name pulled from a paid
+    # contact database carry different weight -- this is what lets the board
+    # show which is which rather than rendering all three the same way. See
+    # app/enrichment.py and RUNG_LABELS in app/ladder.py.
+    source: str = Field(default="manual", index=True)
+    # confirmed | pending. "confirmed" means phone or email is populated and
+    # reachable today. "pending" means the free Lusha/Apollo SEARCH layer
+    # found a real named person and title at the firm, but no reveal was run
+    # (search is free; reveal costs credits, or is plan-gated) -- a name is
+    # still worth more than nothing, so it goes on the ladder as "one phone
+    # call away" rather than not at all. import_enriched_contact() writes
+    # "confirmed" and still refuses a contact with no phone/email;
+    # import_pending_contact() is the separate, explicit write path for this
+    # state -- see app/enrichment.py.
+    reach_status: str = Field(default="confirmed", index=True)
 
 
 class ProjectContact(SQLModel, table=True):
@@ -724,4 +740,97 @@ class IeprForwardLoad(SQLModel, table=True):
     voltage: float | None = None
     requested_energization_year: int | None = None
     requested_peak_mw: float | None = None
+    imported_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class HcaiCountyActivity(SQLModel, table=True):
+    """County-level AGGREGATE healthcare construction activity from HCAI's
+    (formerly OSHPD) public CHHS Open Data CSV — see app/pipeline/hcai.py.
+    Same shape as IeprForwardLoad: no facility names, no addresses, nothing a
+    lead could be built from, because HCAI's only genuinely public data is
+    aggregated by county+status. The per-project detail (facility names,
+    plan-review stage before construction) lives behind HCAI's login-gated
+    eServices portal — confirmed not publicly reachable — so this can never
+    be more than a county-level trend layer.
+
+    Imported by hand from a downloaded CHHS CSV, same reason as IEPR: the
+    dataset's own download URL embeds a generation date that changes with
+    every ~biweekly CHHS update, and the JSON API path that would let a
+    fetcher discover the CURRENT filename is robots.txt-disallowed
+    (data.chhs.ca.gov disallows /api/ and /datastore/*) — so there is no
+    compliant way to auto-resolve "the latest file" and this is a snapshot
+    import, not a live feed, on principle as much as mechanics.
+    """
+    __tablename__ = "hcai_county_activity"
+    __table_args__ = (UniqueConstraint("county", "status", name="uq_hcai_county_activity"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    county: str = Field(index=True)
+    state: str = Field(default="CA", index=True)
+    status: str = Field(index=True)  # In Review | Pending Construction | In Construction | In Closure
+    total_cost: float | None = None
+    project_count: int | None = None
+    snapshot_date: datetime = Field(index=True)
+    source_url: str
+    imported_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class EquipmentPermit(SQLModel, table=True):
+    """One mechanical (HVAC/refrigeration) permit from a city/county open-data
+    feed — see app/pipeline/permits.py. This is NOT a project signal: it is
+    the install-year evidence the regulatory engine (app/pipeline/regulatory.py)
+    needs to infer refrigerant type and evaluate SB 1206 without ever seeing a
+    nameplate. equipment_count/tons_each are mined from the free-text work
+    description (e.g. "REPLACE (2) 6-ton HEAT PUMP PACKAGE UNIT"), not from a
+    structured field the source doesn't provide.
+    """
+    __tablename__ = "equipment_permits"
+    __table_args__ = (UniqueConstraint("source", "permit_nbr", name="uq_equipment_permit"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    source: str = Field(index=True)  # e.g. "la_city_mechanical"
+    permit_nbr: str = Field(index=True)
+    apn: str | None = Field(default=None, index=True)
+    address: str | None = None
+    county: str = Field(default="Los Angeles", index=True)
+    state: str = Field(default="CA", index=True)
+    permit_type: str | None = None       # e.g. "HVAC"
+    permit_sub_type: str | None = None   # Commercial | Apartment | 1 or 2 Family Dwelling
+    status_desc: str | None = None
+    issue_date: datetime | None = Field(default=None, index=True)
+    work_desc: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    equipment_count: int | None = None
+    tons_each: float | None = None
+    inferred_refrigerant: str | None = Field(default=None, index=True)
+    sb1206_trigger_status: str | None = Field(default=None, index=True)  # in_effect | upcoming | null
+    sb1206_detail: str | None = None
+    source_url: str
+    imported_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class AssessorCandidate(SQLModel, table=True):
+    """One parcel from a county assessor roll, flagged as a CANDIDATE for a
+    regulatory trigger by use code or building size — see
+    app/pipeline/assessor.py. "Candidate" is the operative word: CARB's R3
+    filer list is not public (confirmed — login-gated portal, no open
+    dataset), so this can say "this parcel's use code matches the commercial-
+    refrigeration segment," never "this facility reports to CARB." Likewise
+    for EBEWE: a >20,000 sqft building is IN SCOPE for the audit cycle, not
+    confirmed to have filed one.
+    """
+    __tablename__ = "assessor_candidates"
+    __table_args__ = (UniqueConstraint("source", "ain", "trigger_key", name="uq_assessor_candidate"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    source: str = Field(index=True)  # e.g. "la_county_assessor"
+    ain: str = Field(index=True)     # assessor identification number (parcel id)
+    trigger_key: str = Field(index=True)  # matches a key in config.yaml's regulatory_triggers
+    use_code: str | None = None
+    use_desc: str | None = None
+    address: str | None = None
+    county: str = Field(default="Los Angeles", index=True)
+    state: str = Field(default="CA", index=True)
+    year_built: int | None = None
+    sqft: float | None = None
+    source_url: str
     imported_at: datetime = Field(default_factory=utcnow, index=True)

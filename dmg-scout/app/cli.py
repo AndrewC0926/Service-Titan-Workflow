@@ -295,6 +295,178 @@ def import_iepr_cmd(
             typer.echo(f"    {city!r}: {n} row(s)")
 
 
+@app.command("enrichment-worklist")
+def enrichment_worklist_cmd(limit: int = typer.Option(None, help="Show only the top N")) -> None:
+    """Free, read-only: firms (MEP/GC/mech-contractor) on active projects with
+    no individual Contact, ranked by how many active projects they're on.
+    This is the batch to review before spending any Apollo/Lusha credits —
+    see app/enrichment.py. Running this never costs anything."""
+    from app.enrichment import firms_needing_enrichment
+    with session_scope() as session:
+        worklist = firms_needing_enrichment(session, limit=limit)
+    if not worklist:
+        typer.echo("no firms need enrichment right now")
+        return
+    typer.echo(f"{len(worklist)} firm(s) worth enriching:")
+    for w in worklist:
+        typer.echo(f"  {w['n_projects']:>2} proj  {w['firm_type']:15s} {w['firm']}")
+
+
+@app.command("import-enriched-contacts")
+def import_enriched_contacts_cmd(path: str = typer.Argument(
+        ..., help="JSON file: list of {firm, firm_type, name, title, phone, email, source, project_ids}")) -> None:
+    """Import Apollo/Lusha lookup results run OUTSIDE this codebase (Scout has
+    no Apollo/Lusha API keys of its own — see app/enrichment.py) into the
+    contacts table, flagged by source so the board can show which is which.
+
+    A row with neither phone nor email is stored as reach_status="pending"
+    (name known, ladder shows "one phone call away") via
+    import_pending_contact — a distinct state, not a relaxed version of the
+    confirmed-reachable path. Any row DOES supply phone or email goes through
+    import_enriched_contact, which still refuses a contact with neither."""
+    import json
+    from app.enrichment import import_enriched_contact, import_pending_contact
+    rows = json.loads(open(path).read())
+    stored, pending, skipped = 0, 0, []
+    with session_scope() as session:
+        for row in rows:
+            try:
+                if row.get("phone") or row.get("email"):
+                    import_enriched_contact(
+                        session, firm_name=row["firm"], firm_type=row.get("firm_type"),
+                        name=row["name"], title=row.get("title"), phone=row.get("phone"),
+                        email=row.get("email"), source=row["source"],
+                        project_ids=row.get("project_ids", []))
+                    stored += 1
+                else:
+                    import_pending_contact(
+                        session, firm_name=row["firm"], firm_type=row.get("firm_type"),
+                        name=row["name"], title=row.get("title"), source=row["source"],
+                        project_ids=row.get("project_ids", []))
+                    pending += 1
+            except ValueError as exc:
+                skipped.append(f"{row.get('name')!r} at {row.get('firm')!r}: {exc}")
+    typer.echo(f"stored {stored} confirmed-reachable, {pending} pending (name only) contact(s)")
+    for line in skipped:
+        typer.echo(f"  SKIPPED: {line}")
+
+
+@app.command("log-outreach-from-fathom")
+def log_outreach_from_fathom_cmd(
+    project_id: int = typer.Option(..., help="Scout project ID -- Fathom has no idea what this is"),
+    transcript_file: str = typer.Option(..., help="Path to the fetched Fathom transcript text"),
+    summary_file: str = typer.Option(None, help="Path to the fetched Fathom AI summary, if any"),
+    contact_id: int = typer.Option(None),
+    meeting_date: str = typer.Option(None, help="ISO date the call happened, from Fathom's list_meetings"),
+    fathom_url: str = typer.Option(None, help="Fathom recording URL, appended to the outreach notes"),
+) -> None:
+    """Fathom transcript -> one Outreach row, via an LLM summarizing what
+    happened on THIS call. See app/pipeline/fathom_outreach.py. Fetch the
+    transcript with Fathom's MCP tools first (list_meetings ->
+    get_meeting_transcript) and save it to a file -- Scout has no Fathom API
+    key of its own, same shape as the Apollo/Lusha enrichment bridge."""
+    from datetime import datetime
+    from app.pipeline.fathom_outreach import log_outreach_from_fathom
+
+    transcript = open(transcript_file).read()
+    summary = open(summary_file).read() if summary_file else None
+    parsed_date = datetime.fromisoformat(meeting_date) if meeting_date else None
+
+    with session_scope() as session:
+        outreach = log_outreach_from_fathom(
+            session, project_id=project_id, transcript=transcript, summary=summary,
+            contact_id=contact_id, meeting_date=parsed_date, fathom_url=fathom_url)
+        session.flush()
+        typer.echo(f"logged outreach #{outreach.id} on project {project_id}")
+        typer.echo(f"  notes: {outreach.notes[:200]}")
+        if outreach.next_action:
+            typer.echo(f"  next action: {outreach.next_action} "
+                       f"({outreach.next_action_date.date() if outreach.next_action_date else 'no date stated'})")
+
+
+@app.command("import-hcai")
+def import_hcai_cmd(
+    path: str = typer.Argument(..., help="Path to the downloaded CHHS 'Total Construction "
+                                          "Cost of Healthcare Projects' CSV"),
+    source_url: str = typer.Option(
+        "https://data.chhs.ca.gov/dataset/total-construction-cost-of-healthcare-projects",
+        help="Public data.chhs.ca.gov dataset page this file came from"),
+) -> None:
+    """Manual import of HCAI's county-level healthcare construction activity
+    (see app/pipeline/hcai.py) -- a county-level AGGREGATE layer, same shape
+    as `scout import-iepr`. Not a scraper: the CSV's own download URL embeds
+    a changing generation date and the API path that would let code discover
+    it automatically is robots.txt-disallowed. Download by hand from
+    data.chhs.ca.gov first. Each import replaces every prior row."""
+    from app.pipeline.hcai import import_hcai_snapshot
+    with session_scope() as session:
+        stats = import_hcai_snapshot(session, path, source_url=source_url)
+    typer.echo(f"snapshot {stats['snapshot_date']}: "
+               f"{stats['rows_stored']}/{stats['rows_in_file']} rows stored")
+    if stats["skipped"]:
+        typer.echo(f"  skipped (unparseable county): {', '.join(stats['skipped'][:10])}")
+
+
+@app.command("fetch-permits")
+def fetch_permits_cmd(
+    since: str = typer.Option(None, help="ISO date; only permits issued on/after this"),
+    limit: int = typer.Option(5000, help="Max rows per fetch (Socrata page size)"),
+) -> None:
+    """LA City mechanical permits -> install-year evidence for SB 1206's
+    R-410A inference, plus work-description-mined equipment count/tonnage.
+    See app/pipeline/permits.py. Safe to re-run — upserts by permit_nbr."""
+    from datetime import datetime
+    from app.http import PoliteClient
+    from app.pipeline.permits import fetch_la_mechanical_permits
+    parsed_since = datetime.fromisoformat(since) if since else None
+    with session_scope() as session, PoliteClient() as client:
+        stats = fetch_la_mechanical_permits(session, load_config(), client,
+                                            since=parsed_since, limit=limit)
+    typer.echo(f"fetched {stats.get('fetched', 0)}, stored {stats.get('stored', 0)}, "
+               f"SB 1206-flagged {stats.get('sb1206_flagged', 0)}")
+    if stats.get("error"):
+        typer.echo(f"ERROR: {stats['error']}", err=True)
+        raise typer.Exit(1)
+
+
+@app.command("fetch-assessor-candidates")
+def fetch_assessor_candidates_cmd(
+    trigger: str = typer.Option("all", help="carb | ebewe | all"),
+    roll_year: str = typer.Option("2025"),
+    max_pages: int = typer.Option(20),
+) -> None:
+    """LA County assessor parcel roll -> CANDIDATE parcels for the CARB
+    refrigeration-management and/or LA EBEWE audit triggers, by use code /
+    building size. Never a confirmed filer list — see app/pipeline/assessor.py."""
+    from app.http import PoliteClient
+    from app.pipeline.assessor import fetch_carb_candidates, fetch_ebewe_candidates
+    cfg = load_config()
+    with session_scope() as session, PoliteClient() as client:
+        if trigger in ("carb", "all"):
+            stats = fetch_carb_candidates(session, cfg, client, roll_year=roll_year, max_pages=max_pages)
+            typer.echo(f"CARB candidates: fetched {stats.get('fetched', 0)}, stored {stats.get('stored', 0)}")
+        if trigger in ("ebewe", "all"):
+            stats = fetch_ebewe_candidates(session, cfg, client, roll_year=roll_year, max_pages=max_pages)
+            typer.echo(f"EBEWE candidates: fetched {stats.get('fetched', 0)}, stored {stats.get('stored', 0)}")
+
+
+@app.command("fetch-dc-news-enrichment")
+def fetch_dc_news_enrichment_cmd() -> None:
+    """Data Center Frontier / Data Center Dynamics RSS -- matches articles
+    against EXISTING active data-center projects by developer name and
+    attaches a corroborating signal. Never creates a project — see
+    app/pipeline/dc_news_enrichment.py."""
+    from app.http import PoliteClient
+    from app.pipeline.dc_news_enrichment import run_dc_news_enrichment
+    with session_scope() as session, PoliteClient() as client:
+        stats = run_dc_news_enrichment(session, load_config(), client)
+    typer.echo(f"{stats['entries_seen']} entries seen, {stats['matched']} matched, "
+               f"{stats['attached']} attached")
+    for name, fs in stats["feeds"].items():
+        typer.echo(f"  {name}: {fs['entries']} entries, {fs['matched']} matched, "
+                   f"{fs['attached']} attached, {fs['errors']} errors")
+
+
 @app.command("add-signal")
 def add_signal(
     signal_type: str = typer.Argument(..., help="e.g. engineer_move, prequal_invite, bid_invite, manual_tip"),

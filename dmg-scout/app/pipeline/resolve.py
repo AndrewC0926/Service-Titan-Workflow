@@ -326,7 +326,7 @@ def _project_record(project: Project) -> dict:
     }
 
 
-def _link(session: Session, signal: Signal, project: Project, confidence: float, method: str) -> None:
+def link_signal_to_project(session: Session, signal: Signal, project: Project, confidence: float, method: str) -> None:
     from app.firms import resolve_signal_firms
     exists = session.exec(
         select(ProjectSignal).where(ProjectSignal.project_id == project.id,
@@ -424,7 +424,7 @@ def _new_project(session: Session, signal: Signal) -> Project:
                       county=normalize_county(signal.county), state=signal.state)
     session.add(project)
     session.flush()  # need project.id
-    _link(session, signal, project, 1.0, "direct")
+    link_signal_to_project(session, signal, project, 1.0, "direct")
     return project
 
 
@@ -496,7 +496,7 @@ def _resolve_loop(session: Session, cfg: Config, unlinked: list[Signal], stats: 
         best_sim, best = scored[0] if scored else (0.0, None)
 
         if best is not None and best_sim >= auto_t:
-            _link(session, signal, best, best_sim, "blocking+fuzzy")
+            link_signal_to_project(session, signal, best, best_sim, "blocking+fuzzy")
             stats["auto_linked"] += 1
         elif best is not None and best_sim >= review_t:
             verdict, reasoning = "uncertain", "LLM adjudication unavailable"
@@ -510,7 +510,7 @@ def _resolve_loop(session: Session, cfg: Config, unlinked: list[Signal], stats: 
                 except Exception as exc:  # noqa: BLE001
                     reasoning = f"adjudication error: {exc}"
             if verdict == "match":
-                _link(session, signal, best, best_sim, "llm_adjudicated")
+                link_signal_to_project(session, signal, best, best_sim, "llm_adjudicated")
                 _learn_alias(session, signal, best)
                 stats["llm_linked"] += 1
             elif verdict == "no_match":
@@ -568,7 +568,7 @@ def apply_review_decision(session: Session, candidate_id: int, decision: str) ->
     signal = session.get(Signal, mc.signal_id)
     project = session.get(Project, mc.project_id)
     if decision == "merge" and signal and project:
-        _link(session, signal, project, mc.similarity, "manual_merge")
+        link_signal_to_project(session, signal, project, mc.similarity, "manual_merge")
         _learn_alias(session, signal, project)
         mc.status = "merged"
     else:

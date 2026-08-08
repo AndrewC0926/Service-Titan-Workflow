@@ -146,15 +146,23 @@
   <td class="num">{% if days_since[p.id] is not none %}{{ days_since[p.id] }}d{% else %}—{% endif %}</td>
   {# The column the charter exists for. A name with no phone and no email is a
      research task, not a call, and it is labelled as one rather than counted as
-     coverage. #}
+     coverage. contact_source distinguishes a name extracted from a public
+     filing from one pulled from a paid database (apollo/lusha) — never
+     rendered the same way. #}
   <td>
     {%- if c -%}
       <span class="clip max-w-none" title="{{ c.name }}{% if c.title %}, {{ c.title }}{% endif %}{% if c.company %} ({{ c.company }}){% endif %}">
         <span class="mono">{{ c.phone or c.email }}</span>
         <span class="note">· {{ c.name }}</span>
+        {%- if c.contact_source in ('apollo', 'lusha') %}&nbsp;<span class="caveat" title="Pulled from {{ c.contact_source|capitalize }}, not extracted from a public filing">{{ c.contact_source[:3] }}</span>{% endif -%}
       </span>
     {%- elif contact_statuses.get(p.id) == 'name_only' -%}
-      <span class="stamp stamp-quiet" title="A name with no phone and no email is a research task, not a call">Research</span>
+      {%- set rn = research_names.get(p.id) -%}
+      {%- if rn -%}
+        <span class="stamp stamp-quiet" title="{{ rn.name }}{% if rn.title %}, {{ rn.title }}{% endif %}{% if rn.company %} ({{ rn.company }}){% endif %} — no direct line yet, try the main line. A name with no phone and no email is a research task, not a call.">Research: {{ rn.name }}</span>
+      {%- else -%}
+        <span class="stamp stamp-quiet" title="A name with no phone and no email is a research task, not a call">Research</span>
+      {%- endif -%}
     {%- else -%}
       <span class="stamp stamp-quiet">No one</span>
     {%- endif -%}
