@@ -6,9 +6,12 @@
 <div class="sec-head">
   <div>
     <div class="sec-title">{{ p.firm.name }}</div>
-    <div class="note">{{ p.firm.firm_type }}{% if p.firm.aliases %} · also {{ p.firm.aliases | join(', ') }}{% endif %}</div>
+    <div class="note">{{ p.firm.firm_type.replace('_',' ') }}{% if p.firm.aliases %} · also {{ p.firm.aliases | join(', ') }}{% endif %}</div>
   </div>
-  <a class="note" href="/firms">← All firms</a>
+  <span>
+    <a class="chip" href="/firm/{{ p.firm.id }}/brief">🖨 Printable brief ↗</a>
+    <a class="note ml-1" href="/firms">← All firms</a>
+  </span>
 </div>
 
 {# The four questions a rep asks before dialling. The fourth — my history with
@@ -18,16 +21,41 @@
 <div class="kv mb-4">
   <div><div class="k">Projects</div><div class="v">{{ p.n_projects }}</div></div>
   <div>
+    <div class="k">Est. equipment value</div>
+    <div class="v">
+      {%- if p.n_valued_projects -%}
+        ${{ '{:,.0f}'.format(p.equipment_value_low) }}–${{ '{:,.0f}'.format(p.equipment_value_high) }}
+      {%- else -%}<span class="note">unpriced</span>{%- endif -%}
+    </div>
+    {% if p.n_valued_projects and p.n_valued_projects < p.n_projects %}
+    <div class="note">{{ p.n_valued_projects }}/{{ p.n_projects }} projects priced</div>
+    {% endif %}
+  </div>
+  <div>
     <div class="k">Tonnage on those jobs</div>
     <div class="v">{% if p.tons_low %}{{ '{:,.0f}'.format(p.tons_low) }}–{{ '{:,.0f}'.format(p.tons_high) }}{% else %}—{% endif %}</div>
   </div>
-  <div><div class="k">People we know</div><div class="v">{{ p.contacts | length }}</div></div>
+  <div>
+    <div class="k">Contact</div>
+    <div class="v">
+      <span class="stamp {{ 'stamp-quiet' if p.contact_state_key=='no_contact' else 'stamp-in' if p.contact_state_key=='name_only' else 'stamp-pre' }}">{{ CONTACT_STATE_LABELS[p.contact_state_key] }}</span>
+    </div>
+    <div class="note">{{ p.contacts | length }} on file</div>
+  </div>
   <div>
     <div class="k">Last contact</div>
     <div class="v">
       {%- if p.last_touch -%}{{ p.days_since_touch }}d ago
       {%- else -%}<span class="note">never</span>{%- endif -%}
     </div>
+  </div>
+  <div>
+    <div class="k">Last signal</div>
+    <div class="v {{ 'bad' if p.is_stale else '' }}">
+      {%- if p.last_signal_at -%}{{ p.days_since_signal }}d ago
+      {%- else -%}<span class="note">none dated</span>{%- endif -%}
+    </div>
+    {% if p.is_stale %}<div class="note bad">stale — 12mo+</div>{% endif %}
   </div>
   {% for status, n in p.outcomes.most_common() %}
   <div><div class="k">{{ status }}</div><div class="v">{{ n }}</div></div>

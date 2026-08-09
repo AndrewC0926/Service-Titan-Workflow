@@ -7,23 +7,97 @@
   <span class="note">Firms with no linked project are omitted — a roster entry nobody
     has been seen on is not intelligence</span>
 </div>
-<table class="tbl">
-<colgroup><col style="width:28rem"><col style="width:12rem"><col style="width:8rem"><col style="width:8rem"><col></colgroup>
+
+{# The coverage gap, first thing on the page on purpose: Division 23 specs name
+   a Basis of Design plus a short acceptable-manufacturers list, and firms are
+   who write those lists -- MEP and mech-contractor coverage against the rest
+   of the linked roster is the number that actually matters here, not buried
+   under developer/consultant volume. #}
+<div class="sheet p-3 mb-4">
+  <div class="tb-lbl mb-2">Coverage by firm type — {{ total_linked }} linked firms</div>
+  <div class="kv">
+    {% for firm_type, n in type_breakdown %}
+    <div>
+      <div class="k">{{ firm_type.replace('_',' ') }}</div>
+      <div class="v {{ 'bad' if firm_type in ('mep','mech_contractor') and n < 20 else '' }}">{{ n }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% set mep_n = (type_breakdown | selectattr('0','equalto','mep') | map(attribute=1) | first) or 0 %}
+  {% set mc_n = (type_breakdown | selectattr('0','equalto','mech_contractor') | map(attribute=1) | first) or 0 %}
+  {% if (mep_n + mc_n) < 20 %}
+  <div class="callout callout-warn mt-3">
+    <strong>The real coverage gap</strong>
+    <span class="body">{{ mep_n }} MEP firm{{ 's' if mep_n != 1 }} and {{ mc_n }} mechanical
+      contractor{{ 's' if mc_n != 1 }} against {{ total_linked - mep_n - mc_n }} everything
+      else (developers, consultants, GCs). Those are the firms who write the
+      acceptable-manufacturers list — this is single/low-double digits against
+      hundreds of rows that don't decide basis of design.</span>
+  </div>
+  {% endif %}
+</div>
+
+<table class="tbl mb-4">
+<colgroup>
+  <col style="width:22rem"><col style="width:9rem"><col style="width:7rem">
+  <col style="width:13rem"><col style="width:13rem"><col style="width:9rem"><col>
+</colgroup>
 <thead><tr>
-  <th>Firm</th><th>Type</th><th class="num">Active</th><th class="num">All time</th><th>Also known as</th>
+  <th>Firm</th><th>Type</th><th class="num">Projects</th>
+  <th class="num">Est. equipment value</th><th>Contact</th><th>Last signal</th><th>Also known as</th>
 </tr></thead>
 <tbody>
 {% for row in rows %}
 <tr>
   <td><a href="/firm/{{ row.firm.id }}">{{ row.firm.name }}</a></td>
-  <td class="nowrap">{{ row.firm.firm_type }}</td>
-  <td class="num mono">{{ row.n_active }}</td>
-  <td class="num mono">{{ row.n_projects }}</td>
+  <td class="nowrap">{{ row.firm.firm_type.replace('_',' ') }}</td>
+  <td class="num mono">{{ row.n_projects }}{% if row.n_active %}<div class="note">{{ row.n_active }} active</div>{% endif %}</td>
+  <td class="num nowrap">
+    {%- if row.n_valued -%}
+      ${{ '{:,.0f}'.format(row.value_low) }}–${{ '{:,.0f}'.format(row.value_high) }}
+      {%- if row.n_valued < row.n_projects %}<div class="note">{{ row.n_valued }}/{{ row.n_projects }} priced</div>{% endif -%}
+    {%- else -%}<span class="note">unpriced</span>{%- endif -%}
+  </td>
+  <td class="nowrap">
+    <span class="stamp {{ 'stamp-quiet' if row.contact_state=='no_contact' else 'stamp-in' if row.contact_state=='name_only' else 'stamp-pre' }}">{{ CONTACT_STATE_LABELS[row.contact_state] }}</span>
+    {%- if row.n_contacts %}<div class="note">{{ row.n_contacts }} on file</div>{% endif -%}
+  </td>
+  <td class="nowrap">
+    {%- if row.last_signal_at -%}
+      <span class="{{ 'bad' if row.stale else '' }}">{{ row.last_signal_at.strftime('%Y-%m-%d') }}</span>
+      {%- if row.stale %}<div class="note">stale — 12mo+</div>{% endif -%}
+    {%- else -%}<span class="note bad">no dated signal</span>{%- endif -%}
+  </td>
   <td><span class="clip note">{{ row.firm.aliases | join(', ') if row.firm.aliases else '—' }}</span></td>
 </tr>
 {% else %}
-<tr><td colspan="5" class="note">No firms linked to projects yet.</td></tr>
+<tr><td colspan="7" class="note">No firms linked to projects yet.</td></tr>
 {% endfor %}
 </tbody>
 </table>
+
+<div class="sec-head">
+  <div class="sec-title">Repeat pairings</div>
+  <span class="note">Firms that keep landing on the same projects — GC-to-MEP pairings first,
+    since that's the one that says "winning this engineer tends to put me on jobs with this
+    contractor"</span>
+</div>
+{% if pairings %}
+<table class="tbl">
+<colgroup><col style="width:22rem"><col style="width:22rem"><col style="width:8rem"><col></colgroup>
+<thead><tr><th>Firm</th><th>Firm</th><th class="num">Shared projects</th><th></th></tr></thead>
+<tbody>
+{% for pair in pairings[:25] %}
+<tr>
+  <td><a href="/firm/{{ pair.a.id }}">{{ pair.a.name }}</a> <span class="note">({{ pair.a.firm_type.replace('_',' ') }})</span></td>
+  <td><a href="/firm/{{ pair.b.id }}">{{ pair.b.name }}</a> <span class="note">({{ pair.b.firm_type.replace('_',' ') }})</span></td>
+  <td class="num mono">{{ pair.n }}</td>
+  <td>{% if pair.is_gc_mep %}<span class="stamp stamp-pre">GC ↔ MEP</span>{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="note">No two firms have been recorded on the same project yet.</p>
+{% endif %}
 {% endblock %}

@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}{{ p.firm.name }} — brief{% endblock %}
+{% block content %}
+<style>
+@media print {
+  body { background: #fff; color: #000; font-size: 10.5pt; }
+  .titleblock, nav, .noprint { display: none !important; }
+  main { border: none; background: #fff; margin: 0; padding: 0; }
+  a { color: #000; }
+  th, td { border-color: #999 !important; }
+  h2 { color: #000; }
+  .tag, .stamp { border: 1px solid #000; background: none !important; color: #000 !important; }
+}
+</style>
+<p class="noprint"><button onclick="window.print()">🖨 Print / save PDF</button>
+  <a href="/firm/{{ p.firm.id }}" style="margin-left:12px">← back to firm profile</a></p>
+
+<h2 style="font-size:18px">{{ p.firm.name }}</h2>
+<p class="dim">DMG Scout — generated {{ generated_at.strftime('%Y-%m-%d %H:%M') }}Z.
+{{ p.firm.firm_type.replace('_',' ') }}{% if p.firm.aliases %} · also known as {{ p.firm.aliases | join(', ') }}{% endif %}.
+Every figure below is a count of rows on file (ProjectFirm/Contact/Outreach) — no inferred
+relationship strength.</p>
+
+<div class="kv mb-4">
+  <div><div class="k">Projects</div><div class="v">{{ p.n_projects }}</div></div>
+  <div>
+    <div class="k">Est. equipment value</div>
+    <div class="v">
+      {%- if p.n_valued_projects -%}
+        ${{ '{:,.0f}'.format(p.equipment_value_low) }}–${{ '{:,.0f}'.format(p.equipment_value_high) }}
+        {% if p.n_valued_projects < p.n_projects %}({{ p.n_valued_projects }}/{{ p.n_projects }} priced){% endif %}
+      {%- else -%}unpriced{%- endif -%}
+    </div>
+  </div>
+  <div><div class="k">Tonnage</div><div class="v">{% if p.tons_low %}{{ '{:,.0f}'.format(p.tons_low) }}–{{ '{:,.0f}'.format(p.tons_high) }}{% else %}—{% endif %}</div></div>
+  <div><div class="k">Contact status</div><div class="v">{{ CONTACT_STATE_LABELS[p.contact_state_key] }}</div></div>
+  <div><div class="k">Last contact</div><div class="v">{% if p.last_touch %}{{ p.last_touch.strftime('%Y-%m-%d') }} ({{ p.days_since_touch }}d ago){% else %}never{% endif %}</div></div>
+  <div><div class="k">Last signal</div><div class="v">{% if p.last_signal_at %}{{ p.last_signal_at.strftime('%Y-%m-%d') }}{% if p.is_stale %} — stale{% endif %}{% else %}none dated{% endif %}</div></div>
+</div>
+
+<h2>People on file</h2>
+{% if p.contacts %}
+<table class="tbl" style="width:100%">
+<thead><tr><th>Name</th><th>Title</th><th>Phone</th><th>Email</th><th>Status</th></tr></thead>
+<tbody>
+{% for c in p.contacts %}
+<tr>
+  <td>{{ c.name }}</td><td>{{ c.title or '—' }}</td>
+  <td class="mono">{{ c.phone or '—' }}</td><td class="mono">{{ c.email or '—' }}</td>
+  <td>{{ c.reach_status }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="note">Nobody on file at this firm.</p>
+{% endif %}
+
+<h2 style="margin-top:1rem">Our history with them</h2>
+{% if p.outreach %}
+<table class="tbl" style="width:100%">
+<thead><tr><th>Date</th><th>Channel</th><th>Project</th><th>Notes</th></tr></thead>
+<tbody>
+{% for o, proj in p.outreach %}
+<tr>
+  <td class="mono nowrap">{{ o.date.strftime('%Y-%m-%d') }}</td>
+  <td>{{ o.channel }}</td>
+  <td>{{ proj.name[:50] }}</td>
+  <td>{{ o.notes or '' }}{% if o.next_action %} — next: {{ o.next_action }}{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="note">No recorded conversation with anyone at this firm yet.</p>
+{% endif %}
+
+<h2 style="margin-top:1rem">Collaborators — who else shows up on these jobs</h2>
+{% if p.collaborators %}
+<table class="tbl" style="width:100%">
+<thead><tr><th>Firm</th><th>Type</th><th>Their role</th><th class="num">Shared jobs</th></tr></thead>
+<tbody>
+{% for firm, n, role in p.collaborators[:20] %}
+<tr><td>{{ firm.name }}</td><td>{{ firm.firm_type.replace('_',' ') }}</td><td>{{ role }}</td><td class="num mono">{{ n }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="note">No other firm recorded on the same projects.</p>
+{% endif %}
+
+<h2 style="margin-top:1rem">Every project</h2>
+<table class="tbl" style="width:100%">
+<thead><tr><th>Project</th><th>County</th><th>Stage</th><th>Role</th><th class="num">Est. tons</th></tr></thead>
+<tbody>
+{% for proj in p.projects %}
+<tr>
+  <td>{{ proj.name }}</td>
+  <td class="nowrap">{{ proj.county or '?' }}{% if proj.state %}, {{ proj.state }}{% endif %}</td>
+  <td class="nowrap">{{ proj.stage.value }}</td>
+  <td class="nowrap">{{ p.role_by_project.get(proj.id, 'unknown') }}</td>
+  <td class="num nowrap">{% if proj.tons_estimate_low %}{{ '{:,.0f}'.format(proj.tons_estimate_low) }}–{{ '{:,.0f}'.format(proj.tons_estimate_high) }}{% else %}—{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}

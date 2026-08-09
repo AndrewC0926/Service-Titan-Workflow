@@ -19,6 +19,7 @@ from sqlmodel import Session, func, select
 from app.accounts import ACCOUNT_TYPES, COVERAGE_STATUSES
 from app.config import load_config
 from app.db import get_session
+from app.firmprofile import CONTACT_STATE_LABELS
 from app.manual import add_manual_signal
 from app.mcp_server import mcp_app, mounted_middleware, mounted_routes
 from app.models import (
@@ -98,6 +99,7 @@ def score_ink(score: float) -> str:
 templates.env.globals["score_color"] = score_color
 templates.env.globals["score_ink"] = score_ink
 templates.env.globals["now"] = utcnow
+templates.env.globals["CONTACT_STATE_LABELS"] = CONTACT_STATE_LABELS
 
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")),
           name="static")
@@ -820,8 +822,9 @@ def outreach_view(request: Request, session: Session = Depends(get_session),
 def firms_index(request: Request, session: Session = Depends(get_session),
                 _: str = Depends(auth)):
     from app.firmprofile import firm_index
+    idx = firm_index(session)
     return templates.TemplateResponse(request, "firms.html", {
-        "rows": firm_index(session), "tb": _title_block(session), "active": "firms",
+        **idx, "tb": _title_block(session), "active": "firms",
     })
 
 
@@ -834,6 +837,21 @@ def firm_detail(firm_id: int, request: Request,
         raise HTTPException(404)
     return templates.TemplateResponse(request, "firm.html", {
         "p": prof, "tb": _title_block(session), "active": "firms",
+    })
+
+
+@app.get("/firm/{firm_id}/brief", response_class=HTMLResponse)
+def firm_brief(firm_id: int, request: Request,
+               session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Printable one-page brief for a meeting with this firm — every project,
+    the collaborators, our history, generated_at so it's clear how fresh the
+    printout is. Same pattern as /retrofit/report."""
+    from app.firmprofile import firm_profile
+    prof = firm_profile(session, firm_id)
+    if prof is None:
+        raise HTTPException(404)
+    return templates.TemplateResponse(request, "firm_brief.html", {
+        "p": prof, "generated_at": utcnow(), "tb": _title_block(session), "active": "firms",
     })
 
 
