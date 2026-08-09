@@ -24,6 +24,7 @@ from app.models import (
     Stage, StageObservation, utcnow,
 )
 from app.normalize import normalize_county, normalize_name, normalize_state
+from app.pipeline.waterrisk import water_risk_read
 from app.runguard import STALE_RUN_HOURS, ConcurrentStage, running_stage, stage_run
 
 log = logging.getLogger(__name__)
@@ -386,6 +387,28 @@ def _absorb(project: Project, signal: Signal) -> None:
     when = signal.event_date or signal.created_at
     if project.last_signal_at is None or (when and when > project.last_signal_at):
         project.last_signal_at = when
+
+    # Water-source facts: first stated value wins, same fill-only-if-null
+    # discipline as developer/county/apn above -- a later document that
+    # simply doesn't discuss water must not blank out an earlier one that
+    # did. water_opposition_stated is the one exception: True is a positive
+    # documented fact (an objection happened) that should stick even if a
+    # later, unrelated filing doesn't mention it; only fills from False when
+    # nothing is known yet, since a document's silence on opposition is much
+    # weaker evidence than a document affirmatively recording it. See
+    # app/pipeline/waterrisk.py.
+    project.water_source_stated = project.water_source_stated or signal.water_source_stated
+    project.water_use_efficiency_stated = (project.water_use_efficiency_stated
+                                           or signal.water_use_efficiency_stated)
+    if project.water_reclaimed_identified is None:
+        project.water_reclaimed_identified = signal.water_reclaimed_identified
+    if signal.water_opposition_stated:
+        project.water_opposition_stated = True
+    elif project.water_opposition_stated is None:
+        project.water_opposition_stated = signal.water_opposition_stated
+    project.water_risk_flag, project.water_risk_basis = water_risk_read(
+        project.water_reclaimed_identified, project.water_opposition_stated)
+
     project.updated_at = utcnow()
 
 

@@ -140,6 +140,8 @@ def _extract_docs(session: Session, cfg: Config, limit: int) -> dict:
                       "generator_critical_count", "generator_critical_mw_each",
                       "generator_house_count", "generator_house_mw_each", "building_sqft",
                       "acres", "building_count", "cooling_type", "water_acre_feet_per_year",
+                      "water_source_stated", "water_reclaimed_identified",
+                      "water_use_efficiency_stated", "water_opposition_stated",
                       "filing_type"):
                 setattr(signal, f, data.get(f))
             # Normalized on write, not left for a downstream state-keyed lookup

@@ -146,7 +146,32 @@ A building with several uses takes the one covering the most floor area.
 If the document has an explicit facility-type field, use it: GOED's application form
 asks "Type of Facility: Headquarters / Service Provider / Technology / Distribution /
 Fulfillment / Back Office / Manufacturing / Research & Development", and that answer
-beats any inference from the company's description of itself."""
+beats any inference from the company's description of itself.
+
+water_source_stated / water_reclaimed_identified / water_use_efficiency_stated /
+water_opposition_stated — capture these as four SEPARATE facts, each null unless the
+document states it. Do not collapse them into one judgment about whether water is
+"an issue":
+- water_source_stated: the water source as the document describes it, e.g. "recycled
+  water from West Basin Municipal Water District", "municipal potable supply",
+  "on-site groundwater wells". Quote or closely paraphrase; do not summarize away the
+  specifics.
+- water_reclaimed_identified: true ONLY if the document identifies a recycled,
+  reclaimed, non-potable, or "purple pipe" supply (also: NPW, tertiary-treated
+  effluent, recycled water district service). false ONLY if the document explicitly
+  states a potable or municipal-domestic source with no recycled component mentioned.
+  Null if water source is not discussed, or the document is ambiguous about which it
+  is — do not guess from the jurisdiction or infer recycled availability from the
+  water district's name alone.
+- water_use_efficiency_stated: any stated water-use figure, with its units exactly as
+  given — a WUE (e.g. "0.20 L/kWh"), a daily/annual volume, an acre-feet figure
+  outside the water_acre_feet_per_year field's own format. Do not convert units or
+  compute a WUE from other numbers.
+- water_opposition_stated: true only if the document itself records public
+  opposition, an objection, a comment letter, or a hearing continuance citing water
+  use or availability for THIS project. This is about what the document says
+  happened, not a general impression that water is a controversial topic in the
+  jurisdiction. Null when not discussed."""
 
 EXTRACT_TOOL = {
     "name": "record_extraction",

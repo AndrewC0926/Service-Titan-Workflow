@@ -24,6 +24,20 @@
 {%- if p.spillover_basis %}
 <tr><th>Spillover</th><td colspan="3">{{ p.spillover_basis }}</td></tr>
 {%- endif %}
+{%- if p.water_source_stated or p.water_risk_flag %}
+<tr><th>Water</th><td colspan="3">
+  {%- if p.water_source_stated -%}
+    {{ p.water_source_stated }}
+    {%- if p.water_reclaimed_identified %} <span class="ok">(recycled/reclaimed identified)</span>
+    {%- elif p.water_reclaimed_identified == false %} <span class="dim">(potable/municipal stated, no recycled component)</span>
+    {%- endif -%}
+  {%- else -%}<span class="dim">source not stated</span>{%- endif %}
+  {%- if p.water_use_efficiency_stated %} · {{ p.water_use_efficiency_stated }}{% endif -%}
+  {%- if p.water_risk_flag == 'elevated' %}
+    <br><span class="bad" title="{{ p.water_risk_basis }}">⚠ WATER RISK — confidence caveat only, not a ranking signal</span>
+  {%- endif -%}
+</td></tr>
+{%- endif %}
 </table>
 
 <h2>Stage progression</h2>

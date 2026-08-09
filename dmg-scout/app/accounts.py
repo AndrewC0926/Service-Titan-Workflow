@@ -61,6 +61,9 @@ def seed_product_lines(session: Session, cfg: Config) -> int:
             "firm": entry.get("firm", "DMG"), "category": entry["category"],
             "subcategory": entry.get("subcategory", ""), "description": entry.get("description", ""),
             "value_tier": int(entry.get("value_tier", 3)), "equipment_type": entry.get("equipment_type"),
+            "heat_rejection_mode": entry.get("heat_rejection_mode"),
+            "heat_rejection_mode_verified": bool(entry.get("heat_rejection_mode_verified", False)),
+            "heat_rejection_mode_basis": entry.get("heat_rejection_mode_basis"),
         }
         if existing:
             changed = any(getattr(existing, k) != v for k, v in fields.items())

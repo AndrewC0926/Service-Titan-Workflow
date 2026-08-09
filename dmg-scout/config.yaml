@@ -1324,6 +1324,16 @@ accounts:
   # replacement windows simply are not computed for them, on the same
   # "abstain rather than invent" rule replacement.py already uses for
   # equipment/ownership it has no number for.
+  #
+  # heat_rejection_mode: evaporative | adiabatic_hybrid | dry_air_cooled |
+  # closed_loop | null — relevant to cooling towers/chillers/evaporative
+  # lines only, and set ONLY where someone has actually stated the
+  # manufacturer carries that capability. This is a MODEL-level fact, never
+  # inferred from equipment_type or a brand's general reputation — a cooling
+  # tower line is not uniformly "evaporative" (see Marley below). Every entry
+  # that has one MUST also set heat_rejection_mode_verified: false and a
+  # heat_rejection_mode_basis saying who stated it and when, until it is
+  # confirmed with the factory — see app/models.py's ProductLine docstring.
   line_card:
     - {name: "AAON", firm: DMG, category: rooftop_units, subcategory: "packaged rooftop units",
        description: "Packaged/self-contained rooftop units; also custom air handling and chillers",
@@ -1336,7 +1346,9 @@ accounts:
     - {name: "LG", firm: both, category: vrf_split, subcategory: "VRF/VRV systems",
        description: "VRF/VRV multi-split systems", value_tier: 2, equipment_type: split_dx}
     - {name: "Marley", firm: DMG, category: cooling_towers, subcategory: "cooling towers",
-       description: "Cooling towers (SPX Marley)", value_tier: 1, equipment_type: cooling_tower}
+       description: "Cooling towers (SPX Marley)", value_tier: 1, equipment_type: cooling_tower,
+       heat_rejection_mode: adiabatic_hybrid, heat_rejection_mode_verified: false,
+       heat_rejection_mode_basis: "Stated 2026-08-09: Marley carries adiabatic and hybrid units (dry most of the year, wet the coil only in peak-heat hours) alongside conventional evaporative towers. Which specific models is not yet confirmed with the factory."}
     - {name: "BASX", firm: DMG, category: air_handling, subcategory: "mission-critical air handling",
        description: "Custom air handling for mission-critical/data center applications",
        value_tier: 1, equipment_type: air_handling_unit}
@@ -1366,7 +1378,9 @@ accounts:
        description: "Indirect/direct evaporative cooling", value_tier: 2, equipment_type: null}
     - {name: "Recold", firm: DMG, category: air_handling, subcategory: "coils / process cooling",
        description: "Coils/process cooling (best-guess categorization — confirm)",
-       value_tier: 3, equipment_type: null}
+       value_tier: 3, equipment_type: null,
+       heat_rejection_mode: adiabatic_hybrid, heat_rejection_mode_verified: false,
+       heat_rejection_mode_basis: "Stated 2026-08-09: Recold carries adiabatic and hybrid units (dry most of the year, wet the coil only in peak-heat hours). Which specific models is not yet confirmed with the factory."}
     - {name: "Strobic Air", firm: DMG, category: process_exhaust, subcategory: "lab/fume exhaust fans",
        description: "Lab and fume exhaust fans (Tri-Stack)", value_tier: 2, equipment_type: null}
     - {name: "Ebtron", firm: DMG, category: monitoring_sensors, subcategory: "airflow measurement",

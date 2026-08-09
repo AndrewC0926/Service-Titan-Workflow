@@ -61,6 +61,27 @@ def test_seed_product_lines_no_duplicate_for_both_firm_lines(db_session, cfg):
     assert lg_rows[0].firm == "both"
 
 
+def test_seed_product_lines_marley_recold_carry_unverified_heat_rejection_mode(db_session, cfg):
+    """The two lines named as carrying adiabatic/hybrid capability -- stated
+    by the rep, not inferred from the brand -- must land unverified until
+    confirmed with the factory."""
+    seed(db_session, cfg)
+    for name in ("Marley", "Recold"):
+        line = db_session.exec(select(ProductLine).where(ProductLine.name == name)).one()
+        assert line.heat_rejection_mode == "adiabatic_hybrid"
+        assert line.heat_rejection_mode_verified is False
+        assert line.heat_rejection_mode_basis, "an unverified capability must still carry who stated it and when"
+
+
+def test_seed_product_lines_other_lines_have_no_invented_heat_rejection_mode(db_session, cfg):
+    """No brand-name inference for lines nobody has actually stated a
+    heat-rejection capability for."""
+    seed(db_session, cfg)
+    aaon = db_session.exec(select(ProductLine).where(ProductLine.name == "AAON")).one()
+    assert aaon.heat_rejection_mode is None
+    assert aaon.heat_rejection_mode_verified is False
+
+
 # ---- affinity / adjacency -------------------------------------------------
 
 def test_category_affinity_self_is_zero(cfg):

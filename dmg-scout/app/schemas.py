@@ -33,6 +33,27 @@ EXTRACTION_JSON_SCHEMA: dict = {
             "enum": ["air_cooled", "water_cooled", "evaporative", "closed_loop", "liquid", "unknown", None],
         },
         "water_acre_feet_per_year": {"type": ["number", "null"]},
+        # The water-source facts a filing states, separate from whether the
+        # project is publicly contested over water -- see
+        # app/pipeline/waterrisk.py for why the distinction is the whole point.
+        "water_source_stated": {"type": ["string", "null"]},
+        # True only when the filing identifies a recycled/reclaimed/non-potable
+        # supply (purple pipe, tertiary-treated effluent, NPW, "recycled water
+        # from [district]"). False only when the filing explicitly states a
+        # potable/municipal-domestic source with no recycled component. Null
+        # when water source is not discussed -- never guessed from context.
+        "water_reclaimed_identified": {"type": ["boolean", "null"]},
+        # As stated, with its units -- a WUE figure (e.g. "0.20 L/kWh"), a
+        # stated daily/annual use volume, or similar. Free text on purpose:
+        # WUE is reported in incompatible units across filings (L/kWh, gal/MWh,
+        # gal/day), and forcing a single numeric field would silently drop or
+        # misrepresent whichever unit the filing actually used.
+        "water_use_efficiency_stated": {"type": ["string", "null"]},
+        # True only when the document itself records public opposition,
+        # objection, or a hearing continuance citing water use/availability.
+        # This is NOT "is water controversial in general" -- only what this
+        # specific filing states happened. Null when not discussed.
+        "water_opposition_stated": {"type": ["boolean", "null"]},
         # Drives the sqft-per-ton band for industrial buildings, where load is
         # envelope and process rather than IT. The spread across these types is
         # 50x — a cleanroom and a distribution warehouse of identical area are not
@@ -95,7 +116,13 @@ INT_FIELDS = ["generator_count", "generator_critical_count", "generator_house_co
 STR_FIELDS = [
     "project_name", "developer_or_owner", "jurisdiction", "county", "state", "street_address",
     "apn_parcel", "cooling_type", "filing_type", "facility_type",
+    "water_source_stated", "water_use_efficiency_stated",
 ]
+# Nullable booleans -- tri-state (True / False / not stated), never defaulted
+# to False for "not stated". First fields of this shape in the schema; see
+# coerce_extraction's strict isinstance check, since a model returning a
+# stray string/number here must null out, not silently coerce to a truthy bool.
+BOOL_FIELDS = ["water_reclaimed_identified", "water_opposition_stated"]
 
 
 def coerce_extraction(data: dict) -> dict:
@@ -116,6 +143,9 @@ def coerce_extraction(data: dict) -> dict:
             out[f] = int(v) if v is not None else None
         except (TypeError, ValueError):
             out[f] = None
+    for f in BOOL_FIELDS:
+        v = data.get(f)
+        out[f] = v if isinstance(v, bool) else None
     out["stage"] = data.get("stage") or "unknown"
     out["event_date"] = data.get("event_date") or None
     out["named_people"] = [p for p in (data.get("named_people") or []) if isinstance(p, dict) and p.get("name")]

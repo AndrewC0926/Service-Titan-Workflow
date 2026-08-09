@@ -202,6 +202,15 @@ class Signal(SQLModel, table=True):
     building_count: int | None = None
     cooling_type: str | None = None
     water_acre_feet_per_year: float | None = None
+    # Water-source facts, separate from whether the project is publicly
+    # contested over water -- see app/pipeline/waterrisk.py for why a single
+    # "water contested" flag would erase the distinction that actually
+    # decides an evaporative design's entitlement risk (potable vs
+    # recycled/reclaimed supply). Null unless the document states it.
+    water_source_stated: str | None = None
+    water_reclaimed_identified: bool | None = None
+    water_use_efficiency_stated: str | None = None
+    water_opposition_stated: bool | None = None
     stage: Stage = Field(default=Stage.unknown)
     filing_type: str | None = None
     summary_one_line: str = ""
@@ -248,6 +257,18 @@ class Project(SQLModel, table=True):
     spillover_mw: float | None = None
     spillover_basis: str | None = None
     days_to_estimated_bid: int | None = None
+    # Rolled up from linked signals in app.pipeline.resolve._absorb -- see
+    # app/pipeline/waterrisk.py. water_risk_flag/basis are a CONFIDENCE
+    # caveat, same tier as estimate_low_confidence below: never blended into
+    # `score`, only ever shown as a reason to doubt this project proceeds as
+    # filed. null/"noise" render nothing; "elevated" is the one worth a rep's
+    # attention.
+    water_source_stated: str | None = None
+    water_reclaimed_identified: bool | None = None
+    water_use_efficiency_stated: str | None = None
+    water_opposition_stated: bool | None = None
+    water_risk_flag: str | None = None       # null | noise | elevated
+    water_risk_basis: str | None = None
     in_territory: bool = Field(default=True, index=True)
     # active | contacted | specified | bidding | won | lost | dead | archived
     status: str = Field(default="active", index=True)
@@ -648,6 +669,18 @@ class ProductLine(SQLModel, table=True):
     # see the comment on accounts.line_card in config.yaml. Replacement windows
     # are simply not computed for a null line, rather than guessing.
     equipment_type: str | None = None
+    # evaporative | adiabatic_hybrid | dry_air_cooled | closed_loop | null.
+    # A MODEL-level fact, not a brand-level or equipment_type-level one — a
+    # cooling tower line is not uniformly "evaporative" (Marley's own catalog
+    # includes adiabatic/hybrid units that run dry most of the year), so this
+    # is never inferred from equipment_type or from what a brand is generally
+    # known for. Set only where someone has actually stated it, and
+    # heat_rejection_mode_verified stays false until confirmed with the
+    # factory — see config.yaml's line_card comment and
+    # app/accounts.py:seed_product_lines.
+    heat_rejection_mode: str | None = None
+    heat_rejection_mode_verified: bool = False
+    heat_rejection_mode_basis: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
 
 
