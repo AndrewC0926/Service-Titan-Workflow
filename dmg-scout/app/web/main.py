@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, func, select
 
 from app.accounts import ACCOUNT_TYPES, COVERAGE_STATUSES
+from app.assumptions import slugify
 from app.config import load_config
 from app.db import get_session
 from app.firmprofile import CONTACT_STATE_LABELS
@@ -100,6 +101,11 @@ templates.env.globals["score_color"] = score_color
 templates.env.globals["score_ink"] = score_ink
 templates.env.globals["now"] = utcnow
 templates.env.globals["CONTACT_STATE_LABELS"] = CONTACT_STATE_LABELS
+# Lets a column-header/value tooltip link straight to the constant it rests
+# on, e.g. href="/assumptions#{{ assumption_slug('Days to estimated bid, by
+# stage') }}" -- one function shared with the id the row itself renders
+# (Assumption.slug), so the two can't drift apart into a dead anchor.
+templates.env.globals["assumption_slug"] = slugify
 
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")),
           name="static")
@@ -277,6 +283,9 @@ def _board_extras(session: Session, projects: list[Project]) -> dict:
         "stage_ages": ages,
         "stale": stale,
         "stale_months": threshold,
+        # TO BID column tooltip: names the fixed per-stage constant behind
+        # p.days_to_estimated_bid, so it never reads as a measured figure.
+        "days_to_bid_by_stage": cfg.get("scoring.days_to_bid_by_stage", {}),
         "score_breakdown_text": score_breakdown_text,
         "spillover_pct": spillover_pct,
         "score_median": score_median,

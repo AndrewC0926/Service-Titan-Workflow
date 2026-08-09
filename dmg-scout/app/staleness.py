@@ -39,7 +39,7 @@ from datetime import datetime
 
 from sqlmodel import Session, select
 
-from app.models import Project, ProjectSignal, Signal, StageObservation, utcnow
+from app.models import Project, ProjectSignal, Signal, SignalType, StageObservation, utcnow
 
 # Twelve months, from the charter. Config can lower it; it should not be raised
 # without a reason, because the number exists to stop a confident wrong bid date.
@@ -51,6 +51,11 @@ class StageAge:
     observed_at: datetime | None
     days: int | None
     dated_from_event: bool     # False when we fell back to when we saw it
+    # Which filing type stated the current stage -- None when the row fell
+    # back to the any-signal method (no StageObservation matches p.stage yet)
+    # or has no evidence at all, since only a genuine per-stage observation
+    # names one filing as the reason.
+    signal_type: SignalType | None = None
 
     @property
     def months(self) -> float | None:
@@ -90,7 +95,14 @@ def stage_ages(session: Session, projects: list[Project],
     # signal) — the original any-linked-signal method, kept only as a floor.
     links = session.exec(
         select(ProjectSignal).where(ProjectSignal.project_id.in_(ids))).all()
-    signal_ids = [l.signal_id for l in links]
+    # Union with StageObservation.signal_id: every observation's signal SHOULD
+    # already be linked via ProjectSignal (both are written from the same
+    # _absorb() pass), but the fetch below is what names "which filing set the
+    # stage" on the board, so it fetches its own ids explicitly rather than
+    # trusting that invariant to hold forever.
+    obs_signal_ids = {o.signal_id for lst in obs_by_project.values() for o in lst
+                      if o.signal_id is not None}
+    signal_ids = list({l.signal_id for l in links} | obs_signal_ids)
     signals = ({s.id: s for s in session.exec(
         select(Signal).where(Signal.id.in_(signal_ids))).all()} if signal_ids else {})
     any_signal_best: dict[int, tuple[datetime, bool]] = {}
@@ -108,9 +120,13 @@ def stage_ages(session: Session, projects: list[Project],
     out: dict[int, StageAge] = {}
     for p in projects:
         current_stage_obs = [o for o in obs_by_project.get(p.id, []) if o.stage == p.stage]
+        signal_type = None
         if current_stage_obs:
             newest = max(current_stage_obs, key=lambda o: o.observed_at)
             when, from_event = newest.observed_at, newest.from_event
+            if newest.signal_id is not None:
+                sig = signals.get(newest.signal_id)
+                signal_type = sig.signal_type if sig else None
         elif p.id in any_signal_best:
             when, from_event = any_signal_best[p.id]
         elif p.last_signal_at is not None:
@@ -121,7 +137,7 @@ def stage_ages(session: Session, projects: list[Project],
         else:
             out[p.id] = StageAge(None, None, False)
             continue
-        out[p.id] = StageAge(when, max(0, (now - when).days), from_event)
+        out[p.id] = StageAge(when, max(0, (now - when).days), from_event, signal_type)
     return out
 
 

@@ -2,6 +2,8 @@
 {% block title %}Assumptions{% endblock %}
 {% block sheet_no %}S-11{% endblock %}
 {% block content %}
+<style>/* keeps a deep-linked row (from a board tooltip) clear of the sticky thead */
+tbody tr[id]{scroll-margin-top:2.5rem}</style>
 <div class="sec-head">
   <div class="sec-title">Assumptions register</div>
   <span class="note">Every tunable constant the score, sizing, and gap-ranking logic runs on — read live from
@@ -47,7 +49,7 @@
 </tr></thead>
 <tbody>
 {% for a in rows %}
-<tr>
+<tr id="{{ a.slug }}">
   <td>{{ a.name }}</td>
   <td class="mono">{{ a.value }}</td>
   <td class="mono note" style="word-break:break-all">{{ a.config_path or 'hardcoded in Python' }}</td>

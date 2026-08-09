@@ -103,15 +103,15 @@
   <col style="width:9rem"><col style="width:9rem"><col>
 </colgroup>
 <thead><tr>
-  <th class="num">#</th>
-  <th>Building</th>
-  <th class="num">Sq ft</th>
-  <th class="num">Built</th>
-  <th>Equipment</th>
-  <th>Service life</th>
-  <th>Regulations</th>
-  <th class="num">Score</th>
-  <th>Basis</th>
+  <th class="num" title="Position on this page, top to bottom.">#</th>
+  <th title="Address and APN, from LA County assessor parcel records.">Building</th>
+  <th class="num" title="Building floor area, from assessor parcel records.">Sq ft</th>
+  <th class="num" title="Year built, from assessor parcel records — the proxy for install year on replacement candidates, since no permit exists to date the equipment.">Built</th>
+  <th title="What's on site, from permit text when one exists; a wide sqft-derived tonnage estimate when it doesn't.">Equipment</th>
+  <th title="How far past its expected service life the existing equipment is, by ownership-tier bands. Hover a value for the basis and whether it's permit-verified or a YearBuilt proxy.">Service life</th>
+  <th title="Refrigerant/regulatory triggers (SB 1206, CARB, EBEWE) that force replacement independent of service life.">Regulations</th>
+  <th class="num" title="This board's own ranking, tier-first by service-life status then size and regulatory pressure as tie-breakers — a different formula from the project board's score. Hover a value for how this row's tier was set.">Score</th>
+  <th title="What's actually on file for this building — permit count and latest install year, or the absence of any permit.">Basis</th>
 </tr></thead>
 <tbody>
 {% for b in buildings %}
@@ -135,7 +135,7 @@
       {%- if b.mined_tons_each %} @ {{ b.mined_tons_each|int }}t{% endif -%}
     {%- elif b.population == 'replacement_candidate' -%}
       <span class="note">unknown — no permit on file</span>
-      {%- if b.estimated_tons_low %}<br><span class="note" title="{{ b.estimated_tons_basis }}">~{{ b.estimated_tons_low|int }}-{{ b.estimated_tons_high|int }}t est.</span>{% endif -%}
+      {%- if b.estimated_tons_low %}<br><a class="note" href="/assumptions#{{ assumption_slug('Commercial/industrial sqft/ton (retrofit tonnage estimate)') }}" title="{{ b.estimated_tons_basis }}">~{{ b.estimated_tons_low|int }}-{{ b.estimated_tons_high|int }}t est.</a>{% endif -%}
     {%- else -%}<span class="note">unspecified (permit text)</span>{%- endif -%}
   </td>
   <td>
@@ -147,8 +147,9 @@
          used to spell out "vs. window" and "YearBuilt-derived" inline)
          actually did. The "~" prefix already signals "derived, not
          permit-verified"; the tooltip carries the rest. #}
-      <span class="stamp {{ 'stamp-post' if b.service_life_status in ('overdue','due') else 'stamp-in' if b.service_life_status == 'approaching' else 'stamp-pre' }}"
-            title="{{ b.service_life_basis }}">{% if b.population == 'replacement_candidate' %}~{% endif %}{{ b.service_life_status.replace('_',' ') }}{% if b.service_life_years_past is not none %} {{ '%+.0f'|format(b.service_life_years_past) }}yr{% endif %} ({{ b.equipment_age_years|int if b.equipment_age_years else '?' }}yr)</span>
+      <a class="stamp {{ 'stamp-post' if b.service_life_status in ('overdue','due') else 'stamp-in' if b.service_life_status == 'approaching' else 'stamp-pre' }}"
+         href="/assumptions#{{ assumption_slug('Service life bands — private commercial ownership') }}"
+         title="{{ b.service_life_basis }}">{% if b.population == 'replacement_candidate' %}~{% endif %}{{ b.service_life_status.replace('_',' ') }}{% if b.service_life_years_past is not none %} {{ '%+.0f'|format(b.service_life_years_past) }}yr{% endif %} ({{ b.equipment_age_years|int if b.equipment_age_years else '?' }}yr)</a>
     {%- elif b.population == 'replacement_candidate' -%}
       <span class="note">no year built on file</span>
     {%- else -%}<span class="note">unknown equipment type</span>{%- endif -%}
@@ -162,7 +163,7 @@
     {%- if not b.sb1206_trigger_status and not b.carb_candidate and not b.ebewe_candidate -%}<span class="note">{% if b.population == 'replacement_candidate' %}none (SB 1206 n/a — pre-2010 built){% else %}—{% endif %}</span>{%- endif -%}
   </td>
   <td class="num">
-    <span class="score">
+    <span class="score" title="Tier: {{ b.service_life_status or 'unknown' }}. Every overdue building outranks every due one, which outranks every approaching one, regardless of size — then, within a tier, further-past-due breaks the tie ahead of size and regulatory triggers.">
       <span class="val">{{ '%.2f'|format(b.rank_score) if b.rank_score else '—' }}</span>
       {% if b.rank_score %}<span class="bar" aria-hidden="true"><i style="width:{{ (100 * b.rank_score / score_max)|round(1) }}%"></i></span>{% endif %}
     </span>

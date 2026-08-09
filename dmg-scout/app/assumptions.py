@@ -30,9 +30,17 @@ to hide the page's own honesty from.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from app.config import Config
+
+
+def slugify(name: str) -> str:
+    """Anchor id for a row on /assumptions, derived from its name so a link
+    can point at a specific constant without a second hand-maintained id to
+    drift out of sync with it (see Assumption.slug)."""
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 # Controlled vocabulary — every entry below must be exactly one of these.
 # Deliberately not a spectrum or a score: a number is measured, or it isn't,
@@ -67,6 +75,10 @@ class Assumption:
     source_detail: str               # the honest account — quote the config comment where one exists
     verified: bool | None = None     # None: no verified/unverified concept applies to this entry
     last_reviewed: str | None = None  # an actual date/basis if one exists; None => not recorded, say so
+
+    @property
+    def slug(self) -> str:
+        return slugify(self.name)
 
 
 def _fmt_table(d: dict, fmt: str = "{:.2f}") -> str:
@@ -208,6 +220,30 @@ def load_assumptions(cfg: Config) -> list[Assumption]:
     ))
 
     # ---- Equipment sizing -----------------------------------------------
+
+    tpm = cfg.get("sizing.tons_per_mw_installed_default", 325)
+    out.append(Assumption(
+        group="Equipment sizing", name="Tons per MW installed (default)",
+        config_path="sizing.tons_per_mw_installed_default",
+        value=f"{tpm:.0f} tons/MW IT",
+        source_type=RULE_OF_THUMB,
+        source_detail="\"Installed capacity (non-IT heat, N+1 redundancy) runs 300-400 tons per MW\" per "
+                      "app/pipeline/sizing.py — a published-range rule of thumb; the specific 325 midpoint "
+                      "within that range is a judgment call, not itself measured. Feeds every EST. TONS "
+                      "figure derived from a stated or inferred MW figure (not the floor-area rule-of-thumb "
+                      "path, which uses the sqft/ton tables below instead).",
+    ))
+
+    bbb = cfg.get("sizing.band_by_basis", {})
+    out.append(Assumption(
+        group="Equipment sizing", name="Tonnage band width by basis",
+        config_path="sizing.band_by_basis",
+        value=_fmt_table(bbb) if bbb else "default 0.25 (±25%) for any basis not listed",
+        source_type=PLACEHOLDER,
+        source_detail="How wide the low-high tonnage band is around the midpoint, by which input drove the "
+                      "estimate (a stated IT load gets a narrower band than a figure inferred from generator "
+                      "capacity). No measurement or named source recorded for the specific widths.",
+    ))
 
     evt = cfg.get("equipment_value.value_per_ton_by_facility_type", {})
     verified_rows = [k for k, b in evt.items() if "VERIFIED" in (b.get("source") or "")]
