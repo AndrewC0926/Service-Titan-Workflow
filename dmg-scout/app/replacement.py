@@ -100,6 +100,49 @@ def service_life(cfg: Config, equipment: str, ownership: str | None = None) -> S
     )
 
 
+def generic_service_life(cfg: Config, ownership: str | None = None) -> ServiceLife:
+    """Composite service-life band for when NO equipment type is known --
+    e.g. a replacement-candidate building with no permit text to name what's
+    actually installed, only a YearBuilt-derived age proxy.
+
+    Averages low/high across every equipment entry in the given ownership
+    tier rather than picking one ASHRAE category and pretending it's
+    confirmed. That would be worse than this: a downtown high-rise assumed
+    to run packaged rooftop units (15-17yr) would read "overdue" years
+    before a chiller plant (23-25yr) actually is, inventing urgency the same
+    way service_life() already refuses to for a permit whose work
+    description names no equipment. This is coarser than service_life()'s
+    figure on purpose, and callers must mark it as such -- equipment stays
+    None or a distinct sentinel, never a real ASHRAE key, and the basis
+    string must say YEARBUILT-DERIVED so it can never be mistaken for a
+    permit-verified figure downstream.
+    """
+    table = cfg.get("replacement.service_life", {}) or {}
+    owners = table.get("ownership", {}) or {}
+    default = table.get("default_ownership", "private_commercial")
+
+    key = ownership if ownership in owners else default
+    entry = owners.get(key)
+    if entry is None:
+        raise UnknownEquipment(f"no service life table for ownership {key!r}")
+
+    bands = (entry.get("equipment") or {})
+    if not bands:
+        raise UnknownEquipment(f"no equipment bands under ownership {key!r}")
+
+    low = round(sum(int(b["low"]) for b in bands.values()) / len(bands))
+    high = round(sum(int(b["high"]) for b in bands.values()) / len(bands))
+
+    return ServiceLife(
+        low=low, high=high, ownership=key, equipment="generic_yearbuilt_proxy",
+        basis=(f"composite average across {len(bands)} equipment-type bands under "
+               f"{key} ownership ({', '.join(sorted(bands))}) -- no permit text exists "
+               f"to name the actual equipment, so no single equipment-specific figure applies"),
+        source=f"COMPOSITE of config.yaml replacement.service_life.ownership.{key} — not equipment-specific",
+        verified=False,
+    )
+
+
 def replacement_basis(sl: ServiceLife, age_years: float) -> str:
     """One line a rep can read out, carrying the source with the number.
 

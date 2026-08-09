@@ -12,8 +12,10 @@ from app.http import PoliteClient
 from app.models import AssessorCandidate, EquipmentPermit, RetrofitBuilding
 from app.pipeline.regulatory import infer_refrigerant
 from app.pipeline.retrofit import (
-    build_retrofit_buildings, find_replacement_candidates, infer_equipment_type, rank_buildings,
+    build_retrofit_buildings, estimate_tonnage, find_replacement_candidates, funnel_counts,
+    infer_equipment_type, rank_buildings,
 )
+from app.replacement import generic_service_life
 
 
 def fast_client() -> PoliteClient:
@@ -215,10 +217,28 @@ def test_rerun_replaces_not_appends(db_session, cfg):
 # --- absence query: the real retrofit opportunity ---------------------
 
 
-def _mock_commercial_parcels(features: list[dict]) -> None:
-    respx.get(url__startswith="https://services.arcgis.com/RmCCgQtiZLDCtblq").mock(
-        return_value=httpx.Response(200, json={"features": [{"attributes": a} for a in features]})
-    )
+def _mock_commercial_parcels(features: list[dict], counts: dict | None = None) -> None:
+    """Mocks both the funnel COUNT-only queries (returnCountOnly=true) and
+    the full feature fetch off the same endpoint -- find_replacement_candidates
+    issues both. `counts` lets a test assert specific funnel numbers; any
+    stage not given defaults to len(features), which is what every existing
+    test implicitly expects (no funnel filtering narrows the mocked set)."""
+    counts = counts or {}
+
+    def responder(request):
+        params = dict(request.url.params)
+        if params.get("returnCountOnly") == "true":
+            where = params.get("where", "")
+            if "SQFTmain" in where:
+                n = counts.get("sqft_floor_survivors", len(features))
+            elif "YearBuilt" in where:
+                n = counts.get("built_before", len(features))
+            else:
+                n = counts.get("use_code_match", len(features))
+            return httpx.Response(200, json={"count": n})
+        return httpx.Response(200, json={"features": [{"attributes": a} for a in features]})
+
+    respx.get(url__startswith="https://services.arcgis.com/RmCCgQtiZLDCtblq").mock(side_effect=responder)
 
 
 @respx.mock
@@ -248,9 +268,12 @@ def test_permitted_parcel_excluded_from_candidates(db_session, cfg):
 
 
 @respx.mock
-def test_candidate_rows_carry_no_equipment_type_or_regulatory_claim(db_session, cfg):
+def test_candidate_rows_carry_no_equipment_type_or_permit_verified_tonnage(db_session, cfg):
     """No permit text exists for these rows -- must not fabricate an
-    equipment type, tonnage, or SB 1206 status."""
+    equipment type, permit-verified tonnage, or SB 1206 status (SB 1206
+    structurally never applies pre-2010). Service life status IS computed,
+    from YearBuilt as a proxy -- but its basis must be unmistakably marked
+    as such, never looking like the permit-verified figure."""
     _mock_commercial_parcels([
         {"AIN": "1010101010", "PropertyLocation": "x", "UseCode": "2100",
          "UseCodeDescChar1": "Commercial", "YearBuilt": "1970", "SQFTmain": 30000},
@@ -263,9 +286,22 @@ def test_candidate_rows_carry_no_equipment_type_or_regulatory_claim(db_session, 
     assert row.equipment_type is None
     assert row.mined_tons_each is None
     assert row.sb1206_trigger_status is None
-    assert row.service_life_status is None
-    assert "No mechanical permit on record" in row.service_life_basis
     assert row.building_age_years is not None
+
+    # A 1970-built building with no permit is decades past any service life
+    # band -- must read overdue, and the basis must say so is YearBuilt-derived.
+    assert row.service_life_status == "overdue"
+    assert "YEARBUILT-DERIVED" in row.service_life_basis
+    assert "not permit-verified" in row.service_life_basis
+    assert row.equipment_age_years == row.building_age_years
+
+    # Sqft-derived tonnage estimate: a band, not a point figure, and
+    # clearly not the permit-mined field.
+    assert row.estimated_tons_low is not None
+    assert row.estimated_tons_high is not None
+    assert row.estimated_tons_low < row.estimated_tons_high
+    assert "ESTIMATED" in row.estimated_tons_basis
+    assert "NOT mined from a permit" in row.estimated_tons_basis
 
 
 @respx.mock
@@ -303,3 +339,181 @@ def test_rerun_replaces_only_its_own_population(db_session, cfg):
     from sqlmodel import select
     rows = db_session.exec(select(RetrofitBuilding)).all()
     assert len(rows) == 1
+
+
+# --- filter chain: use codes, sqft floor, funnel reporting -----------------
+
+
+@respx.mock
+def test_industrial_use_code_included_by_default(db_session, cfg):
+    """95,963 raw candidates was Commercial-only. The population is
+    genuinely commercial+industrial, and the default config must reflect
+    that -- an Industrial-tagged parcel with no permit is a real candidate."""
+    _mock_commercial_parcels([
+        {"AIN": "5050505050", "PropertyLocation": "warehouse", "UseCode": "3300",
+         "UseCodeDescChar1": "Industrial", "YearBuilt": "1965", "SQFTmain": 40000},
+    ])
+    stats = find_replacement_candidates(db_session, cfg, fast_client())
+    assert stats["replacement_candidates"] == 1
+    assert "Industrial" in stats["use_codes"]
+
+    from sqlmodel import select
+    row = db_session.exec(select(RetrofitBuilding)).one()
+    assert row.use_desc == "Industrial"
+
+
+@respx.mock
+def test_min_sqft_floor_excludes_small_parcels(db_session, cfg):
+    _mock_commercial_parcels([
+        {"AIN": "6060606060", "PropertyLocation": "tiny kiosk", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1970", "SQFTmain": 800},
+    ], counts={"sqft_floor_survivors": 0})
+    stats = find_replacement_candidates(db_session, cfg, fast_client(), min_sqft=5000)
+    assert stats["sqft_floor_survivors"] == 0
+
+    # The mocked feature fetch still returns the row (mock doesn't actually
+    # filter by WHERE), but the funnel COUNT correctly reports zero
+    # survivors -- proving the count path and the fetch path use the same
+    # WHERE clause is a live-network property, exercised in the CLI, not
+    # something respx can verify here. What this test guards is that a
+    # custom min_sqft is threaded through to funnel_counts() at all.
+    assert stats["min_sqft"] == 5000
+
+
+@respx.mock
+def test_funnel_counts_reported_at_each_stage(db_session, cfg):
+    _mock_commercial_parcels([
+        {"AIN": "7070707070", "PropertyLocation": "x", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1970", "SQFTmain": 30000},
+    ], counts={"use_code_match": 100, "built_before": 60, "sqft_floor_survivors": 25})
+    stats = find_replacement_candidates(db_session, cfg, fast_client())
+    assert stats["use_code_match"] == 100
+    assert stats["built_before"] == 60
+    assert stats["sqft_floor_survivors"] == 25
+    # The funnel narrows monotonically -- each stage no bigger than the last.
+    assert stats["use_code_match"] >= stats["built_before"] >= stats["sqft_floor_survivors"]
+
+
+def test_funnel_counts_pure_function(respx_mock):
+    """funnel_counts() issues COUNT-only queries (cheap) rather than
+    fetching full feature payloads for each stage."""
+    calls = []
+
+    def responder(request):
+        params = dict(request.url.params)
+        assert params.get("returnCountOnly") == "true", "funnel stages must not fetch full features"
+        calls.append(params["where"])
+        return httpx.Response(200, json={"count": 42})
+
+    respx_mock.get(url__startswith="https://services.arcgis.com/RmCCgQtiZLDCtblq").mock(side_effect=responder)
+    result = funnel_counts(fast_client(), use_codes=["Commercial", "Industrial"],
+                           year_built_before=2010, min_sqft=5000)
+    assert result == {"use_code_match": 42, "built_before": 42, "sqft_floor_survivors": 42}
+    assert len(calls) == 3
+
+
+# --- CARB/EBEWE candidacy applies to replacement candidates too ------------
+
+
+@respx.mock
+def test_carb_ebewe_candidacy_evaluated_for_replacement_candidates(db_session, cfg):
+    """Unlike equipment type/tonnage/SB1206, CARB and EBEWE candidacy come
+    from assessor use code and size alone -- independent of permit
+    evidence, so absence of a permit must not suppress them."""
+    db_session.add(AssessorCandidate(
+        source="la_county_assessor", ain="8080808080",
+        trigger_key="carb_refrigerant_management_program", use_code="2100",
+        source_url="https://x"))
+    db_session.add(AssessorCandidate(
+        source="la_county_assessor", ain="8080808080",
+        trigger_key="la_ebewe_audit_retrocommissioning", source_url="https://x"))
+    db_session.commit()
+    _mock_commercial_parcels([
+        {"AIN": "8080808080", "PropertyLocation": "x", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1970", "SQFTmain": 30000},
+    ])
+    find_replacement_candidates(db_session, cfg, fast_client())
+
+    from sqlmodel import select
+    row = db_session.exec(select(RetrofitBuilding)).one()
+    assert row.carb_candidate is True
+    assert row.ebewe_candidate is True
+    assert row.sb1206_trigger_status is None, "SB 1206 needs a post-2010 install year; never applies here"
+
+
+# --- ranking: candidates use the same urgency-tier discipline --------------
+
+
+@respx.mock
+def test_candidate_ranking_uses_same_urgency_tiers_as_recently_active(db_session, cfg):
+    """A very old, small candidate (overdue tier) must still outrank a
+    borderline-age, huge candidate (not_due/approaching tier) -- the same
+    'urgency is a tier size cannot cross' rule rank_buildings already
+    enforces, now exercised through the candidate path."""
+    _mock_commercial_parcels([
+        {"AIN": "9090909090", "PropertyLocation": "tiny ancient", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1900", "SQFTmain": 6000},
+        {"AIN": "9191919191", "PropertyLocation": "huge newer", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "2009", "SQFTmain": 2_000_000},
+    ])
+    find_replacement_candidates(db_session, cfg, fast_client())
+
+    from sqlmodel import select
+    rows = {r.apn: r for r in db_session.exec(select(RetrofitBuilding)).all()}
+    tiny_ancient, huge_newer = rows["9090909090"], rows["9191919191"]
+    assert tiny_ancient.service_life_status == "overdue"
+    assert huge_newer.service_life_status in ("not_due", "approaching")
+    assert tiny_ancient.rank_score > huge_newer.rank_score
+
+
+# --- pure functions: generic_service_life, estimate_tonnage ----------------
+
+
+def test_generic_service_life_is_composite_across_equipment_types(cfg):
+    """No permit text names an equipment type for candidates -- this must
+    average across the ownership tier's bands rather than picking one, and
+    must default to private_commercial (the longest cycle) exactly like
+    service_life() does when ownership is unknown."""
+    gsl = generic_service_life(cfg, ownership=None)
+    assert gsl.ownership == "private_commercial"
+    assert gsl.equipment == "generic_yearbuilt_proxy"
+    assert gsl.verified is False
+
+    table = cfg.get("replacement.service_life.ownership.private_commercial.equipment")
+    lows = [b["low"] for b in table.values()]
+    highs = [b["high"] for b in table.values()]
+    assert gsl.low == round(sum(lows) / len(lows))
+    assert gsl.high == round(sum(highs) / len(highs))
+    # Coarser than any single equipment-specific band, not equal to one.
+    assert gsl.low != cfg.get("replacement.service_life.ownership.private_commercial.equipment.packaged_rooftop.low")
+
+
+def test_generic_service_life_status_behaves_like_equipment_specific():
+    from app.config import load_config
+    cfg = load_config()
+    gsl = generic_service_life(cfg, ownership=None)
+    assert gsl.status(0) == "not_due"
+    assert gsl.status(gsl.high + 5) == "overdue"
+
+
+def test_estimate_tonnage_returns_a_band_not_a_point_figure(cfg):
+    low, high, basis = estimate_tonnage(cfg, "Commercial", 100_000)
+    assert low is not None and high is not None
+    assert low < high
+    assert "ESTIMATED" in basis
+    assert "NOT mined from a permit" in basis
+
+
+def test_estimate_tonnage_industrial_is_less_dense_than_commercial(cfg):
+    """Same square footage, less cooling load per sqft for industrial/
+    warehouse space than commercial -- same reasoning sizing.py already
+    applies to fulfillment centers vs. offices."""
+    c_low, _c_high, _ = estimate_tonnage(cfg, "Commercial", 100_000)
+    _i_low, i_high, _ = estimate_tonnage(cfg, "Industrial", 100_000)
+    assert i_high < c_low, "industrial band must not even overlap commercial at this sqft"
+
+
+def test_estimate_tonnage_none_for_missing_sqft_or_unknown_use_desc(cfg):
+    assert estimate_tonnage(cfg, "Commercial", None) == (None, None, None)
+    assert estimate_tonnage(cfg, None, 50_000) == (None, None, None)
+    assert estimate_tonnage(cfg, "Institutional", 50_000) == (None, None, None)

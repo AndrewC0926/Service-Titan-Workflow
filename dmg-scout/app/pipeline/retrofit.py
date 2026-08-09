@@ -24,7 +24,7 @@ from app.models import AssessorCandidate, EquipmentPermit, RetrofitBuilding, utc
 from app.pipeline.assessor import FEATURE_SERVER, PORTAL_URL as ASSESSOR_PORTAL_URL
 from app.pipeline.permits import PORTAL_URL as PERMITS_PORTAL_URL
 from app.pipeline.regulatory import infer_refrigerant, sb1206_status
-from app.replacement import UnknownEquipment, service_life
+from app.replacement import UnknownEquipment, generic_service_life, service_life
 
 log = logging.getLogger(__name__)
 
@@ -235,15 +235,47 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
     }
 
 
-def _fetch_commercial_parcels_built_before(client: PoliteClient, year: int,
-                                           roll_year: str = "2025", page_size: int = 2000,
-                                           max_pages: int = 200) -> list[dict]:
-    """Every commercial-use parcel with a YearBuilt before `year`, county-
-    wide -- the raw universe find_replacement_candidates() checks permit
-    absence against."""
-    where = f"UseCodeDescChar1 = 'Commercial' AND YearBuilt < '{year}' AND YearBuilt <> ''"
+def _candidate_where(use_codes: list[str], year_built_before: int,
+                     min_sqft: float | None, roll_year: str) -> str:
+    codes = ",".join(f"'{c}'" for c in use_codes)
+    where = f"UseCodeDescChar1 IN ({codes}) AND YearBuilt < '{year_built_before}' AND YearBuilt <> ''"
+    if min_sqft:
+        where += f" AND SQFTmain >= {min_sqft}"
     if roll_year:
         where += f" AND RollYear = '{roll_year}'"
+    return where
+
+
+def _count(client: PoliteClient, where: str, roll_year: str) -> int:
+    full_where = f"{where} AND RollYear = '{roll_year}'" if roll_year else where
+    resp = client.get_json(FEATURE_SERVER, params={"where": full_where, "f": "json", "returnCountOnly": "true"})
+    return int(resp.get("count", 0))
+
+
+def funnel_counts(client: PoliteClient, *, use_codes: list[str], year_built_before: int,
+                  min_sqft: float | None, roll_year: str = "2025") -> dict:
+    """How many parcels survive each filter, in order -- cheap COUNT-only
+    queries (no feature payload), so this can run before the expensive full
+    fetch. 95,963 raw absence-based candidates is not a call list; this is
+    what shows where that population actually collapses."""
+    codes = ",".join(f"'{c}'" for c in use_codes)
+    use_code_where = f"UseCodeDescChar1 IN ({codes})"
+    built_before_where = f"{use_code_where} AND YearBuilt < '{year_built_before}' AND YearBuilt <> ''"
+    sqft_where = built_before_where + (f" AND SQFTmain >= {min_sqft}" if min_sqft else "")
+    return {
+        "use_code_match": _count(client, use_code_where, roll_year),
+        "built_before": _count(client, built_before_where, roll_year),
+        "sqft_floor_survivors": _count(client, sqft_where, roll_year),
+    }
+
+
+def _fetch_candidate_parcels(client: PoliteClient, *, use_codes: list[str], year_built_before: int,
+                             min_sqft: float | None, roll_year: str = "2025", page_size: int = 2000,
+                             max_pages: int = 200) -> list[dict]:
+    """Every parcel surviving the full filter chain (use code + built-before
+    + sqft floor), county-wide -- the raw universe find_replacement_candidates()
+    checks permit absence against."""
+    where = _candidate_where(use_codes, year_built_before, min_sqft, roll_year)
     fields = "AIN,PropertyLocation,UseCode,UseCodeDescChar1,YearBuilt,SQFTmain"
     out: list[dict] = []
     offset = 0
@@ -263,12 +295,36 @@ def _fetch_commercial_parcels_built_before(client: PoliteClient, year: int,
     return out
 
 
+def estimate_tonnage(cfg: Config, use_desc: str | None, sqft: float | None) -> tuple[float | None, float | None, str | None]:
+    """Rough (low, high, basis) tonnage band from square footage alone --
+    NEVER permit-verified, so this must never be stored or displayed next to
+    mined_tons_each as if it were the same kind of number. Only defined for
+    use codes with a configured sqft/ton band (config.yaml
+    retrofit.candidate_sqft_per_ton); anything else (missing use_desc, or a
+    use code not in that table) returns (None, None, None) -- a category not
+    covered by the ballpark table doesn't get a made-up one applied to it."""
+    if not sqft or sqft <= 0 or not use_desc:
+        return None, None, None
+    bands = cfg.get("retrofit.candidate_sqft_per_ton", {}) or {}
+    band = bands.get(use_desc)
+    if not band:
+        return None, None, None
+    low = round(sqft / band["high"])
+    high = round(sqft / band["low"])
+    basis = (f"ESTIMATED from {sqft:,.0f} sqft @ {band['low']}-{band['high']} sqft/ton "
+            f"industry rule of thumb for {use_desc.lower()} space -- NOT mined from a permit, "
+            f"no equipment on file to measure; wide range on purpose, do not quote a point figure")
+    return float(low), float(high), basis
+
+
 def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
-                                year_built_before: int = 2010) -> dict:
-    """The ABSENCE query: commercial parcels built before `year_built_before`
-    with NO mechanical permit on record at all (across every EquipmentPermit
-    row this system has, which after `scout fetch-permits --window all`
-    spans 2010-present).
+                                year_built_before: int = 2010,
+                                use_codes: list[str] | None = None,
+                                min_sqft: float | None = None) -> dict:
+    """The ABSENCE query: commercial/industrial parcels built before
+    `year_built_before`, at or above `min_sqft`, with NO mechanical permit
+    on record at all (across every EquipmentPermit row this system has,
+    which after `scout fetch-permits --window all` spans 2010-present).
 
     Presence of a permit is evidence someone already replaced the equipment.
     Its absence, on a building old enough that a real replacement would
@@ -278,16 +334,51 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
     building on this list has never (in this system's window) generated a
     permit to rank BY.
 
-    No equipment type, no tonnage, no SB 1206 status: none of that can be
-    known without a permit's work-description text. Ranked by building age
-    (from year_built) and size only, and every row says exactly that in its
-    basis -- weaker evidence than the permit-verified recently_active
-    population, disclosed as such, not presented the same way.
+    That absence is an INFERENCE, not proof, in both directions:
+      - false positive: a like-for-like swap that never pulled a permit (or
+        pulled one under a mismatched/typo'd APN this system's address join
+        missed) reads as "original equipment" when it was actually replaced.
+      - false negative (rarer, not this population's failure mode): a
+        permit on file for a cosmetic repair, not a full replacement, would
+        wrongly exclude a building that still needs one.
+    The expected skew is toward false positives -- unpermitted like-for-like
+    swaps are common in this trade, and this system has no way to see them.
+    Treat this list as upper-bound opportunity, not a confirmed one; every
+    row and the board itself say so.
+
+    No equipment type, no permit-verified tonnage, no permit-sourced SB 1206
+    read: none of that can be known without a permit's work-description
+    text. service_life_status IS computed here (YearBuilt as an install-year
+    proxy under the default private_commercial ownership, generic across
+    equipment type -- see app/replacement.py:generic_service_life), and
+    every such row's basis is prefixed YEARBUILT-DERIVED so it can never be
+    mistaken for the permit-verified figure the recently_active population
+    carries. CARB/EBEWE candidacy is also evaluated -- both come from
+    assessor use code and size alone, independent of any permit, so absence
+    of a permit doesn't block them the way it blocks SB 1206 (which needs an
+    inferred refrigerant, which needs an install year inside R-410A's
+    window -- never true for a pre-2010-built proxy, so it's always None
+    here, correctly).
     """
-    parcels = _fetch_commercial_parcels_built_before(client, year_built_before)
+    use_codes = use_codes if use_codes is not None else (cfg.get("retrofit.candidate_use_codes") or ["Commercial"])
+    min_sqft = min_sqft if min_sqft is not None else cfg.get("retrofit.candidate_min_sqft")
+
+    funnel = funnel_counts(client, use_codes=use_codes, year_built_before=year_built_before, min_sqft=min_sqft)
+    parcels = _fetch_candidate_parcels(client, use_codes=use_codes, year_built_before=year_built_before,
+                                       min_sqft=min_sqft)
     permitted_apns = {
         a for a in session.exec(select(EquipmentPermit.apn)).all() if a and "*" not in a
     }
+
+    ains = [a["AIN"] for a in parcels if a.get("AIN")]
+    carb_by_ain: dict[str, str] = {}
+    ebewe_ains: set[str] = set()
+    for c in session.exec(
+            select(AssessorCandidate).where(AssessorCandidate.ain.in_(ains))).all() if ains else []:
+        if c.trigger_key == "carb_refrigerant_management_program":
+            carb_by_ain[c.ain] = c.use_code
+        elif c.trigger_key == "la_ebewe_audit_retrocommissioning":
+            ebewe_ains.add(c.ain)
 
     now = utcnow()
     session.exec(delete(RetrofitBuilding).where(RetrofitBuilding.population == "replacement_candidate"))
@@ -300,29 +391,47 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
         year_built = int(attrs["YearBuilt"]) if str(attrs.get("YearBuilt", "")).isdigit() else None
         age = round(now.year - year_built, 1) if year_built else None
         sqft = attrs.get("SQFTmain")
-        size_factor = 0.0
-        if sqft and sqft > 0:
-            import math
-            size_factor = max(0.0, min(1.0, math.log10(sqft) / 6.0))
-        # No tier tricks needed here: every row in this population is
-        # equally "no permit evidence," so age + size compose directly.
-        age_factor = max(0.0, min(1.0, (age or 0) / 60.0))
-        rank = round(age_factor * 0.6 + size_factor * 0.4, 4)
+        use_desc = attrs.get("UseCodeDescChar1")
+
+        sl_status, sl_basis = None, None
+        if age is not None:
+            gsl = generic_service_life(cfg, ownership=None)  # None -> default_ownership
+            sl_status = gsl.status(age)
+            sl_basis = (
+                f"YEARBUILT-DERIVED (not permit-verified): {age:.0f}yr since built "
+                f"({year_built}); no mechanical permit on record since 2010, so actual "
+                f"install year and equipment type are unknown -- age assumes original "
+                f"equipment or an unpermitted like-for-like swap. Composite expected life "
+                f"{gsl.low}-{gsl.high}yr under {gsl.ownership} ownership (default -- no "
+                f"owner data available), averaged across equipment types since none is "
+                f"confirmed [{'VERIFIED' if gsl.verified else 'UNVERIFIED'}: {gsl.source}]. "
+                f"-> {sl_status.replace('_', ' ')}"
+            )
+
+        # SB 1206 needs an inferred refrigerant, which needs an install year
+        # inside R-410A's 2010-2024 window (see app/pipeline/regulatory.py).
+        # year_built_before caps this population below 2010, so it never
+        # applies here -- not called, to avoid implying it was checked.
+        carb_use_code = carb_by_ain.get(ain)
+        tons_low, tons_high, tons_basis = estimate_tonnage(cfg, use_desc, sqft)
+
+        rank = rank_buildings(
+            service_life_status=sl_status, sqft=sqft,
+            sb1206_trigger_status=None,
+            ebewe_candidate=ain in ebewe_ains, carb_candidate=carb_use_code is not None,
+        )
 
         session.add(RetrofitBuilding(
             apn=ain, population="replacement_candidate",
             address=attrs.get("PropertyLocation"),
-            use_code=attrs.get("UseCode"), use_desc=attrs.get("UseCodeDescChar1"),
+            use_code=attrs.get("UseCode"), use_desc=use_desc,
             sqft=sqft, year_built=year_built, building_age_years=age,
-            permit_count=0, service_life_status=None,
-            service_life_basis=(
-                f"No mechanical permit on record since 2010 — original equipment "
-                f"presumed still in place (or replaced without a permit). Age is "
-                f"from year built ({year_built}), NOT permit-verified equipment "
-                f"install date — weaker evidence than the recently_active population."
-                if year_built else
-                "No mechanical permit on record since 2010 and no year-built on file."
-            ),
+            permit_count=0,
+            carb_candidate=carb_use_code is not None, carb_use_code=carb_use_code,
+            ebewe_candidate=ain in ebewe_ains,
+            service_life_status=sl_status, service_life_basis=sl_basis,
+            equipment_age_years=age,
+            estimated_tons_low=tons_low, estimated_tons_high=tons_high, estimated_tons_basis=tons_basis,
             rank_score=rank,
             permit_source_url=PERMITS_PORTAL_URL, assessor_source_url=ASSESSOR_PORTAL_URL,
             built_at=now,
@@ -331,7 +440,11 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
 
     session.commit()
     return {
+        "use_code_match": funnel["use_code_match"],
+        "built_before": funnel["built_before"],
+        "sqft_floor_survivors": funnel["sqft_floor_survivors"],
         "commercial_parcels_scanned": len(parcels),
         "already_permitted_excluded": len(parcels) - candidates,
         "replacement_candidates": candidates,
+        "use_codes": use_codes, "min_sqft": min_sqft, "year_built_before": year_built_before,
     }

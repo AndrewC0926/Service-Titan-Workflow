@@ -18,9 +18,12 @@
 <h2 style="font-size:18px">{% if population == 'replacement_candidate' %}Replacement candidates{% else %}Recently active buildings{% endif %} — {{ county }}</h2>
 <p class="dim">DMG Scout — generated {{ generated_at.strftime('%Y-%m-%d %H:%M') }}Z.
 {%- if population == 'replacement_candidate' %}
-Commercial buildings with NO mechanical permit on record since 2010 — absence is the signal, see
-each row's basis line. No equipment type or regulatory trigger evaluated (no permit text exists to
-read); ranked by building age and size only.
+Commercial/industrial buildings with NO mechanical permit on record since 2010 — absence is the
+signal, see each row's basis line. No equipment type or permit-verified tonnage evaluated (no permit
+text exists to read); service life IS shown, from YearBuilt as an install-year proxy (marked
+YearBuilt-derived — weaker evidence than a permit-verified install date, see basis). Tonnage is a
+wide sqft-derived estimate, not a mined figure. Filtered to service-life status: {{ min_status }} or
+worse.
 {%- else %}
 Filtered to service-life status: {{ min_status }} or worse.
 {%- endif %}
@@ -30,7 +33,13 @@ data (square footage, year built, use code). No owner name or mailing address �
 bulk source of that exists for LA County; this is a call list built from public equipment and
 building records, not a mailing list. Service life is scored under private_commercial ownership
 (the default, longest cycle) because actual ownership type could not be determined — see each row's
-basis line.</p>
+basis line.
+{%- if population == 'replacement_candidate' %}
+<br><strong>Absence is an inference, not proof.</strong> Expected error skews toward false
+positives: like-for-like swaps don't always pull a permit, and the permit↔parcel address/APN join
+is imperfect, so some rows below have already been serviced. Qualify by phone before quoting.
+{%- endif %}
+</p>
 
 <table class="tbl" style="width:100%">
 <thead><tr>
@@ -51,21 +60,19 @@ basis line.</p>
       {{ b.equipment_type.replace('_',' ') }}
       {%- if b.mined_equipment_count %} ×{{ b.mined_equipment_count }}{% endif -%}
       {%- if b.mined_tons_each %} @ {{ b.mined_tons_each|int }}t{% endif -%}
+    {%- elif b.population == 'replacement_candidate' and b.estimated_tons_low -%}
+      unspecified (~{{ b.estimated_tons_low|int }}-{{ b.estimated_tons_high|int }}t est.)
     {%- else -%}unspecified{%- endif -%}
   </td>
   <td>
-    {%- if b.population == 'replacement_candidate' -%}
-      {{ b.building_age_years|int if b.building_age_years else '?' }}yr since built
-    {%- else -%}
-      {{ b.service_life_status.replace('_',' ') if b.service_life_status else '—' }}
-      {%- if b.equipment_age_years %} ({{ b.equipment_age_years|int }}yr old){% endif -%}
-    {%- endif -%}
+    {{ b.service_life_status.replace('_',' ') if b.service_life_status else '—' }}
+    {%- if b.equipment_age_years %} ({{ b.equipment_age_years|int }}yr{% if b.population == 'replacement_candidate' %}, YearBuilt-derived{% endif %}){% endif -%}
   </td>
   <td>
     {%- if b.sb1206_trigger_status -%}SB 1206 ({{ b.sb1206_trigger_status }}){% endif -%}
     {%- if b.carb_candidate %}{% if b.sb1206_trigger_status %}, {% endif %}CARB RMP candidate{% endif -%}
     {%- if b.ebewe_candidate %}{% if b.sb1206_trigger_status or b.carb_candidate %}, {% endif %}LA EBEWE candidate{% endif -%}
-    {%- if not b.sb1206_trigger_status and not b.carb_candidate and not b.ebewe_candidate %}—{% endif -%}
+    {%- if not b.sb1206_trigger_status and not b.carb_candidate and not b.ebewe_candidate %}{% if b.population == 'replacement_candidate' %}none (SB 1206 n/a pre-2010){% else %}—{% endif %}{% endif -%}
   </td>
   <td class="note" style="font-size:9.5pt">
     {{ b.service_life_basis or (b.permit_count|string + ' permit(s) on file, equipment type not confidently identified from permit text') }}

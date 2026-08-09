@@ -280,7 +280,7 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
     if county:
         base_q = base_q.where(RetrofitBuilding.county == county)
     STATUS_ORDER = ["overdue", "due", "approaching", "not_due"]
-    if min_status and min_status in STATUS_ORDER and population == "recently_active":
+    if min_status and min_status in STATUS_ORDER:
         base_q = base_q.where(RetrofitBuilding.service_life_status.in_(
             STATUS_ORDER[:STATUS_ORDER.index(min_status) + 1]))
 
@@ -311,15 +311,16 @@ def retrofit_report(request: Request, county: str = None, min_status: str = "due
                     population: str = "replacement_candidate",
                     session: Session = Depends(get_session), _: str = Depends(auth)):
     """Printable per-territory retrofit list, with the regulations forcing
-    replacement (recently_active rows only, since candidates have none
-    evaluated — no permit means no equipment type to evaluate against) and
-    every figure's basis. Hand this to a service contractor — every fact
-    traces to a public record."""
+    replacement and every figure's basis. replacement_candidate rows carry
+    a YearBuilt-derived service life (weaker evidence, disclosed as such in
+    each row's basis line) rather than the permit-verified figure
+    recently_active rows carry. Hand this to a service contractor — every
+    fact traces to a public record."""
     q = select(RetrofitBuilding).where(RetrofitBuilding.population == population)
     if county:
         q = q.where(RetrofitBuilding.county == county)
     STATUS_ORDER = ["overdue", "due", "approaching", "not_due"]
-    if min_status in STATUS_ORDER and population == "recently_active":
+    if min_status in STATUS_ORDER:
         q = q.where(RetrofitBuilding.service_life_status.in_(
             STATUS_ORDER[:STATUS_ORDER.index(min_status) + 1]))
     buildings = session.exec(

@@ -453,23 +453,62 @@ def build_retrofit_buildings_cmd() -> None:
 
 @app.command("find-replacement-candidates")
 def find_replacement_candidates_cmd(
-    year_built_before: int = typer.Option(2010, help="Commercial parcels built before this year"),
+    year_built_before: int = typer.Option(2010, help="Parcels built before this year"),
+    use_codes: str = typer.Option(None, help="Comma-separated UseCodeDescChar1 values "
+                                              "(default: config.yaml retrofit.candidate_use_codes)"),
+    min_sqft: float = typer.Option(None, help="Sqft floor (default: config.yaml retrofit.candidate_min_sqft)"),
+    top: int = typer.Option(50, help="Rows to print in the gate report"),
 ) -> None:
-    """The ABSENCE query (population="replacement_candidate"): commercial
-    parcels built before the given year with NO mechanical permit on
-    record at all across the full permit window. This is the real
-    retrofit-opportunity population — a permit means someone already
-    replaced; absence means original equipment or an unpermitted swap,
-    either way a live candidate. Run `scout fetch-permits --window all`
-    first for full 2010-present permit coverage. See app/pipeline/retrofit.py."""
+    """The ABSENCE query (population="replacement_candidate"): commercial/
+    industrial parcels built before the given year, at or above the sqft
+    floor, with NO mechanical permit on record at all across the full
+    permit window. This is the real retrofit-opportunity population — a
+    permit means someone already replaced; absence means original equipment
+    or an unpermitted swap, either way a live candidate, though absence is
+    an inference, not proof (see find_replacement_candidates' docstring for
+    the expected false-positive direction). Run `scout fetch-permits
+    --window all` first for full 2010-present permit coverage. See
+    app/pipeline/retrofit.py."""
     from app.http import PoliteClient
     from app.pipeline.retrofit import find_replacement_candidates
+    codes = [c.strip() for c in use_codes.split(",")] if use_codes else None
+    from sqlmodel import select
+    from app.models import RetrofitBuilding
     with session_scope() as session, PoliteClient() as client:
         stats = find_replacement_candidates(session, load_config(), client,
-                                            year_built_before=year_built_before)
-    typer.echo(f"{stats['commercial_parcels_scanned']} commercial parcels built before {year_built_before}")
-    typer.echo(f"{stats['already_permitted_excluded']} already have a permit on record (excluded)")
-    typer.echo(f"{stats['replacement_candidates']} replacement candidates — the real opportunity size")
+                                            year_built_before=year_built_before,
+                                            use_codes=codes, min_sqft=min_sqft)
+
+        typer.echo(f"Filter chain (built before {stats['year_built_before']}, "
+                   f"use codes {stats['use_codes']}, sqft >= {stats['min_sqft'] or 0:,.0f}):")
+        typer.echo(f"  {stats['use_code_match']:>8,}  use-code match")
+        typer.echo(f"  {stats['built_before']:>8,}  + built before {stats['year_built_before']}")
+        typer.echo(f"  {stats['sqft_floor_survivors']:>8,}  + sqft floor")
+        typer.echo(f"  {stats['commercial_parcels_scanned']:>8,}  scanned (fetch may cap pages — see max_pages)")
+        typer.echo(f"  {stats['already_permitted_excluded']:>8,}  - already permitted (excluded)")
+        typer.echo(f"  {stats['replacement_candidates']:>8,}  = replacement candidates — the real opportunity size")
+
+        ranked = session.exec(
+            select(RetrofitBuilding)
+            .where(RetrofitBuilding.population == "replacement_candidate")
+            .order_by(RetrofitBuilding.rank_score.desc().nulls_last())
+            .limit(top)
+        ).all()
+        typer.echo(f"\nTop {len(ranked)} ranked (age past service life, size, regulatory proximity — tiered, "
+                   f"see rank_buildings). Absence is an inference, not proof — see the docstring/board for the "
+                   f"expected false-positive direction:")
+        for i, b in enumerate(ranked, 1):
+            tons = (f"{b.estimated_tons_low:.0f}-{b.estimated_tons_high:.0f}t est."
+                   if b.estimated_tons_low else "tonnage n/a")
+            status = f"{b.service_life_status or 'unknown'}" + (f" ({b.equipment_age_years:.0f}yr)" if b.equipment_age_years else "")
+            regs = ", ".join(r for r in [
+                "SB1206" if b.sb1206_trigger_status else None,
+                f"CARB({b.carb_use_code})" if b.carb_candidate else None,
+                "EBEWE" if b.ebewe_candidate else None,
+            ] if r) or "none"
+            addr = b.address or f"APN {b.apn}"
+            typer.echo(f"  {i:>3}. {addr[:45]:<45} built {b.year_built or '?'} | {tons:<14} | "
+                       f"{status:<20} | {regs}")
 
 
 @app.command("fetch-assessor-candidates")

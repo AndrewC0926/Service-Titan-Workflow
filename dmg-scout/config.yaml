@@ -734,6 +734,26 @@ replacement:
           cooling_tower:         {low: 15, high: 18}
           vav_terminal:          {low: 15, high: 18}
 
+retrofit:
+  # find_replacement_candidates() filter chain -- see app/pipeline/retrofit.py.
+  # 95,963 raw absence-based candidates is not a call list; these narrow it to
+  # buildings actually worth a rep's time before ranking.
+  candidate_use_codes: ["Commercial", "Industrial"]  # UseCodeDescChar1 values, LA County assessor
+  # Below this, a rooftop-unit swap is a homeowner-scale job, not the
+  # multi-ton commercial system this system is built to find. A heuristic,
+  # not a measured cutoff -- tune against reported funnel counts.
+  candidate_min_sqft: 5000
+
+  # Rule-of-thumb sqft-per-ton comfort-cooling load, keyed by UseCodeDescChar1.
+  # NOT ASHRAE, NOT a measurement of any specific building -- industry-standard
+  # ballpark ranges (commercial ~300-500 sqft/ton; industrial/warehouse space
+  # is far less dense, same reasoning as sizing.py's fulfillment-center band).
+  # Every use of this MUST disclose it as an estimate, never presented next to
+  # mined_tons_each (permit-verified) as if the two were the same kind of number.
+  candidate_sqft_per_ton:
+    Commercial: {low: 300, high: 500}
+    Industrial: {low: 1000, high: 2500}
+
 scoring:
   window_multipliers:
     PRE_BOD: 1.0

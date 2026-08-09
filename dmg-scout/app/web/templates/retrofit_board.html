@@ -23,12 +23,28 @@
 <div class="sec-head">
   <div><div class="sec-title">Replacement candidates — no permit on record, absence is the signal</div></div>
 </div>
-<p class="note mb-2" style="max-width:60rem">Commercial buildings old enough to need replacement with
-  ZERO mechanical permit on file across this system's full permit window. A permit means someone
-  already replaced the equipment; its absence means either the original equipment is still running
-  or it was swapped without a permit — either way, a live candidate. No equipment type, tonnage, or
-  regulatory trigger is evaluated here (no permit text to read) — ranked by building age and size
-  only, weaker evidence than the recently-active population, disclosed as such below.</p>
+<p class="note mb-2" style="max-width:60rem">Commercial/industrial buildings old enough to need
+  replacement with ZERO mechanical permit on file across this system's full permit window, above
+  the sqft floor. A permit means someone already replaced the equipment; its absence means either
+  the original equipment is still running or it was swapped without a permit — either way, a live
+  candidate. No equipment TYPE, no permit-verified tonnage: neither can be known without a permit's
+  work description. Service life IS shown, computed from YearBuilt as an install-year proxy (marked
+  YearBuilt-derived, never presented as the permit-verified figure recently-active rows carry);
+  tonnage is a wide sqft-derived estimate, not a mined figure. CARB/EBEWE candidacy comes from
+  assessor use code alone and applies here the same as the recently-active population; SB 1206 never
+  fires here structurally (it needs an install year inside R-410A's post-2010 window, and this whole
+  population is built before 2010).</p>
+<div class="callout callout-warn">
+  <strong>Absence is an inference, not proof — read this before calling anyone</strong>
+  <span class="body">The expected error here skews toward FALSE POSITIVES, not false negatives:
+    a like-for-like equipment swap doesn't always require a permit, so a real replacement can still
+    show up on this list as "no permit on record." The permit↔parcel address/APN join is also
+    imperfect — a permit filed under a slightly different or mismatched APN can make an already-
+    serviced building look untouched. Treat this list as an upper-bound opportunity population to
+    qualify by phone, not a confirmed one. Service-life status on these rows is a YearBuilt proxy,
+    not a permit-verified install date — actual equipment could be older (original, never replaced)
+    or younger (replaced without a permit) than shown.</span>
+</div>
 {% else %}
 <div class="sec-head">
   <div><div class="sec-title">Recently active — market &amp; contractor intelligence, not a call list</div></div>
@@ -51,13 +67,11 @@
 
 <div class="kv mb-3">
   <div><div class="k">Buildings{% if summary.n > summary.shown %} (total){% endif %}</div><div class="v">{{ '{:,}'.format(summary.n) }}</div></div>
-  {% if population == 'recently_active' %}
   <div><div class="k">Overdue</div><div class="v">{{ summary.overdue }}</div></div>
   <div><div class="k">Due</div><div class="v">{{ summary.due }}</div></div>
-  <div><div class="k">SB 1206</div><div class="v">{{ summary.sb1206 }}</div></div>
+  <div><div class="k">SB 1206</div><div class="v">{{ summary.sb1206 if population == 'recently_active' else 'n/a — pre-2010' }}</div></div>
   <div><div class="k">CARB candidate</div><div class="v">{{ summary.carb }}</div></div>
   <div><div class="k">EBEWE candidate</div><div class="v">{{ summary.ebewe }}</div></div>
-  {% endif %}
 </div>
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
@@ -66,12 +80,10 @@
      class="chip" aria-pressed="{{ 'true' if county == c else 'false' }}">{{ c }}</a>
   {% endfor %}
   <a href="/retrofit?population={{ population }}{% if min_status %}&min_status={{ min_status }}{% endif %}" class="chip" aria-pressed="{{ 'true' if not county else 'false' }}">All counties</a>
-  {% if population == 'recently_active' %}
   <span class="note ml-1">|</span>
   {% for key, label in [('overdue','Overdue only'), ('due','Due+'), ('approaching','Approaching+'), ('', 'All statuses')] %}
   <a href="/retrofit?population={{ population }}&{% if county %}county={{ county }}&{% endif %}min_status={{ key }}" class="chip" aria-pressed="{{ 'true' if min_status == key else 'false' }}">{{ label }}</a>
   {% endfor %}
-  {% endif %}
   {% if county %}
   <a href="/retrofit/report?population={{ population }}&county={{ county }}" class="chip ml-1">🖨 Printable contractor report ↗</a>
   {% endif %}
@@ -89,7 +101,7 @@
   <th class="num">Sq ft</th>
   <th class="num">Built</th>
   <th>Equipment</th>
-  <th>{% if population == 'replacement_candidate' %}Building age{% else %}Service life{% endif %}</th>
+  <th>Service life</th>
   <th>Regulations</th>
   <th class="num">Score</th>
   <th>Basis</th>
@@ -112,14 +124,15 @@
       {%- if b.mined_tons_each %} @ {{ b.mined_tons_each|int }}t{% endif -%}
     {%- elif b.population == 'replacement_candidate' -%}
       <span class="note">unknown — no permit on file</span>
+      {%- if b.estimated_tons_low %}<br><span class="note" title="{{ b.estimated_tons_basis }}">~{{ b.estimated_tons_low|int }}-{{ b.estimated_tons_high|int }}t est.</span>{% endif -%}
     {%- else -%}<span class="note">unspecified (permit text)</span>{%- endif -%}
   </td>
   <td>
-    {%- if b.population == 'replacement_candidate' -%}
-      <span class="stamp stamp-quiet" title="{{ b.service_life_basis }}">{{ b.building_age_years|int if b.building_age_years else '?' }}yr since built</span>
-    {%- elif b.service_life_status -%}
+    {%- if b.service_life_status -%}
       <span class="stamp {{ 'stamp-post' if b.service_life_status in ('overdue','due') else 'stamp-in' if b.service_life_status == 'approaching' else 'stamp-pre' }}"
-            title="{{ b.service_life_basis }}">{{ b.service_life_status.replace('_',' ') }} ({{ b.equipment_age_years|int }}yr)</span>
+            title="{{ b.service_life_basis }}">{% if b.population == 'replacement_candidate' %}~{% endif %}{{ b.service_life_status.replace('_',' ') }} ({{ b.equipment_age_years|int if b.equipment_age_years else '?' }}yr{% if b.population == 'replacement_candidate' %}, YearBuilt-derived{% endif %})</span>
+    {%- elif b.population == 'replacement_candidate' -%}
+      <span class="note">no year built on file</span>
     {%- else -%}<span class="note">unknown equipment type</span>{%- endif -%}
   </td>
   <td class="nowrap">
@@ -128,7 +141,7 @@
     {%- endif -%}
     {%- if b.carb_candidate -%}<span class="note">CARB candidate ({{ b.carb_use_code }})</span><br>{%- endif -%}
     {%- if b.ebewe_candidate -%}<span class="note">EBEWE candidate</span>{%- endif -%}
-    {%- if not b.sb1206_trigger_status and not b.carb_candidate and not b.ebewe_candidate -%}<span class="note">{% if b.population == 'replacement_candidate' %}not evaluated — no permit text{% else %}—{% endif %}</span>{%- endif -%}
+    {%- if not b.sb1206_trigger_status and not b.carb_candidate and not b.ebewe_candidate -%}<span class="note">{% if b.population == 'replacement_candidate' %}none (SB 1206 n/a — pre-2010 built){% else %}—{% endif %}</span>{%- endif -%}
   </td>
   <td class="num">
     <span class="score">

@@ -865,14 +865,18 @@ class RetrofitBuilding(SQLModel, table=True):
 
     # recently_active: has mechanical-permit evidence (2010-present) --
     # equipment_type/service_life_status below are permit-verified.
-    # replacement_candidate: a commercial parcel built before the permit
-    # window with NO permit on record at all -- absence is the signal here
-    # (see app/pipeline/retrofit.py:find_replacement_candidates): either the
-    # original equipment is still in place, or it was replaced without a
-    # permit. Either way, no permit means no equipment TYPE evidence, so
-    # service_life_status stays null for these rows on principle -- ranked
-    # by building_age_years (from year_built) instead, which is weaker,
-    # disclosed evidence, not silently presented as equipment age.
+    # replacement_candidate: a commercial/industrial parcel built before the
+    # permit window with NO permit on record at all -- absence is the
+    # signal here (see app/pipeline/retrofit.py:find_replacement_candidates):
+    # either the original equipment is still in place, or it was replaced
+    # without a permit. No permit means no equipment TYPE evidence, so
+    # equipment_type/mined_tons_each/sb1206 stay null for these rows on
+    # principle. service_life_status IS computed for them, from
+    # building_age_years (YearBuilt) as an install-year proxy under the
+    # generic (equipment-unspecified) ownership-branched table -- see
+    # app/replacement.py:generic_service_life. Its basis string is always
+    # prefixed YEARBUILT-DERIVED so it can never be mistaken for the
+    # permit-verified figure recently_active rows carry.
     population: str = Field(default="recently_active", index=True)
     building_age_years: float | None = None
 
@@ -894,6 +898,16 @@ class RetrofitBuilding(SQLModel, table=True):
     mined_tons_each: float | None = None
     mined_equipment_count: int | None = None
     inferred_refrigerant: str | None = None
+
+    # replacement_candidate only: a sqft-derived tonnage BAND (never a point
+    # figure), industry rule-of-thumb sqft/ton by use code -- see
+    # app/pipeline/retrofit.py:estimate_tonnage and config.yaml's
+    # retrofit.candidate_sqft_per_ton. NOT permit-verified, must never be
+    # confused with mined_tons_each above; null when use_desc has no
+    # configured band rather than guessed.
+    estimated_tons_low: float | None = None
+    estimated_tons_high: float | None = None
+    estimated_tons_basis: str | None = None
 
     # Which regulations fire on this building (evaluated at build time
     # against config.yaml's verified regulatory_triggers)
