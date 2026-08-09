@@ -86,11 +86,22 @@
 
 <table class="tbl">
 {# Widths declared once. See .tbl in app.css for why this is not left to auto. #}
+{# 12 columns declared below, one <col> per <th> in the row beneath --
+   keep these two counts equal. table-layout:fixed (see .tbl in app.css)
+   sizes EVERY column from this colgroup alone, never from cell content, so
+   a column with no <col> of its own gets no reserved box at all -- its
+   content then renders with zero allocated width and visually overlaps
+   the next column instead of wrapping or scrolling. That is the exact bug
+   this comment exists to stop someone from reintroducing: this table
+   previously shipped with 11 <col> for 12 <th> (Who to call had none),
+   and the two rightmost columns silently overlapped at any viewport
+   narrow enough to expose it. Verify with a real count, not a glance --
+   see tests/test_board_layout.py. #}
 <colgroup>
   <col style="width:2.6rem"><col style="width:18rem"><col style="width:11rem">
   <col style="width:8.5rem"><col style="width:9rem"><col style="width:6rem">
   <col style="width:5.5rem"><col style="width:6.5rem"><col style="width:9.5rem">
-  <col style="width:4.5rem"><col>
+  <col style="width:4.5rem"><col style="width:5rem"><col>
 </colgroup>
 <thead><tr>
   <th class="num">#</th>

@@ -90,10 +90,17 @@
 </div>
 
 <table class="tbl">
+{# 9 columns, one <col> per <th> below -- keep the two counts equal. See
+   tests/test_table_layout.py, which checks this statically, and its
+   docstring for why an under-declared colgroup silently overlaps columns
+   under table-layout:fixed instead of erroring. Service life is widened
+   past its neighbors' width on purpose: its badge text (status + years-
+   past + age) is the longest fixed-format content in this table and
+   overflowed into Regulations/Score at the old 9rem. #}
 <colgroup>
   <col style="width:2.6rem"><col style="width:18rem"><col style="width:8rem">
-  <col style="width:7rem"><col style="width:8rem"><col style="width:9rem">
-  <col style="width:10rem"><col style="width:9rem"><col>
+  <col style="width:7rem"><col style="width:8rem"><col style="width:12rem">
+  <col style="width:9rem"><col style="width:9rem"><col>
 </colgroup>
 <thead><tr>
   <th class="num">#</th>
@@ -117,7 +124,11 @@
   </td>
   <td class="num nowrap">{{ '{:,.0f}'.format(b.sqft) if b.sqft else '—' }}</td>
   <td class="num nowrap">{{ b.year_built or '—' }}</td>
-  <td class="nowrap">
+  {# NOT nowrap: "unknown — no permit on file" is longer than the fixed
+     column width, and forcing it onto one line (measured: this is what
+     was overflowing into Service life) is worse than letting it wrap --
+     equipment_type alone is short enough to rarely wrap in practice. #}
+  <td>
     {%- if b.equipment_type -%}
       {{ b.equipment_type.replace('_',' ') }}
       {%- if b.mined_equipment_count %} ×{{ b.mined_equipment_count }}{% endif -%}
@@ -129,8 +140,15 @@
   </td>
   <td>
     {%- if b.service_life_status -%}
+      {# Full explanation (magnitude, YearBuilt-derived disclosure, basis)
+         lives in the title tooltip -- the visible badge is kept short on
+         purpose so it fits the fixed-width column instead of overflowing
+         into Regulations/Score, which a longer badge here (measured: it
+         used to spell out "vs. window" and "YearBuilt-derived" inline)
+         actually did. The "~" prefix already signals "derived, not
+         permit-verified"; the tooltip carries the rest. #}
       <span class="stamp {{ 'stamp-post' if b.service_life_status in ('overdue','due') else 'stamp-in' if b.service_life_status == 'approaching' else 'stamp-pre' }}"
-            title="{{ b.service_life_basis }}">{% if b.population == 'replacement_candidate' %}~{% endif %}{{ b.service_life_status.replace('_',' ') }}{% if b.service_life_years_past is not none %} ({{ '%+.0f'|format(b.service_life_years_past) }}yr vs. window){% endif %} ({{ b.equipment_age_years|int if b.equipment_age_years else '?' }}yr{% if b.population == 'replacement_candidate' %}, YearBuilt-derived{% endif %})</span>
+            title="{{ b.service_life_basis }}">{% if b.population == 'replacement_candidate' %}~{% endif %}{{ b.service_life_status.replace('_',' ') }}{% if b.service_life_years_past is not none %} {{ '%+.0f'|format(b.service_life_years_past) }}yr{% endif %} ({{ b.equipment_age_years|int if b.equipment_age_years else '?' }}yr)</span>
     {%- elif b.population == 'replacement_candidate' -%}
       <span class="note">no year built on file</span>
     {%- else -%}<span class="note">unknown equipment type</span>{%- endif -%}
