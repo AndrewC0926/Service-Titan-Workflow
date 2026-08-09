@@ -54,6 +54,53 @@ def infer_equipment_type(work_desc: str) -> str | None:
     return None
 
 
+# Street-suffix and directional normalization for normalize_address() below.
+# Canonical form is the short one (ST not STREET, N not NORTH) since that's
+# what LADBS permit addresses already use natively.
+_ADDR_SUFFIX_MAP = {
+    "STREET": "ST", "AVENUE": "AVE", "BOULEVARD": "BLVD", "DRIVE": "DR",
+    "PARKWAY": "PKWY", "PLACE": "PL", "ROAD": "RD", "COURT": "CT", "LANE": "LN",
+    "HIGHWAY": "HWY", "CIRCLE": "CIR", "TERRACE": "TER", "SQUARE": "SQ",
+}
+_ADDR_DIR_MAP = {"NORTH": "N", "SOUTH": "S", "EAST": "E", "WEST": "W"}
+_ADDR_SUFFIX_TOKENS = frozenset(_ADDR_SUFFIX_MAP.values()) | {"WAY"}
+
+
+def normalize_address(addr: str | None) -> str | None:
+    """Street number + directional + street name + suffix, nothing past
+    that -- used to match a candidate parcel's assessor address against a
+    permit's address when the permit's APN can't be used for the join (see
+    find_replacement_candidates: 27% of all permits carry a privacy-masked
+    or missing APN and are otherwise invisible to the exclusion check).
+
+    Truncates at the first recognized street-suffix token rather than
+    trying to strip a suite/unit/floor suffix by keyword: sampled real
+    LADBS permit addresses (2026-08-09) format a trailing unit as a bare
+    token with no keyword at all -- "700 S MAIN ST 14", "6930 N DE CELIS PL
+    UNIT 4", "215 S SANTA FE AVE NO     8" -- so a keyword-based strip
+    (SUITE/UNIT/#) misses the bare-number case entirely. Truncating after
+    the suffix token catches all of them the same way, and as a side
+    effect also drops any trailing city/state/zip a caller's address
+    string carries (assessor addresses do; permit addresses don't) without
+    needing to know which format it's in.
+
+    An address with no recognized suffix token is returned unchanged
+    (uppercased/whitespace-normalized) rather than guessed at.
+    """
+    if not addr:
+        return None
+    tokens = addr.upper().replace(",", " ").split()
+    if not tokens:
+        return None
+    tokens = [_ADDR_DIR_MAP.get(t, t) for t in tokens]
+    tokens = [_ADDR_SUFFIX_MAP.get(t, t) for t in tokens]
+    for i, t in enumerate(tokens):
+        if t in _ADDR_SUFFIX_TOKENS:
+            tokens = tokens[:i + 1]
+            break
+    return " ".join(tokens) or None
+
+
 def fetch_parcel_characteristics(client: PoliteClient, ains: list[str],
                                  roll_year: str = "2025", batch_size: int = 50) -> dict[str, dict]:
     """AIN -> {use_code, use_desc, sqft, year_built, address} for exactly the
@@ -93,7 +140,7 @@ def fetch_parcel_characteristics(client: PoliteClient, ains: list[str],
 
 def rank_buildings(*, service_life_status: str | None, sqft: float | None,
                    sb1206_trigger_status: str | None, ebewe_candidate: bool,
-                   carb_candidate: bool) -> float:
+                   carb_candidate: bool, service_life_years_past: float | None = None) -> float:
     """Hierarchy first, composite within tier — the same fix ladder.py's
     reachability-first sort applies to contacts, applied here to buildings.
 
@@ -108,12 +155,44 @@ def rank_buildings(*, service_life_status: str | None, sqft: float | None,
     So service life status is now a TIER, not a weighted term: every overdue
     building scores strictly higher than every due building, which scores
     strictly higher than every approaching building, and so on, regardless
-    of size. Size and regulatory proximity only break ties WITHIN a tier —
-    among buildings equally overdue, the bigger and more regulation-pressed
-    one still sorts first, which is the deal-value/urgency signal the size
-    and regulatory terms were meant to carry in the first place.
+    of size. That discipline stands. But a second failure of the same shape
+    showed up inside the tier: find_replacement_candidates' whole population
+    is built pre-2010, so nearly every row (measured: 95 percent) reads
+    "overdue" — the status stopped discriminating, and with the tier
+    constant across almost the whole population, size (via the old 0.7
+    weight) became the de facto sort while the board labelled it urgency.
+    That is the spillover-weight failure again: a term that looks like
+    signal but is actually just restating the one thing that varies.
+
+    The fix is the same shape as before: promote the thing that actually
+    varies WITHIN the saturated tier. service_life_years_past (age minus the
+    low/"due" threshold — negative before the window, growing through due
+    into overdue, see app/replacement.py) is now the lead term within a
+    tier; size and regulatory proximity are secondary tie-breakers, not the
+    sort key. All three terms are still capped well under 1.0 combined
+    (0.55 + 0.25 + 0.4*0.3=0.12 = 0.92 max), so — same invariant as before —
+    no combination of magnitude, size and regulatory pressure can ever cross
+    a full tier step.
     """
     life_tier = {"overdue": 3, "due": 2, "approaching": 1, "not_due": 0}.get(service_life_status, -1)
+
+    magnitude_factor = 0.0
+    if service_life_years_past is not None:
+        # Capped, not linear: a building 300yr past its service-life window
+        # (a handful of these exist -- almost certainly assessor YearBuilt
+        # data errors, e.g. "1806") shouldn't infinitely outrank a merely
+        # 90yr-overdue one. The cap is set from the observed distribution,
+        # not a round number picked in the abstract: on the replacement-
+        # candidate population (measured 2026-08-09) the 99th percentile of
+        # years-past among overdue rows is ~98 -- a 60yr cap saturated
+        # magnitude for most of the top-ranked (biggest, oldest) buildings,
+        # handing the sort back to size exactly at the top of the list,
+        # which is the one failure mode issue #1 was raised to fix. 100yr
+        # keeps the gradient live across the range that actually populates
+        # a top-50, and still caps the handful of 150-300yr data-error rows
+        # at parity with a genuinely ~100yr-overdue building instead of
+        # letting them tower over everything.
+        magnitude_factor = max(0.0, min(1.0, service_life_years_past / 100.0))
 
     size_factor = 0.0
     if sqft and sqft > 0:
@@ -130,9 +209,7 @@ def rank_buildings(*, service_life_status: str | None, sqft: float | None,
     if carb_candidate:
         reg_weight = max(reg_weight, 0.1)
 
-    # size_factor and reg_weight are each capped well under 1.0 combined, so
-    # they can only ever break ties WITHIN a tier, never cross one.
-    within_tier = round(size_factor * 0.7 + reg_weight, 4)
+    within_tier = round(magnitude_factor * 0.55 + size_factor * 0.25 + reg_weight * 0.4, 4)
     return round(life_tier + within_tier, 4)
 
 
@@ -184,13 +261,14 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
         sb1206 = sb1206_status(cfg, install_year)
 
         age_years = None
-        sl_status, sl_basis = None, None
+        sl_status, sl_basis, years_past = None, None, None
         if latest.issue_date:
             age_years = round((now - latest.issue_date).days / 365.25, 1)
             if equipment_type:
                 try:
                     sl = service_life(cfg, equipment_type, ownership=None)  # None -> default_ownership
                     sl_status = sl.status(age_years)
+                    years_past = round(age_years - sl.low, 1)
                     sl_basis = (f"{age_years:.0f}yr old {equipment_type.replace('_', ' ')}; "
                                f"expected life {sl.low}-{sl.high}yr under {sl.ownership} "
                                f"ownership (default — no owner data available) "
@@ -203,6 +281,7 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
             service_life_status=sl_status, sqft=chars.get("sqft"),
             sb1206_trigger_status=sb1206["status"] if sb1206 else None,
             ebewe_candidate=apn in ebewe_ains, carb_candidate=carb_use_code is not None,
+            service_life_years_past=years_past,
         )
 
         session.add(RetrofitBuilding(
@@ -219,6 +298,7 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
             carb_candidate=carb_use_code is not None, carb_use_code=carb_use_code,
             ebewe_candidate=apn in ebewe_ains,
             service_life_status=sl_status, service_life_basis=sl_basis,
+            service_life_years_past=years_past,
             equipment_age_years=age_years, rank_score=rank,
             permit_source_url=PERMITS_PORTAL_URL, assessor_source_url=ASSESSOR_PORTAL_URL,
             built_at=now,
@@ -346,6 +426,19 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
     Treat this list as upper-bound opportunity, not a confirmed one; every
     row and the board itself say so.
 
+    Measured 2026-08-09: 27 percent of ALL permits (4,631 of 17,010) carry
+    a privacy-masked or missing APN and are invisible to the APN-exact
+    exclusion above -- a hand audit of the (then-)top 50 found a real hit
+    this way (a permitted building excluded from the exclusion, not the
+    opportunity list). Every such permit's address IS usable, just not its
+    APN, so those permits get a second, address-normalized exclusion pass
+    (normalize_address()) -- exact-match only, not fuzzy: an automated
+    exclusion needs to be a deterministic join, same reasoning
+    docs/CHARTER.md gives structured Pipeline B for not using an LLM where
+    a join will do. Fuzzy/partial address similarity stays a human-review
+    tool (see the hand-verification workflow), not something that silently
+    drops a row from the opportunity list on a guess.
+
     No equipment type, no permit-verified tonnage, no permit-sourced SB 1206
     read: none of that can be known without a permit's work-description
     text. service_life_status IS computed here (YearBuilt as an install-year
@@ -366,8 +459,15 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
     funnel = funnel_counts(client, use_codes=use_codes, year_built_before=year_built_before, min_sqft=min_sqft)
     parcels = _fetch_candidate_parcels(client, use_codes=use_codes, year_built_before=year_built_before,
                                        min_sqft=min_sqft)
-    permitted_apns = {
-        a for a in session.exec(select(EquipmentPermit.apn)).all() if a and "*" not in a
+    all_permits = session.exec(select(EquipmentPermit.apn, EquipmentPermit.address)).all()
+    permitted_apns = {apn for apn, _addr in all_permits if apn and "*" not in apn}
+    # Permits whose APN can't be used for the join at all (masked or
+    # missing) -- their address is the only usable evidence, so it gets its
+    # own exclusion set. See the ABSENCE-query docstring above.
+    unmatched_apn_addresses = {
+        norm for apn, addr in all_permits
+        if not apn or "*" in apn
+        for norm in [normalize_address(addr)] if norm
     }
 
     ains = [a["AIN"] for a in parcels if a.get("AIN")]
@@ -384,19 +484,28 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
     session.exec(delete(RetrofitBuilding).where(RetrofitBuilding.population == "replacement_candidate"))
 
     candidates = 0
+    apn_excluded = 0
+    address_excluded = 0
     for attrs in parcels:
         ain = attrs.get("AIN")
-        if not ain or ain in permitted_apns:
+        if not ain:
+            continue
+        if ain in permitted_apns:
+            apn_excluded += 1
+            continue
+        if normalize_address(attrs.get("PropertyLocation")) in unmatched_apn_addresses:
+            address_excluded += 1
             continue
         year_built = int(attrs["YearBuilt"]) if str(attrs.get("YearBuilt", "")).isdigit() else None
         age = round(now.year - year_built, 1) if year_built else None
         sqft = attrs.get("SQFTmain")
         use_desc = attrs.get("UseCodeDescChar1")
 
-        sl_status, sl_basis = None, None
+        sl_status, sl_basis, years_past = None, None, None
         if age is not None:
             gsl = generic_service_life(cfg, ownership=None)  # None -> default_ownership
             sl_status = gsl.status(age)
+            years_past = round(age - gsl.low, 1)
             sl_basis = (
                 f"YEARBUILT-DERIVED (not permit-verified): {age:.0f}yr since built "
                 f"({year_built}); no mechanical permit on record since 2010, so actual "
@@ -419,6 +528,7 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
             service_life_status=sl_status, sqft=sqft,
             sb1206_trigger_status=None,
             ebewe_candidate=ain in ebewe_ains, carb_candidate=carb_use_code is not None,
+            service_life_years_past=years_past,
         )
 
         session.add(RetrofitBuilding(
@@ -430,6 +540,7 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
             carb_candidate=carb_use_code is not None, carb_use_code=carb_use_code,
             ebewe_candidate=ain in ebewe_ains,
             service_life_status=sl_status, service_life_basis=sl_basis,
+            service_life_years_past=years_past,
             equipment_age_years=age,
             estimated_tons_low=tons_low, estimated_tons_high=tons_high, estimated_tons_basis=tons_basis,
             rank_score=rank,
@@ -444,7 +555,8 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
         "built_before": funnel["built_before"],
         "sqft_floor_survivors": funnel["sqft_floor_survivors"],
         "commercial_parcels_scanned": len(parcels),
-        "already_permitted_excluded": len(parcels) - candidates,
+        "already_permitted_excluded": apn_excluded,
+        "masked_or_null_apn_address_excluded": address_excluded,
         "replacement_candidates": candidates,
         "use_codes": use_codes, "min_sqft": min_sqft, "year_built_before": year_built_before,
     }

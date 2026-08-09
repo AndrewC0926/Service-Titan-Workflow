@@ -925,6 +925,15 @@ class RetrofitBuilding(SQLModel, table=True):
     service_life_status: str | None = Field(default=None, index=True)  # not_due | approaching | due | overdue
     service_life_basis: str | None = None
     equipment_age_years: float | None = None
+    # age_years minus the service-life LOW threshold: negative before the
+    # window, 0 right at "due", growing through due into overdue. status
+    # alone is a 4-value tier that saturates hard on populations built to
+    # skew old (measured: 95% "overdue" on replacement_candidate) -- this is
+    # the gradient underneath it, persisted (not just a template
+    # computation) so it's the SAME number rank_buildings ranks on and the
+    # board displays, not two versions that can drift. See
+    # app/pipeline/retrofit.py:rank_buildings.
+    service_life_years_past: float | None = None
 
     # A number a rep can sort by, with every input traceable above — see
     # app/pipeline/retrofit.py:rank_buildings for the exact formula.

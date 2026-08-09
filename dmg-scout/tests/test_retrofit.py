@@ -13,7 +13,7 @@ from app.models import AssessorCandidate, EquipmentPermit, RetrofitBuilding
 from app.pipeline.regulatory import infer_refrigerant
 from app.pipeline.retrofit import (
     build_retrofit_buildings, estimate_tonnage, find_replacement_candidates, funnel_counts,
-    infer_equipment_type, rank_buildings,
+    infer_equipment_type, normalize_address, rank_buildings,
 )
 from app.replacement import generic_service_life
 
@@ -22,10 +22,10 @@ def fast_client() -> PoliteClient:
     return PoliteClient(interval=0, max_retries=0, respect_robots=False)
 
 
-def _permit(apn, issue_date, work_desc, permit_nbr=None):
+def _permit(apn, issue_date, work_desc, permit_nbr=None, address="123 Test St"):
     return EquipmentPermit(
         source="la_city_mechanical", permit_nbr=permit_nbr or f"P-{apn}-{issue_date}",
-        apn=apn, address="123 Test St", county="Los Angeles", state="CA",
+        apn=apn, address=address, county="Los Angeles", state="CA",
         permit_type="HVAC", permit_sub_type="Commercial", status_desc="Issued",
         issue_date=issue_date, work_desc=work_desc,
         inferred_refrigerant=infer_refrigerant(issue_date.year)["refrigerant"],
@@ -52,6 +52,33 @@ def test_infer_equipment_type_no_match_is_null_not_guessed():
     assert infer_equipment_type("Wall Heater") is None
     assert infer_equipment_type("") is None
     assert infer_equipment_type(None) is None
+
+
+def test_normalize_address_strips_bare_trailing_unit_number():
+    """Real sampled LADBS permit addresses (2026-08-09) format a trailing
+    unit as a bare token with no SUITE/UNIT/# keyword at all -- a
+    keyword-based strip would miss these entirely."""
+    assert normalize_address("700 S MAIN ST 14") == "700 S MAIN ST"
+    assert normalize_address("6930 N DE CELIS PL UNIT 4") == "6930 N DE CELIS PL"
+    assert normalize_address("215 S SANTA FE AVE NO     8") == "215 S SANTA FE AVE"
+    assert normalize_address("700 S MAIN ST 8A & 21A") == "700 S MAIN ST"
+
+
+def test_normalize_address_matches_across_full_and_abbreviated_forms():
+    assert normalize_address("640 South Hill Street") == normalize_address("640 S HILL ST")
+
+
+def test_normalize_address_drops_trailing_city_state_zip():
+    """Assessor/candidate addresses carry city/state/zip; permit addresses
+    don't. Truncating at the street suffix handles both without needing to
+    know which format a given string is in."""
+    assert normalize_address("640 S HILL ST  LOS ANGELES CA  90014") == "640 S HILL ST"
+
+
+def test_normalize_address_no_recognized_suffix_is_unchanged_not_guessed():
+    assert normalize_address("APN 5409015027") == "APN 5409015027"
+    assert normalize_address(None) is None
+    assert normalize_address("") is None
 
 
 def test_rank_buildings_overdue_beats_not_due():
@@ -96,6 +123,78 @@ def test_rank_buildings_size_is_capped():
     reasonable = rank_buildings(service_life_status="not_due", sqft=1_000_000,
                                 sb1206_trigger_status=None, ebewe_candidate=False, carb_candidate=False)
     assert huge - reasonable < 0.05, "log-scaled and capped, not linear"
+
+
+def test_rank_buildings_magnitude_discriminates_within_a_saturated_tier():
+    """The regression this guards: find_replacement_candidates' population
+    is built pre-2010, so ~95% of it reads 'overdue' -- a status that fires
+    on nearly every row is a baseline, not a ranking signal. Within that one
+    tier, a building decades further past its service life must outrank a
+    same-size building barely past it -- magnitude has to be doing real
+    work, not just size."""
+    barely_overdue = rank_buildings(service_life_status="overdue", sqft=50000,
+                                    sb1206_trigger_status=None, ebewe_candidate=False,
+                                    carb_candidate=False, service_life_years_past=1)
+    decades_overdue = rank_buildings(service_life_status="overdue", sqft=50000,
+                                     sb1206_trigger_status=None, ebewe_candidate=False,
+                                     carb_candidate=False, service_life_years_past=80)
+    assert decades_overdue > barely_overdue
+
+
+def test_rank_buildings_magnitude_cap_does_not_saturate_at_the_real_top_of_the_list():
+    """Regression: the first cap (60yr) was picked without checking the
+    data -- on the actual replacement_candidate population the 99th
+    percentile of years-past among overdue rows is ~98, so a 60yr cap
+    saturated magnitude for nearly every top-50 row (most sit 60-104yr
+    past), handing the sort back to size exactly at the top of the list --
+    the same failure the gradient was added to fix, just moved to the tail.
+    Same size, different magnitude within the top-of-list range (80 vs 95)
+    must still produce different scores."""
+    eighty = rank_buildings(service_life_status="overdue", sqft=500000, sb1206_trigger_status=None,
+                            ebewe_candidate=True, carb_candidate=False, service_life_years_past=80)
+    ninety_five = rank_buildings(service_life_status="overdue", sqft=500000, sb1206_trigger_status=None,
+                                 ebewe_candidate=True, carb_candidate=False, service_life_years_past=95)
+    assert ninety_five > eighty
+
+
+def test_rank_buildings_magnitude_leads_size_within_a_tier():
+    """Before this fix, size (weight 0.7) was the only thing that varied
+    once nearly the whole population saturated one tier -- the board was
+    sorting on size while labelling it urgency. Magnitude must now outweigh
+    a size difference within the same tier."""
+    small_but_ancient = rank_buildings(service_life_status="overdue", sqft=5000,
+                                       sb1206_trigger_status=None, ebewe_candidate=False,
+                                       carb_candidate=False, service_life_years_past=80)
+    huge_but_barely_over = rank_buildings(service_life_status="overdue", sqft=2_000_000,
+                                          sb1206_trigger_status="in_effect", ebewe_candidate=True,
+                                          carb_candidate=True, service_life_years_past=1)
+    assert small_but_ancient > huge_but_barely_over
+
+
+def test_rank_buildings_magnitude_still_cannot_cross_a_tier():
+    """Magnitude is a new lead term within a tier, but the original
+    invariant (urgency tier beats any within-tier combination, always)
+    must still hold -- a maximally-magnitude, maximally-regulated 'due'
+    building must not outrank a barely-overdue one."""
+    maxed_out_due = rank_buildings(service_life_status="due", sqft=2_000_000,
+                                   sb1206_trigger_status="in_effect", ebewe_candidate=True,
+                                   carb_candidate=True, service_life_years_past=1000)
+    barely_overdue = rank_buildings(service_life_status="overdue", sqft=1, sb1206_trigger_status=None,
+                                    ebewe_candidate=False, carb_candidate=False, service_life_years_past=0)
+    assert barely_overdue > maxed_out_due
+
+
+def test_rank_buildings_negative_magnitude_is_not_a_penalty():
+    """A building that hasn't reached its service-life window yet has
+    negative years_past -- must floor at zero, not push the score negative
+    and invert ordering against an unknown-magnitude building."""
+    not_due_with_negative_magnitude = rank_buildings(
+        service_life_status="not_due", sqft=50000, sb1206_trigger_status=None,
+        ebewe_candidate=False, carb_candidate=False, service_life_years_past=-30)
+    not_due_no_magnitude_given = rank_buildings(
+        service_life_status="not_due", sqft=50000, sb1206_trigger_status=None,
+        ebewe_candidate=False, carb_candidate=False, service_life_years_past=None)
+    assert not_due_with_negative_magnitude == not_due_no_magnitude_given
 
 
 # --- full pipeline ----------------------------------------------------------
@@ -172,6 +271,10 @@ def test_service_life_uses_default_ownership_when_unknown(db_session, cfg):
     assert row.service_life_status in ("due", "overdue")  # 16yr on a 15-17yr band
     assert "private_commercial" in row.service_life_basis
     assert "no owner data available" in row.service_life_basis
+    # 16yr against a 15-17yr packaged_rooftop band -> 1yr past the low
+    # threshold -- the gradient underneath the tier, persisted, not just
+    # implied by the categorical status.
+    assert row.service_life_years_past == 1.0
 
 
 @respx.mock
@@ -268,6 +371,68 @@ def test_permitted_parcel_excluded_from_candidates(db_session, cfg):
 
 
 @respx.mock
+def test_masked_apn_permit_excludes_by_address(db_session, cfg):
+    """The hole this closes: a permit with a privacy-masked APN is
+    invisible to the APN-exact exclusion above, so a building that was
+    genuinely serviced still showed up as a replacement candidate. Same
+    address, unusable APN -> must exclude by address instead."""
+    db_session.add(_permit("4286009***", datetime.utcnow(), "Install 4 TON condenser",
+                           address="700 S MAIN ST 14"))
+    db_session.commit()
+    _mock_commercial_parcels([
+        {"AIN": "7000007000", "PropertyLocation": "700 S MAIN ST", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1901", "SQFTmain": 30000},
+        {"AIN": "9999999999", "PropertyLocation": "no permit at all", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1975", "SQFTmain": 15000},
+    ])
+
+    stats = find_replacement_candidates(db_session, cfg, fast_client())
+    assert stats["already_permitted_excluded"] == 0, "the masked-APN permit must not count as an APN match"
+    assert stats["masked_or_null_apn_address_excluded"] == 1
+    assert stats["replacement_candidates"] == 1
+
+    from sqlmodel import select
+    apns = {r.apn for r in db_session.exec(select(RetrofitBuilding)).all()}
+    assert "7000007000" not in apns
+    assert "9999999999" in apns
+
+
+@respx.mock
+def test_null_apn_permit_also_excludes_by_address(db_session, cfg):
+    """A missing APN is the same problem as a masked one -- no APN to join
+    on, address is the only usable evidence."""
+    db_session.add(_permit(None, datetime.utcnow(), "Replace RTU", permit_nbr="NULL-APN-1",
+                           address="925 W 8TH ST"))
+    db_session.commit()
+    _mock_commercial_parcels([
+        {"AIN": "8000008000", "PropertyLocation": "925 W 8TH ST", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1960", "SQFTmain": 12000},
+    ])
+
+    stats = find_replacement_candidates(db_session, cfg, fast_client())
+    assert stats["masked_or_null_apn_address_excluded"] == 1
+    assert stats["replacement_candidates"] == 0
+
+
+@respx.mock
+def test_masked_apn_permit_does_not_exclude_a_different_address(db_session, cfg):
+    """The exclusion must not over-match -- a masked-APN permit at one
+    address must not exclude an unrelated building just because both
+    happen to be in the permit table."""
+    db_session.add(_permit("4286009***", datetime.utcnow(), "Install condenser",
+                           address="700 S MAIN ST 14"))
+    db_session.commit()
+    _mock_commercial_parcels([
+        {"AIN": "9999999999", "PropertyLocation": "500 W OLYMPIC BLVD", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1975", "SQFTmain": 15000},
+    ])
+
+    stats = find_replacement_candidates(db_session, cfg, fast_client())
+    assert stats["masked_or_null_apn_address_excluded"] == 0
+    assert stats["replacement_candidates"] == 1
+
+
+@respx.mock
 def test_candidate_rows_carry_no_equipment_type_or_permit_verified_tonnage(db_session, cfg):
     """No permit text exists for these rows -- must not fabricate an
     equipment type, permit-verified tonnage, or SB 1206 status (SB 1206
@@ -294,6 +459,11 @@ def test_candidate_rows_carry_no_equipment_type_or_permit_verified_tonnage(db_se
     assert "YEARBUILT-DERIVED" in row.service_life_basis
     assert "not permit-verified" in row.service_life_basis
     assert row.equipment_age_years == row.building_age_years
+
+    # The gradient underneath the tier is persisted too, not just implied --
+    # decades past the service-life low threshold, not merely "some overdue".
+    assert row.service_life_years_past is not None
+    assert row.service_life_years_past > 20
 
     # Sqft-derived tonnage estimate: a band, not a point figure, and
     # clearly not the permit-mined field.

@@ -66,6 +66,7 @@ is imperfect, so some rows below have already been serviced. Qualify by phone be
   </td>
   <td>
     {{ b.service_life_status.replace('_',' ') if b.service_life_status else '—' }}
+    {%- if b.service_life_years_past is not none %} ({{ '%+.0f'|format(b.service_life_years_past) }}yr vs. window){% endif -%}
     {%- if b.equipment_age_years %} ({{ b.equipment_age_years|int }}yr{% if b.population == 'replacement_candidate' %}, YearBuilt-derived{% endif %}){% endif -%}
   </td>
   <td>

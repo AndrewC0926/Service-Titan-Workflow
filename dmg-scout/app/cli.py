@@ -485,7 +485,9 @@ def find_replacement_candidates_cmd(
         typer.echo(f"  {stats['built_before']:>8,}  + built before {stats['year_built_before']}")
         typer.echo(f"  {stats['sqft_floor_survivors']:>8,}  + sqft floor")
         typer.echo(f"  {stats['commercial_parcels_scanned']:>8,}  scanned (fetch may cap pages — see max_pages)")
-        typer.echo(f"  {stats['already_permitted_excluded']:>8,}  - already permitted (excluded)")
+        typer.echo(f"  {stats['already_permitted_excluded']:>8,}  - already permitted (APN match, excluded)")
+        typer.echo(f"  {stats['masked_or_null_apn_address_excluded']:>8,}  - already permitted (address match on "
+                   f"masked/missing-APN permit, excluded)")
         typer.echo(f"  {stats['replacement_candidates']:>8,}  = replacement candidates — the real opportunity size")
 
         ranked = session.exec(
@@ -500,7 +502,8 @@ def find_replacement_candidates_cmd(
         for i, b in enumerate(ranked, 1):
             tons = (f"{b.estimated_tons_low:.0f}-{b.estimated_tons_high:.0f}t est."
                    if b.estimated_tons_low else "tonnage n/a")
-            status = f"{b.service_life_status or 'unknown'}" + (f" ({b.equipment_age_years:.0f}yr)" if b.equipment_age_years else "")
+            years_past = f" {b.service_life_years_past:+.0f}yr" if b.service_life_years_past is not None else ""
+            status = f"{b.service_life_status or 'unknown'}{years_past}" + (f" ({b.equipment_age_years:.0f}yr)" if b.equipment_age_years else "")
             regs = ", ".join(r for r in [
                 "SB1206" if b.sb1206_trigger_status else None,
                 f"CARB({b.carb_use_code})" if b.carb_candidate else None,
