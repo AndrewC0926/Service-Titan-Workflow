@@ -13,17 +13,24 @@
 }
 </style>
 <p class="noprint"><button onclick="window.print()">🖨 Print / save PDF</button>
-  <a href="/retrofit{% if county != 'All counties' %}?county={{ county }}{% endif %}" style="margin-left:12px">← back to retrofit board</a></p>
+  <a href="/retrofit?population={{ population }}{% if county != 'All counties' %}&county={{ county }}{% endif %}" style="margin-left:12px">← back to retrofit board</a></p>
 
-<h2 style="font-size:18px">Retrofit candidates — {{ county }}</h2>
+<h2 style="font-size:18px">{% if population == 'replacement_candidate' %}Replacement candidates{% else %}Recently active buildings{% endif %} — {{ county }}</h2>
 <p class="dim">DMG Scout — generated {{ generated_at.strftime('%Y-%m-%d %H:%M') }}Z.
-Filtered to service-life status: {{ min_status }} or worse. Every figure below traces to a public
-record: LA City mechanical permit history (install year, equipment count/tonnage mined from the
-permit's own work description) and LA County assessor parcel data (square footage, year built, use
-code). No owner name or mailing address — verified no free bulk source of that exists for LA
-County; this is a call list built from public equipment and building records, not a mailing list.
-Service life is scored under private_commercial ownership (the default, longest cycle) because
-actual ownership type could not be determined — see each row's basis line.</p>
+{%- if population == 'replacement_candidate' %}
+Commercial buildings with NO mechanical permit on record since 2010 — absence is the signal, see
+each row's basis line. No equipment type or regulatory trigger evaluated (no permit text exists to
+read); ranked by building age and size only.
+{%- else %}
+Filtered to service-life status: {{ min_status }} or worse.
+{%- endif %}
+Every figure below traces to a public record: LA City mechanical permit history (install year,
+equipment count/tonnage mined from the permit's own work description) and LA County assessor parcel
+data (square footage, year built, use code). No owner name or mailing address — verified no free
+bulk source of that exists for LA County; this is a call list built from public equipment and
+building records, not a mailing list. Service life is scored under private_commercial ownership
+(the default, longest cycle) because actual ownership type could not be determined — see each row's
+basis line.</p>
 
 <table class="tbl" style="width:100%">
 <thead><tr>
@@ -46,8 +53,14 @@ actual ownership type could not be determined — see each row's basis line.</p>
       {%- if b.mined_tons_each %} @ {{ b.mined_tons_each|int }}t{% endif -%}
     {%- else -%}unspecified{%- endif -%}
   </td>
-  <td>{{ b.service_life_status.replace('_',' ') if b.service_life_status else '—' }}
-    {%- if b.equipment_age_years %} ({{ b.equipment_age_years|int }}yr old){% endif -%}</td>
+  <td>
+    {%- if b.population == 'replacement_candidate' -%}
+      {{ b.building_age_years|int if b.building_age_years else '?' }}yr since built
+    {%- else -%}
+      {{ b.service_life_status.replace('_',' ') if b.service_life_status else '—' }}
+      {%- if b.equipment_age_years %} ({{ b.equipment_age_years|int }}yr old){% endif -%}
+    {%- endif -%}
+  </td>
   <td>
     {%- if b.sb1206_trigger_status -%}SB 1206 ({{ b.sb1206_trigger_status }}){% endif -%}
     {%- if b.carb_candidate %}{% if b.sb1206_trigger_status %}, {% endif %}CARB RMP candidate{% endif -%}

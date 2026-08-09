@@ -261,23 +261,37 @@ def _board_extras(session: Session, projects: list[Project]) -> dict:
 
 @app.get("/retrofit", response_class=HTMLResponse)
 def retrofit_board(request: Request, county: str = None, min_status: str = None,
+                   population: str = "replacement_candidate", limit: int = 200,
                    session: Session = Depends(get_session), _: str = Depends(auth)):
-    """The retrofit population: existing buildings with mechanical-permit
-    history, ranked by service life / size / regulatory proximity. A
-    SEPARATE population from /board (see RetrofitBuilding's docstring) —
-    same design language, deliberately not merged into one list."""
-    q = select(RetrofitBuilding)
+    """Two SEPARATE populations, never merged — see RetrofitBuilding's
+    docstring:
+      replacement_candidate — the real opportunity. Commercial buildings
+        old enough to need replacement with NO permit on record at all
+        (absence is the signal: a permit means someone already replaced).
+        Can run to tens of thousands of rows county-wide (absence is common)
+        so this view is capped at `limit` (top-ranked first) — the full
+        count is still shown, never silently hidden.
+      recently_active — buildings WITH permit evidence in the last several
+        years. Not a call list (everything here just got serviced) — market
+        and contractor intelligence: where mechanical work is actually
+        happening.
+    Both a SEPARATE population from /board (zero APN overlap, confirmed)."""
+    base_q = select(RetrofitBuilding).where(RetrofitBuilding.population == population)
     if county:
-        q = q.where(RetrofitBuilding.county == county)
+        base_q = base_q.where(RetrofitBuilding.county == county)
     STATUS_ORDER = ["overdue", "due", "approaching", "not_due"]
-    if min_status and min_status in STATUS_ORDER:
-        q = q.where(RetrofitBuilding.service_life_status.in_(
+    if min_status and min_status in STATUS_ORDER and population == "recently_active":
+        base_q = base_q.where(RetrofitBuilding.service_life_status.in_(
             STATUS_ORDER[:STATUS_ORDER.index(min_status) + 1]))
-    buildings = session.exec(q.order_by(RetrofitBuilding.rank_score.desc().nulls_last())).all()
 
-    counties = sorted({b.county for b in session.exec(select(RetrofitBuilding)).all()})
+    total = session.exec(select(func.count()).select_from(base_q.subquery())).one()
+    buildings = session.exec(
+        base_q.order_by(RetrofitBuilding.rank_score.desc().nulls_last()).limit(limit)).all()
+
+    counties = sorted({b.county for b in session.exec(
+        select(RetrofitBuilding).where(RetrofitBuilding.population == population)).all()})
     summary = {
-        "n": len(buildings),
+        "n": total, "shown": len(buildings),
         "overdue": sum(1 for b in buildings if b.service_life_status == "overdue"),
         "due": sum(1 for b in buildings if b.service_life_status == "due"),
         "sb1206": sum(1 for b in buildings if b.sb1206_trigger_status),
@@ -286,7 +300,7 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
     }
     return templates.TemplateResponse(request, "retrofit_board.html", {
         "buildings": buildings, "summary": summary, "counties": counties,
-        "county": county, "min_status": min_status,
+        "county": county, "min_status": min_status, "population": population, "limit": limit,
         "score_max": max([b.rank_score for b in buildings if b.rank_score] or [1.0]),
         "tb": _title_block(session), "active": "retrofit",
     })
@@ -294,22 +308,25 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
 
 @app.get("/retrofit/report", response_class=HTMLResponse)
 def retrofit_report(request: Request, county: str = None, min_status: str = "due", limit: int = 100,
+                    population: str = "replacement_candidate",
                     session: Session = Depends(get_session), _: str = Depends(auth)):
-    """Printable per-territory retrofit list: buildings past service life,
-    with the regulations forcing replacement and every figure's basis. Hand
-    this to a service contractor — every fact traces to a public record."""
-    q = select(RetrofitBuilding)
+    """Printable per-territory retrofit list, with the regulations forcing
+    replacement (recently_active rows only, since candidates have none
+    evaluated — no permit means no equipment type to evaluate against) and
+    every figure's basis. Hand this to a service contractor — every fact
+    traces to a public record."""
+    q = select(RetrofitBuilding).where(RetrofitBuilding.population == population)
     if county:
         q = q.where(RetrofitBuilding.county == county)
     STATUS_ORDER = ["overdue", "due", "approaching", "not_due"]
-    if min_status in STATUS_ORDER:
+    if min_status in STATUS_ORDER and population == "recently_active":
         q = q.where(RetrofitBuilding.service_life_status.in_(
             STATUS_ORDER[:STATUS_ORDER.index(min_status) + 1]))
     buildings = session.exec(
         q.order_by(RetrofitBuilding.rank_score.desc().nulls_last()).limit(limit)).all()
     return templates.TemplateResponse(request, "retrofit_report.html", {
         "buildings": buildings, "county": county or "All counties",
-        "min_status": min_status, "generated_at": utcnow(),
+        "min_status": min_status, "population": population, "generated_at": utcnow(),
         "tb": _title_block(session), "active": "retrofit",
     })
 

@@ -11,14 +11,19 @@
       "Bash(cat *)",
       "Bash(grep *)",
       "Bash(tail *)",
-      "Bash(ps *)"
+      "Bash(ps *)",
+      "Bash(*.venv/bin/python*)",
+      "Bash(*.venv/bin/pytest*)",
+      "Bash(*python -m app.cli*)"
     ],
     "deny": [
       "Bash(*purge-source*)",
       "Bash(*--reset*)",
       "Bash(*--force*)",
       "Bash(rm -rf *)",
-      "Bash(git push --force*)"
+      "Bash(git push --force*)",
+      "Bash(*DROP TABLE*)",
+      "Bash(*DELETE FROM*)"
     ]
   }
 }

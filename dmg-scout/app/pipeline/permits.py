@@ -1,21 +1,29 @@
 """LA City mechanical permit import (Phase 6c/6d) — the install-year evidence
 SB 1206's R-410A inference needs, and the work-description text tonnage
-mining runs against.
+mining runs against. Also the evidence side of the ABSENCE query
+(app/pipeline/retrofit.py:find_replacement_candidates): a commercial
+building with NO mechanical permit across this whole window either has
+original equipment or had it replaced without a permit — either way it's
+a candidate no permit-presence ranking can ever surface.
 
-Source: `data.lacity.org`'s Socrata SODA API, dataset 67is-svtd ("Building
-and Safety - Mechanical Permits Issued from 2020 to Present (N)") — LADBS's
-actively-maintained mechanical-permit feed (confirmed live, daily-refreshed,
-not one of the frozen/legacy permit datasets on the same portal). robots.txt
-does not disallow the `/resource/*.json` API path. No auth required for read
-queries.
+Source: `data.lacity.org`'s Socrata SODA API. LADBS splits its mechanical
+permit history across three same-schema datasets by date window (field
+lists verified identical across all three, 2026-08-08):
+  - 67is-svtd  "...Issued from 2020 to Present (N)"   — live, daily-refreshed
+  - 5m3t-xjex  "...Issued Between 2010 and 2019 (N)"  — frozen
+  - mcip-sa6g  "...Issued Before 2010 (N)"            — frozen, small (~900 rows)
+robots.txt does not disallow the `/resource/*.json` API path on any of them.
+No auth required for read queries. All three write into the same
+EquipmentPermit table under one `SOURCE` value — permit_nbr is the real
+unique key regardless of which historical file LADBS happened to put a row
+in.
 
-This intentionally does NOT reach back before 2020: the pre-2020 mechanical
-permit history lives in a separate, unverified-schema legacy dataset
-(`5m3t-xjex`, "2010-2019") that this module has not been built against —
-wiring that in needs its own field-name verification first, not a guess that
-it matches this one. That means SB 1206 install-year coverage here spans
-2020-2024 of the 2010-2024 R-410A window, not the full window — a real,
-disclosed gap, not a silent one.
+Checked for a contractor/applicant name field on all three datasets
+(2026-08-08): none exists. The permit schema has no contractor,
+applicant, or licensee field at all — every field is either building/parcel
+identification (APN, address, zone) or process metadata (dates, status,
+permit type, work description). "Which mechanical contractors are working
+in my territory" is not answerable from this dataset.
 
 Not wired into the standard fetch->triage->extract->resolve pipeline: a
 permit is not a Signal and never becomes a Project. It feeds
@@ -39,8 +47,11 @@ from app.pipeline.regulatory import (
 log = logging.getLogger(__name__)
 
 SOURCE = "la_city_mechanical"
-DATASET_ID = "67is-svtd"
-BASE_URL = f"https://data.lacity.org/resource/{DATASET_ID}.json"
+DATASETS = {
+    "2020_present": "67is-svtd",
+    "2010_2019": "5m3t-xjex",
+    "before_2010": "mcip-sa6g",
+}
 PORTAL_URL = "https://data.lacity.org/Housing-and-Buildings/Building-and-Safety-Mechanical-Permits-Issued-fro/67is-svtd"
 
 
@@ -68,17 +79,22 @@ def _parse_permit(row: dict) -> dict:
 
 
 def fetch_la_mechanical_permits(session, cfg: Config, client: PoliteClient, *,
-                                since: datetime | None = None, limit: int = 5000) -> dict:
-    """Pull issued commercial/apartment HVAC permits, mine tonnage/count from
-    work_desc, evaluate SB 1206 against the inferred install year, and
-    upsert into EquipmentPermit. Safe to re-run: re-fetching a permit_nbr
-    already stored updates that row rather than duplicating it."""
+                                since: datetime | None = None, limit: int = 5000,
+                                window: str = "2020_present") -> dict:
+    """Pull issued commercial/apartment HVAC permits from one of the three
+    date-window datasets (see DATASETS), mine tonnage/count from work_desc,
+    evaluate SB 1206 against the inferred install year, and upsert into
+    EquipmentPermit. Safe to re-run: re-fetching a permit_nbr already stored
+    updates that row rather than duplicating it. `since` only makes sense
+    for the live 2020_present window; the frozen legacy windows ignore it
+    and are small enough to pull in full."""
+    base_url = f"https://data.lacity.org/resource/{DATASETS[window]}.json"
     where_parts = [
         "permit_type = 'HVAC'",
         "permit_sub_type in ('Commercial', 'Apartment')",
         "status_desc = 'Issued'",
     ]
-    if since:
+    if since and window == "2020_present":
         where_parts.append(f"issue_date >= '{since.date().isoformat()}'")
     params = {
         "$where": " AND ".join(where_parts),
@@ -87,9 +103,9 @@ def fetch_la_mechanical_permits(session, cfg: Config, client: PoliteClient, *,
     }
 
     try:
-        rows = client.get_json(BASE_URL, params=params)
+        rows = client.get_json(base_url, params=params)
     except Exception as exc:  # noqa: BLE001 — reported, not raised past this stage
-        log.error("LA mechanical permit fetch failed: %s", exc)
+        log.error("LA mechanical permit fetch failed (%s): %s", window, exc)
         return {"fetched": 0, "stored": 0, "sb1206_flagged": 0, "error": str(exc)}
 
     existing = {

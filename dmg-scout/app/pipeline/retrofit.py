@@ -166,7 +166,7 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
         elif c.trigger_key == "la_ebewe_audit_retrocommissioning":
             ebewe_ains.add(c.ain)
 
-    session.exec(delete(RetrofitBuilding))
+    session.exec(delete(RetrofitBuilding).where(RetrofitBuilding.population == "recently_active"))
 
     now = utcnow()
     built = 0
@@ -206,7 +206,8 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
         )
 
         session.add(RetrofitBuilding(
-            apn=apn, address=chars.get("address") or latest.address,
+            apn=apn, population="recently_active",
+            address=chars.get("address") or latest.address,
             use_code=chars.get("use_code"), use_desc=chars.get("use_desc"),
             sqft=chars.get("sqft"), year_built=chars.get("year_built"),
             permit_count=len(group), latest_permit_nbr=latest.permit_nbr,
@@ -231,4 +232,106 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
         "distinct_buildings": built,
         "assessor_matched": sum(1 for a in apns if a in characteristics),
         "assessor_unmatched": sum(1 for a in apns if a not in characteristics),
+    }
+
+
+def _fetch_commercial_parcels_built_before(client: PoliteClient, year: int,
+                                           roll_year: str = "2025", page_size: int = 2000,
+                                           max_pages: int = 200) -> list[dict]:
+    """Every commercial-use parcel with a YearBuilt before `year`, county-
+    wide -- the raw universe find_replacement_candidates() checks permit
+    absence against."""
+    where = f"UseCodeDescChar1 = 'Commercial' AND YearBuilt < '{year}' AND YearBuilt <> ''"
+    if roll_year:
+        where += f" AND RollYear = '{roll_year}'"
+    fields = "AIN,PropertyLocation,UseCode,UseCodeDescChar1,YearBuilt,SQFTmain"
+    out: list[dict] = []
+    offset = 0
+    for _ in range(max_pages):
+        resp = client.get_json(FEATURE_SERVER, params={
+            "where": where, "outFields": fields, "f": "json",
+            "resultOffset": offset, "resultRecordCount": page_size,
+            "orderByFields": "AIN",
+        })
+        features = resp.get("features", [])
+        if not features:
+            break
+        out.extend(f["attributes"] for f in features)
+        offset += page_size
+        if len(features) < page_size:
+            break
+    return out
+
+
+def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
+                                year_built_before: int = 2010) -> dict:
+    """The ABSENCE query: commercial parcels built before `year_built_before`
+    with NO mechanical permit on record at all (across every EquipmentPermit
+    row this system has, which after `scout fetch-permits --window all`
+    spans 2010-present).
+
+    Presence of a permit is evidence someone already replaced the equipment.
+    Its absence, on a building old enough that a real replacement would
+    almost certainly have needed one, means either the original equipment
+    is still running or it was replaced without a permit -- either way it's
+    a live candidate no permit-presence ranking can ever surface, because a
+    building on this list has never (in this system's window) generated a
+    permit to rank BY.
+
+    No equipment type, no tonnage, no SB 1206 status: none of that can be
+    known without a permit's work-description text. Ranked by building age
+    (from year_built) and size only, and every row says exactly that in its
+    basis -- weaker evidence than the permit-verified recently_active
+    population, disclosed as such, not presented the same way.
+    """
+    parcels = _fetch_commercial_parcels_built_before(client, year_built_before)
+    permitted_apns = {
+        a for a in session.exec(select(EquipmentPermit.apn)).all() if a and "*" not in a
+    }
+
+    now = utcnow()
+    session.exec(delete(RetrofitBuilding).where(RetrofitBuilding.population == "replacement_candidate"))
+
+    candidates = 0
+    for attrs in parcels:
+        ain = attrs.get("AIN")
+        if not ain or ain in permitted_apns:
+            continue
+        year_built = int(attrs["YearBuilt"]) if str(attrs.get("YearBuilt", "")).isdigit() else None
+        age = round(now.year - year_built, 1) if year_built else None
+        sqft = attrs.get("SQFTmain")
+        size_factor = 0.0
+        if sqft and sqft > 0:
+            import math
+            size_factor = max(0.0, min(1.0, math.log10(sqft) / 6.0))
+        # No tier tricks needed here: every row in this population is
+        # equally "no permit evidence," so age + size compose directly.
+        age_factor = max(0.0, min(1.0, (age or 0) / 60.0))
+        rank = round(age_factor * 0.6 + size_factor * 0.4, 4)
+
+        session.add(RetrofitBuilding(
+            apn=ain, population="replacement_candidate",
+            address=attrs.get("PropertyLocation"),
+            use_code=attrs.get("UseCode"), use_desc=attrs.get("UseCodeDescChar1"),
+            sqft=sqft, year_built=year_built, building_age_years=age,
+            permit_count=0, service_life_status=None,
+            service_life_basis=(
+                f"No mechanical permit on record since 2010 — original equipment "
+                f"presumed still in place (or replaced without a permit). Age is "
+                f"from year built ({year_built}), NOT permit-verified equipment "
+                f"install date — weaker evidence than the recently_active population."
+                if year_built else
+                "No mechanical permit on record since 2010 and no year-built on file."
+            ),
+            rank_score=rank,
+            permit_source_url=PERMITS_PORTAL_URL, assessor_source_url=ASSESSOR_PORTAL_URL,
+            built_at=now,
+        ))
+        candidates += 1
+
+    session.commit()
+    return {
+        "commercial_parcels_scanned": len(parcels),
+        "already_permitted_excluded": len(parcels) - candidates,
+        "replacement_candidates": candidates,
     }

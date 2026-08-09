@@ -12,7 +12,7 @@ from app.http import PoliteClient
 from app.models import AssessorCandidate, EquipmentPermit, RetrofitBuilding
 from app.pipeline.regulatory import infer_refrigerant
 from app.pipeline.retrofit import (
-    build_retrofit_buildings, infer_equipment_type, rank_buildings,
+    build_retrofit_buildings, find_replacement_candidates, infer_equipment_type, rank_buildings,
 )
 
 
@@ -206,6 +206,99 @@ def test_rerun_replaces_not_appends(db_session, cfg):
 
     build_retrofit_buildings(db_session, cfg, fast_client())
     build_retrofit_buildings(db_session, cfg, fast_client())
+
+    from sqlmodel import select
+    rows = db_session.exec(select(RetrofitBuilding)).all()
+    assert len(rows) == 1
+
+
+# --- absence query: the real retrofit opportunity ---------------------
+
+
+def _mock_commercial_parcels(features: list[dict]) -> None:
+    respx.get(url__startswith="https://services.arcgis.com/RmCCgQtiZLDCtblq").mock(
+        return_value=httpx.Response(200, json={"features": [{"attributes": a} for a in features]})
+    )
+
+
+@respx.mock
+def test_permitted_parcel_excluded_from_candidates(db_session, cfg):
+    """A permit is evidence someone already replaced -- that parcel must
+    NOT appear as a replacement candidate, regardless of how old the
+    building is."""
+    db_session.add(_permit("8888888888", datetime.utcnow(), "RTU replacement", "P1"))
+    db_session.commit()
+    _mock_commercial_parcels([
+        {"AIN": "8888888888", "PropertyLocation": "has a permit", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1980", "SQFTmain": 20000},
+        {"AIN": "9999999999", "PropertyLocation": "no permit at all", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1975", "SQFTmain": 15000},
+    ])
+
+    stats = find_replacement_candidates(db_session, cfg, fast_client())
+    assert stats["commercial_parcels_scanned"] == 2
+    assert stats["already_permitted_excluded"] == 1
+    assert stats["replacement_candidates"] == 1
+
+    from sqlmodel import select
+    rows = db_session.exec(select(RetrofitBuilding)).all()
+    apns = {r.apn for r in rows}
+    assert "8888888888" not in apns
+    assert "9999999999" in apns
+
+
+@respx.mock
+def test_candidate_rows_carry_no_equipment_type_or_regulatory_claim(db_session, cfg):
+    """No permit text exists for these rows -- must not fabricate an
+    equipment type, tonnage, or SB 1206 status."""
+    _mock_commercial_parcels([
+        {"AIN": "1010101010", "PropertyLocation": "x", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1970", "SQFTmain": 30000},
+    ])
+    find_replacement_candidates(db_session, cfg, fast_client())
+
+    from sqlmodel import select
+    row = db_session.exec(select(RetrofitBuilding)).one()
+    assert row.population == "replacement_candidate"
+    assert row.equipment_type is None
+    assert row.mined_tons_each is None
+    assert row.sb1206_trigger_status is None
+    assert row.service_life_status is None
+    assert "No mechanical permit on record" in row.service_life_basis
+    assert row.building_age_years is not None
+
+
+@respx.mock
+def test_candidates_do_not_clobber_recently_active_population(db_session, cfg):
+    """The two populations must coexist -- rebuilding one must not delete
+    rows from the other."""
+    db_session.add(_permit("2020202020", datetime.utcnow(), "RTU replacement", "P1"))
+    db_session.commit()
+    _mock_assessor([{"AIN": "2020202020", "PropertyLocation": "x", "UseCode": "2100",
+                     "UseCodeDescChar1": "Commercial", "YearBuilt": "2000", "SQFTmain": 10000}])
+    build_retrofit_buildings(db_session, cfg, fast_client())
+
+    _mock_commercial_parcels([
+        {"AIN": "3030303030", "PropertyLocation": "x", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1970", "SQFTmain": 30000},
+    ])
+    find_replacement_candidates(db_session, cfg, fast_client())
+
+    from sqlmodel import select
+    rows = {r.apn: r for r in db_session.exec(select(RetrofitBuilding)).all()}
+    assert rows["2020202020"].population == "recently_active"
+    assert rows["3030303030"].population == "replacement_candidate"
+    assert len(rows) == 2
+
+
+@respx.mock
+def test_rerun_replaces_only_its_own_population(db_session, cfg):
+    _mock_commercial_parcels([
+        {"AIN": "4040404040", "PropertyLocation": "x", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1970", "SQFTmain": 30000},
+    ])
+    find_replacement_candidates(db_session, cfg, fast_client())
+    find_replacement_candidates(db_session, cfg, fast_client())
 
     from sqlmodel import select
     rows = db_session.exec(select(RetrofitBuilding)).all()

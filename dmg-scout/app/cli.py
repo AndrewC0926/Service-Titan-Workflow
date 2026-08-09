@@ -409,32 +409,37 @@ def import_hcai_cmd(
 
 @app.command("fetch-permits")
 def fetch_permits_cmd(
-    since: str = typer.Option(None, help="ISO date; only permits issued on/after this"),
+    since: str = typer.Option(None, help="ISO date; only permits issued on/after this (2020_present window only)"),
     limit: int = typer.Option(5000, help="Max rows per fetch (Socrata page size)"),
+    window: str = typer.Option("2020_present", help="2020_present | 2010_2019 | before_2010 | all"),
 ) -> None:
     """LA City mechanical permits -> install-year evidence for SB 1206's
     R-410A inference, plus work-description-mined equipment count/tonnage.
-    See app/pipeline/permits.py. Safe to re-run — upserts by permit_nbr."""
+    See app/pipeline/permits.py. Safe to re-run — upserts by permit_nbr.
+    --window all pulls all three date-window datasets in one run."""
     from datetime import datetime
     from app.http import PoliteClient
-    from app.pipeline.permits import fetch_la_mechanical_permits
+    from app.pipeline.permits import DATASETS, fetch_la_mechanical_permits
     parsed_since = datetime.fromisoformat(since) if since else None
+    windows = list(DATASETS.keys()) if window == "all" else [window]
     with session_scope() as session, PoliteClient() as client:
-        stats = fetch_la_mechanical_permits(session, load_config(), client,
-                                            since=parsed_since, limit=limit)
-    typer.echo(f"fetched {stats.get('fetched', 0)}, stored {stats.get('stored', 0)}, "
-               f"SB 1206-flagged {stats.get('sb1206_flagged', 0)}")
-    if stats.get("error"):
-        typer.echo(f"ERROR: {stats['error']}", err=True)
-        raise typer.Exit(1)
+        for w in windows:
+            stats = fetch_la_mechanical_permits(session, load_config(), client,
+                                                since=parsed_since, limit=limit, window=w)
+            typer.echo(f"[{w}] fetched {stats.get('fetched', 0)}, stored {stats.get('stored', 0)}, "
+                       f"SB 1206-flagged {stats.get('sb1206_flagged', 0)}")
+            if stats.get("error"):
+                typer.echo(f"  ERROR: {stats['error']}", err=True)
 
 
 @app.command("build-retrofit-buildings")
 def build_retrofit_buildings_cmd() -> None:
-    """Dedup EquipmentPermit to one row per building, join assessor parcel
+    """Dedup EquipmentPermit to one row per building (population=
+    "recently_active" — buildings WITH permit evidence, market/contractor
+    intelligence, not a due/overdue list), join assessor parcel
     characteristics, evaluate regulatory triggers, rank. See
-    app/pipeline/retrofit.py. Replaces the whole retrofit_buildings table —
-    it's a derived view over permits/assessor data, not its own source."""
+    app/pipeline/retrofit.py. Replaces this population's rows only — it's a
+    derived view over permits/assessor data, not its own source."""
     from app.http import PoliteClient
     from app.pipeline.retrofit import build_retrofit_buildings
     with session_scope() as session, PoliteClient() as client:
@@ -444,6 +449,27 @@ def build_retrofit_buildings_cmd() -> None:
     typer.echo(f"{stats['distinct_buildings']} distinct buildings")
     typer.echo(f"assessor join: {stats['assessor_matched']} matched, "
                f"{stats['assessor_unmatched']} unmatched")
+
+
+@app.command("find-replacement-candidates")
+def find_replacement_candidates_cmd(
+    year_built_before: int = typer.Option(2010, help="Commercial parcels built before this year"),
+) -> None:
+    """The ABSENCE query (population="replacement_candidate"): commercial
+    parcels built before the given year with NO mechanical permit on
+    record at all across the full permit window. This is the real
+    retrofit-opportunity population — a permit means someone already
+    replaced; absence means original equipment or an unpermitted swap,
+    either way a live candidate. Run `scout fetch-permits --window all`
+    first for full 2010-present permit coverage. See app/pipeline/retrofit.py."""
+    from app.http import PoliteClient
+    from app.pipeline.retrofit import find_replacement_candidates
+    with session_scope() as session, PoliteClient() as client:
+        stats = find_replacement_candidates(session, load_config(), client,
+                                            year_built_before=year_built_before)
+    typer.echo(f"{stats['commercial_parcels_scanned']} commercial parcels built before {year_built_before}")
+    typer.echo(f"{stats['already_permitted_excluded']} already have a permit on record (excluded)")
+    typer.echo(f"{stats['replacement_candidates']} replacement candidates — the real opportunity size")
 
 
 @app.command("fetch-assessor-candidates")

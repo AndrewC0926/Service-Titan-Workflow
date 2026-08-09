@@ -863,6 +863,19 @@ class RetrofitBuilding(SQLModel, table=True):
     state: str = Field(default="CA", index=True)
     address: str | None = None
 
+    # recently_active: has mechanical-permit evidence (2010-present) --
+    # equipment_type/service_life_status below are permit-verified.
+    # replacement_candidate: a commercial parcel built before the permit
+    # window with NO permit on record at all -- absence is the signal here
+    # (see app/pipeline/retrofit.py:find_replacement_candidates): either the
+    # original equipment is still in place, or it was replaced without a
+    # permit. Either way, no permit means no equipment TYPE evidence, so
+    # service_life_status stays null for these rows on principle -- ranked
+    # by building_age_years (from year_built) instead, which is weaker,
+    # disclosed evidence, not silently presented as equipment age.
+    population: str = Field(default="recently_active", index=True)
+    building_age_years: float | None = None
+
     # From the assessor parcel join (never owner fields — see docstring)
     use_code: str | None = None
     use_desc: str | None = None
