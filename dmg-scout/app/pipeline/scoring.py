@@ -56,18 +56,37 @@ def classify_window(stage: Stage, filing_types: list[str] | None = None) -> Wind
     return STAGE_WINDOW[stage]
 
 
-def certainty(cfg: Config, signal_types: list[SignalType]) -> float:
-    """Base certainty = strongest single signal's prior; corroboration adds on top."""
+def certainty_detail(cfg: Config, signal_types: list[SignalType]) -> tuple[float, str]:
+    """Base certainty = strongest single signal's prior; corroboration adds on
+    top. Same computation as certainty() below, but also returns a plain-
+    English account of which signal type set the base and whether
+    corroboration/capping fired — the raw float alone does not say why 0.90
+    is 0.90, and that is the whole point of the score-breakdown feature this
+    exists for (see app/pipeline/size_score.py:score_breakdown)."""
     if not signal_types:
-        return 0.0
+        return 0.0, "no linked signals -> 0.00"
     priors = cfg.get("scoring.signal_certainty", {})
-    values = [priors.get(st.value, 0.3) for st in signal_types]
-    base = max(values)
+    scored = [(st, priors.get(st.value, 0.3)) for st in signal_types]
+    best_type, base = max(scored, key=lambda t: t[1])
     distinct = len(set(signal_types))
     bonus_per = cfg.get("scoring.corroboration_bonus", 0.25)
     cap = cfg.get("scoring.corroboration_cap", 2)
-    bonus = bonus_per * min(distinct - 1, cap)
-    return min(1.0, base + bonus)
+    bonus_n = min(distinct - 1, cap)
+    bonus = bonus_per * bonus_n
+    raw = base + bonus
+    final = min(1.0, raw)
+
+    detail = f"{base:.2f} base ({best_type.value}, strongest of {distinct} signal type{'s' if distinct != 1 else ''})"
+    if bonus_n > 0:
+        detail += f" + {bonus_per:.2f}×{bonus_n} corroboration = {raw:.2f}"
+    if final < raw:
+        detail += " capped at 1.00"
+    return final, detail
+
+
+def certainty(cfg: Config, signal_types: list[SignalType]) -> float:
+    """Base certainty = strongest single signal's prior; corroboration adds on top."""
+    return certainty_detail(cfg, signal_types)[0]
 
 
 def size_factor(tons_midpoint: float | None) -> float:

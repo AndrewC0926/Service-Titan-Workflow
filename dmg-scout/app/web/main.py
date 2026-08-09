@@ -238,6 +238,38 @@ def _board_extras(session: Session, projects: list[Project]) -> dict:
         windows[p.window.value] = windows.get(p.window.value, 0) + 1
     tons_low = sum(p.tons_estimate_low or 0 for p in projects)
     tons_high = sum(p.tons_estimate_high or 0 for p in projects)
+
+    # Score breakdown text (hover) + spillover magnitude, batched -- one pass
+    # over this board's signal links instead of two queries per row. See
+    # app/pipeline/size_score.py:score_breakdown for what "why is 1.42 1.42"
+    # actually decomposes into, and its docstring for why this is recomputed
+    # rather than read back from a stored field.
+    from app.pipeline.size_score import score_breakdown, signal_types_by_project
+    from app.pipeline.spillover import spillover_factor
+    cfg = load_config()
+    spillover_enabled = cfg.get("scoring.spillover.enabled", False)
+    signal_types = signal_types_by_project(session, [p.id for p in projects])
+    score_breakdown_text: dict[int, str] = {}
+    spillover_pct: dict[int, int] = {}
+    for p in projects:
+        tons_mid = ((p.tons_estimate_low + p.tons_estimate_high) / 2
+                   if p.tons_estimate_low is not None and p.tons_estimate_high is not None else None)
+        bd = score_breakdown(
+            cfg, signal_types=signal_types.get(p.id, []), window=p.window,
+            tons_midpoint=tons_mid, last_signal_at=p.last_signal_at,
+            name=p.name, developer=p.developer, county=p.county,
+            spillover_mw=p.spillover_mw, spillover_enabled=spillover_enabled,
+        )
+        score_breakdown_text[p.id] = bd.as_text()
+        if spillover_enabled and p.spillover_mw:
+            pct = round((spillover_factor(cfg, p.spillover_mw) - 1.0) * 100)
+            if pct > 0:
+                spillover_pct[p.id] = pct
+
+    scores = sorted((p.score for p in projects), reverse=True)
+    n = len(scores)
+    score_median = scores[n // 2] if n % 2 else (scores[n // 2 - 1] + scores[n // 2]) / 2 if n else None
+
     return {
         "contacts": contacts,
         "contact_statuses": statuses,
@@ -245,6 +277,9 @@ def _board_extras(session: Session, projects: list[Project]) -> dict:
         "stage_ages": ages,
         "stale": stale,
         "stale_months": threshold,
+        "score_breakdown_text": score_breakdown_text,
+        "spillover_pct": spillover_pct,
+        "score_median": score_median,
         # Bars are scaled to the board's own maximum, not to 1.0. Scores cluster
         # between 0.3 and 0.7, so a fixed 0-1 scale spends most of its length on
         # range that never occurs and compresses the part that does.
@@ -393,13 +428,15 @@ def project_detail(project_id: int, request: Request,
     ).all()
     from app.ladder import build_ladder
     ladder = build_ladder(session, project)
+    from app.pipeline.size_score import project_score_breakdown
+    score_breakdown = project_score_breakdown(session, load_config(), project)
     return templates.TemplateResponse(request, "project.html", {
         "p": project, "timeline": timeline, "people": people, "firms": firms,
         "resolved_firms": resolved_firms, "outcome_statuses": OUTCOME_STATUSES,
         "ladder": ladder,
         "outreach": outreach, "contacts": contacts,
         "stage_progression": stage_progression, "stage_age": stage_age,
-        "stale_months": stale_months,
+        "stale_months": stale_months, "score_breakdown": score_breakdown,
         "tb": _title_block(session), "active": "board",
     })
 
@@ -1130,6 +1167,21 @@ def account_brief_view(account_id: int, request: Request,
         raise HTTPException(404)
     return templates.TemplateResponse(request, "account_brief.html", {
         "b": b, "account": b.account, "tb": _title_block(session), "active": "accounts",
+    })
+
+
+@app.get("/assumptions", response_class=HTMLResponse)
+def assumptions_register(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Every tunable constant this system scores, sizes, or ranks with, and
+    honestly where it came from — see app/assumptions.py's module docstring
+    for why this page exists and the discipline it follows."""
+    from app.assumptions import assumptions_by_group, load_assumptions, source_tally
+    cfg = load_config()
+    assumptions = load_assumptions(cfg)
+    return templates.TemplateResponse(request, "assumptions.html", {
+        "grouped": assumptions_by_group(cfg), "tally": source_tally(assumptions),
+        "total": len(assumptions),
+        "tb": _title_block(session), "active": "assumptions",
     })
 
 

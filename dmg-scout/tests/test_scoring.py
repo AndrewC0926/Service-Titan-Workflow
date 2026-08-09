@@ -3,6 +3,7 @@ from datetime import timedelta
 from app.models import SignalType, Stage, Window, utcnow
 from app.pipeline.scoring import (
     certainty,
+    certainty_detail,
     classify_window,
     days_to_estimated_bid,
     identity_factor,
@@ -127,3 +128,38 @@ def test_identity_factor_cannot_rank_unnamed_above_fully_identified(cfg):
         tons_midpoint=None, last_signal_at=now, now=now,
     ) * identity_factor(cfg, "1977 Saturn Data Center Project", "Some LLC", "Los Angeles")
     assert named_lower_prior > unnamed_high_prior
+
+
+# --- certainty_detail: same math as certainty(), plus the "why" ------------
+
+
+def test_certainty_detail_value_matches_certainty(cfg):
+    """The detail function must never disagree with the plain one -- it's a
+    superset, not a parallel reimplementation that can drift."""
+    for types in ([SignalType.ceqa_nop], [SignalType.ceqa_nop, SignalType.bid_invite], []):
+        value, _detail = certainty_detail(cfg, types)
+        assert value == certainty(cfg, types)
+
+
+def test_certainty_detail_empty_signals_says_so():
+    value, detail = certainty_detail(cfg={}, signal_types=[])
+    assert value == 0.0
+    assert "no linked signals" in detail.lower()
+
+
+def test_certainty_detail_names_the_strongest_signal_type(cfg):
+    _value, detail = certainty_detail(cfg, [SignalType.job_posting, SignalType.bid_invite])
+    assert "bid_invite" in detail  # bid_invite has the higher prior (1.0 vs 0.45)
+
+
+def test_certainty_detail_reports_corroboration_when_it_fires(cfg):
+    single = certainty_detail(cfg, [SignalType.ceqa_nop])[1]
+    corroborated = certainty_detail(cfg, [SignalType.ceqa_nop, SignalType.abatement_application])[1]
+    assert "corroboration" not in single.lower()
+    assert "corroboration" in corroborated.lower()
+
+
+def test_certainty_detail_reports_the_cap(cfg):
+    _value, detail = certainty_detail(
+        cfg, [SignalType.bid_invite, SignalType.prequal_invite, SignalType.faa_7460, SignalType.abs_issuance])
+    assert "capped at 1.00" in detail

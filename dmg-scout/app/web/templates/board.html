@@ -50,6 +50,7 @@
   </div>
   <div><div class="k">Name only</div><div class="v">{{ summary.name_only }}</div></div>
   <div><div class="k">Nobody named</div><div class="v">{{ summary.no_one }}</div></div>
+  <div><div class="k">Median score</div><div class="v">{% if score_median is not none %}{{ '%.2f'|format(score_median) }}{% else %}—{% endif %}</div></div>
   <div>
     <div class="k">Sized tonnage</div>
     <div class="v">{{ '{:,.0f}'.format(summary.tons_low) }}–{{ '{:,.0f}'.format(summary.tons_high) }}
@@ -86,10 +87,10 @@
 <table class="tbl">
 {# Widths declared once. See .tbl in app.css for why this is not left to auto. #}
 <colgroup>
-  <col style="width:2.6rem"><col style="width:20rem"><col style="width:13rem">
-  <col style="width:9.5rem"><col style="width:9.5rem"><col style="width:6.5rem">
-  <col style="width:6rem"><col style="width:7.5rem"><col style="width:4.5rem">
-  <col style="width:5rem"><col>
+  <col style="width:2.6rem"><col style="width:18rem"><col style="width:11rem">
+  <col style="width:8.5rem"><col style="width:9rem"><col style="width:6rem">
+  <col style="width:5.5rem"><col style="width:6.5rem"><col style="width:9.5rem">
+  <col style="width:4.5rem"><col>
 </colgroup>
 <thead><tr>
   <th class="num">#</th>
@@ -100,7 +101,7 @@
   <th>Stage</th>
   <th class="num">Stage age</th>
   <th>Window</th>
-  <th class="num">Score</th>
+  <th class="num" title="Ranked highest-scoring first; the raw score is shown as secondary. Hover the rank to see the score's component breakdown.">Rank</th>
   <th class="num">To bid</th>
   <th class="num">Last sig.</th>
   <th>Who to call</th>
@@ -135,10 +136,16 @@
     {%- set w = p.window.value -%}
     <span class="stamp {{ 'stamp-pre' if w=='PRE_BOD' else 'stamp-in' if w=='IN_BOD' else 'stamp-post' }}">{{ w.replace('_','-') }}</span>
   </td>
+  {# Rank is the honest number here -- an exact ordinal position, not a
+     precision the underlying weights (several judgment calls, one flagged
+     placeholder with no source at all -- see /assumptions) don't support.
+     The raw score survives as a muted secondary figure and in the hover
+     breakdown, never as the headline. #}
   <td class="num">
-    <span class="score">
-      <span class="val">{{ '%.2f'|format(p.score) }}</span>
-      {%- if p.spillover_basis %}&nbsp;<span class="caveat" title="{{ p.spillover_basis }}">sp</span>{% endif -%}
+    <span class="score" title="{{ score_breakdown_text.get(p.id, '') }}">
+      <a href="/project/{{ p.id }}" class="val">#{{ loop.index }}</a>
+      <span class="note">{{ '%.2f'|format(p.score) }}</span>
+      {%- if spillover_pct.get(p.id) %}<span class="caveat" title="{{ p.spillover_basis }}">+{{ spillover_pct[p.id] }}%</span>{% endif -%}
       <span class="bar" aria-hidden="true"><i style="width:{{ (100 * p.score / score_max)|round(1) }}%"></i></span>
     </span>
   </td>

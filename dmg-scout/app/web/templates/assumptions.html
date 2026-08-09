@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Assumptions{% endblock %}
+{% block sheet_no %}S-11{% endblock %}
+{% block content %}
+<div class="sec-head">
+  <div class="sec-title">Assumptions register</div>
+  <span class="note">Every tunable constant the score, sizing, and gap-ranking logic runs on — read live from
+    config.yaml on every load, so this can't drift from what's actually running</span>
+</div>
+
+<p class="note mb-3" style="max-width:56rem">If you ever quote a number to a customer or your VP, this is where
+  to check whether it rests on a filing, on something someone told us, on a published rule of thumb, or on a
+  guess nobody has gone back to fix. Say-so-plainly is the discipline here, not a curated impression — the tally
+  below is what actually falls out of the source column, not a target.</p>
+
+<div class="sheet p-3 mb-4">
+  <div class="tb-lbl mb-2">Source breakdown — {{ total }} tracked constants</div>
+  <div class="kv">
+    {% for source_type, label, n in tally %}
+    <div>
+      <div class="k">{{ label }}</div>
+      <div class="v {{ 'bad' if source_type == 'invented_placeholder' and n > total / 2 else '' }}">{{ n }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% set placeholder_n = tally | selectattr('0', 'equalto', 'invented_placeholder') | map(attribute=2) | first or 0 %}
+  {% if placeholder_n > total / 2 %}
+  <div class="callout callout-warn mt-3">
+    <strong>Most of this system's weights are judgment calls, not measurements</strong>
+    <span class="body">{{ placeholder_n }} of {{ total }} tracked constants ({{ (100 * placeholder_n / total)|round|int }}%)
+      are invented placeholders — a reasoned first pass, not a measured or stated figure. That's not a defect to
+      hide; it's the reason a score or a ranked gap list is a prioritization aid, not a number to defend line by
+      line in front of a customer.</span>
+  </div>
+  {% endif %}
+</div>
+
+{% for group, rows in grouped.items() %}
+<div class="sec-head"><div class="sec-title">{{ group }}</div></div>
+<table class="tbl mb-4">
+<colgroup>
+  <col style="width:16rem"><col style="width:20rem"><col style="width:14rem">
+  <col style="width:9rem"><col style="width:6rem"><col>
+</colgroup>
+<thead><tr>
+  <th>Constant</th><th>Current value</th><th>Config path</th><th>Source</th><th>Verified</th><th>Last reviewed</th>
+</tr></thead>
+<tbody>
+{% for a in rows %}
+<tr>
+  <td>{{ a.name }}</td>
+  <td class="mono">{{ a.value }}</td>
+  <td class="mono note" style="word-break:break-all">{{ a.config_path or 'hardcoded in Python' }}</td>
+  <td class="nowrap">
+    <span class="stamp {{ 'stamp-pre' if a.source_type in ('measured','physics_or_arithmetic') else 'stamp-in' if a.source_type == 'stated_by_a_named_person' else 'stamp-quiet' if a.source_type == 'industry_rule_of_thumb' else 'stamp-post' }}"
+          title="{{ a.source_detail }}">
+      {{- {'measured':'Measured','stated_by_a_named_person':'Stated','industry_rule_of_thumb':'Rule of thumb','invented_placeholder':'Placeholder','physics_or_arithmetic':'Physics'}[a.source_type] -}}
+    </span>
+  </td>
+  <td class="nowrap">
+    {%- if a.verified is none -%}<span class="note">n/a</span>
+    {%- elif a.verified -%}<span class="ok">✓ verified</span>
+    {%- else -%}<span class="bad">unverified</span>{%- endif -%}
+  </td>
+  <td class="note">{{ a.last_reviewed or 'not recorded' }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% endfor %}
+{% endblock %}

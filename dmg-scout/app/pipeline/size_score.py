@@ -3,16 +3,20 @@ Pure recomputation from linked signals — safe to re-run any time."""
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
+from datetime import datetime
 
 from sqlmodel import Session, select
 
 from app.config import Config
 from app.models import (
-    ACTIVE_STATUSES, Category, FacilityType, Project, ProjectSignal, Signal, Window, utcnow,
+    ACTIVE_STATUSES, Category, FacilityType, Project, ProjectSignal, Signal, SignalType, Window,
+    utcnow,
 )
 from app.normalize import normalize_county
 from app.pipeline.scoring import (
-    classify_window, days_to_estimated_bid, identity_factor, priority_score,
+    certainty_detail, classify_window, days_to_estimated_bid, identity_factor, priority_score,
+    recency_decay, size_factor,
 )
 from app.pipeline.sizing import estimate_equipment_value, estimate_tons
 from app.pipeline.spillover import county_spillover_mw, project_spillover, spillover_factor
@@ -140,3 +144,139 @@ def run_size_score(session: Session, cfg: Config) -> dict:
         stats["scored"] += 1
     session.commit()
     return stats
+
+
+@dataclass
+class ScoreTerm:
+    label: str
+    value: float
+    detail: str
+
+
+@dataclass
+class ScoreBreakdown:
+    """Every multiplicative term that went into a project's score, in the
+    order they're applied, plus the running product after each one. Exists
+    so a rep can see WHY 1.42 is 1.42 instead of trusting it — the same
+    "show your work" discipline app/pipeline/sizing.py already applies to
+    tonnage estimates (every project carries an estimate_basis string),
+    applied to the score itself."""
+    terms: list[ScoreTerm] = field(default_factory=list)
+    total: float = 0.0
+
+    def as_lines(self) -> list[str]:
+        lines = [f"{t.label}: {t.detail}" for t in self.terms]
+        lines.append(f"= {self.total:.4f}")
+        return lines
+
+    def as_text(self) -> str:
+        return "\n".join(self.as_lines())
+
+
+def score_breakdown(cfg: Config, *, signal_types: list[SignalType], window: Window,
+                    tons_midpoint: float | None, last_signal_at: datetime | None,
+                    name: str | None, developer: str | None, county: str | None,
+                    spillover_mw: float | None = None, spillover_enabled: bool = False,
+                    now: datetime | None = None) -> ScoreBreakdown:
+    """Recomputes the exact chain run_size_score() applies to a project
+    (certainty x window x size x recency x identity [x spillover]), term by
+    term, from inputs a caller already has on hand (or can fetch once and
+    reuse across many projects — see app.web.main's board route, which
+    batches signal types for the whole board rather than querying per row).
+
+    Recomputed, not read back from a stored field: nothing on Project
+    persists certainty/size_factor/recency_decay/identity_factor
+    individually, only their product (Project.score). Recomputing from the
+    same stored inputs (tons_estimate_low/high, last_signal_at, name,
+    developer, county, spillover_mw) that fed the last run_size_score() pass
+    reconstructs the same number; it can drift from Project.score only if
+    config changed or the pipeline hasn't rerun since — the same staleness
+    every other derived field in this system already tolerates.
+    """
+    now = now or utcnow()
+    terms: list[ScoreTerm] = []
+    running = 1.0
+
+    cert, cert_detail = certainty_detail(cfg, signal_types)
+    terms.append(ScoreTerm("Certainty", cert, cert_detail))
+    running *= cert
+
+    mult = cfg.get("scoring.window_multipliers", {}).get(window.value, 1.0)
+    terms.append(ScoreTerm(
+        "Window", mult, f"{window.value.replace('_', '-')} -> ×{mult:.2f}"))
+    running *= mult
+
+    sf = size_factor(tons_midpoint)
+    sf_detail = (f"{tons_midpoint:,.0f} tons (midpoint) -> ×{sf:.2f}" if tons_midpoint
+                else f"size unknown -> default ×{sf:.2f}")
+    terms.append(ScoreTerm("Size", sf, sf_detail))
+    running *= sf
+
+    rd = recency_decay(cfg, last_signal_at, now)
+    halflife = cfg.get("scoring.recency_halflife_days", 180)
+    if last_signal_at:
+        days = max(0.0, (now - last_signal_at).total_seconds() / 86400.0)
+        rd_detail = f"{days:.0f}d since last signal, {halflife:.0f}d half-life -> ×{rd:.2f}"
+    else:
+        rd_detail = f"no dated signal -> ×{rd:.2f}"
+    terms.append(ScoreTerm("Recency", rd, rd_detail))
+    running *= rd
+
+    idf = identity_factor(cfg, name, developer, county)
+    missing = sum([not name or name.startswith("Unnamed"), not developer, not county])
+    idf_detail = (f"name/developer/county all present -> ×{idf:.2f}" if missing == 0
+                 else f"missing {missing} of name/developer/county -> ×{idf:.2f}")
+    terms.append(ScoreTerm("Identity", idf, idf_detail))
+    running *= idf
+
+    if spillover_enabled and spillover_mw:
+        spf = spillover_factor(cfg, spillover_mw)
+        sp_detail = f"{spillover_mw:,.0f} MW nearby recent/queued DC activity -> ×{spf:.2f}"
+        terms.append(ScoreTerm("Spillover", spf, sp_detail))
+        running *= spf
+
+    return ScoreBreakdown(terms=terms, total=round(running, 4))
+
+
+def signal_types_by_project(session: Session, project_ids: list[int]) -> dict[int, list[SignalType]]:
+    """Batched version of project_signals() -> [s.signal_type], for a caller
+    (the board) that needs this for many projects at once. Two queries total
+    regardless of how many project_ids are passed, instead of two per
+    project — see app.web.main's board route, which otherwise builds a
+    score_breakdown for every visible row on every page load."""
+    if not project_ids:
+        return {}
+    links = session.exec(
+        select(ProjectSignal).where(ProjectSignal.project_id.in_(project_ids))).all()
+    signal_ids = list({l.signal_id for l in links})
+    signals_by_id = ({s.id: s for s in session.exec(
+        select(Signal).where(Signal.id.in_(signal_ids))).all()} if signal_ids else {})
+    out: dict[int, list[SignalType]] = {pid: [] for pid in project_ids}
+    for link in links:
+        s = signals_by_id.get(link.signal_id)
+        if s is not None:
+            out[link.project_id].append(s.signal_type)
+    return out
+
+
+def project_score_breakdown(session: Session, cfg: Config, project: Project) -> ScoreBreakdown:
+    """Single-project convenience wrapper — fetches this one project's
+    linked signal types itself. Fine for a detail page (one project); a
+    board rendering many rows should batch signal types once and call
+    score_breakdown() directly per row instead (see app/web/main.py)."""
+    signals = project_signals(session, project.id)
+    tons_midpoint = (
+        (project.tons_estimate_low + project.tons_estimate_high) / 2
+        if project.tons_estimate_low is not None and project.tons_estimate_high is not None
+        else None
+    )
+    return score_breakdown(
+        cfg,
+        signal_types=[s.signal_type for s in signals],
+        window=project.window,
+        tons_midpoint=tons_midpoint,
+        last_signal_at=project.last_signal_at,
+        name=project.name, developer=project.developer, county=project.county,
+        spillover_mw=project.spillover_mw,
+        spillover_enabled=cfg.get("scoring.spillover.enabled", False),
+    )
