@@ -977,6 +977,8 @@ def lines_index(request: Request, role: str = "", firm: str = "", market: str = 
     # not something a facet should be able to hide.
     best_guess_lines = [line for line in session.exec(select(ProductLine)).all()
                         if category_is_best_guess(line)]
+    legacy_market_lines = [line for line in session.exec(select(ProductLine)).all()
+                           if line.markets_served_source == "legacy_guess"]
 
     return templates.TemplateResponse(request, "lines.html", {
         "by_role": by_role, "role_order": ROLE_ORDER,
@@ -985,6 +987,7 @@ def lines_index(request: Request, role: str = "", firm: str = "", market: str = 
         "f_firm": firm, "f_market": market, "f_value_tier": value_tier, "f_eligible": eligible,
         "best_guess_lines": best_guess_lines, "best_guess_total": len(best_guess_lines),
         "best_guess_ids": {line.id for line in best_guess_lines},
+        "legacy_market_lines": legacy_market_lines, "legacy_market_total": len(legacy_market_lines),
         "total": len(lines), "total_all": session.exec(
             select(func.count(ProductLine.id))).one(),
         "tb": _title_block(session), "active": "lines",

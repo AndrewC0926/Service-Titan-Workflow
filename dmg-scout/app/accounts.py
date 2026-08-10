@@ -138,14 +138,22 @@ def resolve_building_role(name: str, category: str) -> str:
 
 # ---- line card: markets served ---------------------------------------------
 #
-# Which of these 8 a line plausibly sells into. Populated ONLY where a
-# line's own stated description/subcategory in config.yaml names or strongly
-# implies a market (e.g. BASX's "mission-critical/data center applications",
-# Islandaire's PTAC/PTHP being the standard hotel/apartment unit type) --
-# left empty for every other line rather than guessed from category or brand
-# reputation, the same rule config.yaml's line_card applies to
-# heat_rejection_mode. An empty list here means "not yet mapped", not "sells
-# nowhere".
+# Which of these 8 a line plausibly sells into. Two tiers, never conflated
+# -- see ProductLine.markets_served_source in app/models.py:
+#   - "researched": config.yaml's `markets:` key on a line_card entry, each
+#     one backed by a markets_basis citation to the manufacturer's own
+#     literature (case study, named vertical page, explicit copy). The
+#     source of truth; wins over MARKETS_BY_LINE below whenever a line has
+#     been through this pass, including when the researched result is a
+#     confirmed empty list.
+#   - "legacy_guess": MARKETS_BY_LINE below, a first-pass table from before
+#     the research pass existed, inferred from a line's stated description/
+#     subcategory (e.g. BASX's "mission-critical/data center applications")
+#     rather than a citable source. Kept only as a fallback for lines
+#     nobody has researched yet -- never upgrade a line's result by editing
+#     this table; research it into config.yaml's `markets:` key instead.
+# A line with neither has an empty list and a null source: "not yet
+# mapped", not "sells nowhere".
 #
 # Distinct on purpose from project matching (matching_projects_for_line
 # below): Scout's own board only tracks data_center/industrial/esco
@@ -209,6 +217,91 @@ def category_is_best_guess(line: ProductLine) -> bool:
     return CATEGORY_BEST_GUESS_MARKER in (line.description or "")
 
 
+# ---- UFC 4-010-06 applicability ---------------------------------------
+#
+# NOT a lookup -- a logic rule applied by hand to every line, per the
+# charter: UFC 4-010-06's network/utility-infrastructure provisions reach
+# anything with a factory controller or a network/BAS connection, and skip
+# anything that's a passive mechanical device with no controller of its
+# own. This is judgment applied to what each line's own stated
+# subcategory/description says it is -- not a researched fact with a
+# citable source the way OSHPD OSP or AHRI certification are, and the
+# basis text says so plainly rather than dressing it up as sourced.
+#
+# A handful of lines sell BOTH a passive product and a controlled one
+# under the same name (Titus/Nailor sell plain diffusers alongside DDC-
+# actuated VAV terminals; Pottorff's fire/smoke dampers are typically
+# actuator/BAS-monitored even though its line also includes plain
+# louvers) -- these are marked True with a note that the passive portion
+# of the line doesn't independently carry a controller, since "confirm
+# per model" is the honest caveat a blanket per-line flag can't avoid.
+#
+# Re-derive by editing this table, not by researching a spec sheet --
+# and always re-check which UFC clause a given contract actually invokes,
+# since this table only answers "does it have a controller/network
+# connection", not "does UFC 4-010-06 apply to this specific contract".
+UFC_4_010_06_BY_LINE: dict[str, bool] = {
+    # ---- True: factory controller or network/BAS connection -----------
+    "AAON": True, "DB": True, "Energy Labs": True, "LG": True, "Marley": True,
+    "BASX": True, "ClimateCraft": True, "Scott Springfield": True, "VTS": True,
+    "ClimaCool": True, "VU Flow Environmental": True, "Geoclima": True,
+    "ClimateMaster": True, "Hecoclima": True, "IEC": True, "Strobic Air": True,
+    "Ebtron": True, "AtmosAir/Bioclimatic": True, "UVDI": True, "Cosatron": True,
+    "Neptronic": True, "LFSystems": True, "Carel": True, "Cambridge": True,
+    "Seresco": True, "Aldes": True, "MacroAir": True, "Islandaire": True,
+    "ChangeAir": True, "Flow-Tech": True, "Howden": True, "Suburban": True,
+    "Yaskawa": True, "Airzone": True, "Systemair": True, "Ventacity": True,
+    "Titus": True, "Pottorff": True, "TCF/Twin City Fan": True, "Nailor": True,
+    "Berner": True, "Specified Controls": True, "Effectiv": True, "Markel": True,
+    "Monoxivent": True, "Hitachi": True, "Engineered Comfort": True,
+    # ---- False: passive mechanical device, no controller of its own ---
+    "Thermal Corp": False, "Recold": False, "Vibro-Acoustics": False,
+    "PEP Filters": False, "Heat Pipe Technology": False, "Ice-Cel": False,
+    "HCi": False, "Barcol-Air": False, "Ductsox": False,
+    "Commercial Acoustics": False, "AJ Manufacturing": False, "CRC": False,
+    "Anemostat": False, "Panasonic": False, "Young Regulator": False,
+    "Seiho": False, "Canarm": False, "Penn Barry": False, "Delta Breez": False,
+    "Broan NuTone": False, "Tuttle & Bailey": False, "Soler & Palau": False,
+    "FanAm": False,
+}
+
+# Per-line notes for the handful where the True/False call needs the extra
+# sentence -- mixed passive/controlled lines, or a judgment that could
+# plausibly go the other way. Appended to the generic basis text below.
+UFC_4_010_06_NOTES: dict[str, str] = {
+    "Titus": "Line spans both plain diffusers/grilles (no controller) and DDC-actuated VAV terminals "
+             "(networked) -- marked True for the VAV terminal portion; confirm per model.",
+    "Nailor": "Line spans both plain diffusers and DDC-actuated VAV terminals -- marked True for the VAV "
+              "terminal portion; confirm per model.",
+    "Pottorff": "Fire/smoke dampers are typically actuator/BAS-monitored for code compliance; the line also "
+                "includes plain louvers with no controller -- marked True for the damper portion.",
+    "Howden": "Marked True on the assumption that large industrial fans/blowers/compressors at this scale "
+              "commonly ship with VFD control; a specific small/direct-drive model may not.",
+    "TCF/Twin City Fan": "Marked True on the assumption that commercial/industrial fans at this scale "
+                        "commonly ship with VFD control; confirm per model.",
+    "Systemair": "Marked True primarily for the ERV portion of the line, which is controller-equipped by "
+                "design; some fan-only SKUs may be simpler.",
+}
+
+
+def ufc_4_010_06_basis(name: str) -> str | None:
+    """Generates the basis text for a UFC_4_010_06_BY_LINE entry -- a
+    consistent disclosure that this is a derived judgment call, not a
+    researched fact, on every line rather than only the ones with a
+    special-case note."""
+    applies = UFC_4_010_06_BY_LINE.get(name)
+    if applies is None:
+        return None
+    verdict = ("has a factory controller or network/BAS connection" if applies
+              else "is a passive mechanical device with no controller of its own")
+    text = (f"Derived, not researched: UFC 4-010-06's controller/network-infrastructure provisions were "
+           f"applied as a logic rule, not looked up per product. This line {verdict}, based on its stated "
+           f"subcategory/description. Always confirm which UFC 4-010-06 clause a specific contract actually "
+           f"invokes -- this only answers whether the line has a controller or network connection.")
+    note = UFC_4_010_06_NOTES.get(name)
+    return f"{text} {note}" if note else text
+
+
 # ---- seeding ---------------------------------------------------------------
 
 def seed_product_lines(session: Session, cfg: Config) -> int:
@@ -221,6 +314,18 @@ def seed_product_lines(session: Session, cfg: Config) -> int:
         norm = normalize_name(name)
         existing = session.exec(select(ProductLine).where(ProductLine.name_norm == norm)).first()
         category = entry["category"]
+        # markets: keyed on whether config.yaml's `markets:` key is PRESENT,
+        # not on whether its value is truthy -- a researched, confirmed-empty
+        # result (VU Flow Environmental, Young Regulator) must stay empty,
+        # never silently backfilled from the legacy_guess table just because
+        # `[] or fallback` is truthy. See the MARKETS_BY_LINE module comment
+        # and ProductLine.markets_served_source's docstring.
+        if "markets" in entry:
+            markets_served = entry.get("markets") or []
+            markets_served_source = "researched"
+        else:
+            markets_served = MARKETS_BY_LINE.get(name, [])
+            markets_served_source = "legacy_guess" if markets_served else None
         fields = {
             "firm": entry.get("firm", "DMG"), "category": category,
             "subcategory": entry.get("subcategory", ""), "description": entry.get("description", ""),
@@ -228,12 +333,14 @@ def seed_product_lines(session: Session, cfg: Config) -> int:
             "heat_rejection_mode": entry.get("heat_rejection_mode"),
             "heat_rejection_mode_verified": bool(entry.get("heat_rejection_mode_verified", False)),
             "heat_rejection_mode_basis": entry.get("heat_rejection_mode_basis"),
-            # role/markets: resolved from the tables above, never entered per
-            # line in config.yaml (see their module comments) -- an explicit
-            # `role:`/`markets:` key in an entry still wins, for the rare case
-            # someone corrects one directly in config.yaml instead.
+            # role: resolved from the table above, never entered per line in
+            # config.yaml (see its module comment) -- an explicit `role:` key
+            # in an entry still wins, for the rare case someone corrects one
+            # directly in config.yaml instead.
             "building_role": entry.get("role") or resolve_building_role(name, category),
-            "markets_served": entry.get("markets") or MARKETS_BY_LINE.get(name, []),
+            "markets_served": markets_served,
+            "markets_served_source": markets_served_source,
+            "markets_served_basis": entry.get("markets_basis"),
             # Everything below is config-only, unfilled unless config.yaml
             # states it -- see ProductLine's docstring for why there is no
             # inferred default for any of these.
@@ -241,8 +348,12 @@ def seed_product_lines(session: Session, cfg: Config) -> int:
             "competes_with_basis": entry.get("competes_with_basis"),
             "oshpd_osp": entry.get("oshpd_osp"),
             "oshpd_osp_basis": entry.get("oshpd_osp_basis"),
-            "ufc_4_010_06": entry.get("ufc_4_010_06"),
-            "ufc_4_010_06_basis": entry.get("ufc_4_010_06_basis"),
+            # ufc_4_010_06 is the one field derived rather than sourced from
+            # config.yaml -- see UFC_4_010_06_BY_LINE's module comment. An
+            # explicit config.yaml value still wins if one is ever set.
+            "ufc_4_010_06": (entry.get("ufc_4_010_06") if entry.get("ufc_4_010_06") is not None
+                             else UFC_4_010_06_BY_LINE.get(name)),
+            "ufc_4_010_06_basis": entry.get("ufc_4_010_06_basis") or ufc_4_010_06_basis(name),
             "ahri_certified": entry.get("ahri_certified"),
             "ahri_certified_basis": entry.get("ahri_certified_basis"),
             "country_of_manufacture": entry.get("country_of_manufacture"),

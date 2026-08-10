@@ -86,10 +86,33 @@ def test_seed_resolves_building_role_and_markets(db_session, cfg):
     pottorff = db_session.exec(select(ProductLine).where(ProductLine.name == "Pottorff")).one()
     assert pottorff.building_role == "dampers_life_safety"
     basx = db_session.exec(select(ProductLine).where(ProductLine.name == "BASX")).one()
-    assert basx.markets_served == ["data_center"]
+    assert basx.markets_served == ["data_center", "healthcare", "labs"]
+    assert basx.markets_served_source == "researched"
+    assert basx.markets_served_basis
     # Not every line has a market signal -- most should be an empty list, not guessed.
     generic = db_session.exec(select(ProductLine).where(ProductLine.name == "Yaskawa")).one()
     assert generic.markets_served == []
+    assert generic.markets_served_source is None
+
+
+def test_seed_distinguishes_researched_from_legacy_guess_markets(db_session, cfg):
+    """A guess and a sourced fact must never be indistinguishable in the DB --
+    see app/models.py's ProductLine.markets_served_source docstring."""
+    seed(db_session, cfg)
+    # Marley has no `markets:` key in config.yaml, so it falls back to the
+    # unsourced MARKETS_BY_LINE table -- must be flagged, not silently mixed
+    # in with researched results.
+    marley = db_session.exec(select(ProductLine).where(ProductLine.name == "Marley")).one()
+    assert marley.markets_served == ["data_center"]
+    assert marley.markets_served_source == "legacy_guess"
+    assert marley.markets_served_basis is None
+    # VU Flow Environmental was researched and came back confirmed-empty --
+    # MARKETS_BY_LINE has a non-empty entry for it, and a naive `x or
+    # fallback` seed would wrongly resurrect that guess. It must not.
+    vu_flow = db_session.exec(
+        select(ProductLine).where(ProductLine.name == "VU Flow Environmental")).one()
+    assert vu_flow.markets_served == []
+    assert vu_flow.markets_served_source == "researched"
 
 
 def test_every_role_has_at_least_one_line_after_seed(db_session, cfg):

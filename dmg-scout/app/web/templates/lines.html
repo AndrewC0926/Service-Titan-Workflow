@@ -19,6 +19,17 @@
 </div>
 {% endif %}
 
+{% if legacy_market_lines %}
+<div class="callout callout-warn">
+  <strong>{{ legacy_market_total }} of {{ total_all }} lines show markets served from an unverified legacy guess, not sourced research</strong>
+  <span class="body">Marked with a <span class="caveat">?</span> in the table below. Research these into
+    config.yaml's <span class="mono">markets:</span> key (manufacturer literature, one citation per line), then
+    re-run <span class="mono">scout seed-lines</span> — the sourced result replaces the guess automatically:
+    {% for line in legacy_market_lines %}<a href="/line/{{ line.id }}">{{ line.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.
+  </span>
+</div>
+{% endif %}
+
 <form class="grid" style="max-width:1000px;margin-bottom:12px">
   <input type="hidden" name="role" value="{{ active_role }}">
   <select name="firm" onchange="this.form.submit()">
@@ -67,7 +78,7 @@
   <th title="DMG, ToroAire, or both (LG, Yaskawa, Aldes, Neptronic carry one row each for both).">Firm</th>
   <th title="What the line actually is, one line.">Subcategory</th>
   <th class="num" title="1 (highest $/unit) to 5 (lowest) — see /assumptions for the dollar bands behind each tier.">Tier</th>
-  <th title="First-pass read from the line's own stated description — populated only where unambiguous. Empty means not yet mapped, not 'sells nowhere'.">Markets served</th>
+  <th title="Sourced from manufacturer literature where researched (see the line's page for citations); a '?' marks an older, unverified best-guess instead. Empty means not yet mapped, not 'sells nowhere'.">Markets served</th>
   <th title="The 18 finer accounts.adjacency category this line scores gap/pull-through math on.">Category</th>
 </tr></thead>
 <tbody>
@@ -80,6 +91,9 @@
   <td class="note">
     {%- if line.markets_served -%}
       {%- for m in line.markets_served -%}{{ MARKET_LABELS.get(m, m) }}{% if not loop.last %}, {% endif %}{%- endfor -%}
+      {%- if line.markets_served_source == 'legacy_guess' %}&nbsp;<span class="caveat" title="Legacy best-guess from an unsourced fallback table, predating this line's markets research — not confirmed against manufacturer literature.">?</span>{% endif -%}
+    {%- elif line.markets_served_source == 'researched' -%}
+      researched — none found
     {%- else -%}not yet mapped{%- endif -%}
   </td>
   <td class="nowrap">{{ line.category.replace('_',' ') }}

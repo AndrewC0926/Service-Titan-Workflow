@@ -18,11 +18,21 @@
 </table>
 
 <h2>Markets served</h2>
-{% if line.markets_served %}
+{% if line.markets_served_source == 'researched' %}
+  {% if line.markets_served %}
+  <p>{% for m in line.markets_served %}<span class="tag">{{ MARKET_LABELS.get(m, m) }}</span> {% endfor %}
+    <span class="ok" title="Sourced from the manufacturer's own literature — see basis below.">✓ researched</span></p>
+  <p class="note">{{ line.markets_served_basis or 'no basis recorded' }}</p>
+  {% else %}
+  <p class="note"><span class="ok">✓ researched</span> — no market named clearly enough in the manufacturer's own
+    literature to record. This is a confirmed empty result, not "not yet looked at".
+    {{ line.markets_served_basis or '' }}</p>
+  {% endif %}
+{% elif line.markets_served_source == 'legacy_guess' %}
 <p>{% for m in line.markets_served %}<span class="tag">{{ MARKET_LABELS.get(m, m) }}</span> {% endfor %}
-  <span class="note">first-pass read from this line's own description, not measured</span></p>
+  <span class="caveat" title="Legacy best-guess from an unsourced fallback table (MARKETS_BY_LINE), predating this line's markets research — not confirmed against manufacturer literature. Treat the same as an unconfirmed OSHPD OSP.">⚠ unverified — legacy guess</span></p>
 {% else %}
-<p class="note">Not yet mapped — this line's description doesn't name a market unambiguously enough to say.
+<p class="note">Not yet mapped — this line hasn't been researched or guessed at yet.
   Empty means "not yet mapped", not "sells nowhere".</p>
 {% endif %}
 

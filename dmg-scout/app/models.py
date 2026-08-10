@@ -696,16 +696,30 @@ class ProductLine(SQLModel, table=True):
     building_role: str = Field(index=True, default="heating_specialty")
 
     # Which of the 8 markets (data_center, healthcare, industrial_warehouse,
-    # education, hospitality, labs, office, multifamily) this line plausibly
-    # sells into. A first-pass judgment call, same footing as category/
-    # value_tier above — but populated ONLY where a line's own stated
-    # description names or strongly implies a market (MARKETS_BY_LINE in
-    # app/accounts.py); left empty rather than guessed for the rest. Distinct
-    # from PROJECT matching below: Scout's own board only tracks
-    # data_center/industrial/esco new-construction, so a line marked
-    # "healthcare" here will never surface a matching Scout project — that
-    # absence is a fact about what Scout tracks, not a fact about the line.
+    # education, hospitality, labs, office, multifamily) this line sells
+    # into. Two tiers, distinguished by markets_served_source below because
+    # they are NOT the same kind of claim: "researched" (config.yaml's
+    # `markets:` key, one manufacturer-literature citation per line in
+    # markets_served_basis) and "legacy_guess" (MARKETS_BY_LINE in
+    # app/accounts.py, an unsourced first-pass table predating the research
+    # pass, kept only as a fallback for lines nobody has researched yet).
+    # Empty with a null source means genuinely unmapped, not "sells
+    # nowhere" -- see markets_served_source. Distinct from PROJECT matching
+    # below: Scout's own board only tracks data_center/industrial/esco new-
+    # construction, so a line marked "healthcare" here will never surface a
+    # matching Scout project -- that absence is a fact about what Scout
+    # tracks, not a fact about the line.
     markets_served: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
+    # "researched" | "legacy_guess" | null (genuinely unmapped, no fallback
+    # either). A guess and a sourced fact must never render the same way --
+    # see app/accounts.py:seed_product_lines for how this is set and
+    # lines.html / line_detail.html for how it's displayed. Set alongside
+    # markets_served on every seed, never edited by hand.
+    markets_served_source: str | None = None
+    # Citation for markets_served -- present only when markets_served_source
+    # is "researched" (manufacturer literature, URL + retrieval date); null
+    # for "legacy_guess" rows, which have no citation to give.
+    markets_served_basis: str | None = None
 
     # Everything below is UNFILLED (null) until confirmed by name and date —
     # the same discipline heat_rejection_mode above already applies. A
