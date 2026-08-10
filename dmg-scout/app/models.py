@@ -681,6 +681,55 @@ class ProductLine(SQLModel, table=True):
     heat_rejection_mode: str | None = None
     heat_rejection_mode_verified: bool = False
     heat_rejection_mode_basis: str | None = None
+
+    # Primary organization for the line card view (app/web/main.py's
+    # /lines): which role in a building this line fills — air handling,
+    # cooling generation, heat rejection, etc. A rep thinks in these terms,
+    # not in the 18 finer-grained categories accounts.adjacency scores gaps
+    # on, so this is a SEPARATE field rather than a repurposing of category
+    # above — category keeps driving gap/adjacency math untouched. Resolved
+    # at seed time (see app/accounts.py:resolve_building_role) from category
+    # via CATEGORY_TO_ROLE, with an explicit override for the handful of
+    # lines whose actual product mix diverges from their category's default
+    # (ROLE_OVERRIDE_BY_LINE) — correct there, not here, then re-run
+    # `scout seed-lines`.
+    building_role: str = Field(index=True, default="heating_specialty")
+
+    # Which of the 8 markets (data_center, healthcare, industrial_warehouse,
+    # education, hospitality, labs, office, multifamily) this line plausibly
+    # sells into. A first-pass judgment call, same footing as category/
+    # value_tier above — but populated ONLY where a line's own stated
+    # description names or strongly implies a market (MARKETS_BY_LINE in
+    # app/accounts.py); left empty rather than guessed for the rest. Distinct
+    # from PROJECT matching below: Scout's own board only tracks
+    # data_center/industrial/esco new-construction, so a line marked
+    # "healthcare" here will never surface a matching Scout project — that
+    # absence is a fact about what Scout tracks, not a fact about the line.
+    markets_served: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
+
+    # Everything below is UNFILLED (null) until confirmed by name and date —
+    # the same discipline heat_rejection_mode above already applies. A
+    # confidently wrong eligibility or lead-time claim in front of an
+    # engineer is unrecoverable, so there is no inferred default for any of
+    # these: brand reputation is not a source.
+    competes_with: str | None = None          # named competitor line(s), free text
+    competes_with_basis: str | None = None
+
+    oshpd_osp: bool | None = None             # OSHPD/HCAI OSP pre-approval, CA healthcare
+    oshpd_osp_basis: str | None = None
+    ufc_4_010_06: bool | None = None          # UFC 4-010-06 antiterrorism standoff applicability
+    ufc_4_010_06_basis: str | None = None
+    ahri_certified: bool | None = None
+    ahri_certified_basis: str | None = None
+    country_of_manufacture: str | None = None
+    country_of_manufacture_basis: str | None = None
+
+    lead_time_weeks_low: int | None = None
+    lead_time_weeks_high: int | None = None
+    lead_time_basis: str | None = None        # sourced by name and date, required alongside any value
+
+    limitations: str | None = None            # stated plainly, only where actually known — never inferred
+
     created_at: datetime = Field(default_factory=utcnow)
 
 

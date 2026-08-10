@@ -126,6 +126,31 @@
 </tbody>
 </table>
 
+<h2>Line card fit — what our card offers this building type</h2>
+<p class="note" style="margin-top:-6px">The reverse of a line's own "which projects call for this" view (see
+  /lines) — given this project's category ({{ p.category.value.replace('_',' ') }}) and facility type
+  ({{ facility_type.value.replace('_',' ') if facility_type.value != 'unknown' else 'not stated in any linked filing' }}),
+  which of the 13 roles are relevant here, what we offer in each, and where we offer nothing at all. Knowing
+  the gap matters as much as knowing the fit.</p>
+<table style="max-width:900px">
+<thead><tr><th>Role</th><th>Status</th><th>Lines</th></tr></thead>
+<tbody>
+{% for ro in role_offerings %}
+{% if ro.relevant %}
+<tr>
+  <td>{{ ro.label }}</td>
+  <td>{% if ro.gap %}<span class="bad">GAP — no line on the card</span>{% else %}<span class="ok">✓ covered</span>{% endif %}</td>
+  <td>{% for line in ro.lines %}<a href="/line/{{ line.id }}">{{ line.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</td>
+</tr>
+{% endif %}
+{% endfor %}
+</tbody>
+</table>
+<details class="mt-2">
+  <summary class="note" style="cursor:pointer">Not relevant to this building type ({{ role_offerings | rejectattr('relevant') | list | length }} roles)</summary>
+  <p class="note">{% for ro in role_offerings if not ro.relevant %}{{ ro.label }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+</details>
+
 <h2>Outcome</h2>
 <form method="post" action="/project/{{ p.id }}/outcome" class="grid" style="max-width:900px">
   <select name="status" required>

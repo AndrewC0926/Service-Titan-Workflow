@@ -23,10 +23,14 @@ from app.models import (
     ACTIVE_STATUSES,
     Account,
     AccountCoverage,
+    Category,
+    FacilityType,
     Firm,
     ProductLine,
     Project,
     ProjectFirm,
+    ProjectSignal,
+    Signal,
     utcnow,
 )
 from app.normalize import normalize_name
@@ -46,6 +50,165 @@ ACCOUNT_TYPES = (
 )
 
 
+# ---- line card: role in a building ----------------------------------------
+#
+# The line card's PRIMARY organization is "what role does this fill in a
+# building" — the way a rep actually thinks, and how lines combine on a job
+# (AAON's rooftop pulls Titus diffusers and Yaskawa VFDs with it) — not the 18
+# finer categories accounts.adjacency scores account gaps on above. Those
+# categories keep doing exactly what they already do; this is a SEPARATE,
+# coarser grouping layered on top for the /lines view only.
+#
+# ROLE_ORDER is the tab order on that page, in the order specified when the
+# view was requested. ROLE_LABELS is the display text. CATEGORY_TO_ROLE is
+# the default category -> role mapping; ROLE_OVERRIDE_BY_LINE corrects the
+# handful of lines (by exact line_card `name`) whose actual product mix
+# doesn't match their category's default role — e.g. Pottorff's category is
+# air_distribution (grilles/registers/dampers as a group) but its own
+# description is "fire/smoke dampers and louvers", which is a life-safety
+# product, not a terminal-device one. Correct EITHER table here, then re-run
+# `scout seed-lines` — same workflow as correcting category/value_tier in
+# config.yaml, just in this file because there are only ~10 overrides against
+# 70 lines and putting them in config.yaml would mean touching all 70 entries
+# to add a mostly-redundant `role:` key. resolve_building_role() is what
+# actually applies these at seed time.
+ROLE_ORDER = (
+    "air_handling", "cooling_generation", "heat_rejection", "air_distribution_terminal",
+    "fans_ventilation", "dampers_life_safety", "controls_valves", "indoor_air_quality",
+    "humidification", "acoustics_seismic", "energy_recovery", "water_treatment",
+    "heating_specialty",
+)
+
+ROLE_LABELS = {
+    "air_handling": "Air handling",
+    "cooling_generation": "Cooling generation",
+    "heat_rejection": "Heat rejection",
+    "air_distribution_terminal": "Air distribution & terminal",
+    "fans_ventilation": "Fans & ventilation",
+    "dampers_life_safety": "Dampers & life safety",
+    "controls_valves": "Controls & valves",
+    "indoor_air_quality": "Indoor air quality",
+    "humidification": "Humidification",
+    "acoustics_seismic": "Acoustics & seismic",
+    "energy_recovery": "Energy recovery",
+    "water_treatment": "Water treatment",
+    "heating_specialty": "Heating & specialty",
+}
+
+CATEGORY_TO_ROLE = {
+    "rooftop_units": "air_handling",
+    "air_handling": "air_handling",
+    "vrf_split": "cooling_generation",
+    "chillers_cooling": "cooling_generation",
+    "cooling_towers": "heat_rejection",
+    "controls": "controls_valves",
+    "air_distribution": "air_distribution_terminal",
+    "fans_exhaust": "fans_ventilation",
+    "process_exhaust": "fans_ventilation",
+    "filtration_iaq": "indoor_air_quality",
+    "acoustics_vibration": "acoustics_seismic",
+    "heaters": "heating_specialty",
+    "humidification_dehumidification": "humidification",
+    "specialty_cooling": "heating_specialty",
+    "accessories": "air_distribution_terminal",
+    "residential_light_commercial": "fans_ventilation",
+    "water_treatment": "water_treatment",
+    "monitoring_sensors": "controls_valves",
+}
+
+# name -> role, ONLY for lines that diverge from CATEGORY_TO_ROLE's default —
+# see the module-level comment above for why these ten and not the other 60.
+ROLE_OVERRIDE_BY_LINE = {
+    "Aldes": "energy_recovery",                # "ventilation / ERV" -- the ERV is the point
+    "ChangeAir": "energy_recovery",             # energy recovery ventilators, by name
+    "Ventacity": "energy_recovery",             # "DOAS / ERV"
+    "Heat Pipe Technology": "energy_recovery",  # passive heat-exchange recovery mechanism
+    "LFSystems": "dampers_life_safety",         # lab/fume airflow containment is life-safety, not general BAS
+    "Carel": "humidification",                  # "humidification & refrigeration controls" -- humidification led
+    "MacroAir": "fans_ventilation",             # HVLS fans are fans, not specialty cooling
+    "Barcol-Air": "air_distribution_terminal",  # chilled beams are a room terminal device
+    "Pottorff": "dampers_life_safety",          # "fire/smoke dampers and louvers"
+    "Berner": "fans_ventilation",               # air curtains are fan-driven air barriers
+}
+
+
+def resolve_building_role(name: str, category: str) -> str:
+    return ROLE_OVERRIDE_BY_LINE.get(name) or CATEGORY_TO_ROLE.get(category, "heating_specialty")
+
+
+# ---- line card: markets served ---------------------------------------------
+#
+# Which of these 8 a line plausibly sells into. Populated ONLY where a
+# line's own stated description/subcategory in config.yaml names or strongly
+# implies a market (e.g. BASX's "mission-critical/data center applications",
+# Islandaire's PTAC/PTHP being the standard hotel/apartment unit type) --
+# left empty for every other line rather than guessed from category or brand
+# reputation, the same rule config.yaml's line_card applies to
+# heat_rejection_mode. An empty list here means "not yet mapped", not "sells
+# nowhere".
+#
+# Distinct on purpose from project matching (matching_projects_for_line
+# below): Scout's own board only tracks data_center/industrial/esco
+# new-construction, so a line marked "healthcare" here will never surface a
+# live Scout project -- that is a fact about what Scout tracks, not about
+# the line, and the /line page must say so rather than imply the gap is the
+# line's fault.
+MARKETS = (
+    "data_center", "healthcare", "industrial_warehouse", "education",
+    "hospitality", "labs", "office", "multifamily",
+)
+
+MARKET_LABELS = {
+    "data_center": "Data center",
+    "healthcare": "Healthcare",
+    "industrial_warehouse": "Industrial & warehouse",
+    "education": "Education",
+    "hospitality": "Hospitality",
+    "labs": "Labs",
+    "office": "Office",
+    "multifamily": "Multifamily",
+}
+
+MARKETS_BY_LINE = {
+    "BASX": ["data_center"],
+    "VU Flow Environmental": ["data_center", "labs"],
+    "Marley": ["data_center"],
+    "Recold": ["data_center"],
+    "Strobic Air": ["labs"],
+    "LFSystems": ["labs"],
+    "Seresco": ["hospitality", "multifamily", "education"],
+    "Islandaire": ["hospitality", "multifamily"],
+    "Engineered Comfort": ["hospitality", "multifamily"],
+    "Panasonic": ["multifamily", "hospitality"],
+    "Delta Breez": ["multifamily", "hospitality"],
+    "Broan NuTone": ["multifamily", "hospitality"],
+    "Monoxivent": ["industrial_warehouse"],
+    "Howden": ["industrial_warehouse"],
+    "MacroAir": ["industrial_warehouse"],
+    "Ice-Cel": ["industrial_warehouse"],
+    "Cambridge": ["industrial_warehouse"],
+    "Suburban": ["industrial_warehouse"],
+    "Markel": ["industrial_warehouse"],
+    "UVDI": ["healthcare"],
+    "AtmosAir/Bioclimatic": ["healthcare", "education", "office"],
+    "Cosatron": ["office", "education"],
+    "Barcol-Air": ["office"],
+}
+
+
+# Twelve lines whose CATEGORY (not role) is still a first-pass guess from the
+# original seed, flagged "(best-guess categorization — confirm)" in their
+# config.yaml description rather than a second boolean column -- the flag and
+# the fact it's attached to live in the same place, so they can never drift
+# apart. Read back out here once, at import-adjacent scope, rather than
+# string-matching it three times across accounts.py/main.py/templates.
+CATEGORY_BEST_GUESS_MARKER = "best-guess categorization"
+
+
+def category_is_best_guess(line: ProductLine) -> bool:
+    return CATEGORY_BEST_GUESS_MARKER in (line.description or "")
+
+
 # ---- seeding ---------------------------------------------------------------
 
 def seed_product_lines(session: Session, cfg: Config) -> int:
@@ -57,13 +220,37 @@ def seed_product_lines(session: Session, cfg: Config) -> int:
         name = entry["name"]
         norm = normalize_name(name)
         existing = session.exec(select(ProductLine).where(ProductLine.name_norm == norm)).first()
+        category = entry["category"]
         fields = {
-            "firm": entry.get("firm", "DMG"), "category": entry["category"],
+            "firm": entry.get("firm", "DMG"), "category": category,
             "subcategory": entry.get("subcategory", ""), "description": entry.get("description", ""),
             "value_tier": int(entry.get("value_tier", 3)), "equipment_type": entry.get("equipment_type"),
             "heat_rejection_mode": entry.get("heat_rejection_mode"),
             "heat_rejection_mode_verified": bool(entry.get("heat_rejection_mode_verified", False)),
             "heat_rejection_mode_basis": entry.get("heat_rejection_mode_basis"),
+            # role/markets: resolved from the tables above, never entered per
+            # line in config.yaml (see their module comments) -- an explicit
+            # `role:`/`markets:` key in an entry still wins, for the rare case
+            # someone corrects one directly in config.yaml instead.
+            "building_role": entry.get("role") or resolve_building_role(name, category),
+            "markets_served": entry.get("markets") or MARKETS_BY_LINE.get(name, []),
+            # Everything below is config-only, unfilled unless config.yaml
+            # states it -- see ProductLine's docstring for why there is no
+            # inferred default for any of these.
+            "competes_with": entry.get("competes_with"),
+            "competes_with_basis": entry.get("competes_with_basis"),
+            "oshpd_osp": entry.get("oshpd_osp"),
+            "oshpd_osp_basis": entry.get("oshpd_osp_basis"),
+            "ufc_4_010_06": entry.get("ufc_4_010_06"),
+            "ufc_4_010_06_basis": entry.get("ufc_4_010_06_basis"),
+            "ahri_certified": entry.get("ahri_certified"),
+            "ahri_certified_basis": entry.get("ahri_certified_basis"),
+            "country_of_manufacture": entry.get("country_of_manufacture"),
+            "country_of_manufacture_basis": entry.get("country_of_manufacture_basis"),
+            "lead_time_weeks_low": entry.get("lead_time_weeks_low"),
+            "lead_time_weeks_high": entry.get("lead_time_weeks_high"),
+            "lead_time_basis": entry.get("lead_time_basis"),
+            "limitations": entry.get("limitations"),
         }
         if existing:
             changed = any(getattr(existing, k) != v for k, v in fields.items())
@@ -376,3 +563,212 @@ def build_account_brief(session: Session, cfg: Config, account_id: int) -> Accou
         replacement_windows=account_replacement_windows(session, cfg, account_id),
         live_projects=live_scout_projects(session, account),
     )
+
+
+# ---- line card view: pull-through, accounts, and project matching --------
+#
+# What makes /lines and /line/{id} a working tool instead of a catalog page:
+# for one line, what else attaches to the same job (pull_through), which of
+# my accounts already buy it (line_account_matrix), and which live board
+# projects would plausibly call for it (matching_projects_for_line) — plus
+# the reverse, on a project's own page: given ITS building type, what does
+# the card offer by role, and where is there nothing at all
+# (line_offering_by_role).
+
+def pull_through(session: Session, cfg: Config, line: ProductLine, limit: int = 18) -> list[dict]:
+    """Other lines that plausibly attach to the same job as this one — the
+    DMG/ToroAire cross-sell made concrete. Reuses accounts.adjacency's
+    existing category_affinity table exactly as compute_gaps does: an
+    AAON rooftop (category rooftop_units) pulls Titus/Nailor/CRC/Anemostat
+    (air_distribution, 0.8), Pottorff (air_distribution, 0.8), Yaskawa
+    (controls, 0.8) and Vibro-Acoustics (acoustics_vibration, 0.5) with it,
+    because those ARE the weights already scored on the accounts side — this
+    does not introduce a second, unreconciled notion of "what goes together".
+
+    Only OTHER categories are considered (a line never pulls through its own
+    category — that's a substitute, not an attachment), and only lines with
+    affinity above accounts.adjacency.min_relevance_to_show, the same floor
+    compute_gaps uses to drop a pair from view rather than show it at the
+    bottom.
+    """
+    floor = float(cfg.get("accounts.adjacency.min_relevance_to_show", 0.15))
+    others = session.exec(select(ProductLine).where(ProductLine.id != line.id)).all()
+    scored = []
+    for other in others:
+        weight = category_affinity(cfg, line.category, other.category)
+        if weight < floor:
+            continue
+        scored.append({"line": other, "weight": weight})
+    scored.sort(key=lambda r: (-r["weight"], r["line"].value_tier, r["line"].name))
+    return scored[:limit]
+
+
+def line_account_matrix(session: Session, line_id: int) -> dict:
+    """The whitespace matrix viewed by product instead of by account — every
+    account that has a coverage row for this line, grouped by status, so the
+    page reads as a call list (who already buys it, who doesn't) rather than
+    a spec sheet."""
+    rows = session.exec(
+        select(AccountCoverage, Account)
+        .where(AccountCoverage.product_line_id == line_id,
+              Account.id == AccountCoverage.account_id)
+        .order_by(Account.name)
+    ).all()
+    by_status: dict[str, list] = {s: [] for s in COVERAGE_STATUSES}
+    for cov, account in rows:
+        by_status[cov.status].append({"coverage": cov, "account": account})
+    return {
+        "by_status": by_status,
+        "counts": {s: len(by_status[s]) for s in COVERAGE_STATUSES},
+    }
+
+
+# Which board Category/FacilityType combinations a role plausibly gets
+# called for. A first-pass judgment table, same footing as MARKETS_BY_LINE
+# above — correctable here. `facility_types: None` means "any facility type
+# within these categories"; a list narrows it for roles where the building's
+# specific use genuinely changes whether the role applies (e.g. water
+# treatment matters a lot more to a cleanroom or a heavy-manufacturing plant
+# than to a distribution warehouse).
+#
+# Deliberately scoped to what Scout's board actually tracks
+# (data_center/industrial/esco new construction) — not the fuller MARKETS
+# vocabulary above, which includes healthcare/education/hospitality/labs/
+# office/multifamily that this pipeline has no project data for at all. See
+# matching_projects_for_line's docstring.
+ROLE_PROJECT_RELEVANCE = {
+    "air_handling": {"categories": ["data_center", "industrial", "esco"], "facility_types": None},
+    "cooling_generation": {"categories": ["data_center", "industrial", "esco"], "facility_types": None},
+    "heat_rejection": {"categories": ["data_center", "industrial"], "facility_types": None},
+    "air_distribution_terminal": {"categories": ["data_center", "industrial", "esco"], "facility_types": None},
+    "fans_ventilation": {"categories": ["data_center", "industrial", "esco"], "facility_types": None},
+    "dampers_life_safety": {"categories": ["data_center", "industrial", "esco"], "facility_types": None},
+    "controls_valves": {"categories": ["data_center", "industrial", "esco"], "facility_types": None},
+    "indoor_air_quality": {
+        "categories": ["data_center", "industrial"],
+        "facility_types": ["cleanroom", "office_rnd", "data_center", "unknown"],
+    },
+    "humidification": {
+        "categories": ["data_center", "industrial"],
+        "facility_types": ["cleanroom", "data_center", "unknown"],
+    },
+    "acoustics_seismic": {"categories": ["data_center", "industrial"], "facility_types": None},
+    "energy_recovery": {
+        "categories": ["data_center", "industrial"],
+        "facility_types": ["office_rnd", "data_center", "cleanroom", "unknown"],
+    },
+    "water_treatment": {
+        "categories": ["data_center", "industrial"],
+        "facility_types": ["heavy_manufacturing", "cleanroom", "data_center", "unknown"],
+    },
+    "heating_specialty": {"categories": ["industrial", "esco"], "facility_types": None},
+}
+
+
+def project_facility_type(project: Project, signals: list[Signal]) -> FacilityType:
+    """The same resolution app.pipeline.size_score._facility_type +
+    run_size_score's value_type fallback already apply when sizing/valuing a
+    project — reproduced here rather than imported, since the pipeline
+    module's own docstring scopes it to scoring, and this needs only the
+    plain type, not a recompute of tonnage. Kept in exact lockstep with that
+    logic: the first linked signal that states a facility type wins, and a
+    data-center project with no signal stating one is treated as
+    facility_type=data_center rather than unknown (most data-center filings
+    never restate what the category column already says)."""
+    facility_type = FacilityType.unknown
+    for s in signals:
+        if s.facility_type is not FacilityType.unknown:
+            facility_type = s.facility_type
+            break
+    if facility_type is FacilityType.unknown and project.category is Category.data_center:
+        return FacilityType.data_center
+    return facility_type
+
+
+def facility_types_by_project(session: Session, project_ids: list[int]) -> dict[int, FacilityType]:
+    """Batched version of project_facility_type, same shape and reason as
+    app.pipeline.size_score.signal_types_by_project: matching_projects_for_line
+    needs this across every active project on the board, not one at a time."""
+    if not project_ids:
+        return {}
+    projects_by_id = {p.id: p for p in session.exec(
+        select(Project).where(Project.id.in_(project_ids))).all()}
+    links = session.exec(
+        select(ProjectSignal).where(ProjectSignal.project_id.in_(project_ids))).all()
+    signal_ids = list({l.signal_id for l in links})
+    signals_by_id = ({s.id: s for s in session.exec(
+        select(Signal).where(Signal.id.in_(signal_ids))).all()} if signal_ids else {})
+    signals_by_project: dict[int, list[Signal]] = {pid: [] for pid in project_ids}
+    for link in links:
+        s = signals_by_id.get(link.signal_id)
+        if s is not None:
+            signals_by_project[link.project_id].append(s)
+    return {
+        pid: project_facility_type(projects_by_id[pid], signals_by_project.get(pid, []))
+        for pid in project_ids if pid in projects_by_id
+    }
+
+
+def matching_projects_for_line(session: Session, line: ProductLine, limit: int = 25) -> list[Project]:
+    """Active board projects that would plausibly call for this line, from
+    its building_role via ROLE_PROJECT_RELEVANCE — "show me every project
+    where Strobic lab exhaust applies" as one click, not a search someone
+    has to construct by hand.
+
+    Scoped to what Scout's board actually is: data_center/industrial/esco
+    new-construction. A line whose markets_served names healthcare or
+    education will never return anything here, because Scout does not track
+    projects in those verticals at all — that is a statement about the
+    pipeline's own scope, not about whether the line fits.
+    """
+    rule = ROLE_PROJECT_RELEVANCE.get(line.building_role)
+    if rule is None:
+        return []
+    q = select(Project).where(
+        Project.status.in_(ACTIVE_STATUSES),
+        Project.category.in_([Category(c) for c in rule["categories"]]),
+    )
+    projects = session.exec(q.order_by(Project.score.desc())).all()
+    if rule["facility_types"] is None:
+        return projects[:limit]
+    allowed = {FacilityType(f) for f in rule["facility_types"]}
+    ft_by_project = facility_types_by_project(session, [p.id for p in projects])
+    matched = [p for p in projects if ft_by_project.get(p.id) in allowed]
+    return matched[:limit]
+
+
+@dataclass
+class RoleOffering:
+    role: str
+    label: str
+    relevant: bool          # is this role even plausibly called for on this building type
+    lines: list[ProductLine]
+    gap: bool = False       # relevant AND zero lines on the card for it
+
+
+def line_offering_by_role(session: Session, category: Category, facility_type: FacilityType) -> list[RoleOffering]:
+    """The reverse of matching_projects_for_line, for a project's own page:
+    given THIS building's category/facility type, what does the line card
+    offer, grouped by role, and where does it offer nothing at all. Every
+    role currently has at least one line (see CATEGORY_TO_ROLE — 70 lines
+    span all 13), so `gap` should never fire today; it stays a real,
+    computed flag rather than an assumption so a future line-card edit that
+    empties a role is caught here instead of silently disappearing.
+    """
+    lines_by_role: dict[str, list[ProductLine]] = {}
+    for line in session.exec(select(ProductLine).order_by(ProductLine.value_tier, ProductLine.name)).all():
+        lines_by_role.setdefault(line.building_role, []).append(line)
+
+    out = []
+    for role in ROLE_ORDER:
+        rule = ROLE_PROJECT_RELEVANCE.get(role, {})
+        relevant = (
+            category.value in rule.get("categories", [])
+            and (rule.get("facility_types") is None or facility_type.value in rule["facility_types"])
+        )
+        lines = lines_by_role.get(role, [])
+        out.append(RoleOffering(
+            role=role, label=ROLE_LABELS[role], relevant=relevant, lines=lines,
+            gap=relevant and not lines,
+        ))
+    return out

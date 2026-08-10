@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}{{ line.name }}{% endblock %}
+{% block content %}
+<h2>{{ line.name }} <span class="tag">{{ line.firm }}</span> <span class="tag">{{ ROLE_LABELS[line.building_role] }}</span>
+  {% if best_guess %}<span class="tag bad" title="Category is a best-guess from the original seed — confirm with whoever reps this line, correct it in config.yaml, then re-run scout seed-lines.">category unconfirmed</span>{% endif %}
+  <a href="/lines?role={{ line.building_role }}" style="float:right;font-size:12px">← back to {{ ROLE_LABELS[line.building_role] }}</a>
+</h2>
+<p class="note" style="max-width:56rem">{{ line.description or line.subcategory or 'No description on file.' }}</p>
+
+<table style="max-width:900px">
+<tr><th>Category</th><td>{{ line.category.replace('_',' ') }}{% if best_guess %} <span class="caveat" title="Best-guess from the original seed — not confirmed.">?</span>{% endif %}</td>
+    <th>Subcategory</th><td>{{ line.subcategory or '—' }}</td></tr>
+<tr><th>Value tier</th>
+    <td><a href="/assumptions#value-tier-dollar-bands-1-5">{{ line.value_tier }}</a>
+      <span class="note">(${{ '{:,.0f}'.format(value_band[0]) }}–${{ '{:,.0f}'.format(value_band[1]) }},
+      most of that band is a placeholder — see /assumptions)</span></td>
+    <th>Equipment type</th><td>{{ line.equipment_type.replace('_',' ') if line.equipment_type else '—' }}</td></tr>
+</table>
+
+<h2>Markets served</h2>
+{% if line.markets_served %}
+<p>{% for m in line.markets_served %}<span class="tag">{{ MARKET_LABELS.get(m, m) }}</span> {% endfor %}
+  <span class="note">first-pass read from this line's own description, not measured</span></p>
+{% else %}
+<p class="note">Not yet mapped — this line's description doesn't name a market unambiguously enough to say.
+  Empty means "not yet mapped", not "sells nowhere".</p>
+{% endif %}
+
+<h2>What pulls through with it</h2>
+<p class="note" style="margin-top:-6px">Categories that plausibly attach to the same job as this line, from the
+  same accounts.adjacency weights the account gap ranking scores — see /assumptions for the category-pair table.
+  Only categories above the relevance floor; a category not listed here scored a flat 0 (no fit), not a low one.</p>
+<table style="max-width:900px">
+<thead><tr><th>Line</th><th>Category</th><th class="num">Affinity</th></tr></thead>
+<tbody>
+{% for r in pull_through %}
+<tr><td><a href="/line/{{ r.line.id }}">{{ r.line.name }}</a></td>
+    <td class="dim">{{ r.line.category.replace('_',' ') }}</td>
+    <td class="num mono">{{ '%.2f'|format(r.weight) }}</td></tr>
+{% else %}
+<tr><td colspan="3" class="note">No other category scores above the relevance floor against this line's category.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+<h2>Competes with</h2>
+{% if line.competes_with %}
+<p>{{ line.competes_with }} <span class="note">— {{ line.competes_with_basis or 'no basis recorded' }}</span></p>
+{% else %}
+<p class="note">Not yet recorded.</p>
+{% endif %}
+
+<h2>Eligibility</h2>
+<p class="note" style="margin-top:-6px">Every field below is null until a factory confirms it by name and date —
+  brand reputation is not a source. Unconfirmed is not "no": treat it as "ask before this line is used on a job
+  that gates on it".</p>
+<table style="max-width:900px">
+<thead><tr><th>Flag</th><th>Status</th><th>Basis</th></tr></thead>
+<tbody>
+<tr><td>OSHPD/HCAI OSP <span class="note">(CA healthcare pre-approval)</span></td>
+  <td>{% if line.oshpd_osp is none %}<span class="note">unconfirmed</span>
+      {% elif line.oshpd_osp %}<span class="ok">✓ yes</span>{% else %}<span class="bad">no</span>{% endif %}</td>
+  <td class="note">{{ line.oshpd_osp_basis or '—' }}</td></tr>
+<tr><td>UFC 4-010-06 <span class="note">(federal antiterrorism standoff)</span></td>
+  <td>{% if line.ufc_4_010_06 is none %}<span class="note">unconfirmed</span>
+      {% elif line.ufc_4_010_06 %}<span class="ok">✓ yes</span>{% else %}<span class="bad">no</span>{% endif %}</td>
+  <td class="note">{{ line.ufc_4_010_06_basis or '—' }}</td></tr>
+<tr><td>AHRI certified</td>
+  <td>{% if line.ahri_certified is none %}<span class="note">unconfirmed</span>
+      {% elif line.ahri_certified %}<span class="ok">✓ yes</span>{% else %}<span class="bad">no</span>{% endif %}</td>
+  <td class="note">{{ line.ahri_certified_basis or '—' }}</td></tr>
+<tr><td>Country of manufacture</td>
+  <td>{{ line.country_of_manufacture or '—' }}</td>
+  <td class="note">{{ line.country_of_manufacture_basis or '—' }}</td></tr>
+</tbody>
+</table>
+
+<h2>Lead time</h2>
+{% if line.lead_time_weeks_low is not none %}
+<p><span class="mono">{{ line.lead_time_weeks_low }}–{{ line.lead_time_weeks_high }} weeks</span>
+  <span class="note">— {{ line.lead_time_basis }}</span></p>
+{% else %}
+<p class="note">Not yet recorded — the single most useful field for daily selling, and still unfilled for
+  this line.</p>
+{% endif %}
+
+<h2>Known limitations</h2>
+{% if line.limitations %}
+<p>{{ line.limitations }}</p>
+{% else %}
+<p class="note">None recorded.</p>
+{% endif %}
+
+<h2>Accounts — who buys it, who doesn't</h2>
+<p class="note" style="margin-top:-6px">The whitespace matrix viewed by product instead of by account — this is
+  the call list.</p>
+<div class="kv mb-2">
+  <div><div class="k">Bought</div><div class="v">{{ accounts_matrix.counts.get('bought', 0) }}</div></div>
+  <div><div class="k">Quoted, lost</div><div class="v">{{ accounts_matrix.counts.get('quoted_not_won', 0) }}</div></div>
+  <div><div class="k">Never quoted</div><div class="v">{{ accounts_matrix.counts.get('never_quoted', 0) }}</div></div>
+  <div><div class="k">Unknown</div><div class="v">{{ accounts_matrix.counts.get('unknown', 0) }}</div></div>
+</div>
+<table class="tbl">
+<colgroup><col style="width:20rem"><col style="width:12rem"><col style="width:10rem"><col style="width:8rem"><col></colgroup>
+<thead><tr><th>Account</th><th>Type</th><th>Status</th><th class="num">$ value</th><th>Notes</th></tr></thead>
+<tbody>
+{% for status in ['bought', 'quoted_not_won', 'never_quoted', 'unknown'] %}
+{% for row in accounts_matrix.by_status.get(status, []) %}
+<tr>
+  <td><a href="/accounts/{{ row.account.id }}">{{ row.account.name }}</a></td>
+  <td class="nowrap">{{ row.account.account_type.replace('_',' ') }}</td>
+  <td class="nowrap">
+    {%- if status == 'bought' -%}<span class="ok">bought</span>
+    {%- elif status == 'quoted_not_won' -%}<span class="warn">quoted, lost</span>
+    {%- elif status == 'never_quoted' -%}<span class="note">never quoted</span>
+    {%- else -%}<span class="dim">unknown</span>{%- endif -%}
+  </td>
+  <td class="num mono">{% if row.coverage.dollar_value %}${{ '{:,.0f}'.format(row.coverage.dollar_value) }}{% else %}—{% endif %}</td>
+  <td class="note">{{ row.coverage.notes or '' }}</td>
+</tr>
+{% endfor %}
+{% endfor %}
+{% if accounts_matrix.counts.values() | sum == 0 %}
+<tr><td colspan="5" class="note">No accounts in the system yet.</td></tr>
+{% endif %}
+</tbody>
+</table>
+
+<h2>Live board projects that would plausibly call for this line</h2>
+<p class="note" style="margin-top:-6px">Based on {{ ROLE_LABELS[line.building_role] }}'s relevance to what
+  Scout's own board tracks — data center and industrial/ESCO new construction only. A line whose markets served
+  above include healthcare, education, hospitality, labs, office or multifamily will still show nothing here:
+  Scout does not track projects in those verticals at all, which is a fact about the pipeline's scope, not
+  about this line.</p>
+<table style="max-width:900px">
+<thead><tr><th>Project</th><th>Category</th><th class="num">Score</th></tr></thead>
+<tbody>
+{% for p in matching_projects %}
+<tr><td><a href="/project/{{ p.id }}">{{ p.name }}</a></td>
+    <td class="dim">{{ p.category.value.replace('_',' ') }}</td>
+    <td class="num mono">{{ '%.2f'|format(p.score) }}</td></tr>
+{% else %}
+<tr><td colspan="3" class="note">No active board projects match this role's relevance table right now.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}

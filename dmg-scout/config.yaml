@@ -1342,7 +1342,10 @@ accounts:
        description: "Chillers (best-guess categorization — confirm)",
        value_tier: 1, equipment_type: air_cooled_chiller}
     - {name: "Energy Labs", firm: DMG, category: air_handling, subcategory: "custom air handling units",
-       description: "Custom/semi-custom air handling units, DOAS", value_tier: 1, equipment_type: air_handling_unit}
+       description: "Custom/semi-custom air handling units, DOAS", value_tier: 1, equipment_type: air_handling_unit,
+       lead_time_weeks_low: 96, lead_time_weeks_high: 112,
+       lead_time_basis: "Stated 2026-08-09: custom AHUs typically do not ship in under roughly two years. No specific order or factory quote behind the number yet — round-number recollection, treat as directional until a live quote confirms it.",
+       limitations: "Roughly two-year lead time on a custom AHU (see lead_time above) means this line gets designed around EARLY or not at all — by the time a project reaches procurement, the window to spec Energy Labs has usually already closed."}
     - {name: "LG", firm: both, category: vrf_split, subcategory: "VRF/VRV systems",
        description: "VRF/VRV multi-split systems", value_tier: 2, equipment_type: split_dx}
     - {name: "Marley", firm: DMG, category: cooling_towers, subcategory: "cooling towers",
@@ -1366,7 +1369,8 @@ accounts:
        description: "Modular chillers", value_tier: 1, equipment_type: air_cooled_chiller}
     - {name: "VU Flow Environmental", firm: DMG, category: air_handling, subcategory: "cleanroom / CO2 air handling",
        description: "Cleanroom and CO2-anchor custom air handling systems",
-       value_tier: 1, equipment_type: air_handling_unit}
+       value_tier: 1, equipment_type: air_handling_unit,
+       limitations: "VU Flow's CO2 simultaneous heating/cooling chiller prices around $8,500/ton against roughly $1,500/ton for a commodity chiller (the two VERIFIED anchors in equipment_value.value_per_ton_by_facility_type, cleanroom vs. light_manufacturing) — a 5.7x spread that must be justified by the tight-tolerance/simultaneous-load case, not led with on price."}
     - {name: "Geoclima", firm: DMG, category: chillers_cooling, subcategory: "heat pump chillers",
        description: "Geothermal/water-source heat pump chillers", value_tier: 1, equipment_type: water_cooled_chiller}
     - {name: "ClimateMaster", firm: DMG, category: vrf_split, subcategory: "water source heat pumps",

@@ -16,7 +16,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, func, select
 
-from app.accounts import ACCOUNT_TYPES, COVERAGE_STATUSES
+from app.accounts import (
+    ACCOUNT_TYPES,
+    COVERAGE_STATUSES,
+    MARKET_LABELS,
+    MARKETS,
+    ROLE_LABELS,
+    ROLE_ORDER,
+)
 from app.assumptions import slugify
 from app.config import load_config
 from app.db import get_session
@@ -24,10 +31,29 @@ from app.firmprofile import CONTACT_STATE_LABELS
 from app.manual import add_manual_signal
 from app.mcp_server import mcp_app, mounted_middleware, mounted_routes
 from app.models import (
-    ACTIVE_STATUSES, OUTCOME_STATUSES, Account, AccountCoverage, Category, Contact, Firm,
-    MatchCandidate, Outreach, Project, ProductLine, ProjectContact, ProjectFirm, ProjectSignal,
-    RawDocument, RetrofitBuilding, SavedSearch, Signal, SignalType, SourceRun, Stage,
-    StageObservation, utcnow,
+    ACTIVE_STATUSES,
+    OUTCOME_STATUSES,
+    Account,
+    AccountCoverage,
+    Category,
+    Contact,
+    Firm,
+    MatchCandidate,
+    Outreach,
+    ProductLine,
+    Project,
+    ProjectContact,
+    ProjectFirm,
+    ProjectSignal,
+    RawDocument,
+    RetrofitBuilding,
+    SavedSearch,
+    Signal,
+    SignalType,
+    SourceRun,
+    Stage,
+    StageObservation,
+    utcnow,
 )
 
 
@@ -106,6 +132,8 @@ templates.env.globals["CONTACT_STATE_LABELS"] = CONTACT_STATE_LABELS
 # stage') }}" -- one function shared with the id the row itself renders
 # (Assumption.slug), so the two can't drift apart into a dead anchor.
 templates.env.globals["assumption_slug"] = slugify
+templates.env.globals["ROLE_LABELS"] = ROLE_LABELS
+templates.env.globals["MARKET_LABELS"] = MARKET_LABELS
 
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")),
           name="static")
@@ -165,7 +193,7 @@ def board(request: Request, category: str = "data_center",
     # dilute it. `?category=all` shows both.
     cat = _parse_category(category)
     q = select(Project).where(Project.status.in_(ACTIVE_STATUSES),
-                              Project.in_territory == True,  # noqa: E712
+                              Project.in_territory == True,
                               _category_filter(cat))
     projects = session.exec(q.order_by(Project.score.desc())).all()
     # Every category gets a count, including esco — a chip whose count is hidden
@@ -174,13 +202,13 @@ def board(request: Request, category: str = "data_center",
         c.value: session.exec(
             select(func.count(Project.id)).where(
                 Project.status.in_(ACTIVE_STATUSES),
-                Project.in_territory == True,  # noqa: E712
+                Project.in_territory == True,
                 Project.category == c)).one()
         for c in (*Category.boards(), Category.esco)
     }
     watch_count = session.exec(
         select(func.count(Project.id)).where(Project.status.in_(ACTIVE_STATUSES),
-                                             Project.in_territory == False)).one()  # noqa: E712
+                                             Project.in_territory == False)).one()
     days_since = {}
     for p in projects:
         days_since[p.id] = (utcnow() - p.last_signal_at).days if p.last_signal_at else None
@@ -383,7 +411,7 @@ def watchlist(request: Request, session: Session = Depends(get_session), _: str 
     """Out-of-territory projects — checked deliberately, never crowding the board."""
     projects = session.exec(
         select(Project).where(Project.status.in_(ACTIVE_STATUSES),
-                              Project.in_territory == False)  # noqa: E712
+                              Project.in_territory == False)
         .order_by(Project.score.desc())
     ).all()
     days_since = {p.id: (utcnow() - p.last_signal_at).days if p.last_signal_at else None
@@ -411,6 +439,7 @@ def project_detail(project_id: int, request: Request,
                        "from_roster": f.added_from == "roster"} for pf, f in roster_links]
     timeline = []
     people, firms = [], []
+    signals = []
     for link in links:
         s = session.get(Signal, link.signal_id)
         if not s:
@@ -419,7 +448,16 @@ def project_detail(project_id: int, request: Request,
         timeline.append({"signal": s, "doc": doc, "link": link})
         people.extend(s.named_people or [])
         firms.extend(s.named_firms or [])
+        signals.append(s)
     timeline.sort(key=lambda t: t["signal"].event_date or t["signal"].created_at, reverse=True)
+
+    # Reverse of /line/{id}'s matching_projects_for_line: given THIS
+    # project's building type, what does the line card offer by role, and
+    # where does it offer nothing at all. Knowing the gap matters as much
+    # as knowing the fit -- see app/accounts.py:line_offering_by_role.
+    from app.accounts import line_offering_by_role, project_facility_type
+    facility_type = project_facility_type(project, signals)
+    role_offerings = line_offering_by_role(session, project.category, facility_type)
 
     from app.staleness import stage_ages
     stage_progression = session.exec(
@@ -446,6 +484,7 @@ def project_detail(project_id: int, request: Request,
         "outreach": outreach, "contacts": contacts,
         "stage_progression": stage_progression, "stage_age": stage_age,
         "stale_months": stale_months, "score_breakdown": score_breakdown,
+        "role_offerings": role_offerings, "facility_type": facility_type,
         "tb": _title_block(session), "active": "board",
     })
 
@@ -539,7 +578,7 @@ def add_firm(name: str = Form(...), firm_type: str = Form("unknown"),
     return RedirectResponse("/contacts", status_code=303)
 
 
-def _csv_response(filename: str, header: list[str], rows: list[list]) -> "Response":
+def _csv_response(filename: str, header: list[str], rows: list[list]) -> Response:
     import csv
     import io
 
@@ -815,7 +854,7 @@ def outreach_view(request: Request, session: Session = Depends(get_session),
 
     projects = session.exec(
         select(Project).where(Project.status.in_(ACTIVE_STATUSES),
-                              Project.in_territory == True)).all()  # noqa: E712
+                              Project.in_territory == True)).all()
     by_id = {p.id: p for p in projects}
     ladders = build_ladders(session, projects) if projects else {}
 
@@ -900,6 +939,80 @@ def firm_brief(firm_id: int, request: Request,
         "p": prof, "generated_at": utcnow(), "tb": _title_block(session), "active": "firms",
     })
 
+
+# ---- line card -----------------------------------------------------------
+#
+# A working tool, not a catalog: every line connects to accounts (who
+# already buys it) and to the project board (which live projects would
+# plausibly call for it), and every eligibility/lead-time/competitor field
+# stays null and visibly unfilled until confirmed by name and date — see
+# app/models.py's ProductLine docstring and app/accounts.py's module
+# comments for the full discipline this follows.
+
+@app.get("/lines", response_class=HTMLResponse)
+def lines_index(request: Request, role: str = "", firm: str = "", market: str = "",
+                value_tier: str = "", eligible: str = "",
+                session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.accounts import category_is_best_guess
+
+    q = select(ProductLine)
+    if firm == "both":
+        q = q.where(ProductLine.firm == "both")
+    elif firm:
+        q = q.where(ProductLine.firm.in_([firm, "both"]))
+    if value_tier:
+        q = q.where(ProductLine.value_tier == int(value_tier))
+    if eligible in ("oshpd_osp", "ufc_4_010_06", "ahri_certified"):
+        q = q.where(getattr(ProductLine, eligible).is_(True))
+    lines = session.exec(q.order_by(ProductLine.value_tier, ProductLine.name)).all()
+    if market:
+        lines = [line for line in lines if market in (line.markets_served or [])]
+
+    by_role: dict[str, list] = {r: [] for r in ROLE_ORDER}
+    for line in lines:
+        by_role.setdefault(line.building_role, []).append(line)
+    active_role = role if role in ROLE_ORDER else ROLE_ORDER[0]
+
+    # Surfaced regardless of the current filters -- a correction todo-list,
+    # not something a facet should be able to hide.
+    best_guess_lines = [line for line in session.exec(select(ProductLine)).all()
+                        if category_is_best_guess(line)]
+
+    return templates.TemplateResponse(request, "lines.html", {
+        "by_role": by_role, "role_order": ROLE_ORDER,
+        "role_counts": {r: len(v) for r, v in by_role.items()},
+        "active_role": active_role, "markets": MARKETS,
+        "f_firm": firm, "f_market": market, "f_value_tier": value_tier, "f_eligible": eligible,
+        "best_guess_lines": best_guess_lines, "best_guess_total": len(best_guess_lines),
+        "best_guess_ids": {line.id for line in best_guess_lines},
+        "total": len(lines), "total_all": session.exec(
+            select(func.count(ProductLine.id))).one(),
+        "tb": _title_block(session), "active": "lines",
+    })
+
+
+@app.get("/line/{line_id}", response_class=HTMLResponse)
+def line_detail(line_id: int, request: Request,
+                session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.accounts import (
+        category_is_best_guess,
+        line_account_matrix,
+        matching_projects_for_line,
+        pull_through,
+        value_tier_band,
+    )
+    line = session.get(ProductLine, line_id)
+    if line is None:
+        raise HTTPException(404)
+    cfg = load_config()
+    return templates.TemplateResponse(request, "line_detail.html", {
+        "line": line, "best_guess": category_is_best_guess(line),
+        "pull_through": pull_through(session, cfg, line),
+        "accounts_matrix": line_account_matrix(session, line.id),
+        "matching_projects": matching_projects_for_line(session, line),
+        "value_band": value_tier_band(cfg, line.value_tier),
+        "tb": _title_block(session), "active": "lines",
+    })
 
 
 # ---- accounts ----------------------------------------------------------
@@ -1090,7 +1203,10 @@ def account_edit_save(
 def account_detail(account_id: int, request: Request,
                    session: Session = Depends(get_session), _: str = Depends(auth)):
     from app.accounts import (
-        account_replacement_windows, compute_gaps, coverage_summary, ensure_coverage_rows,
+        account_replacement_windows,
+        compute_gaps,
+        coverage_summary,
+        ensure_coverage_rows,
         live_scout_projects,
     )
     account = session.get(Account, account_id)
@@ -1202,8 +1318,6 @@ def source_health(request: Request, session: Session = Depends(get_session), _: 
         entry = sources.setdefault(run.source, {"last": run, "last_ok": None})
         if entry["last_ok"] is None and run.ok:
             entry["last_ok"] = run
-    from app.spend import budget_status
-
     # ---- the chart series ------------------------------------------------
     # Source health is the one view a chart genuinely beats a table at. The
     # question is "has this source been running, and when did it stop", which is
@@ -1214,6 +1328,7 @@ def source_health(request: Request, session: Session = Depends(get_session), _: 
     from datetime import timedelta
 
     from app.models import run_name_source
+    from app.spend import budget_status
 
     days = 14
     today = utcnow().date()

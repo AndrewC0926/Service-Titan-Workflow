@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Line card{% endblock %}
+{% block sheet_no %}S-13{% endblock %}
+{% block content %}
+
+<div class="sec-head">
+  <div class="sec-title">Line card — DMG / ToroAire</div>
+  <span class="note">{{ total_all }} lines, organized by role in a building — the way a rep thinks
+    and the way lines combine on a job, not alphabetically.</span>
+</div>
+
+{% if best_guess_lines %}
+<div class="callout callout-warn">
+  <strong>{{ best_guess_total }} of {{ total_all }} lines still carry a best-guess category from the original seed</strong>
+  <span class="body">Confirm these with whoever actually reps them, correct the category in config.yaml, then
+    re-run <span class="mono">scout seed-lines</span>:
+    {% for line in best_guess_lines %}<a href="/line/{{ line.id }}">{{ line.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.
+  </span>
+</div>
+{% endif %}
+
+<form class="grid" style="max-width:1000px;margin-bottom:12px">
+  <input type="hidden" name="role" value="{{ active_role }}">
+  <select name="firm" onchange="this.form.submit()">
+    <option value="">Firm: all</option>
+    <option value="DMG" {% if f_firm=='DMG' %}selected{% endif %}>DMG</option>
+    <option value="ToroAire" {% if f_firm=='ToroAire' %}selected{% endif %}>ToroAire</option>
+    <option value="both" {% if f_firm=='both' %}selected{% endif %}>Both</option>
+  </select>
+  <select name="market" onchange="this.form.submit()">
+    <option value="">Market served: all</option>
+    {% for m in markets %}<option value="{{ m }}" {% if f_market==m %}selected{% endif %}>{{ MARKET_LABELS[m] }}</option>{% endfor %}
+  </select>
+  <select name="value_tier" onchange="this.form.submit()">
+    <option value="">Value tier: all</option>
+    {% for t in [1, 2, 3, 4, 5] %}<option value="{{ t }}" {% if f_value_tier==t|string %}selected{% endif %}>Tier {{ t }}</option>{% endfor %}
+  </select>
+  <select name="eligible" onchange="this.form.submit()">
+    <option value="">Eligibility: any</option>
+    <option value="oshpd_osp" {% if f_eligible=='oshpd_osp' %}selected{% endif %}>OSHPD OSP confirmed</option>
+    <option value="ufc_4_010_06" {% if f_eligible=='ufc_4_010_06' %}selected{% endif %}>UFC 4-010-06 confirmed</option>
+    <option value="ahri_certified" {% if f_eligible=='ahri_certified' %}selected{% endif %}>AHRI certified confirmed</option>
+  </select>
+</form>
+{% if f_eligible %}
+<p class="note mb-2" style="max-width:56rem">Eligibility fields stay null until a factory confirms them — most
+  lines have not been confirmed on anything yet, so this filter will often come back thin. That is the honest
+  state of the data, not a bug in the filter.</p>
+{% endif %}
+
+<div class="mb-2 flex flex-wrap items-center gap-1.5">
+{% for r in role_order %}
+<a class="chip" aria-pressed="{{ 'true' if r==active_role else 'false' }}"
+   href="/lines?role={{ r }}{% if f_firm %}&firm={{ f_firm }}{% endif %}{% if f_market %}&market={{ f_market }}{% endif %}{% if f_value_tier %}&value_tier={{ f_value_tier }}{% endif %}{% if f_eligible %}&eligible={{ f_eligible }}{% endif %}">
+  {{ ROLE_LABELS[r] }}<span class="ct">{{ role_counts.get(r, 0) }}</span>
+</a>
+{% endfor %}
+</div>
+
+<table class="tbl">
+<colgroup>
+  <col style="width:16rem"><col style="width:7rem"><col style="width:16rem">
+  <col style="width:5rem"><col style="width:16rem"><col>
+</colgroup>
+<thead><tr>
+  <th title="What this line fills — {{ ROLE_LABELS[active_role] }} on this tab.">Line</th>
+  <th title="DMG, ToroAire, or both (LG, Yaskawa, Aldes, Neptronic carry one row each for both).">Firm</th>
+  <th title="What the line actually is, one line.">Subcategory</th>
+  <th class="num" title="1 (highest $/unit) to 5 (lowest) — see /assumptions for the dollar bands behind each tier.">Tier</th>
+  <th title="First-pass read from the line's own stated description — populated only where unambiguous. Empty means not yet mapped, not 'sells nowhere'.">Markets served</th>
+  <th title="The 18 finer accounts.adjacency category this line scores gap/pull-through math on.">Category</th>
+</tr></thead>
+<tbody>
+{% for line in by_role.get(active_role, []) %}
+<tr>
+  <td><a href="/line/{{ line.id }}">{{ line.name }}</a></td>
+  <td class="nowrap">{{ line.firm }}</td>
+  <td class="note">{{ line.subcategory }}</td>
+  <td class="num mono"><a href="/assumptions#value-tier-dollar-bands-1-5">{{ line.value_tier }}</a></td>
+  <td class="note">
+    {%- if line.markets_served -%}
+      {%- for m in line.markets_served -%}{{ MARKET_LABELS.get(m, m) }}{% if not loop.last %}, {% endif %}{%- endfor -%}
+    {%- else -%}not yet mapped{%- endif -%}
+  </td>
+  <td class="nowrap">{{ line.category.replace('_',' ') }}
+    {%- if line.id in best_guess_ids %}&nbsp;<span class="caveat" title="Category is a best-guess from the original seed, not confirmed.">?</span>{% endif -%}
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="6" class="note">No lines match these filters in this role.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}
