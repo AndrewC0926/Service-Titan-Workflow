@@ -3,6 +3,20 @@
 Written for me-in-six-months who has forgotten everything. Start at "Daily
 normal" to reorient, then jump to whatever's broken.
 
+## Deploy branch — read this before touching git
+
+Render's blueprint (`dmg-scout/render.yaml`) is pointed at
+**`claude/dmg-scout-architecture-wvmkqy`**, not `main`. A push to that branch
+*is* the deploy — nothing else to do, nothing to merge.
+
+`main` in this repo is a **separate, unrelated project** (ISO 27001/PCI
+compliance docs, an OPA policy gate, its own RUNBOOK) that happens to live in
+the same GitHub repo. It has no connection to DMG Scout and Render is not
+watching it. Do not merge `claude/dmg-scout-architecture-wvmkqy` into `main`
+to "deploy" — that mixes two unrelated codebases and does nothing Render
+cares about. If a Render dashboard check is ever needed to confirm which
+branch a service watches, do that before assuming it's `main`.
+
 ## Daily normal
 
 The Render cron runs `scout pipeline` at 6am PT: fetch → triage → extract →
@@ -34,7 +48,8 @@ All in `config.yaml`. Never edit Python for these.
 | A firm to the roster | `roster.<type>` in config **or** the Add-firm form on Contacts | dashboard adds land in the DB only; config survives DB loss — prefer config for permanent rosters |
 | A jurisdiction's watch words, thresholds, sizing constants | `scoring.*`, `sizing.*` | see "Config knobs" below |
 
-After config changes: commit, push, Render redeploys. Nothing else to do.
+After config changes: commit, push to `claude/dmg-scout-architecture-wvmkqy`
+(see "Deploy branch" above), Render redeploys. Nothing else to do.
 
 ### Adding a Legistar client
 
