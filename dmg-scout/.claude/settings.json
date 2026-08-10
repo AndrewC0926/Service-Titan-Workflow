@@ -14,7 +14,8 @@
       "Bash(ps *)",
       "Bash(*.venv/bin/python*)",
       "Bash(*.venv/bin/pytest*)",
-      "Bash(*python -m app.cli*)"
+      "Bash(*python -m app.cli*)",
+      "Bash(.venv/bin/python -c *)"
     ],
     "deny": [
       "Bash(*purge-source*)",
