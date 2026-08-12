@@ -20,13 +20,23 @@ from sqlmodel import delete, select
 
 from app.config import Config
 from app.http import PoliteClient
-from app.models import AssessorCandidate, EquipmentPermit, RetrofitBuilding, utcnow
+from app.models import AssessorCandidate, EquipmentPermit, RetrofitBuilding, ServiceFrequencyReport, utcnow
 from app.pipeline.assessor import FEATURE_SERVER, PORTAL_URL as ASSESSOR_PORTAL_URL
 from app.pipeline.permits import PORTAL_URL as PERMITS_PORTAL_URL
 from app.pipeline.regulatory import infer_refrigerant, sb1206_status
 from app.replacement import UnknownEquipment, generic_service_life, service_life
 
 log = logging.getLogger(__name__)
+
+PERMIT_OBSERVATION_START_YEAR = 2010
+# 16,951 of 17,010 permits on file (2026-08-11) are 2010+ -- the 2010-2019 and
+# present-day open-data sources (see app/pipeline/permits.py's dataset ids)
+# cover the overwhelming majority. A small "before_2010" source exists
+# (mcip-sa6g, frozen, ~900 rows total, only 59 currently fetched into this
+# table) but is not treated as extending the observation window for the
+# abstention rule in find_replacement_candidates below -- it's too sparse to
+# change the conclusion "absence before 2010 is not observed", and treating
+# it as if it did would be exactly the false-precision this rule removes.
 
 # Keyword -> replacement.py equipment key. Checked in order; the first match
 # wins, and a work description matching none of these leaves equipment_type
@@ -138,9 +148,28 @@ def fetch_parcel_characteristics(client: PoliteClient, ains: list[str],
     return out
 
 
+def latest_service_frequency_by_apn(session, apns: list[str]) -> dict[str, ServiceFrequencyReport]:
+    """Most recent ServiceFrequencyReport per apn, for the apns given.
+    Manual entry only (`scout report-service-frequency`) — see that model's
+    docstring for why this lives in its own table instead of a column
+    RetrofitBuilding's own rebuild would silently wipe."""
+    if not apns:
+        return {}
+    reports = session.exec(
+        select(ServiceFrequencyReport).where(ServiceFrequencyReport.apn.in_(apns))
+    ).all()
+    latest: dict[str, ServiceFrequencyReport] = {}
+    for r in reports:
+        cur = latest.get(r.apn)
+        if cur is None or r.reported_at > cur.reported_at:
+            latest[r.apn] = r
+    return latest
+
+
 def rank_buildings(*, service_life_status: str | None, sqft: float | None,
                    sb1206_trigger_status: str | None, ebewe_candidate: bool,
-                   carb_candidate: bool, service_life_years_past: float | None = None) -> float:
+                   carb_candidate: bool, service_life_years_past: float | None = None,
+                   service_calls_per_year: float | None = None) -> float:
     """Hierarchy first, composite within tier — the same fix ladder.py's
     reachability-first sort applies to contacts, applied here to buildings.
 
@@ -173,7 +202,31 @@ def rank_buildings(*, service_life_status: str | None, sqft: float | None,
     (0.55 + 0.25 + 0.4*0.3=0.12 = 0.92 max), so — same invariant as before —
     no combination of magnitude, size and regulatory pressure can ever cross
     a full tier step.
+
+    service_calls_per_year (2026-08-11, manual entry only — see
+    ServiceFrequencyReport) OVERRIDES all of the above when present: actual
+    reported service frequency is a stronger replacement signal than the
+    YearBuilt/install-year proxy this whole function otherwise runs on, so a
+    reported building is placed above the entire proxy-ranked board, not
+    just promoted within its own tier the way years-past is. When it's
+    None — every row today, and the overwhelming majority of rows for a long
+    time — this function's return value is IDENTICAL to before this
+    parameter existed; nothing below this docstring changed. This is a
+    hypothesis with exactly one data point (a contractor reporting 20+ calls
+    in a year on one unit) and is deliberately not tuned further than "more
+    reported calls ranks higher than fewer" until there's enough of a sample
+    to tune against — see app.assumptions and
+    app.pipeline.retrofit:service_calls_coverage.
     """
+    if service_calls_per_year is not None:
+        # 1000 exceeds the max possible proxy-based score (tier 3 + within_tier
+        # capped at 0.92 = 3.92), so any reported row sorts above every
+        # unreported one, unconditionally. The +min(calls, 200) term only
+        # orders reported rows against EACH OTHER by call count -- capped
+        # the same way service_life_years_past is capped, so one absurd
+        # outlier figure can't be read as more informative than it is.
+        return round(1000.0 + min(max(service_calls_per_year, 0.0), 200.0), 4)
+
     life_tier = {"overdue": 3, "due": 2, "approaching": 1, "not_due": 0}.get(service_life_status, -1)
 
     magnitude_factor = 0.0
@@ -243,6 +296,8 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
         elif c.trigger_key == "la_ebewe_audit_retrocommissioning":
             ebewe_ains.add(c.ain)
 
+    service_freq = latest_service_frequency_by_apn(session, apns)
+
     session.exec(delete(RetrofitBuilding).where(RetrofitBuilding.population == "recently_active"))
 
     now = utcnow()
@@ -277,11 +332,13 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
                     pass
 
         carb_use_code = carb_by_ain.get(apn)
+        freq = service_freq.get(apn)
         rank = rank_buildings(
             service_life_status=sl_status, sqft=chars.get("sqft"),
             sb1206_trigger_status=sb1206["status"] if sb1206 else None,
             ebewe_candidate=apn in ebewe_ains, carb_candidate=carb_use_code is not None,
             service_life_years_past=years_past,
+            service_calls_per_year=freq.service_calls_per_year if freq else None,
         )
 
         session.add(RetrofitBuilding(
@@ -300,6 +357,9 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
             service_life_status=sl_status, service_life_basis=sl_basis,
             service_life_years_past=years_past,
             equipment_age_years=age_years, rank_score=rank,
+            service_calls_per_year=freq.service_calls_per_year if freq else None,
+            service_calls_per_year_source=freq.source if freq else None,
+            service_calls_per_year_reported_at=freq.reported_at if freq else None,
             permit_source_url=PERMITS_PORTAL_URL, assessor_source_url=ASSESSOR_PORTAL_URL,
             built_at=now,
         ))
@@ -312,6 +372,7 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
         "distinct_buildings": built,
         "assessor_matched": sum(1 for a in apns if a in characteristics),
         "assessor_unmatched": sum(1 for a in apns if a not in characteristics),
+        "service_frequency_reports_applied": len(service_freq),
     }
 
 
@@ -452,6 +513,19 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
     inferred refrigerant, which needs an install year inside R-410A's
     window -- never true for a pre-2010-built proxy, so it's always None
     here, correctly).
+
+    2026-08-11: service_life_status/service_life_years_past ABSTAIN (both
+    null) rather than compute when YearBuilt precedes
+    PERMIT_OBSERVATION_START_YEAR by more than two average service cycles.
+    "No permit on record" is a 16-year observation window, not evidence
+    nothing happened -- for a building old enough to have plausibly cycled
+    through its equipment multiple times unobserved, treating that silence
+    as "maximally overdue" fabricates urgency the same way an unparseable
+    field silently voting instead of abstaining would. These rows still get
+    ranked -- rank_buildings already treats a null status/years_past as "no
+    tier, no magnitude", so they fall out of the urgency ranking and sort on
+    size and use code alone, same as any other abstained field elsewhere in
+    this system.
     """
     use_codes = use_codes if use_codes is not None else (cfg.get("retrofit.candidate_use_codes") or ["Commercial"])
     min_sqft = min_sqft if min_sqft is not None else cfg.get("retrofit.candidate_min_sqft")
@@ -480,12 +554,15 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
         elif c.trigger_key == "la_ebewe_audit_retrocommissioning":
             ebewe_ains.add(c.ain)
 
+    service_freq = latest_service_frequency_by_apn(session, ains)
+
     now = utcnow()
     session.exec(delete(RetrofitBuilding).where(RetrofitBuilding.population == "replacement_candidate"))
 
     candidates = 0
     apn_excluded = 0
     address_excluded = 0
+    service_life_abstained = 0
     for attrs in parcels:
         ain = attrs.get("AIN")
         if not ain:
@@ -504,18 +581,49 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
         sl_status, sl_basis, years_past = None, None, None
         if age is not None:
             gsl = generic_service_life(cfg, ownership=None)  # None -> default_ownership
-            sl_status = gsl.status(age)
-            years_past = round(age - gsl.low, 1)
-            sl_basis = (
-                f"YEARBUILT-DERIVED (not permit-verified): {age:.0f}yr since built "
-                f"({year_built}); no mechanical permit on record since 2010, so actual "
-                f"install year and equipment type are unknown -- age assumes original "
-                f"equipment or an unpermitted like-for-like swap. Composite expected life "
-                f"{gsl.low}-{gsl.high}yr under {gsl.ownership} ownership (default -- no "
-                f"owner data available), averaged across equipment types since none is "
-                f"confirmed [{'VERIFIED' if gsl.verified else 'UNVERIFIED'}: {gsl.source}]. "
-                f"-> {sl_status.replace('_', ' ')}"
-            )
+            # Two average service cycles: "more than two equipment lifetimes
+            # could have turned over, unobserved" -- 2 x the midpoint of
+            # low/high, which is exactly low+high. Below this, "no permit on
+            # record since 2010" is still informative (a plausible original-
+            # equipment-still-there story survives the unobserved gap).
+            # Above it, absence stops being evidence of anything: the
+            # building could be on original equipment or its sixth
+            # replacement, and this system cannot tell the difference --
+            # see PERMIT_OBSERVATION_START_YEAR above and the charter rule
+            # that an unknowable field abstains rather than votes. Silently
+            # scoring these as maximally overdue was the same rule broken in
+            # reverse: a missing field voting maximally FOR, not abstaining.
+            service_cycle_years_x2 = gsl.low + gsl.high
+            unobserved_years = PERMIT_OBSERVATION_START_YEAR - year_built if year_built else None
+            if unobserved_years is not None and unobserved_years > service_cycle_years_x2:
+                service_life_abstained += 1
+                sl_basis = (
+                    f"ABSTAINED: built {year_built}, {unobserved_years}yr before permit records "
+                    f"begin ({PERMIT_OBSERVATION_START_YEAR}) -- more than two average service "
+                    f"cycles ({service_cycle_years_x2}yr = 2 x ~{round(service_cycle_years_x2 / 2)}yr "
+                    f"under {gsl.ownership} ownership) unobserved. Absence of a permit here is not "
+                    f"evidence of anything: the building could be on its original equipment or its "
+                    f"sixth replacement, and this system cannot tell the difference. "
+                    f"service_life_status and service_life_years_past are null on purpose -- this "
+                    f"row ranks on size and use code alone, not service-life urgency."
+                )
+                # sl_status and years_past stay None -- rank_buildings already
+                # treats both as "abstain, don't vote" (life_tier falls to -1
+                # via its status.get(..., -1) default, magnitude_factor stays
+                # 0.0), so no change to rank_buildings itself was needed.
+            else:
+                sl_status = gsl.status(age)
+                years_past = round(age - gsl.low, 1)
+                sl_basis = (
+                    f"YEARBUILT-DERIVED (not permit-verified): {age:.0f}yr since built "
+                    f"({year_built}); no mechanical permit on record since 2010, so actual "
+                    f"install year and equipment type are unknown -- age assumes original "
+                    f"equipment or an unpermitted like-for-like swap. Composite expected life "
+                    f"{gsl.low}-{gsl.high}yr under {gsl.ownership} ownership (default -- no "
+                    f"owner data available), averaged across equipment types since none is "
+                    f"confirmed [{'VERIFIED' if gsl.verified else 'UNVERIFIED'}: {gsl.source}]. "
+                    f"-> {sl_status.replace('_', ' ')}"
+                )
 
         # SB 1206 needs an inferred refrigerant, which needs an install year
         # inside R-410A's 2010-2024 window (see app/pipeline/regulatory.py).
@@ -523,12 +631,14 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
         # applies here -- not called, to avoid implying it was checked.
         carb_use_code = carb_by_ain.get(ain)
         tons_low, tons_high, tons_basis = estimate_tonnage(cfg, use_desc, sqft)
+        freq = service_freq.get(ain)
 
         rank = rank_buildings(
             service_life_status=sl_status, sqft=sqft,
             sb1206_trigger_status=None,
             ebewe_candidate=ain in ebewe_ains, carb_candidate=carb_use_code is not None,
             service_life_years_past=years_past,
+            service_calls_per_year=freq.service_calls_per_year if freq else None,
         )
 
         session.add(RetrofitBuilding(
@@ -544,6 +654,9 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
             equipment_age_years=age,
             estimated_tons_low=tons_low, estimated_tons_high=tons_high, estimated_tons_basis=tons_basis,
             rank_score=rank,
+            service_calls_per_year=freq.service_calls_per_year if freq else None,
+            service_calls_per_year_source=freq.source if freq else None,
+            service_calls_per_year_reported_at=freq.reported_at if freq else None,
             permit_source_url=PERMITS_PORTAL_URL, assessor_source_url=ASSESSOR_PORTAL_URL,
             built_at=now,
         ))
@@ -559,4 +672,22 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
         "masked_or_null_apn_address_excluded": address_excluded,
         "replacement_candidates": candidates,
         "use_codes": use_codes, "min_sqft": min_sqft, "year_built_before": year_built_before,
+        "service_frequency_reports_applied": len(service_freq),
+        "service_life_abstained": service_life_abstained,
+    }
+
+
+def service_calls_coverage(session) -> dict:
+    """How many RetrofitBuilding rows currently carry a reported
+    service_calls_per_year, against the total -- "so I know when the sample
+    is too small to mean anything." Read at call time from the live board,
+    not cached, so it can never drift from what's actually populated."""
+    total = len(session.exec(select(RetrofitBuilding.id)).all())
+    reported = len(session.exec(
+        select(RetrofitBuilding.id).where(RetrofitBuilding.service_calls_per_year.is_not(None))).all())
+    distinct_apns_reported = len(session.exec(select(ServiceFrequencyReport.apn).distinct()).all())
+    return {
+        "retrofit_buildings_total": total,
+        "retrofit_buildings_with_service_calls": reported,
+        "distinct_apns_with_a_report": distinct_apns_reported,
     }

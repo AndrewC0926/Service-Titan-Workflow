@@ -616,13 +616,20 @@ def test_carb_ebewe_candidacy_evaluated_for_replacement_candidates(db_session, c
 
 @respx.mock
 def test_candidate_ranking_uses_same_urgency_tiers_as_recently_active(db_session, cfg):
-    """A very old, small candidate (overdue tier) must still outrank a
+    """A genuinely-scored small overdue candidate must still outrank a
     borderline-age, huge candidate (not_due/approaching tier) -- the same
     'urgency is a tier size cannot cross' rule rank_buildings already
-    enforces, now exercised through the candidate path."""
+    enforces, now exercised through the candidate path.
+
+    YearBuilt=1985, not something truly ancient like 1900: past the
+    service-life abstention cutoff (built 1968 or earlier -- see the
+    abstention tests above) a building doesn't carry a tier AT ALL, which
+    would make this test assert the exact thing the abstention rule exists
+    to stop. 1985 stays inside the observation window and is still
+    unambiguously overdue by 2026."""
     _mock_commercial_parcels([
         {"AIN": "9090909090", "PropertyLocation": "tiny ancient", "UseCode": "2100",
-         "UseCodeDescChar1": "Commercial", "YearBuilt": "1900", "SQFTmain": 6000},
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1985", "SQFTmain": 6000},
         {"AIN": "9191919191", "PropertyLocation": "huge newer", "UseCode": "2100",
          "UseCodeDescChar1": "Commercial", "YearBuilt": "2009", "SQFTmain": 2_000_000},
     ])
@@ -687,3 +694,95 @@ def test_estimate_tonnage_none_for_missing_sqft_or_unknown_use_desc(cfg):
     assert estimate_tonnage(cfg, "Commercial", None) == (None, None, None)
     assert estimate_tonnage(cfg, None, 50_000) == (None, None, None)
     assert estimate_tonnage(cfg, "Institutional", 50_000) == (None, None, None)
+
+
+# ---- service-life abstention (2026-08-11) ----------------------------------
+#
+# private_commercial generic_service_life is low=19/high=22 -- two average
+# cycles = 41yr. unobserved_years > 41 abstains (strict), so built 1968 or
+# earlier abstains, 1969 (exactly 41yr unobserved) and 1970+ still score.
+# These tests pin that boundary explicitly rather than asserting against a
+# recomputed cutoff, so a change to the service-life table shows up as a
+# broken test, not a silently shifted boundary.
+
+@respx.mock
+def test_ancient_building_abstains_from_service_life(db_session, cfg):
+    _mock_commercial_parcels([
+        {"AIN": "1111111111", "PropertyLocation": "1 Old St", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1903", "SQFTmain": 50000},
+    ])
+    find_replacement_candidates(db_session, cfg, fast_client())
+    from sqlmodel import select
+    row = db_session.exec(select(RetrofitBuilding)).one()
+    assert row.service_life_status is None
+    assert row.service_life_years_past is None
+    assert row.service_life_basis is not None and "ABSTAINED" in row.service_life_basis
+    assert row.year_built == 1903  # still known and displayed -- only the score abstains
+
+
+@respx.mock
+def test_building_just_past_the_cutoff_still_abstains(db_session, cfg):
+    """41yr unobserved (built 1969) sits exactly AT two cycles, not past
+    them, and does not abstain (strict >); 42yr (built 1968) does. Pinning
+    both sides of the strict inequality here."""
+    _mock_commercial_parcels([
+        {"AIN": "2222222222", "PropertyLocation": "2 Old St", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1968", "SQFTmain": 50000},
+    ])
+    find_replacement_candidates(db_session, cfg, fast_client())
+    from sqlmodel import select
+    row = db_session.exec(select(RetrofitBuilding)).one()
+    assert row.service_life_status is None
+
+
+@respx.mock
+def test_building_just_inside_the_window_still_scores(db_session, cfg):
+    """Not every pre-2010 building abstains -- one built close enough to the
+    observation window that a plausible original-equipment-still-there
+    story survives the gap must keep scoring on the proxy."""
+    _mock_commercial_parcels([
+        {"AIN": "3333333333", "PropertyLocation": "3 Newer St", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1970", "SQFTmain": 50000},
+    ])
+    find_replacement_candidates(db_session, cfg, fast_client())
+    from sqlmodel import select
+    row = db_session.exec(select(RetrofitBuilding)).one()
+    assert row.service_life_status is not None
+    assert row.service_life_years_past is not None
+    assert "ABSTAINED" not in (row.service_life_basis or "")
+
+
+@respx.mock
+def test_abstained_rows_rank_below_every_scored_tier(db_session, cfg):
+    """The point of the fix: an abstained row must not out-rank (or even
+    tie into) a genuinely-scored tier -- it ranks on size/use code alone,
+    strictly below the tiered proxy population."""
+    _mock_commercial_parcels([
+        {"AIN": "4444444444", "PropertyLocation": "4 Old St", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1854", "SQFTmain": 1_000_000},
+        {"AIN": "5555555555", "PropertyLocation": "5 Newer St", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1970", "SQFTmain": 5001},
+    ])
+    find_replacement_candidates(db_session, cfg, fast_client())
+    from sqlmodel import select
+    rows = {r.apn: r for r in db_session.exec(select(RetrofitBuilding)).all()}
+    ancient_huge = rows["4444444444"]
+    newer_tiny = rows["5555555555"]
+    assert ancient_huge.service_life_status is None
+    assert newer_tiny.service_life_status is not None
+    # size alone (1M sqft vs 5,001 sqft) does NOT let the abstained giant
+    # out-rank the smaller but genuinely-scored building.
+    assert newer_tiny.rank_score > ancient_huge.rank_score
+
+
+@respx.mock
+def test_service_life_abstained_count_reported_in_stats(db_session, cfg):
+    _mock_commercial_parcels([
+        {"AIN": "6666666666", "PropertyLocation": "6 Old St", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "1900", "SQFTmain": 10000},
+        {"AIN": "7777777777", "PropertyLocation": "7 Newer St", "UseCode": "2100",
+         "UseCodeDescChar1": "Commercial", "YearBuilt": "2005", "SQFTmain": 10000},
+    ])
+    stats = find_replacement_candidates(db_session, cfg, fast_client())
+    assert stats["service_life_abstained"] == 1
+    assert stats["replacement_candidates"] == 2

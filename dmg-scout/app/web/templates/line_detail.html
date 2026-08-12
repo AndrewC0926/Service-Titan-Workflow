@@ -17,6 +17,31 @@
     <th>Equipment type</th><td>{{ line.equipment_type.replace('_',' ') if line.equipment_type else '—' }}</td></tr>
 </table>
 
+<h2>Selection tool</h2>
+{% if selection_tool and selection_tool.verification_status == 'confirmed' %}
+<p><span class="ok" title="{{ selection_tool.verified_by }}, {{ selection_tool.verified_date.strftime('%Y-%m-%d') if selection_tool.verified_date else '' }}">✓ confirmed</span>
+  — <strong>{{ selection_tool.tool_name }}</strong>
+  {% if selection_tool.vendor_url %}(<a href="https://{{ selection_tool.vendor_url }}" target="_blank" rel="noopener">{{ selection_tool.vendor_url }}</a>){% endif %}</p>
+{% if selection_tool.access_level %}<p>Access: {{ access_labels.get(selection_tool.access_level, selection_tool.access_level) }}</p>
+{% else %}<p class="note">Access level varies — see note below.</p>{% endif %}
+{% if selection_tool.produces_submittal_docs is not none %}<p>Produces submittal docs: {{ 'yes' if selection_tool.produces_submittal_docs else 'no' }}</p>{% endif %}
+{% if selection_tool.what_it_outputs %}<p class="note" style="max-width:56rem">{{ selection_tool.what_it_outputs }}</p>{% endif %}
+{% elif selection_tool and selection_tool.verification_status == 'search_verified' %}
+<p><span class="warn" title="Found via web research — a vendor's own page, not confirmed directly with the manufacturer and not a live-directory hit. Same discipline as an AHRI SEARCH_VERIFIED entry.">⚠ search-verified</span>
+  — <strong>{{ selection_tool.tool_name }}</strong>
+  {% if selection_tool.vendor_url %}(<a href="https://{{ selection_tool.vendor_url }}" target="_blank" rel="noopener">{{ selection_tool.vendor_url }}</a>){% endif %}</p>
+{% if selection_tool.access_level %}<p>Access: {{ access_labels.get(selection_tool.access_level, selection_tool.access_level) }}</p>
+{% else %}<p class="note">Access level varies — see note below.</p>{% endif %}
+{% if selection_tool.produces_submittal_docs is not none %}<p>Produces submittal docs: {{ 'yes' if selection_tool.produces_submittal_docs else 'no' }}</p>{% endif %}
+{% if selection_tool.what_it_outputs %}<p class="note" style="max-width:56rem">{{ selection_tool.what_it_outputs }}</p>{% endif %}
+<p class="note">Verified by {{ selection_tool.verified_by }}, {{ selection_tool.verified_date.strftime('%Y-%m-%d') if selection_tool.verified_date else 'date unrecorded' }}.</p>
+{% elif selection_tool and selection_tool.access_level == 'none_exists' %}
+<p><span class="warn" title="Checked, and confirmed the manufacturer has no selection tool — a finding, not an absence of research.">⚠ confirmed: no tool exists</span></p>
+{% if selection_tool.what_it_outputs %}<p class="note" style="max-width:56rem">{{ selection_tool.what_it_outputs }}</p>{% endif %}
+{% else %}
+<p class="note">Not yet researched — "unchecked" is not "no tool exists". Add it to <code>accounts.selection_tools</code> in config.yaml and re-run <code>scout seed-selection-tools</code> once someone looks.</p>
+{% endif %}
+
 <h2>Markets served</h2>
 {% if line.markets_served_source == 'researched' %}
   {% if line.markets_served %}

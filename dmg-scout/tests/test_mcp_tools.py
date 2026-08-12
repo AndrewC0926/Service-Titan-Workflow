@@ -1,4 +1,4 @@
-"""The eight MCP tools, called directly as plain functions (the @mcp.tool
+"""The ten MCP tools, called directly as plain functions (the @mcp.tool
 decorator leaves them callable — see app/mcp_tools.py). Exercises the query
 logic against real seeded data; tests/test_mcp.py covers the OAuth/transport
 layer separately."""
@@ -6,12 +6,13 @@ from datetime import datetime
 
 from sqlmodel import select
 
-from app.accounts import create_account, seed_product_lines
+from app.accounts import create_account, seed_product_lines, seed_selection_tools
 from app.manual import add_manual_signal
 from app.mcp_tools import (
     board_summary,
     get_account,
     get_project,
+    get_selection_tool,
     log_outreach,
     search_firms,
     search_projects,
@@ -184,3 +185,29 @@ def test_source_health_reports_budget_and_sources(db_session, cfg):
     out = source_health()
     assert "Source health:" in out
     assert "LLM spend:" in out
+
+
+def test_get_selection_tool_confirmed(db_session, cfg):
+    """Regression test: this crashed with DetachedInstanceError before the
+    fix -- accessing ORM attributes after session_scope()'s `with` block had
+    already closed. Calling this at all, successfully, is most of the test."""
+    seed_product_lines(db_session, cfg)
+    seed_selection_tools(db_session, cfg)
+    out = get_selection_tool("Marley")
+    assert "CoolSpec" in out
+    assert "Confirmed" in out
+    assert "DMG" in out
+
+
+def test_get_selection_tool_unchecked_is_distinct_from_none_exists(db_session, cfg):
+    seed_product_lines(db_session, cfg)
+    seed_selection_tools(db_session, cfg)
+    out = get_selection_tool("Nailor")
+    assert "unchecked" in out.lower()
+    assert "no tool exists" not in out.lower() or "not the same as" in out.lower()
+
+
+def test_get_selection_tool_unknown_line(db_session, cfg):
+    seed_product_lines(db_session, cfg)
+    seed_selection_tools(db_session, cfg)
+    assert "No line card entry" in get_selection_tool("Not A Real Line")

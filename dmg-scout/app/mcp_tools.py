@@ -1,4 +1,4 @@
-"""The eight MCP tools. Imported by app/mcp_server.py, which owns the `mcp`
+"""The ten MCP tools. Imported by app/mcp_server.py, which owns the `mcp`
 FastMCP instance these register against — import order matters (mcp must
 exist before this module's decorators run, and must not have called
 http_app() yet), so app/mcp_server.py imports this module, not the other way
@@ -490,3 +490,104 @@ def source_health() -> str:
     lines += ["", f"LLM spend: ${st['today_usd']:.2f} today of ${st['daily_budget_usd']:.2f} "
              f"daily budget (${st['month_usd']:.2f} this month){flag}"]
     return "\n".join(lines)
+
+
+@mcp.tool
+def compare_lines(
+    tonnage: float | None = None,
+    building_type: str | None = None,
+    latent_load_priority: bool = False,
+    marine_or_corrosive: bool = False,
+    water_available: bool | None = None,
+    space_rigging_constrained: bool = False,
+    redundancy_required: bool = False,
+    buyer_type: str | None = None,
+) -> str:
+    """Head-to-head line comparison for an application, not the one-line-at-a-
+    time view /lines gives. building_type is one of data_center, healthcare,
+    industrial_warehouse, education, hospitality, labs, office, multifamily.
+    buyer_type is owner_direct or spec_driven.
+
+    A null capability field is never a vote against a line -- it lands in
+    that candidate's capability_gaps instead, which is what to call the
+    factory about. tonnage sizes what kind of equipment is relevant (cooling
+    generation / heat rejection / air handling); no line carries a tonnage
+    capacity field, so it never filters or scores candidates directly. Lead
+    time is never surfaced, for any line."""
+    from app.compare import compare_lines as _compare_lines
+    from app.db import session_scope
+
+    with session_scope() as session:
+        candidates = _compare_lines(
+            session, tonnage=tonnage, building_type=building_type,
+            latent_load_priority=latent_load_priority, marine_or_corrosive=marine_or_corrosive,
+            water_available=water_available, space_rigging_constrained=space_rigging_constrained,
+            redundancy_required=redundancy_required, buyer_type=buyer_type,
+        )
+
+    if not candidates:
+        return "No candidate lines in a tonnage-relevant role (cooling generation / heat rejection / air handling)."
+
+    lines = [f"{len(candidates)} candidates:"]
+    for c in candidates:
+        lines.append(f"\n{c.line} ({c.building_role})")
+        if c.why_it_fits:
+            lines.append("  fits: " + "; ".join(c.why_it_fits))
+        if c.trades_away:
+            lines.append("  trades away: " + "; ".join(c.trades_away))
+        for k, v in c.eligibility_flags.items():
+            if v is not None:
+                lines.append(f"  {k}: {v.value} (checked {v.checked})")
+        if c.competitors is not None:
+            lines.append(f"  competitors: {c.competitors.value} (checked {c.competitors.checked})")
+        if c.known_limitations:
+            lines.append(f"  known limitations: {c.known_limitations}")
+        lines.append(f"  capability_gaps: {', '.join(c.capability_gaps) or 'none'}")
+    lines.append("\nLead time: not tracked for any line, intentionally omitted.")
+    return "\n".join(lines)
+
+
+@mcp.tool
+def get_selection_tool(line_name: str) -> str:
+    """Which selection software to use for one line card line, by name
+    (e.g. "AAON", "Marley", "TCF/Twin City Fan" -- exact ProductLine.name).
+    unchecked means nobody has looked, not that no tool exists -- those are
+    deliberately different findings, see app.models.SelectionTool."""
+    from sqlmodel import select
+
+    from app.accounts import SELECTION_TOOL_ACCESS_LABELS, SELECTION_TOOL_VERIFICATION_LABELS
+    from app.db import session_scope
+    from app.models import ProductLine, SelectionTool
+    from app.normalize import normalize_name
+
+    with session_scope() as session:
+        line = session.exec(
+            select(ProductLine).where(ProductLine.name_norm == normalize_name(line_name))).first()
+        if line is None:
+            return f"No line card entry named {line_name!r}."
+        tool = session.exec(select(SelectionTool).where(SelectionTool.product_line_id == line.id)).first()
+
+        if tool is None or tool.verification_status == "unchecked":
+            return (f"{line.name} ({line.firm}): selection tool unchecked -- nobody has looked yet. "
+                    f"Not the same as 'no tool exists'.")
+
+        if tool.access_level == "none_exists":
+            detail = f"{line.name} ({line.firm}): confirmed -- no selection tool exists."
+            if tool.what_it_outputs:
+                detail += f" {tool.what_it_outputs}"
+            return detail
+
+        status_label = SELECTION_TOOL_VERIFICATION_LABELS.get(tool.verification_status, tool.verification_status)
+        access = SELECTION_TOOL_ACCESS_LABELS.get(tool.access_level, tool.access_level or "access level varies")
+        parts = [f"{line.name} ({line.firm}): {tool.tool_name} [{status_label}]"]
+        if tool.vendor_url:
+            parts.append(f"— {tool.vendor_url}")
+        parts.append(f"\n  access: {access}")
+        if tool.produces_submittal_docs is not None:
+            parts.append(f"\n  produces submittal docs: {'yes' if tool.produces_submittal_docs else 'no'}")
+        if tool.what_it_outputs:
+            parts.append(f"\n  {tool.what_it_outputs}")
+        if tool.verified_by:
+            when = tool.verified_date.strftime("%Y-%m-%d") if tool.verified_date else "date unrecorded"
+            parts.append(f"\n  verified by {tool.verified_by}, {when}")
+        return " ".join(parts)

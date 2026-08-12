@@ -131,11 +131,15 @@ def test_all_70_lines_get_a_role(db_session, cfg):
 
 # ---- best-guess category flag ----------------------------------------------
 
-def test_exactly_twelve_lines_are_best_guess(db_session, cfg):
+def test_exactly_six_lines_are_best_guess(db_session, cfg):
+    """2026-08-11 review resolved 6 of the original 12 (VTS, PEP Filters,
+    Recold, HCi, CRC corrected; Thermal Corp, DB, Hecoclima confirmed
+    correct) and added Cambridge to the flagged set -- see
+    app.accounts.NEEDS_VERIFICATION for the remaining six names."""
     seed(db_session, cfg)
     lines = db_session.exec(select(ProductLine)).all()
     flagged = [line for line in lines if category_is_best_guess(line)]
-    assert len(flagged) == 12
+    assert len(flagged) == 6
 
 
 def test_best_guess_marker_is_in_description_not_a_separate_lie(db_session, cfg):
@@ -309,7 +313,7 @@ def test_lines_index_renders(client, db_session, cfg):
     resp = client.get("/lines", headers=AUTH)
     assert resp.status_code == 200
     assert "Line card" in resp.text
-    assert "12 of 70" in resp.text
+    assert "6 of 70" in resp.text
 
 
 def test_lines_index_role_filter(client, db_session, cfg):

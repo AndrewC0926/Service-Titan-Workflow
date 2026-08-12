@@ -682,6 +682,27 @@ class ProductLine(SQLModel, table=True):
     heat_rejection_mode_verified: bool = False
     heat_rejection_mode_basis: str | None = None
 
+    # Four more MODEL-level capability facts, same discipline as
+    # heat_rejection_mode above: null until someone has actually stated it,
+    # unverified until confirmed with the factory, never inferred from brand
+    # reputation or from what the equipment_type/category "usually" implies.
+    # Built for app.compare:compare_lines (scout compare-lines / the
+    # compare_lines MCP tool) — see that module's docstring for the abstain
+    # rule these fields exist to serve: a null or unverified value is a
+    # capability_gap, never a vote against the line.
+    latent_load_capability: str | None = None       # enhanced | standard | null
+    latent_load_capability_verified: bool = False
+    latent_load_capability_basis: str | None = None
+    corrosion_resistance: str | None = None         # marine_grade | coated_standard | standard | null
+    corrosion_resistance_verified: bool = False
+    corrosion_resistance_basis: str | None = None
+    redundancy_capable: bool | None = None           # can be configured N+1 / modular
+    redundancy_capable_verified: bool = False
+    redundancy_capable_basis: str | None = None
+    rigging_constrained_capable: bool | None = None  # ships/installs in tight space or split shipment
+    rigging_constrained_capable_verified: bool = False
+    rigging_constrained_capable_basis: str | None = None
+
     # Primary organization for the line card view (app/web/main.py's
     # /lines): which role in a building this line fills — air handling,
     # cooling generation, heat rejection, etc. A rep thinks in these terms,
@@ -1037,4 +1058,98 @@ class RetrofitBuilding(SQLModel, table=True):
 
     permit_source_url: str | None = None
     assessor_source_url: str | None = None
+
+    # Actual reported service frequency, manual entry only -- see
+    # ServiceFrequencyReport below, this system's only source for it (there
+    # is no scraper and there will not be one; this data lives inside
+    # contractors' FSM systems and nowhere public). Joined onto this row at
+    # build time from the most recent ServiceFrequencyReport for this apn --
+    # see app/pipeline/retrofit.py:rank_buildings and build_retrofit_buildings
+    # / find_replacement_candidates. NOT cleared by this table's own
+    # rebuild-and-replace semantics: the join re-attaches it every time,
+    # because ServiceFrequencyReport is the durable source of truth, this
+    # column is a cache of it. Nullable, and null on nearly every row by
+    # construction -- one contractor field report is not a program yet, see
+    # app.assumptions's entry for this field and
+    # app.pipeline.retrofit:service_calls_coverage for how thin the sample
+    # currently is.
+    service_calls_per_year: float | None = None
+    service_calls_per_year_source: str | None = None
+    service_calls_per_year_reported_at: datetime | None = None
+
     built_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class ServiceFrequencyReport(SQLModel, table=True):
+    """One manually-reported service-call figure for one building, `scout
+    report-service-frequency` only -- there is no adapter for this and there
+    will not be one. This data lives inside contractors' FSM systems and is
+    not public; the field version of the assessor YearBuilt service-life
+    proxy is a phone call, not a scrape.
+
+    Survives RetrofitBuilding's own rebuild-and-replace semantics on
+    purpose: build_retrofit_buildings/find_replacement_candidates DELETE and
+    reinsert their population every run (see those functions' docstrings --
+    it's a derived view over EquipmentPermit/AssessorCandidate, correctly
+    rebuilt whole). A manually-entered fact must not get silently wiped by
+    that, so it lives in its OWN table, keyed by apn, and gets rejoined onto
+    the new RetrofitBuilding rows at the end of every rebuild. Multiple
+    reports per apn are kept (history, not overwritten); the most recent by
+    reported_at is what's currently joined in and ranked on.
+    """
+    __tablename__ = "service_frequency_reports"
+
+    id: int | None = Field(default=None, primary_key=True)
+    apn: str = Field(index=True)
+    service_calls_per_year: float
+    source: str  # who reported it -- a named contractor/company, not "a contractor"
+    reported_at: datetime  # when THEY reported the figure, not when we recorded the row
+    equipment_note: str | None = None  # which unit, if named -- the trigger case was one unit, not the building
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class SelectionTool(SQLModel, table=True):
+    """Which selection software a rep actually uses to spec one line -- one
+    row per ProductLine, 70 total. Deliberately NOT a per-product formula
+    page: the role-based equations already cover the physics every line in
+    a role shares, so this only answers "which tool" plus (elsewhere, not
+    yet built) the handful of genuinely product-specific calculations.
+
+    firm is NOT a column here on purpose -- ProductLine.firm (DMG/ToroAire/
+    both) is already the single source of truth for who reps a line; join
+    through product_line_id rather than duplicating it, so a firm
+    correction on the line card can never leave this table quietly stale.
+
+    verification_status is the load-bearing field:
+      - "unchecked": nobody has looked. access_level/tool_name etc. are null.
+      - "search_verified": found via web research (a vendor's own product
+        page, a resources/downloads page) but not confirmed by the
+        manufacturer directly and not a live-directory hit -- same
+        discipline as ahri_certified's SEARCH_VERIFIED tier.
+      - "confirmed": stated on the vendor's own page in a way that leaves no
+        ambiguity (e.g. SPX's own CoolSpec page naming both Marley and
+        Recold).
+    A null access_level under "unchecked" must never be confused with
+    access_level == "none_exists" (checked, and the tool genuinely doesn't
+    exist) -- "not yet looked" is not "does not exist". See
+    app.accounts.seed_selection_tools for the seed discipline (never infer
+    a shared tool from a corporate/plant relationship -- Geoclima and
+    Hecoclima share a physical plant, ClimateCraft and ClimaCool share a
+    parent company, neither implies shared selection software).
+    """
+    __tablename__ = "selection_tools"
+    __table_args__ = (UniqueConstraint("product_line_id", name="uq_selection_tool_line"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    product_line_id: int = Field(foreign_key="product_lines.id", index=True, unique=True)
+    tool_name: str | None = None
+    vendor_url: str | None = None
+    # public_free | free_registration | rep_login | request_from_factory | none_exists | null
+    access_level: str | None = None
+    what_it_outputs: str | None = None
+    produces_submittal_docs: bool | None = None
+    verified_by: str | None = None
+    verified_date: datetime | None = None
+    verification_status: str = Field(default="unchecked", index=True)  # unchecked | search_verified | confirmed
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)

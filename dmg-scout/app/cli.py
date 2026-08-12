@@ -489,6 +489,9 @@ def find_replacement_candidates_cmd(
         typer.echo(f"  {stats['masked_or_null_apn_address_excluded']:>8,}  - already permitted (address match on "
                    f"masked/missing-APN permit, excluded)")
         typer.echo(f"  {stats['replacement_candidates']:>8,}  = replacement candidates — the real opportunity size")
+        typer.echo(f"  {stats['service_life_abstained']:>8,}  of those ABSTAIN from service-life scoring — "
+                   f"built more than two average service cycles before permit records begin; they rank on "
+                   f"size/use code alone, see app.pipeline.retrofit:find_replacement_candidates")
 
         ranked = session.exec(
             select(RetrofitBuilding)
@@ -512,6 +515,74 @@ def find_replacement_candidates_cmd(
             addr = b.address or f"APN {b.apn}"
             typer.echo(f"  {i:>3}. {addr[:45]:<45} built {b.year_built or '?'} | {tons:<14} | "
                        f"{status:<20} | {regs}")
+
+
+@app.command("report-service-frequency")
+def report_service_frequency_cmd(
+    apn: str = typer.Argument(..., help="Building APN — see the retrofit board or /retrofit/report"),
+    calls_per_year: float = typer.Argument(..., help="Actual reported service calls in the past year"),
+    source: str = typer.Option(..., help="Who reported it — a named contractor/company, not \"a contractor\""),
+    reported_date: str = typer.Option(..., "--reported-date", help="YYYY-MM-DD — when THEY reported it"),
+    equipment_note: str = typer.Option(None, help="Which unit, if the report is about one piece of equipment "
+                                                    "rather than the whole building"),
+) -> None:
+    """Manual entry only — there is no scraper and there will not be one.
+
+    Actual reported service frequency is a stronger replacement signal than
+    the assessor YearBuilt proxy the rest of the retrofit board runs on (see
+    app.pipeline.retrofit:rank_buildings). This writes to
+    service_frequency_reports (durable, survives the board's own rebuild)
+    and immediately patches any existing retrofit_buildings row for this apn
+    so the effect is visible without waiting for a full rebuild — the next
+    `build-retrofit-buildings` / `find-replacement-candidates` run re-derives
+    the same thing from the same table.
+
+    This is a hypothesis with exactly one data point as of 2026-08-11.
+    Entering a figure does not tune scoring — it only lets THIS building's
+    row use the override; see app.assumptions and
+    app.pipeline.retrofit:service_calls_coverage for how thin the sample is."""
+    from datetime import datetime as dt
+
+    from app.models import RetrofitBuilding, ServiceFrequencyReport
+    from app.pipeline.retrofit import rank_buildings, service_calls_coverage
+
+    reported_at = dt.strptime(reported_date, "%Y-%m-%d")
+
+    with session_scope() as session:
+        report = ServiceFrequencyReport(
+            apn=apn, service_calls_per_year=calls_per_year, source=source,
+            reported_at=reported_at, equipment_note=equipment_note,
+        )
+        session.add(report)
+
+        existing = session.exec(select(RetrofitBuilding).where(RetrofitBuilding.apn == apn)).all()
+        for b in existing:
+            b.service_calls_per_year = calls_per_year
+            b.service_calls_per_year_source = source
+            b.service_calls_per_year_reported_at = reported_at
+            b.rank_score = rank_buildings(
+                service_life_status=b.service_life_status, sqft=b.sqft,
+                sb1206_trigger_status=b.sb1206_trigger_status, ebewe_candidate=b.ebewe_candidate,
+                carb_candidate=b.carb_candidate, service_life_years_past=b.service_life_years_past,
+                service_calls_per_year=calls_per_year,
+            )
+            session.add(b)
+        session.commit()
+
+        coverage = service_calls_coverage(session)
+
+    typer.echo(f"Recorded: {apn} — {calls_per_year:.0f} calls/yr, reported by {source!r} on {reported_date}")
+    if equipment_note:
+        typer.echo(f"  re: {equipment_note}")
+    if existing:
+        typer.echo(f"Patched {len(existing)} existing retrofit_buildings row(s) for this apn — new rank_score "
+                   f"applied immediately, no rebuild needed.")
+    else:
+        typer.echo("No existing retrofit_buildings row for this apn yet — this report will apply the next time "
+                   "build-retrofit-buildings or find-replacement-candidates runs.")
+    typer.echo(f"Coverage: {coverage['retrofit_buildings_with_service_calls']} of "
+               f"{coverage['retrofit_buildings_total']} retrofit_buildings rows now carry a reported figure "
+               f"({coverage['distinct_apns_with_a_report']} distinct buildings reported on, ever).")
 
 
 @app.command("fetch-assessor-candidates")
@@ -848,6 +919,65 @@ def seed_lines_cmd() -> None:
     with session_scope() as session:
         added = seed_product_lines(session, cfg)
     typer.echo(f"{added} product lines added (existing rows updated in place)")
+
+
+@app.command("seed-selection-tools")
+def seed_selection_tools_cmd() -> None:
+    """Load accounts.selection_tools from config.yaml into selection_tools —
+    one row per ProductLine, 70 total. A line not named in config.yaml gets
+    an all-null, verification_status=unchecked row, not a skip — see
+    app.accounts.seed_selection_tools. Safe to re-run."""
+    from app.accounts import lines_needing_selection_tool_research, seed_selection_tools
+    cfg = load_config()
+    with session_scope() as session:
+        added = seed_selection_tools(session, cfg)
+        needs_research = [(line.name, line.firm) for line in lines_needing_selection_tool_research(session)]
+    typer.echo(f"{added} selection_tools rows added (existing rows updated in place)")
+    typer.echo(f"{len(needs_research)} of 70 lines still unchecked — needs research:")
+    for name, firm in needs_research:
+        typer.echo(f"  {name} ({firm})")
+
+
+@app.command("compare-lines")
+def compare_lines_cmd(
+    tonnage: float = typer.Option(None, help="Facility tonnage, for context only — no line carries a "
+                                               "tonnage capacity field, so this never filters candidates"),
+    building_type: str = typer.Option(None, help="One of data_center, healthcare, industrial_warehouse, "
+                                                   "education, hospitality, labs, office, multifamily"),
+    latent_load_priority: bool = typer.Option(False),
+    marine_or_corrosive: bool = typer.Option(False),
+    water_available: bool = typer.Option(None, help="True/False; omit if unknown"),
+    space_rigging_constrained: bool = typer.Option(False),
+    redundancy_required: bool = typer.Option(False),
+    buyer_type: str = typer.Option(None, help="owner_direct | spec_driven"),
+) -> None:
+    """Application-driven line comparability: candidates side by side with
+    what each trades away. See app.compare's module docstring for the
+    abstain rule — a null capability is never a vote against a line."""
+    from app.compare import compare_lines
+
+    with session_scope() as session:
+        candidates = compare_lines(
+            session, tonnage=tonnage, building_type=building_type,
+            latent_load_priority=latent_load_priority, marine_or_corrosive=marine_or_corrosive,
+            water_available=water_available, space_rigging_constrained=space_rigging_constrained,
+            redundancy_required=redundancy_required, buyer_type=buyer_type,
+        )
+        for c in candidates:
+            typer.echo(f"\n=== {c.line} ({c.building_role}) ===")
+            if c.why_it_fits:
+                typer.echo("  fits: " + " | ".join(c.why_it_fits))
+            if c.trades_away:
+                typer.echo("  trades away: " + " | ".join(c.trades_away))
+            for k, v in c.eligibility_flags.items():
+                if v is not None:
+                    typer.echo(f"  {k}: {v.value} (checked {v.checked})")
+            if c.competitors is not None:
+                typer.echo(f"  competitors: {c.competitors.value} (checked {c.competitors.checked})")
+            if c.known_limitations:
+                typer.echo(f"  known limitations: {c.known_limitations}")
+            typer.echo(f"  capability_gaps: {', '.join(c.capability_gaps) or 'none'}")
+    typer.echo("\nLead time: not tracked for any line, intentionally omitted.")
 
 
 @app.command("verify-sources")

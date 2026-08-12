@@ -1349,7 +1349,7 @@ accounts:
        markets: [data_center, healthcare, industrial_warehouse, education, hospitality, office],
        markets_basis: "AAON's own site maintains a dedicated 'Industries' section with named vertical pages: Education (aaon.com/industries/education), Healthcare (aaon.com/industries/healthcare), Hospitality (aaon.com/industries/hospitality), Office Buildings (aaon.com/industries/office-buildings), and Manufacturing (aaon.com/industries/manufacturing, explicitly describing 'small-scale workshops to large industrial manufacturing facilities' — mapped to industrial_warehouse). The industries nav also lists 'Data Centers,' which links to basx.com, an AAON-owned company whose site explicitly markets to data center operators (hyperscale, colocation, enterprise) with liquid cooling/CRAH product lines — included as data_center since it is AAON's own corporate marketing, with the caveat that it is served via the BASX subsidiary rather than AAON-branded packaged RTUs directly. No labs or multifamily/apartment industry page or case-study content was found anywhere on aaon.com or basx.com (checked, both 404); excluded as unsupported. Retrieved 2026-08-09."}
     - {name: "DB", firm: DMG, category: chillers_cooling, subcategory: "chillers",
-       description: "Chillers (best-guess categorization — confirm)",
+       description: "Chillers — category confirmed correct 2026-08-11; also makes AHUs, which this single-category schema cannot represent as a second entry",
        value_tier: 1, equipment_type: air_cooled_chiller,
        oshpd_osp: null,
        oshpd_osp_basis: "Identified 'DB' as Dunham-Bush (confirmed via DMG's own product page at dmghvac.com/db-chiller/, which states 'DB stands for Dunham Bush' and covers their ACDS Zeus air-cooled scroll chiller, 10-180 RT, plus water-cooled chillers, semi-custom AHUs, and DB-AIRE precision cooling units). Searched HCAI's OSP program directly (hcai.ca.gov/document/osp-list-by-category) and found no readable mention of Dunham or Dunham-Bush. Cross-checked against a third-party mirror of HCAI's own OSP directory (panacheg.com/osp-database) for both relevant chiller subcategories: chillers-water-cooled (12 manufacturers, 29 total preapprovals — Carrier, Daikin Applied, Johnson Controls, Trane, Multistack, Smardt, CLIMACOOL, Haskris, KKT Chillers, Tecogen, Thermo Fisher — no Dunham-Bush) and chillers-air-cooled (14 manufacturers, 20 total preapprovals — Trane, Carrier, Johnson Controls, Daikin Applied, Dimplex, Drake Refrigeration, Advanced Cooling Technologies, Filtrine, Haskris, Johnson Thermal Systems, Multistack — no Dunham-Bush). Additional web searches for Dunham-Bush plus OSHPD/HCAI/eServices returned no OSP number or HCAI directory record. No current HCAI OSP entry could be found for Dunham-Bush chillers in either the air-cooled or water-cooled category. This is absence of evidence, not confirmed rejection/expiration, so recording null rather than false. Retrieved 2026-08-09.",
@@ -1420,10 +1420,10 @@ accounts:
        markets: [data_center, healthcare, industrial_warehouse, education, labs],
        markets_basis: "scottspringfield.com homepage lists industry categories Aerospace, Commercial Buildings, Healthcare, Industrial, Institutional, Life Sciences, Mission Critical, with intro copy 'From healthcare and institutional projects to aerospace, mining, oil and gas, and beyond.' /about page timeline states 'Entered the data center market with custom, specialized HVAC solutions' (2020) and 'Strategic focus on custom air handling units for industrial and hospital applications' (2000), plus copy 'Whether it's a hospital, a data center, or an aerospace facility.' /case-studies features 4 named case studies: Arthur J.E. Child Comprehensive Cancer Centre (healthcare), Colorado State University (education/institutional), Gilead Pharmaceutical Retrofit (life sciences/labs), Lockheed Martin Skunk Works (industrial/aerospace). No case study, named category, or explicit copy found for hospitality, office, or multifamily; 'Commercial Buildings' category exists on the homepage but has no descriptive text naming office use, so it was excluded per the no-guessing rule. Retrieved 2026-08-09."}
     - {name: "Thermal Corp", firm: DMG, category: air_handling, subcategory: "coils / heat exchangers",
-       description: "Coils and heat exchangers (best-guess categorization — confirm)",
+       description: "Coils and heat exchangers — category confirmed correct 2026-08-11",
        value_tier: 2, equipment_type: null}
-    - {name: "VTS", firm: DMG, category: air_distribution, subcategory: "VAV terminal units",
-       description: "VAV terminal units (best-guess categorization — confirm)",
+    - {name: "VTS", firm: DMG, category: air_handling, subcategory: "AHUs (VENTUS), fan coils, ERV/HRV, unit heaters (VOLCANO)",
+       description: "Air handling units, fan coils, ERV/HRV, and unit heaters — corrected 2026-08-11 from an original 'VAV terminal units' miscategorization; no evidence VTS makes VAV terminals",
        value_tier: 3, equipment_type: null,
        oshpd_osp: null,
        oshpd_osp_basis: "Identified 'VTS' as VTS Group / VTS America Inc., a Polish-headquartered (Gdansk) HVAC manufacturer with US operations near Atlanta (SC/NC/GA), represented locally by DMG (dmgn.com/vts redirects to dmghvac.com). CATEGORIZATION FLAG: VTS's actual product line is air handling units (AHU/VENTUS), fan coil units, ERV/HRV units, air curtains, and unit heaters (VOLCANO) — found no evidence VTS manufactures VAV terminal units at all, so this line_card entry's 'VAV terminal units' categorization looks wrong; more plausible categories are Air Conditioning Units - Custom, Fan Coil Units, or Air Handling Units. Checked HCAI's official 'OSP list by category' PDF (hcai.ca.gov/document/osp-list-by-category/, footer-dated 03/01/2022, freshly re-downloaded 2026-08-09) across every relevant category — Air Conditioning Units (Custom, Data Room, Inline Fan and Terminal, Packaged, Split), Fan Coil Units, Air Filters, Humidification Systems, Variable Air Volume Units, and Air Handling Units/Fans — no entry for 'VTS,' 'VTS Group,' 'VTS America,' 'Ventus,' or 'Volcano' anywhere in the document. Also web-searched hcai.ca.gov and the general web for VTS + OSP/OSHPD with no relevant hits. No current HCAI OSP record for VTS was found; recorded as null (absence of evidence, not a rejected/expired record) rather than false. Retrieved 2026-08-09.",
@@ -1476,7 +1476,7 @@ accounts:
     - {name: "ClimateMaster", firm: DMG, category: vrf_split, subcategory: "water source heat pumps",
        description: "Water source heat pumps", value_tier: 2, equipment_type: split_dx}
     - {name: "Hecoclima", firm: DMG, category: chillers_cooling, subcategory: "chillers / fan coils",
-       description: "Chillers/fan coils (best-guess categorization — confirm)",
+       description: "Chillers/fan coils — category confirmed correct 2026-08-11; same Italian plant as Geoclima",
        value_tier: 2, equipment_type: null,
        oshpd_osp: null,
        oshpd_osp_basis: "Searched HCAI's own OSP resources (hcai.ca.gov/facilities/building-safety/preapproval-programs/osp/, the official OSP-list-by-category PDF at hcai.ca.gov/document/osp-list-by-category/, and HCAI site/eServices search) plus general web search for 'Hecoclima' combined with OSHPD/HCAI/OSP — no listing, OSP number, or application PDF for Hecoclima was found. Cross-checked the third-party HCAI-OSP mirror at panacheg.com/osp-database, manually reviewing manufacturer lists in the Chillers - Air Cooled, Chillers - Water Cooled, and Fan Coil Units categories (the categories most relevant to Hecoclima's product line); Hecoclima does not appear in any of them. No evidence of a rejected or expired HCAI record for Hecoclima was found either — this is a genuine absence of evidence, not a confirmed non-certification, so the field is set to null rather than false. Retrieved 2026-08-09.",
@@ -1490,8 +1490,8 @@ accounts:
        markets_basis: "hecoclima.com (retrieved 2026-08-09). Homepage: 'Siamo in grado di fornire un'ampia gamma di soluzioni per ogni tipo di applicazione: industria, edifici commerciali, centrali elettriche, ospedali e data center' (industry, commercial buildings, power plants, hospitals, data centers) — supports data_center, healthcare, industrial_warehouse. Comfort Cooling page: 'Si trova negli edifici residenziali, negli uffici, nei cinema e negli ospedali' (residential buildings, offices, cinemas, hospitals) — supports multifamily and office. Process Cooling page reinforces data_center and industrial_warehouse. Projects page includes named case studies: Monash University, Australia (largest multi-split installation in the world) supporting education; Thyssenkrupp and Silvano Chiapparoli Logistica (logistics/warehouse) supporting industrial_warehouse; multiple office case studies (Palazzo Mercurio Chiasso, Colt Rome office, RTL 102.5 HQ) supporting office. A Thailand case study describes a GMP pharmaceutical manufacturing cleanroom, not a lab/R&D facility, so labs was excluded; no hotel/resort/hospitality content was found on any page, so hospitality was excluded. Retrieved 2026-08-09."}
     - {name: "IEC", firm: DMG, category: specialty_cooling, subcategory: "evaporative cooling",
        description: "Indirect/direct evaporative cooling", value_tier: 2, equipment_type: null}
-    - {name: "Recold", firm: DMG, category: air_handling, subcategory: "coils / process cooling",
-       description: "Coils/process cooling (best-guess categorization — confirm)",
+    - {name: "Recold", firm: DMG, category: cooling_towers, subcategory: "fluid coolers / evaporative condensers",
+       description: "Fluid coolers and evaporative condensers — corrected 2026-08-11 from an air_handling miscategorization",
        value_tier: 3, equipment_type: null,
        heat_rejection_mode: adiabatic_hybrid, heat_rejection_mode_verified: false,
        heat_rejection_mode_basis: "Stated 2026-08-09: Recold carries adiabatic and hybrid units (dry most of the year, wet the coil only in peak-heat hours). Which specific models is not yet confirmed with the factory."}
@@ -1575,9 +1575,10 @@ accounts:
        markets: [data_center, healthcare, industrial_warehouse, hospitality, labs, office],
        markets_basis: "carel.com/application pages (retrieved 2026-08-09): dedicated data center page (PUE/WUE-focused cooling and humidification for mission-critical facilities); hospitals-and-operating-theatres page (humidity control framed as 'a legal requirement' for patient/staff safety, white paper 'Air humidification in hospitals'); hotels and steam-bath pages (hotels named explicitly for guest-comfort and spa/steam-bath market); offices page (offices named explicitly for IAQ/comfort humidification); refrigerated-units-for-scientific-applications page (explicitly targets 'analysis laboratories,' pharmacies, and hospitals for scientific/lab refrigeration control); industry-and-process plus automotive, plastic-industry, textile-industry, wood-industry, and cold-rooms pages (broad named industrial manufacturing/process and cold-storage verticals). Checked and excluded: education (no education/school/university application page or case study found); multifamily (the only residential page markets single-family home heat-pump comfort control, not apartment/multifamily buildings). Retrieved 2026-08-09."}
     - {name: "Cambridge", firm: DMG, category: heaters, subcategory: "make-up air heaters",
-       description: "Gas-fired make-up air and unit heaters", value_tier: 2, equipment_type: null}
-    - {name: "PEP Filters", firm: DMG, category: filtration_iaq, subcategory: "commercial air filters",
-       description: "Commercial/industrial air filters", value_tier: 4, equipment_type: null,
+       description: "Gas-fired make-up air and unit heaters (best-guess categorization — confirm)", value_tier: 2, equipment_type: null}
+    - {name: "PEP Filters", firm: DMG, category: water_treatment, subcategory: "cooling tower / condenser water filtration",
+       description: "Water-side cooling tower and condenser water filtration (disc, media, screen, centrifugal separators) — corrected 2026-08-11 from an original 'commercial air filters' miscategorization; not an air-side MERV product",
+       value_tier: 4, equipment_type: null,
        oshpd_osp: null,
        oshpd_osp_basis: "Searched HCAI's own OSP records, not just marketing claims. Reviewed the full official 'HCAI Special Seismic Certification Preapproval (OSP) by Category' PDF (hcai.ca.gov/document/osp-list-by-category/) page by page, including the complete 'Air Filters' subcategory under Air Conditioning Units (Category 9), which lists only six holders: OSP-0269 Dynamic, OSP-0307 Genesis Air, OSP-0490 American Green Technologies, OSP-0558 Global Plasma Solutions, OSP-0607 Johnson Controls, and OSP-0627 Price Industries Ltd. Also checked adjacent HVAC-relevant categories that could plausibly cover a filter product line — Air Conditioning Units (Custom/Data Room/Inline Fan and Terminal/Packaged/Split), Fan Coil Units, Humidification Systems, Variable Air Volume Units, Air Handling Units/Fans, and Exhaust/Smoke Control Fans — none contain any entry for 'PEP' or 'PEP Filters'. Also ran targeted web searches and found no HCAI-hosted OSP application PDF or eServices/directory record for PEP Filters under any name variant. No current OSP number found, and no record of an expired/rejected HCAI certification for this manufacturer either — so this is a true absence-of-evidence case, not a documented non-certification. Retrieved 2026-08-09.",
        ahri_certified: null,
@@ -1653,8 +1654,8 @@ accounts:
        description: "Evaporative cooling media/pads", value_tier: 4, equipment_type: null}
     - {name: "Yaskawa", firm: both, category: controls, subcategory: "VFDs",
        description: "Variable frequency drives", value_tier: 3, equipment_type: null}
-    - {name: "HCi", firm: DMG, category: air_handling, subcategory: "air handling components",
-       description: "Air handling components (best-guess categorization — confirm)",
+    - {name: "HCi", firm: DMG, category: controls, subcategory: "pressure-independent control valves",
+       description: "Pressure-independent control valves — corrected 2026-08-11 from an air_handling miscategorization",
        value_tier: 3, equipment_type: null}
     - {name: "Airzone", firm: DMG, category: controls, subcategory: "zoning systems",
        description: "Residential/light commercial zoning controls", value_tier: 4, equipment_type: null}
@@ -1740,8 +1741,8 @@ accounts:
        description: "Electric duct heaters and unit heaters", value_tier: 3, equipment_type: null}
     - {name: "Monoxivent", firm: ToroAire, category: process_exhaust, subcategory: "vehicle/welding fume exhaust",
        description: "Vehicle exhaust and welding fume extraction", value_tier: 2, equipment_type: null}
-    - {name: "CRC", firm: ToroAire, category: air_distribution, subcategory: "grilles / registers",
-       description: "Grilles/registers (best-guess categorization — confirm)", value_tier: 4, equipment_type: null}
+    - {name: "CRC", firm: ToroAire, category: controls, subcategory: "lab airflow controls",
+       description: "Lab airflow controls — corrected 2026-08-11 from an air_distribution 'grilles / registers' miscategorization", value_tier: 4, equipment_type: null}
     - {name: "Anemostat", firm: ToroAire, category: air_distribution, subcategory: "diffusers & grilles",
        description: "Diffusers, grilles, registers, security grilles", value_tier: 3, equipment_type: null}
     - {name: "Panasonic", firm: ToroAire, category: residential_light_commercial, subcategory: "ventilation fans",
@@ -1808,3 +1809,54 @@ accounts:
        markets_basis: "nailor.com/engineered-comfort (retrieved 2026-08-09): homepage states 'Our products cater to the hospitality, healthcare, education, public buildings, and commercial office markets across North America and globally.' Product copy for the 41V Vertical Floor/Sill Mount fan coil also names 'hospitality, condominium, or dormitory project' applications and 'multi-tenant residential or hospitality hi-rise building' use cases, supporting multifamily. No mention of data_center, industrial_warehouse, or labs found on the brand's about page or products index, both checked directly. Retrieved 2026-08-09."}
     - {name: "FanAm", firm: ToroAire, category: fans_exhaust, subcategory: "American-made fans",
        description: "Commercial/industrial fans", value_tier: 3, equipment_type: null}
+
+  # ---- selection tools ------------------------------------------------
+  #
+  # Which selection software a rep actually uses to spec one line. One row
+  # per ProductLine at seed time (70 total, see app.accounts.seed_selection_tools)
+  # -- lines NOT listed here get an all-null, verification_status=unchecked
+  # row by default, not a guess. firm is deliberately absent from every
+  # entry below: it's read from the ProductLine this joins to (the existing
+  # DMG/ToroAire/both facet on /lines), never duplicated here.
+  #
+  # 2026-08-11 seed: web research, not manufacturer-direct, except Marley/
+  # Recold (verification_status: confirmed -- SPX's own CoolSpec page names
+  # both). Everything else here is verification_status: search_verified,
+  # same discipline as the AHRI round, where several entries rested on a
+  # manufacturer's own marketing copy rather than a live AHRI Directory hit
+  # and were flagged accordingly rather than upgraded to a false confirm.
+  #
+  # RULE, do not violate when adding more of these: never infer a shared
+  # tool from a corporate or manufacturing relationship. Geoclima and
+  # Hecoclima share a physical Italian plant; ClimateCraft and ClimaCool are
+  # both Oklahoma City under NIBE's Climate Control Group; Nailor owns
+  # Engineered Comfort. None of that says anything about selection software
+  # -- only a name explicitly published together (like SPX's CoolSpec page)
+  # earns verification_status: confirmed or search_verified. Every other
+  # apparent pairing stays unchecked until someone actually checks it. Penn
+  # Barry was sold to Hessaire in mid-2026 and is no longer a Titus sister
+  # brand -- that family relationship is stale even though manufacturing is
+  # unaffected; do not resurrect it here.
+  selection_tools:
+    - {name: "AAON", tool_name: "ECat", vendor_url: "aaon.com/ecat-download", access_level: free_registration,
+       what_it_outputs: "Full unit selection plus drawings and system calculators. A separate program, Heat Flow, covers coil-only selections -- not the same tool as ECat.",
+       produces_submittal_docs: true,
+       verified_by: "web research", verified_date: "2026-08-11", verification_status: search_verified}
+    - {name: "Marley", tool_name: "CoolSpec", vendor_url: "spxcooling.com/coolspec", access_level: free_registration,
+       what_it_outputs: "Cooling tower / fluid cooler / evaporative condenser selection. Covers both the Marley and Recold lines -- see spxcooling.com/coolspec, which names both directly. Marley FIT is a separate tool, for components and fill only, not full-unit selection.",
+       produces_submittal_docs: true,
+       verified_by: "SPX's own CoolSpec page (spxcooling.com/coolspec)", verified_date: "2026-08-11", verification_status: confirmed}
+    - {name: "Recold", tool_name: "CoolSpec", vendor_url: "spxcooling.com/coolspec", access_level: free_registration,
+       what_it_outputs: "Same tool as Marley, not a separate Recold-branded program -- SPX's own CoolSpec page names both Marley and Recold as covered lines.",
+       produces_submittal_docs: true,
+       verified_by: "SPX's own CoolSpec page (spxcooling.com/coolspec)", verified_date: "2026-08-11", verification_status: confirmed}
+    - {name: "TCF/Twin City Fan", tool_name: "Fan Selector 10",
+       vendor_url: "tcf.com/resources/fan-selection-software", access_level: free_registration,
+       what_it_outputs: "Fan selection; credentials arrive by email after registration, not instant access.",
+       produces_submittal_docs: null,
+       verified_by: "web research", verified_date: "2026-08-11", verification_status: search_verified}
+    - {name: "Titus", tool_name: "Multiple programs by product family (not one unified tool)",
+       vendor_url: "titus-hvac.com", access_level: null,
+       what_it_outputs: "Splits by product family rather than one program: DLSC for air distribution, a fan-coil selector run per AHRI-410, a separate louver program, a separate chilled-beam program. access_level is left null on purpose -- it varies by which of these a rep actually opens, not one access tier for the whole line.",
+       produces_submittal_docs: null,
+       verified_by: "web research", verified_date: "2026-08-11", verification_status: search_verified}

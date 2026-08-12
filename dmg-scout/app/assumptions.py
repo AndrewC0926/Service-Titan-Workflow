@@ -87,10 +87,17 @@ def _fmt_table(d: dict, fmt: str = "{:.2f}") -> str:
     return ", ".join(f"{k}={fmt.format(v)}" for k, v in d.items())
 
 
-def load_assumptions(cfg: Config) -> list[Assumption]:
+def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None) -> list[Assumption]:
     """Everything below is read from cfg at call time — never hand-copied —
     so the VALUE column can't drift from what's actually running even if
-    this function's prose goes stale."""
+    this function's prose goes stale.
+
+    service_calls_coverage is the one exception to "cfg only": a live row
+    count (app.pipeline.retrofit:service_calls_coverage) for the one entry
+    below where the honest VALUE is "how many rows have this populated
+    right now", not a config constant. Optional and defaults to None (value
+    reads "not available" rather than crashing) so every existing caller
+    that passes only cfg keeps working unchanged."""
     out: list[Assumption] = []
 
     # ---- Score weights ----------------------------------------------------
@@ -324,6 +331,26 @@ def load_assumptions(cfg: Config) -> list[Assumption]:
                           if tier == "federal" else None),
         ))
 
+    scc = service_calls_coverage or {}
+    total = scc.get("retrofit_buildings_total")
+    reported = scc.get("retrofit_buildings_with_service_calls")
+    out.append(Assumption(
+        group="Replacement service life", name="Reported service frequency (overrides service-life proxy)",
+        config_path=None,
+        value=(f"{reported} of {total} retrofit_buildings rows populated"
+              if total is not None else "not available on this page load"),
+        source_type=STATED,
+        source_detail="Manual entry only (`scout report-service-frequency`) — no scraper exists or will exist; "
+                      "this lives inside contractors' FSM systems. Where populated, actual reported "
+                      "service_calls_per_year replaces the YearBuilt-derived service-life proxy as the LEAD "
+                      "ranking term for that building (see app.pipeline.retrofit:rank_buildings); where null, "
+                      "ranking is unchanged. This is a hypothesis with exactly one data point as of 2026-08-11 "
+                      "(a contractor reporting 20+ calls in a year on one unit) — deliberately not tuned beyond "
+                      "\"more reported calls ranks higher\" until the sample is large enough to tune against.",
+        verified=False,
+        last_reviewed="Stated 2026-08-11, one contractor field report — not re-verified since",
+    ))
+
     # ---- Accounts / line-card adjacency -----------------------------------
 
     vtd = cfg.get("accounts.value_tier_dollars", {})
@@ -376,9 +403,9 @@ def load_assumptions(cfg: Config) -> list[Assumption]:
     return out
 
 
-def assumptions_by_group(cfg: Config) -> dict[str, list[Assumption]]:
+def assumptions_by_group(cfg: Config, service_calls_coverage: dict | None = None) -> dict[str, list[Assumption]]:
     grouped: dict[str, list[Assumption]] = {}
-    for a in load_assumptions(cfg):
+    for a in load_assumptions(cfg, service_calls_coverage=service_calls_coverage):
         grouped.setdefault(a.group, []).append(a)
     return grouped
 

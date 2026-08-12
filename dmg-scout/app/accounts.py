@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from sqlmodel import Session, select
 
@@ -30,6 +31,7 @@ from app.models import (
     Project,
     ProjectFirm,
     ProjectSignal,
+    SelectionTool,
     Signal,
     utcnow,
 )
@@ -129,6 +131,7 @@ ROLE_OVERRIDE_BY_LINE = {
     "Barcol-Air": "air_distribution_terminal",  # chilled beams are a room terminal device
     "Pottorff": "dampers_life_safety",          # "fire/smoke dampers and louvers"
     "Berner": "fans_ventilation",               # air curtains are fan-driven air barriers
+    "Ice-Cel": "cooling_generation",            # thermal ice storage is cooling-side load shifting, not heating/specialty
 }
 
 
@@ -204,8 +207,9 @@ MARKETS_BY_LINE = {
 }
 
 
-# Twelve lines whose CATEGORY (not role) is still a first-pass guess from the
-# original seed, flagged "(best-guess categorization — confirm)" in their
+# Lines whose CATEGORY (not role) is still a first-pass guess from the
+# original seed (6 remain as of 2026-08-11; see NEEDS_VERIFICATION below),
+# flagged "(best-guess categorization — confirm)" in their
 # config.yaml description rather than a second boolean column -- the flag and
 # the fact it's attached to live in the same place, so they can never drift
 # apart. Read back out here once, at import-adjacent scope, rather than
@@ -215,6 +219,18 @@ CATEGORY_BEST_GUESS_MARKER = "best-guess categorization"
 
 def category_is_best_guess(line: ProductLine) -> bool:
     return CATEGORY_BEST_GUESS_MARKER in (line.description or "")
+
+
+# 2026-08-11 review resolved 6 of the original 12 best-guess lines (VTS, PEP
+# Filters, Recold, HCi, CRC corrected; Thermal Corp, DB, Hecoclima confirmed
+# correct) plus Ice-Cel via ROLE_OVERRIDE_BY_LINE above. These six are still
+# genuinely unresolved -- not re-researched, not re-guessed, left exactly as
+# best-guess in config.yaml pending an actual answer from the manufacturer or
+# a rep who knows the line. Do not silently correct these from inference;
+# call the factory.
+NEEDS_VERIFICATION = (
+    "Engineered Comfort", "LFSystems", "Effectiv", "ChangeAir", "Suburban", "Cambridge",
+)
 
 
 # ---- UFC 4-010-06 applicability ---------------------------------------
@@ -374,6 +390,104 @@ def seed_product_lines(session: Session, cfg: Config) -> int:
         added += 1
     session.commit()
     return added
+
+
+# ---- selection tools ---------------------------------------------------
+#
+# access_level's controlled vocabulary. NONE_EXISTS means someone checked
+# and the manufacturer genuinely has no selection tool -- a finding, not an
+# absence of one. null means nobody has looked yet. These two must never be
+# rendered the same way; see SELECTION_TOOL_ACCESS_LABELS and
+# app/web/templates/line_detail.html.
+SELECTION_TOOL_ACCESS_LEVELS = (
+    "public_free", "free_registration", "rep_login", "request_from_factory", "none_exists",
+)
+SELECTION_TOOL_ACCESS_LABELS = {
+    "public_free": "Public, free",
+    "free_registration": "Free, registration required",
+    "rep_login": "Rep/dealer login required",
+    "request_from_factory": "Request from factory",
+    "none_exists": "Confirmed: no selection tool exists",
+}
+
+# unchecked: nobody has looked -- the default for every line not explicitly
+# listed in config.yaml's accounts.selection_tools. search_verified: found
+# via web research (a vendor's own page), not manufacturer-direct, not a
+# live directory hit -- same tier as ahri_certified's SEARCH_VERIFIED round.
+# confirmed: unambiguous on the vendor's own page (SPX's CoolSpec page
+# naming both Marley and Recold).
+SELECTION_TOOL_VERIFICATION_STATUSES = ("unchecked", "search_verified", "confirmed")
+SELECTION_TOOL_VERIFICATION_LABELS = {
+    "unchecked": "Unchecked",
+    "search_verified": "Search-verified",
+    "confirmed": "Confirmed",
+}
+
+
+def seed_selection_tools(session: Session, cfg: Config) -> int:
+    """One SelectionTool row per ProductLine, 70 total. A line named in
+    config.yaml's accounts.selection_tools gets those fields; every other
+    line gets an all-null, verification_status="unchecked" row -- created,
+    not skipped, so /line/{id} always has a row to render rather than a
+    template branch for "row doesn't exist yet" on top of the
+    verification_status=unchecked branch it already needs. Idempotent and
+    config-wins, same shape as seed_product_lines/ensure_coverage_rows.
+
+    firm is deliberately not read or written here -- ProductLine.firm via
+    product_line_id is the only source of truth; see SelectionTool's
+    docstring in app/models.py.
+    """
+    overrides = {e["name"]: e for e in (cfg.get("accounts.selection_tools", []) or [])}
+    lines = session.exec(select(ProductLine)).all()
+    added = 0
+    for line in lines:
+        entry = overrides.get(line.name)
+        if entry:
+            verified_date = entry.get("verified_date")
+            fields = {
+                "tool_name": entry.get("tool_name"),
+                "vendor_url": entry.get("vendor_url"),
+                "access_level": entry.get("access_level"),
+                "what_it_outputs": entry.get("what_it_outputs"),
+                "produces_submittal_docs": entry.get("produces_submittal_docs"),
+                "verified_by": entry.get("verified_by"),
+                "verified_date": datetime.strptime(verified_date, "%Y-%m-%d") if verified_date else None,
+                "verification_status": entry.get("verification_status", "unchecked"),
+            }
+        else:
+            fields = {
+                "tool_name": None, "vendor_url": None, "access_level": None, "what_it_outputs": None,
+                "produces_submittal_docs": None, "verified_by": None, "verified_date": None,
+                "verification_status": "unchecked",
+            }
+
+        existing = session.exec(
+            select(SelectionTool).where(SelectionTool.product_line_id == line.id)).first()
+        if existing:
+            changed = any(getattr(existing, k) != v for k, v in fields.items())
+            if changed:
+                for k, v in fields.items():
+                    setattr(existing, k, v)
+                existing.updated_at = utcnow()
+                session.add(existing)
+            continue
+        session.add(SelectionTool(product_line_id=line.id, **fields))
+        added += 1
+    session.commit()
+    return added
+
+
+def lines_needing_selection_tool_research(session: Session) -> list[ProductLine]:
+    """Every line whose selection tool is still unchecked -- the needs-
+    research list. Computed live from the DB, not a hardcoded name list, so
+    it can never drift from what seed_selection_tools actually wrote."""
+    rows = session.exec(
+        select(ProductLine)
+        .join(SelectionTool, SelectionTool.product_line_id == ProductLine.id)
+        .where(SelectionTool.verification_status == "unchecked")
+        .order_by(ProductLine.name)
+    ).all()
+    return list(rows)
 
 
 def ensure_coverage_rows(session: Session, account: Account) -> int:

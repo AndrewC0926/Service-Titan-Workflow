@@ -998,22 +998,29 @@ def lines_index(request: Request, role: str = "", firm: str = "", market: str = 
 def line_detail(line_id: int, request: Request,
                 session: Session = Depends(get_session), _: str = Depends(auth)):
     from app.accounts import (
+        SELECTION_TOOL_ACCESS_LABELS,
+        SELECTION_TOOL_VERIFICATION_LABELS,
         category_is_best_guess,
         line_account_matrix,
         matching_projects_for_line,
         pull_through,
         value_tier_band,
     )
+    from app.models import SelectionTool
     line = session.get(ProductLine, line_id)
     if line is None:
         raise HTTPException(404)
     cfg = load_config()
+    selection_tool = session.exec(
+        select(SelectionTool).where(SelectionTool.product_line_id == line.id)).first()
     return templates.TemplateResponse(request, "line_detail.html", {
         "line": line, "best_guess": category_is_best_guess(line),
         "pull_through": pull_through(session, cfg, line),
         "accounts_matrix": line_account_matrix(session, line.id),
         "matching_projects": matching_projects_for_line(session, line),
         "value_band": value_tier_band(cfg, line.value_tier),
+        "selection_tool": selection_tool,
+        "access_labels": SELECTION_TOOL_ACCESS_LABELS, "verif_labels": SELECTION_TOOL_VERIFICATION_LABELS,
         "tb": _title_block(session), "active": "lines",
     })
 
@@ -1304,10 +1311,12 @@ def assumptions_register(request: Request, session: Session = Depends(get_sessio
     honestly where it came from — see app/assumptions.py's module docstring
     for why this page exists and the discipline it follows."""
     from app.assumptions import assumptions_by_group, load_assumptions, source_tally
+    from app.pipeline.retrofit import service_calls_coverage as get_service_calls_coverage
     cfg = load_config()
-    assumptions = load_assumptions(cfg)
+    coverage = get_service_calls_coverage(session)
+    assumptions = load_assumptions(cfg, service_calls_coverage=coverage)
     return templates.TemplateResponse(request, "assumptions.html", {
-        "grouped": assumptions_by_group(cfg), "tally": source_tally(assumptions),
+        "grouped": assumptions_by_group(cfg, service_calls_coverage=coverage), "tally": source_tally(assumptions),
         "total": len(assumptions),
         "tb": _title_block(session), "active": "assumptions",
     })
