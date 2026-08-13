@@ -373,8 +373,14 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
     buildings = session.exec(
         base_q.order_by(RetrofitBuilding.rank_score.desc().nulls_last()).limit(limit)).all()
 
-    counties = sorted({b.county for b in session.exec(
-        select(RetrofitBuilding).where(RetrofitBuilding.population == population)).all()})
+    # Column-only, not select(RetrofitBuilding) -- this used to load all 53,252
+    # full ORM rows (every column, including long basis-text fields) just to
+    # read .county off each one. Measured (tracemalloc, 2026-08-13): 236.4MB
+    # for the full-row version against 0.02MB for this one, identical result.
+    # That allocation, repeated across a couple of hits with no OS-level
+    # release between them, is what was OOM-killing the 512MB web instance.
+    counties = sorted(session.exec(
+        select(RetrofitBuilding.county).where(RetrofitBuilding.population == population).distinct()).all())
     summary = {
         "n": total, "shown": len(buildings),
         "overdue": sum(1 for b in buildings if b.service_life_status == "overdue"),

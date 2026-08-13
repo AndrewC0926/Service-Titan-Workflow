@@ -306,6 +306,66 @@ def test_stylesheet_link_resolves_behind_the_render_proxy(client, db_session, cf
     assert ".titleblock" in css.text  # the real built stylesheet, not a 404 page
 
 
+def test_retrofit_counties_correct_and_does_not_load_every_full_row(client, db_session):
+    """Regression test for the 236MB /retrofit memory bug (2026-08-13):
+    computing the county filter list used to run select(RetrofitBuilding)
+    with no filter and no limit, instantiating every full ORM row (every
+    column, including long basis-text fields) in the population just to
+    read .county off each one -- measured via tracemalloc against
+    production data: 236.4MB for 53,252 rows vs 0.02MB for the column-only
+    equivalent with an identical result.
+
+    A memory-threshold assertion turned out not to be a reliable way to
+    pin this down here (SQLite's row materialization in the test DB doesn't
+    reproduce psycopg2's allocation shape against real Postgres closely
+    enough -- it passed against the unfixed query too). What's actually
+    deterministic, driver-independent, and directly tests the thing that
+    matters is the SQL itself: no unlimited query against retrofit_buildings
+    should select more than the county column."""
+    from sqlalchemy import event
+
+    from app.db import get_engine
+    from app.models import RetrofitBuilding
+
+    for i in range(50):
+        db_session.add(RetrofitBuilding(
+            apn=f"TESTAPN{i:07d}", population="replacement_candidate",
+            county="Los Angeles" if i % 2 == 0 else "Riverside",
+            rank_score=float(i), service_life_basis="x" * 2000,
+        ))
+    db_session.commit()
+
+    statements = []
+    engine = get_engine()
+
+    def _capture(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _capture)
+    try:
+        resp = client.get("/retrofit?population=replacement_candidate&limit=10", headers=AUTH)
+    finally:
+        event.remove(engine, "before_cursor_execute", _capture)
+
+    assert resp.status_code == 200
+    assert "Los Angeles" in resp.text and "Riverside" in resp.text
+
+    for sql in statements:
+        if "retrofit_buildings" not in sql or "LIMIT" in sql.upper():
+            continue  # the properly-limited `buildings` query is fine either way
+        if sql.strip().upper().startswith("SELECT COUNT("):
+            # The legitimate `total` count (line ~372): count(*) over a
+            # subquery that happens to spell out RetrofitBuilding's columns
+            # in its SQL text because select(RetrofitBuilding) wraps the
+            # whole entity, but only an integer ever crosses into Python --
+            # not the bug this test guards against.
+            continue
+        assert "service_life_basis" not in sql, (
+            f"an unlimited query against retrofit_buildings selects service_life_basis (and, by the "
+            f"same regression, every other column) instead of just what it needs:\n{sql}"
+        )
+
+
 def test_esco_board_is_reachable_and_separate(client, db_session, cfg):
     """esco rows are kept and counted, but do not join a ranking of new
     construction they are not competing in."""
