@@ -2,6 +2,20 @@
 {% block title %}Today{% endblock %}
 {% block sheet_no %}S-00{% endblock %}
 {% block content %}
+{% if staleness and staleness.stale %}
+<div class="callout callout-bad mb-3">
+  <strong>Pipeline data is stale</strong>
+  <span class="body">
+    {%- if staleness.hours_stale is none -%}
+      No successful pipeline run has ever been recorded.
+    {%- else -%}
+      {{ '%.0f'|format(staleness.hours_stale) }} hours since the last successful run
+      {%- if staleness.last_success_at %} ({{ staleness.last_success_at.strftime('%Y-%m-%d %H:%M') }} UTC){% endif -%}.
+    {%- endif %}
+    Run <code>scout check-freshness</code> or <code>scout doctor</code> to dig in.
+  </span>
+</div>
+{% endif %}
 <div class="today">
 
   <section class="today-section">

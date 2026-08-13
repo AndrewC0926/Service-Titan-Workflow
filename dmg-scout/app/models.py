@@ -1180,3 +1180,33 @@ class AccessLog(SQLModel, table=True):
     ip: str | None = None
     user_agent: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     created_at: datetime = Field(default_factory=utcnow)
+
+
+class PipelineRun(SQLModel, table=True):
+    """One row per `scout pipeline` invocation -- see app/pipeline_health.py,
+    which writes these and answers "how stale is the data" from them. status
+    starts "running" at the top of the run and is always updated to either
+    "success" or "failed" at the end (never left "running" on a clean exit);
+    a process that crashes mid-run leaves a row stuck at "running" forever,
+    which the freshness check correctly treats as not-a-success -- same
+    effect as a "failed" row, without needing a special case for it.
+    """
+    __tablename__ = "pipeline_run"
+
+    id: int | None = Field(default=None, primary_key=True)
+    started_at: datetime = Field(default_factory=utcnow, index=True)
+    finished_at: datetime | None = None
+    status: str = Field(default="running", index=True)  # running | success | failed
+    records_processed: int | None = None
+    error: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+
+
+class StalenessAlert(SQLModel, table=True):
+    """One row per staleness-alarm email actually sent -- see
+    app/pipeline_health.py:check_and_alert_staleness. Exists solely to rate-
+    limit the alert to at most one per 24h: "has a row landed in the last
+    24h" gates every send, checked before the row (and the email) go out."""
+    __tablename__ = "staleness_alerts"
+
+    id: int | None = Field(default=None, primary_key=True)
+    sent_at: datetime = Field(default_factory=utcnow, index=True)

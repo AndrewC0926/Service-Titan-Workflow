@@ -181,9 +181,18 @@ def today(request: Request, session: Session = Depends(get_session), _: str = De
     consumes a change tomorrow's real digest email would otherwise report.
     """
     from app.pipeline.notify import today_brief
-    brief = today_brief(session, load_config())
+    from app.pipeline_health import check_and_alert_staleness
+    cfg = load_config()
+    brief = today_brief(session, cfg)
+    # Best-effort: a failure here (DB hiccup, Resend down) must never be the
+    # reason the Today page itself fails to load -- see
+    # app.pipeline_health's module docstring.
+    try:
+        staleness = check_and_alert_staleness(session, cfg)
+    except Exception:  # noqa: BLE001
+        staleness = {"stale": False, "hours_stale": None, "last_success_at": None, "alert_sent": False}
     return templates.TemplateResponse(request, "today.html", {
-        **brief, "tb": _title_block(session), "active": "today",
+        **brief, "staleness": staleness, "tb": _title_block(session), "active": "today",
     })
 
 

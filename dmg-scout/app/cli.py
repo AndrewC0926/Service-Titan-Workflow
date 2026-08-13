@@ -195,11 +195,19 @@ def notify() -> None:
 @app.command()
 def pipeline() -> None:
     """Run the full pipeline: fetch → triage → extract → resolve → score → notify.
-    Pings the dead man's switch (HEALTHCHECK_URL) on completion."""
+    Pings the dead man's switch (HEALTHCHECK_URL) on completion, and records
+    a pipeline_run row for the in-app staleness alarm (`scout check-
+    freshness` / the root dashboard banner) — see app.pipeline_health."""
     from app.ops import ping_healthcheck
+    from app.pipeline_health import finish_pipeline_run, records_processed_since, start_pipeline_run
     from app.spend import BudgetExceeded, run_budget
 
+    with session_scope() as session:
+        run = start_pipeline_run(session)
+        run_id, run_started_at = run.id, run.started_at
+
     failures = 0
+    errors: list[str] = []
     # ONE budget for the whole pipeline, opened here. The per-stage run_budget()
     # calls nest into this one rather than opening their own, so a nightly cron
     # is capped once end-to-end — and because the cap is fixed at open, a run that
@@ -226,12 +234,18 @@ def pipeline() -> None:
             except BudgetExceeded as exc:
                 typer.echo(f"{step.__name__} STOPPED BY BUDGET: {exc}", err=True)
                 failures += 1
+                errors.append(f"{step.__name__}: STOPPED BY BUDGET: {exc}")
             except Exception as exc:  # noqa: BLE001 — later stages still run; failure is visible
                 typer.echo(f"{step.__name__} FAILED: {exc}", err=True)
                 failures += 1
+                errors.append(f"{step.__name__}: {exc}")
     # The switch measures "the cron ran to completion", not "every source was
     # healthy" — per-source failures already alert via digest + dashboard.
     ping_healthcheck(success=True)
+    with session_scope() as session:
+        processed = records_processed_since(session, run_started_at)
+        finish_pipeline_run(session, run_id, status="failed" if failures else "success",
+                            records_processed=processed, error="; ".join(errors) or None)
     if failures:
         raise typer.Exit(1)
 
@@ -251,6 +265,29 @@ def doctor() -> None:
         typer.echo(f"{bad} check(s) failing")
         raise typer.Exit(1)
     typer.echo("all checks passing")
+
+
+@app.command("check-freshness")
+def check_freshness_cmd() -> None:
+    """Is the pipeline actually still landing data? No successful pipeline_run
+    within 36h logs a warning and sends one Resend alert (rate-limited to
+    once per 24h) -- same check the root dashboard view runs on every
+    request, see app.pipeline_health.check_and_alert_staleness."""
+    from app.pipeline_health import check_and_alert_staleness
+    cfg = load_config()
+    with session_scope() as session:
+        result = check_and_alert_staleness(session, cfg)
+    if not result["stale"]:
+        typer.echo(f"OK — last successful run {result['hours_stale']:.1f}h ago "
+                   f"({result['last_success_at']:%Y-%m-%d %H:%M} UTC)")
+        return
+    if result["last_success_at"] is None:
+        typer.echo("[STALE] no successful pipeline run has ever been recorded", err=True)
+    else:
+        typer.echo(f"[STALE] {result['hours_stale']:.1f}h since last successful run "
+                   f"({result['last_success_at']:%Y-%m-%d %H:%M} UTC)", err=True)
+    typer.echo(f"alert email sent this check: {result['alert_sent']}")
+    raise typer.Exit(1)
 
 
 @app.command("access-summary")
