@@ -11,7 +11,7 @@ from sqlmodel import select
 
 from app.db import get_session
 from app.models import PipelineRun, StalenessAlert, utcnow
-from app.pipeline_health import check_and_alert_staleness
+from app.pipeline_health import HEARTBEAT_STALE_MINUTES, check_and_alert_staleness, reap_stale_runs
 from app.web.main import app
 
 
@@ -108,6 +108,97 @@ def test_no_run_at_all_is_stale(client, db_session, no_email):
 def _cfg():
     from app.config import load_config
     return load_config()
+
+
+def test_reap_stale_runs_reclassifies_a_hard_killed_process(db_session):
+    """Simulates the real failure mode (confirmed 2026-08-13: Render's OOM
+    killer took the cron mid-fetch): the process is torn down from outside,
+    so finish_pipeline_run() never runs and heartbeat_at simply stops
+    advancing. Nothing in-process can distinguish that from a run that is
+    merely between heartbeats -- the row itself carries no signal that its
+    process is gone. reap_stale_runs() is the only thing that can tell the
+    two apart, and only by heartbeat age."""
+    started = utcnow() - timedelta(hours=2)
+    dead = PipelineRun(
+        status="running",
+        started_at=started,
+        heartbeat_at=utcnow() - timedelta(minutes=HEARTBEAT_STALE_MINUTES + 1),
+    )
+    db_session.add(dead)
+    db_session.commit()
+    db_session.refresh(dead)
+    dead_id = dead.id
+
+    # Before reaping, the row is exactly what a stuck row looks like: no
+    # trace in the data itself that the process behind it is gone.
+    assert db_session.get(PipelineRun, dead_id).status == "running"
+
+    reaped = reap_stale_runs(db_session)
+
+    assert reaped == 1
+    row = db_session.get(PipelineRun, dead_id)
+    assert row.status == "failed"
+    assert row.finished_at is not None
+    assert "reaped" in row.error.lower()
+    # And it must not still be selectable as a running row -- the whole
+    # point is that nothing downstream (last_successful_run, the dashboard,
+    # a fresh `scout pipeline` invocation) can mistake it for live.
+    still_running = db_session.exec(
+        select(PipelineRun).where(PipelineRun.status == "running")
+    ).all()
+    assert dead_id not in [r.id for r in still_running]
+
+
+def test_reap_stale_runs_catches_legacy_rows_with_no_heartbeat_at_all(db_session):
+    """The three real production rows (ids 3, 4, 5) this fix has to clean up
+    predate the heartbeat_at column -- they were created, killed by the same
+    OOM/composition bugs, and left at status="running" with heartbeat_at
+    NULL forever, since nothing ever wrote to a column that didn't exist
+    yet. A NULL heartbeat on an old row is exactly as dead as a stale one."""
+    legacy = PipelineRun(status="running", started_at=utcnow() - timedelta(hours=5), heartbeat_at=None)
+    db_session.add(legacy)
+    db_session.commit()
+    db_session.refresh(legacy)
+
+    reaped = reap_stale_runs(db_session)
+
+    assert reaped == 1
+    row = db_session.get(PipelineRun, legacy.id)
+    assert row.status == "failed"
+
+
+def test_reap_stale_runs_leaves_a_genuinely_live_run_alone(db_session):
+    """A run with a heartbeat inside the threshold is still alive and must
+    not be reaped -- this is the case that distinguishes reap_stale_runs()
+    from something that just fails every "running" row on a timer."""
+    alive = PipelineRun(status="running", started_at=utcnow() - timedelta(hours=2), heartbeat_at=utcnow())
+    db_session.add(alive)
+    db_session.commit()
+    db_session.refresh(alive)
+
+    reaped = reap_stale_runs(db_session)
+
+    assert reaped == 0
+    assert db_session.get(PipelineRun, alive.id).status == "running"
+
+
+def test_check_and_alert_staleness_reaps_before_checking(db_session, no_email):
+    """The staleness check itself must not be fooled by a stuck row --
+    without reaping first, a dead run sitting at status="running" would
+    correctly be excluded from last_successful_run() (it isn't "success"),
+    so this specifically guards that reap_stale_runs() runs as part of the
+    normal staleness path, not just when someone remembers to call it."""
+    dead = PipelineRun(
+        status="running",
+        started_at=utcnow() - timedelta(hours=2),
+        heartbeat_at=utcnow() - timedelta(minutes=HEARTBEAT_STALE_MINUTES + 1),
+    )
+    db_session.add(dead)
+    db_session.commit()
+
+    check_and_alert_staleness(db_session, _cfg())
+
+    assert db_session.get(PipelineRun, dead.id).status == "failed"
 
 
 def test_check_freshness_cli_exits_nonzero_when_stale(db_session, monkeypatch):

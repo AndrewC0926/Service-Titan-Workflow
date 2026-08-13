@@ -1185,16 +1185,27 @@ class AccessLog(SQLModel, table=True):
 class PipelineRun(SQLModel, table=True):
     """One row per `scout pipeline` invocation -- see app/pipeline_health.py,
     which writes these and answers "how stale is the data" from them. status
-    starts "running" at the top of the run and is always updated to either
-    "success" or "failed" at the end (never left "running" on a clean exit);
-    a process that crashes mid-run leaves a row stuck at "running" forever,
-    which the freshness check correctly treats as not-a-success -- same
-    effect as a "failed" row, without needing a special case for it.
+    starts "running" and is meant to be updated to "success" or "failed" at
+    the end -- but an external hard kill (OOM, confirmed real 2026-08-13:
+    the cron container killed by Render's own OOM killer mid-fetch) never
+    reaches that code, and a row stuck at "running" forever is
+    indistinguishable from a genuinely live run by status alone.
+
+    heartbeat_at is what actually resolves that: touched periodically
+    during a run (see app.pipeline_health.heartbeat -- once per pipeline
+    stage, and once per source within fetch specifically, since fetch is
+    the stage actually observed running long enough for a coarser
+    per-stage-only heartbeat to false-negative). app.pipeline_health.
+    reap_stale_runs() reclassifies any "running" row whose heartbeat has
+    gone quiet past HEARTBEAT_STALE_MINUTES as "failed" -- called from
+    check_and_alert_staleness() and from the top of `scout pipeline` itself,
+    so a zombie row self-heals without needing a human to notice it.
     """
     __tablename__ = "pipeline_run"
 
     id: int | None = Field(default=None, primary_key=True)
     started_at: datetime = Field(default_factory=utcnow, index=True)
+    heartbeat_at: datetime | None = Field(default=None, index=True)
     finished_at: datetime | None = None
     status: str = Field(default="running", index=True)  # running | success | failed
     records_processed: int | None = None

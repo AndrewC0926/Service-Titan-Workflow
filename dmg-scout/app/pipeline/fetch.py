@@ -13,6 +13,7 @@ from sqlmodel import Session, select
 from app.config import Config
 from app.http import PoliteClient
 from app.models import HttpLog, RawDocument, SourceRun, TriageResult, utcnow
+from app.pipeline_health import heartbeat
 from app.sources import enabled_adapters, get_adapter
 
 log = logging.getLogger(__name__)
@@ -70,6 +71,11 @@ def run_fetch(session: Session, cfg: Config, only_source: str | None = None) -> 
         session.add(run)
         session.commit()
         runs[name] = run
+        # fetch is the one stage observed running long enough (over an hour
+        # against the full backlog) that a per-stage-only heartbeat could go
+        # stale while genuinely still alive -- touch it once per source
+        # rather than only once for the whole stage.
+        heartbeat(session)
     return runs
 
 

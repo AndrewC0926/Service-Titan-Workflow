@@ -32,7 +32,13 @@ services:
     name: dmg-scout-pipeline
     runtime: docker
     rootDir: dmg-scout
-    plan: starter
+    # standard (2GB), not starter (512MB): the fetch stage alone measured a
+    # peak of ~642MB RSS locally against production data (2026-08-13) --
+    # over the 512Mi Render was killing it at, matching the real oomKilled
+    # event Render logged for this service. +$18/mo over starter buys ~3x
+    # headroom over the measured peak; upgraded live via the Render API
+    # first, this keeps render.yaml from reverting it on the next deploy.
+    plan: standard
     schedule: "0 13 * * *"   # 13:00 UTC = 6am PT daily
     # A single bare token, deliberately -- see scripts/run-pipeline.sh's own
     # header comment and tests/test_render_config.py. The previous value

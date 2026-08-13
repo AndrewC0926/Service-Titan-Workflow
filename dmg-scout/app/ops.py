@@ -24,8 +24,19 @@ HEALTHCHECK_ENV = "HEALTHCHECK_URL"  # e.g. https://hc-ping.com/<uuid>
 
 def ping_healthcheck(success: bool = True) -> bool:
     """Dead man's switch: healthchecks.io alerts if this ping stops arriving.
-    Separate from source-failure alerting — this catches nothing running at all."""
-    url = os.environ.get(HEALTHCHECK_ENV)
+    Separate from source-failure alerting — this catches nothing running at all.
+
+    Confirmed in production 2026-08-13: HEALTHCHECK_URL had a trailing '\\n'
+    (almost certainly pasted in), which made httpx raise InvalidURL --  a
+    plain ValueError subclass, not an httpx.HTTPError, so the old `except
+    httpx.HTTPError` let it through uncaught. Because this call sits before
+    finish_pipeline_run() in app.cli:pipeline, that crash killed the process
+    before the run's own pipeline_run row could ever be marked finished --
+    a self-inflicted version of the exact stuck-row problem the heartbeat
+    mechanism exists to catch. .strip() defangs the specific cause; the
+    broadened except is what actually makes this call live up to "dead
+    man's switch", not "a second way for a healthy run to look dead"."""
+    url = (os.environ.get(HEALTHCHECK_ENV) or "").strip()
     if not url:
         log.warning("%s not set — dead man's switch is DISARMED", HEALTHCHECK_ENV)
         return False
@@ -33,7 +44,7 @@ def ping_healthcheck(success: bool = True) -> bool:
     try:
         httpx.get(target, timeout=10)
         return True
-    except httpx.HTTPError as exc:
+    except Exception as exc:  # noqa: BLE001 — a ping failure must never take the pipeline down with it
         log.error("healthcheck ping failed: %s", exc)
         return False
 

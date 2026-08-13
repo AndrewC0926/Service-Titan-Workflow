@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import logging
 import os
+from contextvars import ContextVar
 from datetime import timedelta
 
 import httpx
-from sqlmodel import func, select
+from sqlmodel import func, or_, select
 
 from app.config import Config, load_config
 from app.models import PipelineRun, RawDocument, StalenessAlert, utcnow
@@ -28,13 +29,87 @@ STALE_THRESHOLD_HOURS = 36
 ALERT_COOLDOWN_HOURS = 24
 STALENESS_NOTIFY_TO = "acrane988@gmail.com"
 
+# A row stuck at status="running" with no heartbeat for this long is not
+# still running -- reap_stale_runs() reclassifies it as "failed". Sized
+# against real observed timing this session, not guessed: every individual
+# fetch source and every other stage has completed in well under this
+# window in every run observed, including the one that ran for 6.5 minutes
+# before Render's OOM killer took it mid-fetch. Generous enough to avoid
+# flagging a genuinely slow-but-alive stage, tight enough to catch a dead
+# one long before the next scheduled run (24h) would.
+HEARTBEAT_STALE_MINUTES = 15
+
+# Same ContextVar pattern app.spend uses for "the currently active run" --
+# lets fetch.py's per-source loop (and any other stage) call heartbeat()
+# without a run id threaded through every intervening function signature.
+# None (the default) when no `scout pipeline` run is active, e.g. `scout
+# fetch` invoked standalone -- heartbeat() is then correctly a no-op.
+_active_pipeline_run_id: ContextVar[int | None] = ContextVar("_active_pipeline_run_id", default=None)
+
 
 def start_pipeline_run(session) -> PipelineRun:
-    run = PipelineRun(status="running")
+    now = utcnow()
+    run = PipelineRun(status="running", started_at=now, heartbeat_at=now)
     session.add(run)
     session.commit()
     session.refresh(run)
+    _active_pipeline_run_id.set(run.id)
     return run
+
+
+def heartbeat(session) -> None:
+    """Touch the active run's heartbeat_at. No-op if no `scout pipeline` run
+    is active -- see _active_pipeline_run_id. Called once per pipeline
+    stage (app.cli:pipeline) and, within fetch specifically, once per
+    source (app.pipeline.fetch:run_fetch) -- fetch is the one stage
+    observed running long enough that a stage-boundary-only heartbeat could
+    plausibly go stale while genuinely still alive; every other stage has
+    always completed well inside HEARTBEAT_STALE_MINUTES in every run
+    observed this session."""
+    run_id = _active_pipeline_run_id.get()
+    if run_id is None:
+        return
+    run = session.get(PipelineRun, run_id)
+    if run is None:
+        return
+    run.heartbeat_at = utcnow()
+    session.add(run)
+    session.commit()
+
+
+def reap_stale_runs(session) -> int:
+    """Reclassify any row stuck at status="running" as "failed" rather than
+    trust it's still alive. Two ways a row gets here: (1) heartbeat_at was
+    set but hasn't moved in HEARTBEAT_STALE_MINUTES -- the process behind it
+    is gone (external kill, e.g. Render's OOM killer -- confirmed real,
+    2026-08-13). (2) heartbeat_at is NULL and started_at is stale -- rows
+    created before this column existed (ids 3, 4, 5, all OOM/composition-bug
+    casualties from before the fix), which never got a heartbeat at all.
+    Called before a new run starts (app.cli:pipeline) and as part of every
+    staleness check (check_and_alert_staleness) -- so a dead run can't keep
+    last_successful_run()/hours_stale() answering as if the last real
+    attempt is still in flight, and can't block a fresh run from starting."""
+    threshold = utcnow() - timedelta(minutes=HEARTBEAT_STALE_MINUTES)
+    stuck = session.exec(
+        select(PipelineRun).where(
+            PipelineRun.status == "running",
+            or_(
+                PipelineRun.heartbeat_at < threshold,
+                PipelineRun.heartbeat_at.is_(None) & (PipelineRun.started_at < threshold),
+            ),
+        )
+    ).all()
+    for run in stuck:
+        run.status = "failed"
+        run.finished_at = utcnow()
+        run.error = (
+            f"reaped by reap_stale_runs: no heartbeat for over {HEARTBEAT_STALE_MINUTES}m "
+            f"(last heartbeat {run.heartbeat_at}) -- presumed killed externally, e.g. OOM"
+        )
+        session.add(run)
+    if stuck:
+        session.commit()
+    return len(stuck)
 
 
 def finish_pipeline_run(session, run_id: int, *, status: str, records_processed: int | None,
@@ -127,7 +202,10 @@ def check_and_alert_staleness(session, cfg: Config, *, threshold_hours: float = 
     Rate-limited to at most one email per cooldown_hours: a StalenessAlert
     row must not exist within the window, checked BEFORE this run's own
     alert (if any) is inserted -- the same before-insert gate app.access_log
-    uses for its once-per-username notification."""
+    uses for its once-per-username notification. Reaps stale "running" rows
+    first so a dead run (external kill, no heartbeat) can't masquerade as
+    still in progress."""
+    reap_stale_runs(session)
     run = last_successful_run(session)
     stale_hours = hours_stale(session)
     is_stale = stale_hours is None or stale_hours > threshold_hours

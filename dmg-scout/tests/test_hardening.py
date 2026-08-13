@@ -101,6 +101,37 @@ def test_dead_mans_switch_pings(monkeypatch):
     assert fail_route.called
 
 
+@respx.mock
+def test_dead_mans_switch_strips_a_trailing_newline_in_the_env_var(monkeypatch):
+    """Regression test for the real production failure (2026-08-13):
+    HEALTHCHECK_URL was set with a trailing '\\n' (a pasted-in artifact),
+    which made httpx raise InvalidURL. ping_healthcheck() sits before
+    finish_pipeline_run() in app.cli:pipeline, so that uncaught exception
+    crashed the process after a fully successful run and left its
+    pipeline_run row stuck at status="running" forever -- the same
+    stuck-row failure the heartbeat mechanism exists to catch, but
+    self-inflicted by this function rather than an external kill."""
+    from app.ops import ping_healthcheck
+    monkeypatch.setenv("HEALTHCHECK_URL", "https://hc-ping.com/abc123\n")
+    ok_route = respx.get("https://hc-ping.com/abc123").mock(return_value=httpx.Response(200))
+    assert ping_healthcheck(success=True) is True
+    assert ok_route.called
+
+
+def test_dead_mans_switch_never_raises_even_on_a_url_httpx_cannot_parse(monkeypatch, caplog):
+    """Belt-and-suspenders alongside the .strip() fix: this is a best-effort
+    dead man's switch ping, same discipline as app.pipeline_health and
+    app.access_log -- a bad HEALTHCHECK_URL must degrade to "switch didn't
+    fire" (logged, returns False), never to "pipeline process dies". The old
+    `except httpx.HTTPError` didn't cover this: httpx.InvalidURL is not an
+    HTTPError subclass, so it passed straight through uncaught."""
+    from app.ops import ping_healthcheck
+    monkeypatch.setenv("HEALTHCHECK_URL", "https://hc-ping.com/abc\n123")
+    with caplog.at_level("ERROR"):
+        assert ping_healthcheck(success=True) is False
+    assert any("healthcheck ping failed" in r.message for r in caplog.records)
+
+
 def test_doctor_reports_missing_pieces(db_session, monkeypatch):
     from app.ops import doctor
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)

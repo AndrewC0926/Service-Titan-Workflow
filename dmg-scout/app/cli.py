@@ -199,10 +199,21 @@ def pipeline() -> None:
     a pipeline_run row for the in-app staleness alarm (`scout check-
     freshness` / the root dashboard banner) — see app.pipeline_health."""
     from app.ops import ping_healthcheck
-    from app.pipeline_health import finish_pipeline_run, records_processed_since, start_pipeline_run
+    from app.pipeline_health import (
+        finish_pipeline_run,
+        heartbeat,
+        reap_stale_runs,
+        records_processed_since,
+        start_pipeline_run,
+    )
     from app.spend import BudgetExceeded, run_budget
 
     with session_scope() as session:
+        # Before starting a new run, reclassify anything still marked
+        # "running" from a prior process that was killed externally (OOM,
+        # confirmed real 2026-08-13) -- otherwise a dead row sits there
+        # forever and last_successful_run()/hours_stale() never recover.
+        reap_stale_runs(session)
         run = start_pipeline_run(session)
         run_id, run_started_at = run.id, run.started_at
 
@@ -239,6 +250,14 @@ def pipeline() -> None:
                 typer.echo(f"{step.__name__} FAILED: {exc}", err=True)
                 failures += 1
                 errors.append(f"{step.__name__}: {exc}")
+            # Touched once per stage regardless of outcome -- a stage that
+            # failed still proves the process is alive, which is all a
+            # heartbeat claims. fetch also heartbeats per-source internally
+            # (app.pipeline.fetch:run_fetch), since it's the one stage
+            # observed running long enough that a stage-boundary-only
+            # heartbeat could plausibly go stale while genuinely still alive.
+            with session_scope() as session:
+                heartbeat(session)
     # The switch measures "the cron ran to completion", not "every source was
     # healthy" — per-source failures already alert via digest + dashboard.
     ping_healthcheck(success=True)
