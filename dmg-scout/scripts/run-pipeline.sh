@@ -14,19 +14,16 @@
 # way.
 set -euo pipefail
 
-# 2026-08-13: triggering this script via Render's Jobs API (POST
-# .../jobs with an explicit startCommand -- used to verify the fix above
-# for real, since a local run can't exercise Render's own composition)
-# surfaced a second, different bug: load_config() opens config.yaml by a
-# relative path, and the Jobs API does not start the process in the
-# image's WORKDIR (/srv/dmg-scout, see Dockerfile) the way a normal
-# scheduled dockerCommand run does -- it landed in
-# /usr/local/lib/python3.12/site-packages instead (real traceback,
-# FileNotFoundError, from that exact API-triggered run). A regular
-# scheduled cron firing may or may not hit this the same way; cd'ing to
-# the known-fixed deployment path makes the script's behavior independent
-# of whatever CWD the invoking process started with, either way.
-cd /srv/dmg-scout
-
+# 2026-08-13: triggering this script via Render's Jobs API surfaced a
+# second, real bug -- but it was NOT a working-directory problem (a direct
+# `pwd` job confirmed the cwd here is already /srv/dmg-scout, correctly).
+# The actual cause: `scout` is a pip-installed console-script entry point,
+# and `pip install .` (no -e, see Dockerfile) copies app/ into
+# site-packages as a separate copy -- app/config.py's DEFAULT_CONFIG is
+# computed from that copy's own __file__, not from cwd at all, so it
+# always resolved to a site-packages/config.yaml that was never put there.
+# Fixed at the source via SCOUT_CONFIG in the Dockerfile (load_config()'s
+# own documented override), not here -- an explicit `cd` in this script
+# would have done nothing for a bug that was never about cwd.
 alembic upgrade head
 scout pipeline

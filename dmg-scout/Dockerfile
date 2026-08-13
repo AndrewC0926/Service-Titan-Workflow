@@ -37,6 +37,25 @@ RUN curl -sL -o /usr/local/bin/tailwindcss \
 
 RUN pip install --no-cache-dir .
 
+# `pip install .` (no -e) COPIES app/ into site-packages -- a real,
+# separate copy, permanently divorced from /srv/dmg-scout. app/config.py's
+# DEFAULT_CONFIG is Path(__file__).resolve().parent.parent / "config.yaml",
+# so any process that imports app.config via that installed copy resolves
+# to site-packages/config.yaml, which was never put there and does not
+# exist. The web service never shows this: `uvicorn app.web.main:app`
+# resolves the `app` import via CWD-based sys.path (a real app/ source dir
+# sits right here in WORKDIR), finding config.yaml correctly by accident.
+# `scout` (the pip-installed console-script entry point, [project.scripts]
+# in pyproject.toml) always imports via its installed package location
+# instead, regardless of CWD -- confirmed by a real production traceback,
+# FileNotFoundError against /usr/local/lib/python3.12/site-packages/
+# config.yaml, from a Render Jobs API-triggered cron run (2026-08-13).
+# SCOUT_CONFIG is load_config()'s own documented override (app/config.py's
+# CONFIG_PATH_ENV) -- setting it here fixes every process in this image,
+# not just the cron's, and doesn't depend on getting import-path behavior
+# right for whichever entry point happens to run.
+ENV SCOUT_CONFIG=/srv/dmg-scout/config.yaml
+
 EXPOSE 8000
 
 # Web service default. The cron (dmg-scout-pipeline, render.yaml) overrides

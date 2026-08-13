@@ -78,23 +78,27 @@ def test_cron_script_runs_migration_before_pipeline_and_fails_loud():
     assert migrate_at < pipeline_at, "migration must run before the pipeline, not after"
 
 
-def test_cron_script_does_not_rely_on_inherited_cwd():
+def test_dockerfile_sets_scout_config_for_the_installed_console_script():
     """Regression test for the second cron bug (2026-08-13, found by
-    actually triggering the job via Render's API -- a local run can't
-    surface this): load_config() opens config.yaml by a relative path, and
-    the process's working directory when Render's Jobs API starts it is
-    NOT the image's WORKDIR the way a normal scheduled dockerCommand run
-    is -- confirmed via a real traceback, FileNotFoundError against
-    /usr/local/lib/python3.12/site-packages/config.yaml. An explicit `cd`
-    to the known deployment path makes this independent of whatever CWD
-    the invoking process happens to start with."""
-    script = (REPO_ROOT / _cron_service()["dockerCommand"]).read_text()
-    cd_at = script.find("cd /srv/dmg-scout")
-    assert cd_at != -1, "script must cd to an absolute path before running anything relative-path-dependent"
-    # rfind, not index/find: the header comment explaining this fix also
-    # mentions "alembic upgrade head" in prose, before the real command.
-    migrate_at = script.rfind("alembic upgrade head")
-    assert cd_at < migrate_at, "the cd must happen before the actual alembic/scout invocation, not after"
+    actually triggering the job via Render's API -- a local editable
+    install can't surface this, see app/config.py's DEFAULT_CONFIG): `pip
+    install .` (no -e) copies app/ into site-packages as a separate copy,
+    so app.config.__file__-relative path resolution inside `scout` (the
+    installed console-script entry point) always lands in site-packages,
+    not /srv/dmg-scout -- confirmed via a real production traceback,
+    FileNotFoundError against /usr/local/lib/python3.12/site-packages/
+    config.yaml. A `cd` in the cron script does nothing for this (verified
+    directly: a `pwd` job confirmed the cwd was already correct) since the
+    bug was never about cwd. SCOUT_CONFIG is load_config()'s own documented
+    override -- setting it once in the Dockerfile fixes every entry point
+    in the image, not just the cron's."""
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text()
+    assert "ENV SCOUT_CONFIG=/srv/dmg-scout/config.yaml" in dockerfile, (
+        "app.config.DEFAULT_CONFIG resolves from the installed package's own file location, which "
+        "is not /srv/dmg-scout once `pip install .` (no -e) has copied app/ into site-packages -- "
+        "SCOUT_CONFIG must be set explicitly, the same fix that was actually verified against a real "
+        "Render Jobs API-triggered run"
+    )
 
 
 def test_web_service_command_is_untouched():
