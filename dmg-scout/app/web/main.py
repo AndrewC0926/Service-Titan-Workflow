@@ -24,6 +24,7 @@ from app.accounts import (
     ROLE_LABELS,
     ROLE_ORDER,
 )
+from app.access_log import access_logging_middleware, access_summary, admin_username
 from app.assumptions import slugify
 from app.config import load_config
 from app.db import get_session
@@ -97,6 +98,7 @@ app = FastAPI(title="DMG Scout", lifespan=mcp_app.lifespan)
 for _mw in mounted_middleware():
     app.add_middleware(_mw.cls, *_mw.args, **_mw.kwargs)
 app.router.routes.extend(mounted_routes())
+app.middleware("http")(access_logging_middleware)
 security = HTTPBasic()
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -1371,6 +1373,24 @@ def source_health(request: Request, session: Session = Depends(get_session), _: 
     return templates.TemplateResponse(request, "health.html", {
         "sources": sources, "recent_runs": runs[:50], "budget": budget_status(),
         "chart": chart, "tb": _title_block(session), "active": "health",
+    })
+
+
+@app.get("/admin/access", response_class=HTMLResponse)
+def admin_access(request: Request, session: Session = Depends(get_session), user: str = Depends(auth)):
+    """Visible only to the configured admin user. In practice auth() already
+    guarantees that -- it's the only username that can ever pass -- but the
+    explicit check documents the intent and is what actually gets exercised
+    if this dashboard ever grows a second real user."""
+    cfg = load_config()
+    if user != admin_username(cfg):
+        raise HTTPException(status.HTTP_403_FORBIDDEN)
+    from app.models import AccessLog
+
+    entries = session.exec(select(AccessLog).order_by(AccessLog.created_at.desc()).limit(200)).all()
+    return templates.TemplateResponse(request, "admin_access.html", {
+        "entries": entries, "summary": access_summary(session),
+        "tb": _title_block(session), "active": "admin_access",
     })
 
 

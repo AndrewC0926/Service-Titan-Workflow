@@ -253,6 +253,22 @@ def doctor() -> None:
     typer.echo("all checks passing")
 
 
+@app.command("access-summary")
+def access_summary_cmd(days: int = typer.Option(7, help="Look-back window")) -> None:
+    """Distinct dashboard usernames seen in the last N days, first/last seen,
+    and a page count -- same query app/web/main.py's /admin/access renders,
+    see app.access_log.access_summary."""
+    from app.access_log import access_summary
+    with session_scope() as session:
+        rows = access_summary(session, days=days)
+    if not rows:
+        typer.echo(f"No usernames recorded in the last {days} days.")
+        return
+    for row in rows:
+        typer.echo(f"{row['username']:20s} first={row['first_seen']:%Y-%m-%d %H:%M} "
+                   f"last={row['last_seen']:%Y-%m-%d %H:%M}  pages={row['page_count']}")
+
+
 @app.command("fix-state-values")
 def fix_state_values_cmd() -> None:
     """One-time (and safe to re-run) cleanup: normalize any non-canonical

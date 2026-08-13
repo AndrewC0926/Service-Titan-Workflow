@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Access log{% endblock %}
+{% block sheet_no %}S-14{% endblock %}
+{% block content %}
+<div class="sec-head">
+  <div class="sec-title">Dashboard access log</div>
+  <span class="note">Admin-only — one row per page hit, excluding static assets, the machine health check, and the MCP surface.</span>
+</div>
+
+<h2>Distinct usernames, last 7 days</h2>
+{% if summary %}
+<table class="tbl mb-4">
+<thead><tr><th>Username</th><th>First seen</th><th>Last seen</th><th class="num">Pages</th></tr></thead>
+<tbody>
+{% for row in summary %}
+<tr><td>{{ row.username }}</td>
+    <td class="mono">{{ row.first_seen.strftime('%Y-%m-%d %H:%M') }} UTC</td>
+    <td class="mono">{{ row.last_seen.strftime('%Y-%m-%d %H:%M') }} UTC</td>
+    <td class="num mono">{{ row.page_count }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="note mb-4">No usernames recorded in the last 7 days.</p>
+{% endif %}
+
+<h2>Last 200 entries</h2>
+<table class="tbl">
+<thead><tr><th>Time</th><th>Username</th><th>Method</th><th>Path</th><th>IP</th><th>User agent</th></tr></thead>
+<tbody>
+{% for e in entries %}
+<tr><td class="mono nowrap">{{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</td>
+    <td>{{ e.username if e.username else '—' }}</td>
+    <td class="mono">{{ e.method }}</td>
+    <td class="mono">{{ e.path }}</td>
+    <td class="mono">{{ e.ip or '—' }}</td>
+    <td class="note clip" title="{{ e.user_agent or '' }}">{{ e.user_agent or '—' }}</td></tr>
+{% else %}
+<tr><td colspan="6" class="note">No access logged yet.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}

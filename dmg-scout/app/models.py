@@ -4,7 +4,7 @@ from __future__ import annotations
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, Text, UniqueConstraint
+from sqlalchemy import Column, Index, Text, UniqueConstraint
 from sqlalchemy.types import JSON
 from sqlmodel import Field, SQLModel
 
@@ -1153,3 +1153,30 @@ class SelectionTool(SQLModel, table=True):
     verification_status: str = Field(default="unchecked", index=True)  # unchecked | search_verified | confirmed
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+
+
+class AccessLog(SQLModel, table=True):
+    """One row per dashboard page hit -- app.access_log's middleware, not a
+    route handler, writes these (see that module for why: static assets,
+    /healthz, and the MCP surface are excluded by path, everything else is
+    logged regardless of auth outcome).
+
+    username is read from the raw Authorization header, not from the auth()
+    dependency's return value -- auth() only ever returns "andrew" (the one
+    configured dashboard user) or raises 401 before this table is touched.
+    Capturing the SUBMITTED username independent of whether it was accepted
+    is what makes "a username that isn't andrew appeared" a real, detectable
+    event (a failed/probing login attempt) instead of a structural
+    impossibility. null means no Authorization header was sent at all --
+    genuinely anonymous, not a failed login.
+    """
+    __tablename__ = "access_log"
+    __table_args__ = (Index("ix_access_log_username_created_at", "username", "created_at"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    username: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    path: str = Field(index=True)
+    method: str
+    ip: str | None = None
+    user_agent: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    created_at: datetime = Field(default_factory=utcnow)
