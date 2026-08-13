@@ -78,6 +78,25 @@ def test_cron_script_runs_migration_before_pipeline_and_fails_loud():
     assert migrate_at < pipeline_at, "migration must run before the pipeline, not after"
 
 
+def test_cron_script_does_not_rely_on_inherited_cwd():
+    """Regression test for the second cron bug (2026-08-13, found by
+    actually triggering the job via Render's API -- a local run can't
+    surface this): load_config() opens config.yaml by a relative path, and
+    the process's working directory when Render's Jobs API starts it is
+    NOT the image's WORKDIR the way a normal scheduled dockerCommand run
+    is -- confirmed via a real traceback, FileNotFoundError against
+    /usr/local/lib/python3.12/site-packages/config.yaml. An explicit `cd`
+    to the known deployment path makes this independent of whatever CWD
+    the invoking process happens to start with."""
+    script = (REPO_ROOT / _cron_service()["dockerCommand"]).read_text()
+    cd_at = script.find("cd /srv/dmg-scout")
+    assert cd_at != -1, "script must cd to an absolute path before running anything relative-path-dependent"
+    # rfind, not index/find: the header comment explaining this fix also
+    # mentions "alembic upgrade head" in prose, before the real command.
+    migrate_at = script.rfind("alembic upgrade head")
+    assert cd_at < migrate_at, "the cd must happen before the actual alembic/scout invocation, not after"
+
+
 def test_web_service_command_is_untouched():
     """This fix is scoped to the cron only -- the web service's own CMD
     (Dockerfile default, works today) must not have been touched."""

@@ -14,5 +14,19 @@
 # way.
 set -euo pipefail
 
+# 2026-08-13: triggering this script via Render's Jobs API (POST
+# .../jobs with an explicit startCommand -- used to verify the fix above
+# for real, since a local run can't exercise Render's own composition)
+# surfaced a second, different bug: load_config() opens config.yaml by a
+# relative path, and the Jobs API does not start the process in the
+# image's WORKDIR (/srv/dmg-scout, see Dockerfile) the way a normal
+# scheduled dockerCommand run does -- it landed in
+# /usr/local/lib/python3.12/site-packages instead (real traceback,
+# FileNotFoundError, from that exact API-triggered run). A regular
+# scheduled cron firing may or may not hit this the same way; cd'ing to
+# the known-fixed deployment path makes the script's behavior independent
+# of whatever CWD the invoking process started with, either way.
+cd /srv/dmg-scout
+
 alembic upgrade head
 scout pipeline
