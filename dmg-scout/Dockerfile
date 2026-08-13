@@ -39,7 +39,10 @@ RUN pip install --no-cache-dir .
 
 EXPOSE 8000
 
-# Web service default; cron overrides with `scout pipeline`
+# Web service default. The cron (dmg-scout-pipeline, render.yaml) overrides
+# this CMD entirely with `dockerCommand: scripts/run-pipeline.sh` -- a bare
+# script path, not a multi-word shell string, on purpose. See that script's
+# header comment for why.
 #
 # --forwarded-allow-ips='*': Render terminates TLS at its edge and forwards to
 # this container over plain HTTP from a non-loopback address. Uvicorn only

@@ -34,7 +34,15 @@ services:
     rootDir: dmg-scout
     plan: starter
     schedule: "0 13 * * *"   # 13:00 UTC = 6am PT daily
-    dockerCommand: sh -c "alembic upgrade head && scout pipeline"
+    # A single bare token, deliberately -- see scripts/run-pipeline.sh's own
+    # header comment and tests/test_render_config.py. The previous value
+    # here, `sh -c "alembic upgrade head && scout pipeline"`, is a multi-
+    # word quoted string that Render's dockerCommand composition does not
+    # preserve intact: every cron run failed with `sh: 1: alembic upgrade
+    # head && scout pipeline: not found`, `sh` treating the whole phrase as
+    # one opaque token. A bare script path has nothing in it for any
+    # tokenizer to split, so it can't fail the same way.
+    dockerCommand: scripts/run-pipeline.sh
     envVars:
       - key: DATABASE_URL
         fromDatabase: {name: dmg-scout-db, property: connectionString}
