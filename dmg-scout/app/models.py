@@ -1221,3 +1221,112 @@ class StalenessAlert(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     sent_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class SamSolicitationCheck(SQLModel, table=True):
+    """One row per SAM.gov solicitation this project has ever looked at --
+    see app/pipeline/sam_gov.py. Exists for two reasons neither SpecMention
+    nor RawDocument can cover on its own:
+
+    1. Idempotency without spending SAM.gov's rate-limited search quota
+       twice on the same notice -- a solicitation with no Division 23
+       section produces zero SpecMention rows (the explicit instruction:
+       "skip design-build solicitations... rather than storing empty
+       rows"), so without a row HERE, every run would re-fetch and re-parse
+       every attachment of every solicitation that has ever come back
+       empty, forever.
+    2. An honest denominator. "How many solicitations yielded a usable
+       Division 23 section" is meaningless without also counting the ones
+       that didn't -- this table is the only place that count lives, since
+       SpecMention only ever holds the hits.
+
+    outcome is one of: spec_mentions_found | performance_spec_only |
+    no_ufgs_23_series_found | design_build_skipped | fetch_failed.
+    design_build_skipped is a title/description keyword match (see
+    DESIGN_BUILD_KEYWORDS), checked before ever spending an attachment
+    download on a notice that was never going to carry a spec book.
+    performance_spec_only means real UFGS 23-series section text WAS found
+    and read, but it specifies by performance/salient characteristics only
+    (the FAR 11.104/11.105-encouraged norm for federal work) with no
+    manufacturer named anywhere -- a real, informative result, distinct
+    from finding nothing. no_ufgs_23_series_found covers every other reason
+    no mechanical spec section turned up -- genuinely no HVAC scope in this
+    solicitation, an attachment that didn't parse, or a design-build notice
+    the keyword check missed -- deliberately not split further, since Scout
+    cannot always tell those apart from the outside.
+    """
+    __tablename__ = "sam_solicitation_checks"
+
+    id: int | None = Field(default=None, primary_key=True)
+    notice_id: str = Field(index=True, unique=True)
+    solicitation_number: str | None = None
+    title: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    agency: str | None = None  # SAM.gov's fullParentPathName
+    state: str | None = Field(default=None, index=True)
+    naics_code: str | None = None
+    posted_date: datetime | None = None
+    outcome: str = Field(index=True)
+    detail: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    checked_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class SpecMention(SQLModel, table=True):
+    """One row per (manufacturer, mention_type) named in a Division 23
+    (HVAC) spec section of a SAM.gov solicitation's own attachment PDF --
+    see app/pipeline/sam_gov.py. Deliberately NOT a Project or a Signal:
+    this is competitive intelligence about who the DESIGN side (the
+    specifying A/E firm) is naming as Basis of Design or acceptable
+    "or equal" manufacturers, not a lead -- nothing here should ever join
+    against the board pipeline or app.pipeline.resolve. See the module
+    docstring on why this needed its own table rather than reusing
+    RawDocument/Signal.
+
+    mention_type is "basis_of_design" (the single named BOD manufacturer
+    for a spec section) or "or_equal" (one entry from that section's
+    acceptable-substitute list) -- never blended into one row, since a
+    firm naming DMG's line as BOD is a materially different signal than
+    naming it as one of four acceptable alternates.
+
+    on_dmg_line_card is computed at write time by normalized-name match
+    against app.accounts' line_card names (the same normalize_name()
+    app.duplicates/app.firms already use) -- true means a rep can walk
+    into this spec with an existing relationship instead of a cold call.
+    """
+    __tablename__ = "spec_mentions"
+
+    id: int | None = Field(default=None, primary_key=True)
+    notice_id: str = Field(index=True)
+    solicitation_number: str | None = None
+    title: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    agency: str | None = None
+    state: str | None = Field(default=None, index=True)
+    source_url: str | None = None
+    specifying_firm: str | None = Field(default=None, index=True)
+    spec_section: str | None = None       # e.g. "23 74 00"
+    spec_section_title: str | None = None  # e.g. "Packaged Outdoor HVAC Equipment"
+    manufacturer_name: str = Field(index=True)
+    mention_type: str = Field(index=True)  # basis_of_design | or_equal
+    on_dmg_line_card: bool = Field(default=False, index=True)
+    dmg_line_card_name: str | None = None  # the matched line_card name, if any
+    extraction_basis: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    posted_date: datetime | None = None
+    retrieved_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class SamGovSearchCall(SQLModel, table=True):
+    """One row per call to SAM.gov's search endpoint (api.sam.gov/
+    opportunities/v2/search) -- see app.pipeline.sam_gov's rate-limit guard.
+
+    Exists solely to answer "how many search calls has ANY invocation of
+    this source made today" -- a personal API key's ~10/day cap is
+    confirmed real (a live run hit a 429 on 2026-08-13 after 12 calls in
+    one day), and SAM.gov's API exposes no way to ask it directly how much
+    quota remains. A manual investigation and a hypothetical future
+    scheduled run draw against this SAME log, not separate counters --
+    otherwise a scheduled run's own budget check would have no way to know
+    a human had already spent part of the day's real quota by hand.
+    """
+    __tablename__ = "sam_gov_search_calls"
+
+    id: int | None = Field(default=None, primary_key=True)
+    called_at: datetime = Field(default_factory=utcnow, index=True)

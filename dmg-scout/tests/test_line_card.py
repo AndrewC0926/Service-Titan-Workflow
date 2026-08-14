@@ -89,8 +89,11 @@ def test_seed_resolves_building_role_and_markets(db_session, cfg):
     assert basx.markets_served == ["data_center", "healthcare", "labs"]
     assert basx.markets_served_source == "researched"
     assert basx.markets_served_basis
-    # Not every line has a market signal -- most should be an empty list, not guessed.
-    generic = db_session.exec(select(ProductLine).where(ProductLine.name == "Yaskawa")).one()
+    # Not every line has a market signal -- most should be an empty list, not
+    # guessed. (Yaskawa used to be this example; it was researched into
+    # config.yaml's markets key on 2026-08-13 and is no longer a good example
+    # of an unmapped line.)
+    generic = db_session.exec(select(ProductLine).where(ProductLine.name == "Ebtron")).one()
     assert generic.markets_served == []
     assert generic.markets_served_source is None
 
@@ -99,13 +102,15 @@ def test_seed_distinguishes_researched_from_legacy_guess_markets(db_session, cfg
     """A guess and a sourced fact must never be indistinguishable in the DB --
     see app/models.py's ProductLine.markets_served_source docstring."""
     seed(db_session, cfg)
-    # Marley has no `markets:` key in config.yaml, so it falls back to the
+    # Recold has no `markets:` key in config.yaml, so it falls back to the
     # unsourced MARKETS_BY_LINE table -- must be flagged, not silently mixed
-    # in with researched results.
-    marley = db_session.exec(select(ProductLine).where(ProductLine.name == "Marley")).one()
-    assert marley.markets_served == ["data_center"]
-    assert marley.markets_served_source == "legacy_guess"
-    assert marley.markets_served_basis is None
+    # in with researched results. (Marley used to be this example; it was
+    # researched into config.yaml's markets key on 2026-08-13 as part of the
+    # ranked-line-card research pass and is now itself "researched".)
+    recold = db_session.exec(select(ProductLine).where(ProductLine.name == "Recold")).one()
+    assert recold.markets_served == ["data_center"]
+    assert recold.markets_served_source == "legacy_guess"
+    assert recold.markets_served_basis is None
     # VU Flow Environmental was researched and came back confirmed-empty --
     # MARKETS_BY_LINE has a non-empty entry for it, and a naive `x or
     # fallback` seed would wrongly resurrect that guess. It must not.
@@ -131,15 +136,22 @@ def test_all_70_lines_get_a_role(db_session, cfg):
 
 # ---- best-guess category flag ----------------------------------------------
 
-def test_exactly_six_lines_are_best_guess(db_session, cfg):
+def test_exactly_four_lines_are_best_guess(db_session, cfg):
     """2026-08-11 review resolved 6 of the original 12 (VTS, PEP Filters,
     Recold, HCi, CRC corrected; Thermal Corp, DB, Hecoclima confirmed
-    correct) and added Cambridge to the flagged set -- see
-    app.accounts.NEEDS_VERIFICATION for the remaining six names."""
+    correct) and added Cambridge to the flagged set. 2026-08-13's ranked
+    line-card research pass resolved 2 more of those six from data already
+    in the system rather than new research -- Engineered Comfort (Nailor's
+    own OSP-0772 filing already categorizes the product as 'Air
+    Conditioning Units / Fan Coil Units', and Islandaire is already
+    correctly bucketed under this same vrf_split category) and ChangeAir
+    (its own already-completed 5-field research unambiguously describes a
+    classroom ERV product, matching air_handling exactly) -- leaving four:
+    see app.accounts.NEEDS_VERIFICATION for the remaining names."""
     seed(db_session, cfg)
     lines = db_session.exec(select(ProductLine)).all()
     flagged = [line for line in lines if category_is_best_guess(line)]
-    assert len(flagged) == 6
+    assert len(flagged) == 4
 
 
 def test_best_guess_marker_is_in_description_not_a_separate_lie(db_session, cfg):
@@ -313,7 +325,7 @@ def test_lines_index_renders(client, db_session, cfg):
     resp = client.get("/lines", headers=AUTH)
     assert resp.status_code == 200
     assert "Line card" in resp.text
-    assert "6 of 70" in resp.text
+    assert "4 of 70" in resp.text
 
 
 def test_lines_index_role_filter(client, db_session, cfg):

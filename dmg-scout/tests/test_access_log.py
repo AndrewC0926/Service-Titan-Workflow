@@ -1,16 +1,18 @@
 """Access logging middleware: what gets logged, what doesn't, the one-time
-new-username notification, and /admin/access's admin-only gate.
+new-IP notification, and /admin/access's admin-only gate.
 
 username is read from the raw Authorization header, not from auth()'s return
 value -- see app/access_log.py's module docstring for why (auth() 401s
-before a non-admin username would ever reach a route; the raw header is the
-only way "a username that isn't andrew" is a detectable event at all)."""
+before a non-admin username would ever reach a route, and in any case the
+notification no longer keys on username at all -- see KNOWN_IPS and
+log_access there for why it's keyed on IP instead)."""
 import base64
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import select
 
+from app.access_log import KNOWN_IPS
 from app.db import get_session
 from app.models import AccessLog
 from app.web.main import app, auth
@@ -25,8 +27,19 @@ def client(db_session, monkeypatch):
     app.dependency_overrides.clear()
 
 
+def _client_from(db_session, monkeypatch, ip: str) -> TestClient:
+    """Same setup as the `client` fixture, but with a controllable source
+    IP -- TestClient's default ('testclient') isn't a real IP and isn't in
+    KNOWN_IPS, which is exactly what the plain `client` fixture is for
+    (anything not explicitly about IP behavior), but the new-IP
+    notification tests need to pick specific IPs on purpose."""
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "testpw")
+    monkeypatch.setenv("RESEND_API_KEY", "test-resend-key")
+    app.dependency_overrides[get_session] = lambda: db_session
+    return TestClient(app, client=(ip, 12345))
+
+
 AUTH = {"Authorization": "Basic " + base64.b64encode(b"andrew:testpw").decode()}
-BOB_AUTH = {"Authorization": "Basic " + base64.b64encode(b"bob:wrongpw").decode()}
 
 
 @pytest.fixture()
@@ -72,36 +85,58 @@ def test_authenticated_admin_hit_logs_username(client, db_session, no_email):
     assert rows[0].username == "andrew"
 
 
-def test_admin_username_never_triggers_notification(client, db_session, no_email):
-    client.get("/board", headers=AUTH)
-    client.get("/board", headers=AUTH)
+def test_known_ip_never_triggers_notification(db_session, monkeypatch, no_email):
+    """68.4.250.117 and 127.0.0.1 are excluded outright -- the admin's own
+    browser and local dev tunnel must never (re-)trigger this, no matter
+    how many first-time-looking hits they generate."""
+    known_ip = next(iter(KNOWN_IPS))
+    c = _client_from(db_session, monkeypatch, known_ip)
+    c.get("/board", headers=AUTH)
+    c.get("/board", headers=AUTH)
+    app.dependency_overrides.clear()
     assert no_email == []
 
 
-def test_first_login_email_fires_exactly_once_per_new_username(client, db_session, no_email):
-    """bob's password is wrong -- auth() 401s the page -- but the raw
-    username still gets logged and the notification still fires, since it's
-    a real signal (someone tried a different username) independent of
-    whether the credentials checked out."""
-    client.get("/board", headers=BOB_AUTH)
-    client.get("/board", headers=BOB_AUTH)
-    client.get("/watchlist", headers=BOB_AUTH)
+def test_unauthenticated_hits_from_a_new_ip_never_trigger_notification(db_session, monkeypatch, no_email):
+    """This is the exact shape of email-link-prescanner traffic (Office365
+    Safe Links, Proofpoint, etc.): a burst of new IPs, no Authorization
+    header at all. Confirmed directly in production access_log on
+    2026-08-13. None of it should ever notify."""
+    c = _client_from(db_session, monkeypatch, "203.0.113.9")
+    c.get("/board")
+    c.get("/watchlist")
+    app.dependency_overrides.clear()
+    assert no_email == []
+
+
+def test_first_authenticated_hit_from_a_new_ip_fires_notification_once(db_session, monkeypatch, no_email):
+    """A new IP that shows up unauthenticated first (the scanner-burst
+    shape) and THEN authenticates -- the real signal this feature exists to
+    catch -- notifies exactly once, on the first authenticated hit, not
+    once per subsequent request from that same IP."""
+    c = _client_from(db_session, monkeypatch, "203.0.113.9")
+    c.get("/board")               # unauthenticated -- no notification
+    c.get("/board", headers=AUTH)  # first authenticated hit from this IP
+    c.get("/watchlist", headers=AUTH)
+    app.dependency_overrides.clear()
 
     assert len(no_email) == 1  # exactly once, not once per request
     _args, kwargs = no_email[0]
     assert kwargs["json"]["to"] == ["acrane988@gmail.com"]
-    assert "bob" in kwargs["json"]["subject"]
+    assert "203.0.113.9" in kwargs["json"]["subject"]
 
-    rows = db_session.exec(select(AccessLog).where(AccessLog.username == "bob")).all()
-    assert len(rows) == 3  # every hit is still logged; only the EMAIL is once-per-username
+    rows = db_session.exec(select(AccessLog).where(AccessLog.ip == "203.0.113.9")).all()
+    assert len(rows) == 3  # every hit is still logged; only the EMAIL is once-per-IP
 
 
-def test_different_new_usernames_each_notify_once(client, db_session, no_email):
-    eve_auth = {"Authorization": "Basic " + base64.b64encode(b"eve:x").decode()}
-    client.get("/board", headers=BOB_AUTH)
-    client.get("/board", headers=eve_auth)
-    client.get("/board", headers=BOB_AUTH)
-    assert len(no_email) == 2  # one per distinct new username
+def test_different_new_ips_each_notify_once(db_session, monkeypatch, no_email):
+    c1 = _client_from(db_session, monkeypatch, "203.0.113.9")
+    c2 = _client_from(db_session, monkeypatch, "203.0.113.10")
+    c1.get("/board", headers=AUTH)
+    c2.get("/board", headers=AUTH)
+    c1.get("/board", headers=AUTH)
+    app.dependency_overrides.clear()
+    assert len(no_email) == 2  # one per distinct new IP
 
 
 def test_admin_access_rejects_non_admin_user(client, db_session, no_email):

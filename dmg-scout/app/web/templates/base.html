@@ -29,7 +29,7 @@
     </div>
     <div class="tb-cell">
       <div class="tb-lbl">Data as of</div>
-      <div class="tb-val">{{ tb.data_as_of.strftime('%Y-%m-%d %H:%M') if tb.data_as_of else '—' }}</div>
+      <div class="tb-val">{{ (tb.data_as_of.strftime('%Y-%m-%d %H:%M') + 'Z') if tb.data_as_of else '—' }}</div>
     </div>
     <div class="tb-cell tb-cell-detail"><div class="tb-lbl">Projects</div><div class="tb-val">{{ '{:,}'.format(tb.record_count) }}</div></div>
     <div class="tb-cell tb-cell-detail"><div class="tb-lbl">Signals</div><div class="tb-val">{{ '{:,}'.format(tb.signal_count) }}</div></div>

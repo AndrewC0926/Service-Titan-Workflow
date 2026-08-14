@@ -309,6 +309,35 @@ def check_freshness_cmd() -> None:
     raise typer.Exit(1)
 
 
+@app.command("sam-gov")
+def sam_gov_cmd(
+    posted_from: str = typer.Option(..., "--from", help="MM/dd/yyyy, SAM.gov's required range start"),
+    posted_to: str = typer.Option(..., "--to", help="MM/dd/yyyy, SAM.gov's required range end"),
+    max_notices: int = typer.Option(None, help="Cap notices processed this run (attachment/LLM cost control)"),
+    scheduled: bool = typer.Option(
+        False, "--scheduled", help="Unattended/automated invocation -- caps search calls to "
+                                   "sam_gov.scheduled_call_budget (smaller) instead of "
+                                   "sam_gov.daily_call_budget, reserving quota for manual use "
+                                   "the same day. A future cron entry should always pass this."),
+) -> None:
+    """Division 23 spec-mention competitive intelligence from SAM.gov --
+    NAVFAC Southwest + CA/AZ/NV mechanical solicitations. Writes
+    spec_mentions + sam_solicitation_checks, never projects/signals -- see
+    app.pipeline.sam_gov's module docstring. NOT part of `scout pipeline`:
+    SAM.gov's search endpoint is rate-limited to roughly 10 requests/day on
+    a personal API key, an entirely different operating constraint than the
+    other sources, so this is invoked on its own schedule -- and self-limits
+    per run via --scheduled/sam_gov's daily/scheduled call budgets (see that
+    module's guard) rather than trusting the caller to have counted."""
+    from app.pipeline.sam_gov import run_sam_gov
+    from app.spend import run_budget
+    cfg = load_config()
+    with run_budget("sam_gov"), session_scope() as session:
+        stats = run_sam_gov(session, cfg, posted_from=posted_from, posted_to=posted_to,
+                            max_notices=max_notices, is_scheduled=scheduled)
+    typer.echo(json.dumps(stats))
+
+
 @app.command("access-summary")
 def access_summary_cmd(days: int = typer.Option(7, help="Look-back window")) -> None:
     """Distinct dashboard usernames seen in the last N days, first/last seen,

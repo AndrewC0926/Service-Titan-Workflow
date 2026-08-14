@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import select
 
+from app.access_log import KNOWN_IPS
 from app.db import get_session
 from app.models import PipelineRun, StalenessAlert, utcnow
 from app.pipeline_health import HEARTBEAT_STALE_MINUTES, check_and_alert_staleness, reap_stale_runs
@@ -20,7 +21,14 @@ def client(db_session, monkeypatch):
     monkeypatch.setenv("DASHBOARD_PASSWORD", "testpw")
     monkeypatch.setenv("RESEND_API_KEY", "test-resend-key")
     app.dependency_overrides[get_session] = lambda: db_session
-    yield TestClient(app)
+    # A known IP -- TestClient's default ('testclient') isn't in KNOWN_IPS,
+    # so an authenticated hit here would ALSO trip app.access_log's new-IP
+    # notification (a real cross-feature interference bug found 2026-08-13:
+    # both features call the shared httpx.post, so the no_email fixture
+    # below -- which only patches app.pipeline_health.httpx.post, the same
+    # underlying httpx module object -- silently also captured the new-IP
+    # email and broke every assertion expecting exactly one staleness call).
+    yield TestClient(app, client=(next(iter(KNOWN_IPS)), 12345))
     app.dependency_overrides.clear()
 
 

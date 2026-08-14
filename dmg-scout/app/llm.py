@@ -179,6 +179,92 @@ EXTRACT_TOOL = {
     "input_schema": EXTRACTION_JSON_SCHEMA,
 }
 
+SAM_GOV_SPEC_SYSTEM = """You extract manufacturer mentions from UFGS Division 23 (Heating,
+Ventilating, and Air Conditioning) sections of a federal construction specification. You
+are given only the 23-series UFGS section text (e.g. "SECTION 23 64 26"), which may be one
+section from a standalone per-section file, or several consecutive 23-series sections from
+a combined spec book -- either way, treat every distinct "SECTION 23 XX XX" heading in the
+text as its own section.
+
+FAR 11.104 and 11.105 discourage brand-name specifications in federal procurement, so a
+LOT of what you see will specify by PERFORMANCE or salient characteristics (capacity,
+efficiency, dimensions, materials, testing standards) rather than naming a manufacturer at
+all. That is the NORMAL, EXPECTED case for federal work, not a failure to find something --
+record it as such via performance_spec_only, do not leave it looking like an empty miss.
+
+For each 23-series spec SECTION, record:
+  - spec_section: the section number as written (e.g. "23 64 26")
+  - spec_section_title: the section title as written
+  - basis_of_design_manufacturer: the SINGLE manufacturer named as "Basis of Design" (BOD),
+    "Basis-of-Design Product", or equivalent language for that section -- null if the
+    section lists only acceptable manufacturers with no single BOD singled out, or if it
+    specifies by performance only.
+  - or_equal_manufacturers: every OTHER manufacturer named as an acceptable substitute
+    ("or equal", "or approved equal", "acceptable manufacturers", "approved equals") for
+    that section -- do NOT include the basis_of_design_manufacturer again in this list.
+
+Also record specifying_firm: the architect-of-record or engineer-of-record firm name, if
+stated (usually on a title/cover sheet, professional stamp block, or "prepared by" line).
+Null if not stated in the text you were given.
+
+Also record performance_spec_only: true if you found real 23-series section content but
+NO section anywhere in it names any manufacturer at all -- every requirement is written as
+performance/salient-characteristic language (capacity, SEER/EER, sound rating, materials,
+referenced standards like ASHRAE/AMCA/UL) with no brand named. false if at least one
+section names a manufacturer (basis-of-design or or-equal). This is a real, common,
+EXPECTED outcome per FAR 11.104/11.105 -- do not treat it as "nothing found."
+
+Only extract manufacturers EXPLICITLY named in the spec text. Never infer a manufacturer
+from a product description, model number pattern, or general industry knowledge. If a
+section names no manufacturers at all, omit that section from the sections list rather
+than recording it empty (performance_spec_only is what carries that signal, not an empty
+sections entry). If nothing in the given text is actually 23-series UFGS content at all,
+return an empty sections list and performance_spec_only: false -- do not force a result."""
+
+SAM_GOV_SPEC_TOOL = {
+    "name": "record_division_23_mentions",
+    "description": "Record the specifying firm and manufacturer mentions found in UFGS Division 23 sections.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "specifying_firm": {"type": ["string", "null"]},
+            "performance_spec_only": {
+                "type": "boolean",
+                "description": "True if real 23-series content was found but it specifies by "
+                              "performance/salient characteristics only, per FAR 11.104/11.105, "
+                              "with no manufacturer named anywhere.",
+            },
+            "sections": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "spec_section": {"type": "string"},
+                        "spec_section_title": {"type": "string"},
+                        "basis_of_design_manufacturer": {"type": ["string", "null"]},
+                        "or_equal_manufacturers": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["spec_section", "spec_section_title", "or_equal_manufacturers"],
+                },
+            },
+        },
+        "required": ["sections", "performance_spec_only"],
+    },
+}
+
+
+def extract_division_23_mentions(division_23_text: str, *, title: str = "", url: str = "") -> dict:
+    """Returns {specifying_firm, performance_spec_only, sections: [...]}. See
+    SAM_GOV_SPEC_SYSTEM/TOOL. Caller (app.pipeline.sam_gov) is responsible for
+    having already located and trimmed the 23-series UFGS portion of the
+    document -- this function does not search a full spec book."""
+    cfg = load_config()
+    model = cfg.get("llm.extract_model")
+    content = f"URL: {url}\nTitle: {title}\n\n23-series UFGS text:\n{division_23_text}"
+    return _tool_call(model, SAM_GOV_SPEC_SYSTEM, SAM_GOV_SPEC_TOOL, content,
+                      max_tokens=4096, stage="sam_gov_extract")
+
+
 ADJUDICATE_SYSTEM = """You decide whether two records describe the SAME physical data center
 project. Different SPE/LLC names for one campus are the same project. Different phases on
 one campus are the same project unless clearly separate buildings years apart. Same

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.db import get_session
 from app.manual import add_manual_signal
-from app.models import Signal, SourceRun
+from app.models import RawDocument, Signal, SourceRun
 from app.pipeline.resolve import run_resolve
 from app.pipeline.size_score import run_size_score
 from app.web.main import app
@@ -98,6 +98,25 @@ def test_board_renders(client, db_session, cfg):
     # rendered string is the point — the window has to be legible on the row, and
     # colour alone never carries it.
     assert "IN-BOD" in r.text  # design stage -> IN_BOD window
+
+
+def test_titleblock_data_as_of_and_printed_use_the_same_timezone_convention(client, db_session, cfg):
+    """Both are UTC (tb.data_as_of = max(RawDocument.fetched_at); Printed =
+    app.models.utcnow, the Jinja `now` global) -- they must render with the
+    same convention. Regression for a real bug: only "Printed" carried a
+    trailing Z, so the two sat side by side looking like different
+    timezones when they were always the same one."""
+    db_session.add(RawDocument(source="rss", source_uid="x1", url="https://x", title="t",
+                               content_hash="h1", raw_text="body"))
+    db_session.commit()
+    r = client.get("/board", headers=AUTH)
+    assert r.status_code == 200
+
+    data_as_of = re.search(r'Data as of</div>\s*<div class="tb-val">([^<]+)</div>', r.text)
+    printed = re.search(r'Printed</div>\s*<div class="tb-val">([^<]+)</div>', r.text)
+    assert data_as_of and printed, "title block markup changed shape"
+    assert data_as_of.group(1).endswith("Z")
+    assert printed.group(1).endswith("Z")
 
 
 def test_board_shows_whether_there_is_anyone_to_call(client, db_session, cfg):

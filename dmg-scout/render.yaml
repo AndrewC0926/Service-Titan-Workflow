@@ -60,5 +60,7 @@ services:
         sync: false
       - key: HEALTHCHECK_URL   # healthchecks.io ping — dead man's switch
         sync: false
+      - key: SAM_GOV_API_KEY   # app.pipeline.sam_gov -- not part of `scout pipeline`,
+        sync: false           # triggered on its own via `scout sam-gov` (rate-limited, see that module)
       - key: LOG_FORMAT
         value: json

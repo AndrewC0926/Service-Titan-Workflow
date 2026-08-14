@@ -208,7 +208,7 @@ MARKETS_BY_LINE = {
 
 
 # Lines whose CATEGORY (not role) is still a first-pass guess from the
-# original seed (6 remain as of 2026-08-11; see NEEDS_VERIFICATION below),
+# original seed (4 remain as of 2026-08-13; see NEEDS_VERIFICATION below),
 # flagged "(best-guess categorization — confirm)" in their
 # config.yaml description rather than a second boolean column -- the flag and
 # the fact it's attached to live in the same place, so they can never drift
@@ -223,13 +223,23 @@ def category_is_best_guess(line: ProductLine) -> bool:
 
 # 2026-08-11 review resolved 6 of the original 12 best-guess lines (VTS, PEP
 # Filters, Recold, HCi, CRC corrected; Thermal Corp, DB, Hecoclima confirmed
-# correct) plus Ice-Cel via ROLE_OVERRIDE_BY_LINE above. These six are still
+# correct) plus Ice-Cel via ROLE_OVERRIDE_BY_LINE above. 2026-08-13's ranked
+# line-card research pass resolved 2 more of the remaining six from data
+# already in the system, not new research -- Engineered Comfort (Nailor's
+# own OSP-0772 filing already categorizes the product as "Air Conditioning
+# Units / Fan Coil Units", and Islandaire is already correctly bucketed
+# under this same vrf_split category) and ChangeAir (its own already-
+# completed 5-field research unambiguously describes a classroom ERV
+# product, matching air_handling exactly). The remaining four are still
 # genuinely unresolved -- not re-researched, not re-guessed, left exactly as
 # best-guess in config.yaml pending an actual answer from the manufacturer or
 # a rep who knows the line. Do not silently correct these from inference;
-# call the factory.
+# call the factory. (LFSystems and Effectiv were separately researched for
+# markets_served on 2026-08-13 -- see their config.yaml markets_basis -- but
+# that pass could not confirm either company's identity/category well
+# enough to clear this flag, so both remain here.)
 NEEDS_VERIFICATION = (
-    "Engineered Comfort", "LFSystems", "Effectiv", "ChangeAir", "Suburban", "Cambridge",
+    "LFSystems", "Effectiv", "Suburban", "Cambridge",
 )
 
 
