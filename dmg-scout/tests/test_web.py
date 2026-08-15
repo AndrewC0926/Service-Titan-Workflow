@@ -112,13 +112,36 @@ def test_contractors_list_renders(client, db_session, cfg):
 
 
 def test_contractors_list_county_filter(client, db_session, cfg):
-    db_session.add(Contractor(license_no="1", business_name="LA Co", county="Los Angeles"))
-    db_session.add(Contractor(license_no="2", business_name="OC Co", county="Orange"))
+    # classifications=C20 on both: /contractors now defaults to mechanical-only
+    # (see test_contractors_list_defaults_to_mechanical_only below), and this
+    # test is about the county filter specifically, not that default.
+    db_session.add(Contractor(license_no="1", business_name="LA Co", county="Los Angeles", classifications="C20"))
+    db_session.add(Contractor(license_no="2", business_name="OC Co", county="Orange", classifications="C20"))
     db_session.commit()
     r = client.get("/contractors?county=Orange", headers=AUTH)
     assert r.status_code == 200
     assert "OC Co" in r.text
     assert "LA Co" not in r.text
+
+
+def test_contractors_list_defaults_to_mechanical_only(client, db_session, cfg):
+    """The bug this guards against: unfiltered, 43 of the top 50 by any
+    ranking were plain "B" (general building) licenses -- not a call list
+    for a mechanical rep. classification must default to C-20/C-38 without
+    the caller asking for it, with "all" as the explicit widen-out."""
+    db_session.add(Contractor(license_no="1", business_name="General Builder Co",
+                              classifications="B", primary_status="CLEAR"))
+    db_session.add(Contractor(license_no="2", business_name="AC Mechanical Co",
+                              classifications="C20", primary_status="CLEAR"))
+    db_session.commit()
+
+    default = client.get("/contractors", headers=AUTH)
+    assert "AC Mechanical Co" in default.text
+    assert "General Builder Co" not in default.text
+
+    widened = client.get("/contractors?classification=all", headers=AUTH)
+    assert "AC Mechanical Co" in widened.text
+    assert "General Builder Co" in widened.text
 
 
 def test_contractors_list_requires_auth(client, db_session, cfg):

@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlmodel import Session, func, select
+from sqlmodel import Session, func, or_, select
 
 from app.accounts import (
     ACCOUNT_TYPES,
@@ -442,30 +442,45 @@ def retrofit_building_detail(building_id: int, request: Request,
 
 
 @app.get("/contractors", response_class=HTMLResponse)
-def contractors_list(request: Request, county: str = None, classification: str = None,
+def contractors_list(request: Request, county: str = None, classification: str = "mechanical",
                      limit: int = 200, session: Session = Depends(get_session), _: str = Depends(auth)):
-    """Ranked by nearby_replacement_candidates -- precomputed by
-    `scout match-contractors` (see app.contractors.match_contractors), not
+    """Ranked by nearby_urgency_score -- precomputed by `scout
+    match-contractors` (see app.contractors.match_contractors), not
     computed live: a per-request N-contractors x M-buildings join does not
-    scale at this row count. Contractors never geocoded, or never matched,
-    sort last (nulls_last), shown with an explicit note rather than
-    silently mixed in as if they scored zero."""
-    from app.contractors import default_radius_miles
+    scale at this row count. Raw proximity count alone doesn't discriminate
+    (measured 2026-08-15: top 10 by count spanned 1,430-1,456, under 2%, in
+    a single dense pocket of southeast LA County) so the sort is aggregate
+    service-life urgency, with aggregate estimated tonnage as a tie-breaker
+    -- see Contractor's nearby_* field docstrings. Contractors never
+    geocoded, or never matched, sort last (nulls_last), shown with an
+    explicit note rather than silently mixed in as if they scored zero.
+
+    classification defaults to "mechanical" (C-20/C-38 only) -- unfiltered,
+    43 of the top 50 by any ranking were plain "B" (general building)
+    licenses, not a call list for a mechanical rep. "all" widens to every
+    classification CSLB scope covers; anything else (e.g. "B", "C10")
+    substring-filters same as before, for a link naming one specific
+    classification."""
+    from app.contractors import MECHANICAL_CLASSIFICATIONS, ranking_radius_miles
     q = select(Contractor)
     if county:
         q = q.where(Contractor.county == county)
-    if classification:
+    if classification == "mechanical":
+        q = q.where(or_(*(Contractor.classifications.contains(c) for c in MECHANICAL_CLASSIFICATIONS)))
+    elif classification and classification != "all":
         q = q.where(Contractor.classifications.contains(classification))
     total = session.exec(select(func.count()).select_from(q.subquery())).one()
     contractors = session.exec(
-        q.order_by(Contractor.nearby_replacement_candidates.desc().nulls_last()).limit(limit)).all()
+        q.order_by(Contractor.nearby_urgency_score.desc().nulls_last(),
+                   Contractor.nearby_estimated_tons.desc().nulls_last())
+        .limit(limit)).all()
     counties = sorted({c for c in session.exec(select(Contractor.county).distinct()).all() if c})
     never_matched = session.exec(
         select(func.count()).where(Contractor.nearby_computed_at.is_(None))).one()
     return templates.TemplateResponse(request, "contractors.html", {
         "contractors": contractors, "total": total, "counties": counties,
         "county": county, "classification": classification, "limit": limit,
-        "never_matched": never_matched, "default_radius": default_radius_miles(load_config()),
+        "never_matched": never_matched, "ranking_radius": ranking_radius_miles(load_config()),
         "tb": _title_block(session), "active": "contractors",
     })
 

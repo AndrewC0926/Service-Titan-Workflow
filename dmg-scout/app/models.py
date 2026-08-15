@@ -1447,7 +1447,25 @@ class Contractor(SQLModel, table=True):
     # A live per-request N-buildings x M-contractors join does not scale at
     # this row count (tens of thousands on each side), so this is a cached
     # count, refreshed by re-running the match, not computed on page load.
+    #
+    # nearby_replacement_candidates is raw proximity count -- kept for
+    # context, but NOT what /contractors sorts on: measured 2026-08-15, the
+    # top 10 by count alone spanned 1,430-1,456 (under 2%), because in a
+    # dense area count mostly just measures neighborhood density, not which
+    # contractor is actually worth calling first. nearby_urgency_score is
+    # the real ranking field -- sum of each nearby building's
+    # service_life_years_past (same 0-100yr-capped gradient
+    # app.pipeline.retrofit:rank_buildings ranks buildings on, not a second
+    # drifting definition of "urgent"), so a contractor near a smaller
+    # cluster of SEVERELY overdue buildings outranks one near a much larger
+    # cluster of merely-old ones. nearby_estimated_tons (sum of each
+    # nearby building's estimated tonnage band midpoint) is a tie-breaker
+    # only, same discipline rank_buildings itself uses for size: it must
+    # never be allowed to buy back urgency, only order contractors who tie
+    # on it.
     nearby_replacement_candidates: int | None = None
+    nearby_urgency_score: float | None = None
+    nearby_estimated_tons: float | None = None
     nearby_radius_miles: float | None = None
     nearby_computed_at: datetime | None = None
 
@@ -1482,3 +1500,29 @@ class RetrofitGeocode(SQLModel, table=True):
     longitude: float
     geocode_source: str = "us_census_bureau"
     geocoded_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class RetrofitGeocodeFailure(SQLModel, table=True):
+    """An apn the Census batch geocoder was given and could NOT match --
+    the durable negative-result counterpart to RetrofitGeocode above, and
+    for the same reason: app.pipeline.retrofit.geocode_retrofit_buildings
+    treats "no row in either table" as "never attempted" and "row in
+    RetrofitGeocode" as "already matched, don't re-request" -- before this
+    table existed, an unmatched apn had NO row anywhere, so it looked
+    identical to a never-attempted one and got resubmitted to Census on
+    every single future run, forever (confirmed real, 2026-08-15: the same
+    1,896 permanently-unmatchable apns retried five times in one session
+    with zero new matches, for five wasted batch calls against a free
+    federal service run on courtesy).
+
+    attempted_at is updated in place (not a new row) on a repeat attempt --
+    see geocode_retrofit_buildings' retry_unmatched parameter -- so this
+    table also answers "when did we last actually try this address", not
+    just "did we ever try it once".
+    """
+    __tablename__ = "retrofit_geocode_failures"
+
+    id: int | None = Field(default=None, primary_key=True)
+    apn: str = Field(index=True, unique=True)
+    source_address: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    attempted_at: datetime = Field(default_factory=utcnow, index=True)

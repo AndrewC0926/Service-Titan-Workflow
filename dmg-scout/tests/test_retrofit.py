@@ -9,7 +9,7 @@ import httpx
 import respx
 
 from app.http import PoliteClient
-from app.models import AssessorCandidate, EquipmentPermit, RetrofitBuilding, RetrofitGeocode
+from app.models import AssessorCandidate, EquipmentPermit, RetrofitBuilding, RetrofitGeocode, RetrofitGeocodeFailure
 from app.pipeline.regulatory import infer_refrigerant
 from app.pipeline.retrofit import (
     _split_situs_address, build_retrofit_buildings, estimate_tonnage, find_replacement_candidates, funnel_counts,
@@ -879,6 +879,96 @@ def test_geocode_retrofit_buildings_skips_already_geocoded(db_session):
     stats = geocode_retrofit_buildings(db_session)
     assert stats["candidates"] == 0
     assert stats["batches"] == 0
+
+
+@respx.mock
+def test_geocode_retrofit_buildings_unmatched_gets_a_durable_failure_row(db_session):
+    """The bug this guards against: an unmatched apn with no row anywhere
+    was indistinguishable from a never-attempted one, so it got resubmitted
+    to Census on every future run forever (confirmed real, 2026-08-15)."""
+    from sqlmodel import select
+
+    from app.geocode import BATCH_URL
+    db_session.add(RetrofitBuilding(apn="a1", population="replacement_candidate", address="1 Bad Address"))
+    db_session.commit()
+    respx.post(BATCH_URL).mock(return_value=httpx.Response(200, text=""))  # no match line for a1
+
+    stats = geocode_retrofit_buildings(db_session)
+
+    assert stats["unmatched"] == 1
+    failure = db_session.exec(select(RetrofitGeocodeFailure).where(RetrofitGeocodeFailure.apn == "a1")).one()
+    assert failure.source_address == "1 Bad Address"
+
+
+@respx.mock
+def test_geocode_retrofit_buildings_skips_previously_unmatched(db_session):
+    from app.geocode import BATCH_URL
+    db_session.add(RetrofitBuilding(apn="a1", population="replacement_candidate", address="1 Bad Address"))
+    db_session.add(RetrofitGeocodeFailure(apn="a1", source_address="1 Bad Address"))
+    db_session.commit()
+
+    def _boom(request):
+        raise AssertionError("must not re-request an apn that already has a RetrofitGeocodeFailure row")
+    respx.post(BATCH_URL).mock(side_effect=_boom)
+
+    stats = geocode_retrofit_buildings(db_session)
+    assert stats["candidates"] == 0
+    assert stats["batches"] == 0
+    assert stats["skipped_previously_unmatched"] == 1
+
+
+@respx.mock
+def test_geocode_retrofit_buildings_retry_unmatched_gives_a_fresh_attempt(db_session):
+    """retry_unmatched=True is the escape hatch -- e.g. after an upstream
+    address correction -- and a second failure updates the existing row's
+    attempted_at rather than erroring on the apn's unique constraint."""
+    from sqlmodel import select
+
+    from app.geocode import BATCH_URL
+    db_session.add(RetrofitBuilding(apn="a1", population="replacement_candidate", address="1 Fixed Address"))
+    old_attempt = RetrofitGeocodeFailure(apn="a1", source_address="1 Bad Address",
+                                         attempted_at=datetime(2026, 1, 1))
+    db_session.add(old_attempt)
+    db_session.commit()
+
+    respx.post(BATCH_URL).mock(return_value=httpx.Response(
+        200, text='"a1","1 Fixed Address","Match","Exact","1 Fixed Address","-118.0,34.0","1","L"\n'))
+
+    stats = geocode_retrofit_buildings(db_session, retry_unmatched=True)
+
+    assert stats["candidates"] == 1
+    assert stats["geocoded"] == 1
+    geo = db_session.exec(select(RetrofitGeocode).where(RetrofitGeocode.apn == "a1")).one()
+    assert geo.latitude == 34.0
+    # The stale failure row is left in place (not deleted) -- a later
+    # unmatched run would update it again, not insert a duplicate. What
+    # matters here is a matched apn no longer blocks on it: geocodes_by_apn
+    # (the rejoin at build time) only reads RetrofitGeocode.
+    still_there = db_session.exec(
+        select(RetrofitGeocodeFailure).where(RetrofitGeocodeFailure.apn == "a1")).one()
+    assert still_there.id == old_attempt.id
+
+
+@respx.mock
+def test_geocode_retrofit_buildings_retry_unmatched_updates_attempted_at_on_repeat_failure(db_session):
+    from sqlmodel import select
+
+    from app.geocode import BATCH_URL
+    db_session.add(RetrofitBuilding(apn="a1", population="replacement_candidate", address="1 Still Bad"))
+    old_attempt = RetrofitGeocodeFailure(apn="a1", source_address="1 Still Bad",
+                                         attempted_at=datetime(2026, 1, 1))
+    db_session.add(old_attempt)
+    db_session.commit()
+    old_id = old_attempt.id
+
+    respx.post(BATCH_URL).mock(return_value=httpx.Response(200, text=""))  # still no match
+
+    geocode_retrofit_buildings(db_session, retry_unmatched=True)
+
+    rows = db_session.exec(select(RetrofitGeocodeFailure).where(RetrofitGeocodeFailure.apn == "a1")).all()
+    assert len(rows) == 1  # updated in place, not duplicated
+    assert rows[0].id == old_id
+    assert rows[0].attempted_at > datetime(2026, 1, 1)
 
 
 @respx.mock

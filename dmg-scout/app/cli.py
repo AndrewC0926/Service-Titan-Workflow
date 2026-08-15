@@ -443,21 +443,31 @@ def geocode_retrofit_cmd(
         None, "--top-n", help="Geocode only the top-N highest rank_score rows, not the whole population "
                               "-- for a bounded/staged run against a large backlog"),
     population: str = typer.Option("replacement_candidate", help="RetrofitBuilding.population to scope to"),
+    retry_unmatched: bool = typer.Option(
+        False, "--retry-unmatched", help="Give apns that failed to match on a prior run a fresh attempt "
+                                         "(e.g. after an address-data correction upstream) instead of "
+                                         "skipping them -- see RetrofitGeocodeFailure's docstring for why "
+                                         "they're skipped by default"),
 ) -> None:
     """Geocode RetrofitBuilding rows that have never been geocoded, into
     retrofit_geocodes -- see app.pipeline.retrofit.geocode_retrofit_buildings
     and RetrofitGeocode's docstring for why this is a separate durable table
     rather than a column on RetrofitBuilding itself (which gets deleted and
-    rebuilt from scratch on every `scout retrofit-*` run)."""
+    rebuilt from scratch on every `scout retrofit-*` run). An apn that fails
+    to match gets a durable row too, in retrofit_geocode_failures, and is
+    skipped on future runs unless --retry-unmatched is given -- without
+    this, an unmatched apn looked identical to a never-attempted one and
+    got resubmitted to Census forever."""
     from app.pipeline.retrofit import geocode_retrofit_buildings
     with session_scope() as session:
-        stats = geocode_retrofit_buildings(session, batch_limit=batch_limit, top_n=top_n, population=population)
+        stats = geocode_retrofit_buildings(session, batch_limit=batch_limit, top_n=top_n, population=population,
+                                           retry_unmatched=retry_unmatched)
     typer.echo(json.dumps(stats))
 
 
 @app.command("match-contractors")
 def match_contractors_cmd(
-    radius_miles: float = typer.Option(None, help="Override contractors.default_radius_miles"),
+    radius_miles: float = typer.Option(None, help="Override contractors.ranking_radius_miles"),
 ) -> None:
     """Precompute each geocoded contractor's nearby replacement-candidate
     count -- see app.contractors.match_contractors for why this is cached

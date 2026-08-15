@@ -37,6 +37,38 @@ MECHANICAL_CLASSIFICATIONS = frozenset({"C20", "C38"})
 
 MILES_PER_DEGREE_LAT = 69.0
 
+# Same cap app.pipeline.retrofit:rank_buildings' magnitude_factor uses on
+# service_life_years_past, and for the same reason: a handful of rows carry
+# a 150-300yr figure (almost certainly an assessor YearBuilt data error,
+# e.g. "1806"), and without a cap those few would dominate a contractor's
+# whole aggregate urgency score by themselves. Kept as the same constant so
+# a future change to rank_buildings' cap doesn't silently drift out of sync
+# with this one.
+URGENCY_YEARS_PAST_CAP = 100.0
+
+
+def _urgency_weight(building: RetrofitBuilding) -> float:
+    """This building's contribution to a nearby contractor's aggregate
+    nearby_urgency_score -- service_life_years_past, clipped to
+    [0, URGENCY_YEARS_PAST_CAP]. The same gradient rank_buildings ranks
+    individual buildings on (see RetrofitBuilding.service_life_years_past's
+    docstring), not a second, driftable definition of "urgent" invented at
+    the contractor-aggregation layer. None (never computed) contributes 0,
+    same as a building at parity with "just barely due"."""
+    return max(0.0, min(URGENCY_YEARS_PAST_CAP, building.service_life_years_past or 0.0))
+
+
+def _tons_mid(building: RetrofitBuilding) -> float:
+    """This building's contribution to a nearby contractor's aggregate
+    nearby_estimated_tons -- the midpoint of estimated_tons_low/high, 0 if
+    either bound is missing. A tie-breaker only (see Contractor's docstring
+    for why this must never be allowed to outrank urgency), so an
+    under-estimate here costs nothing beyond ordering two equally-urgent
+    contractors against each other."""
+    if building.estimated_tons_low is None or building.estimated_tons_high is None:
+        return 0.0
+    return (building.estimated_tons_low + building.estimated_tons_high) / 2.0
+
 
 def haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r_miles = 3958.8
@@ -58,7 +90,33 @@ def _bounding_box(lat: float, lon: float, radius_miles: float) -> tuple[float, f
 
 
 def default_radius_miles(cfg: Config) -> float:
+    """15mi -- the per-building "nearest mechanical contractors" list (a
+    single building's detail page, app.web.main:retrofit_building_detail).
+    Deliberately wide: a real dispatch list should show what's realistically
+    reachable, and this is the radius contractors themselves see on their
+    own CSLB service area, not a ranking metric anyone needs to discriminate
+    within. NOT the radius match_contractors ranks on -- see
+    ranking_radius_miles below for why those two questions need different
+    answers."""
     return cfg.get("contractors.default_radius_miles", 15)
+
+
+def ranking_radius_miles(cfg: Config) -> float:
+    """3mi -- match_contractors' own default when no radius is given
+    explicitly, distinct from default_radius_miles above. Measured
+    2026-08-15: at 15mi (the per-building default), a contractor's nearby
+    building set overlaps almost entirely with every other contractor's in
+    the same dense metro pocket -- sum-based aggregation over nearly-
+    identical inputs converges to nearly the same total regardless of what
+    per-building weight is used, which is why the FIRST attempt at urgency-
+    weighted ranking still spread its top 10 by only 1.4%, same as raw
+    count. Tightening to 3mi (still ~135-380 buildings per top contractor,
+    not a thin/noisy sample) restored real spread: 18-29% across several
+    radii tested, vs 1.4-10.8% at 5mi+. This is the fix "consider a tighter
+    radius" in the ranking problem actually needed -- reweighting alone,
+    at the old radius, could not have discriminated no matter what it
+    weighted by."""
+    return cfg.get("contractors.ranking_radius_miles", 3)
 
 
 def nearby_replacement_candidates(session: Session, contractor: Contractor,
@@ -89,20 +147,28 @@ def nearby_replacement_candidates(session: Session, contractor: Contractor,
 
 # One UPDATE ... FROM per batch: a bounding-box prefilter (BETWEEN, the
 # cheap superset square -- see _bounding_box's docstring) joined against the
-# exact haversine formula, aggregated with COUNT() per contractor, entirely
-# inside Postgres. GREATEST/RADIANS/ASIN/LEAST/POWER/SQRT mirror
-# _bounding_box and haversine_miles above field-for-field -- if either of
-# those changes, this SQL must change with it.
+# exact haversine formula, aggregated per contractor, entirely inside
+# Postgres. GREATEST/RADIANS/ASIN/LEAST/POWER/SQRT mirror _bounding_box and
+# haversine_miles above field-for-field -- if either of those changes, this
+# SQL must change with it. urgency/tons_mid mirror _urgency_weight/_tons_mid
+# below field-for-field, for the same reason -- see those functions'
+# docstrings for what each term means and why urgency (not raw count) is
+# the ranking field.
 _MATCH_CONTRACTORS_BATCH_SQL = text("""
     WITH candidates AS (
-        SELECT id, latitude, longitude
+        SELECT id, latitude, longitude,
+               LEAST(GREATEST(COALESCE(service_life_years_past, 0), 0), 100) AS urgency,
+               COALESCE((estimated_tons_low + estimated_tons_high) / 2.0, 0) AS tons_mid
         FROM retrofit_buildings
         WHERE population = 'replacement_candidate'
           AND latitude IS NOT NULL
           AND longitude IS NOT NULL
     ),
-    counts AS (
-        SELECT c.id AS contractor_id, COUNT(b.id) AS cnt
+    agg AS (
+        SELECT c.id AS contractor_id,
+               COUNT(b.id) AS cnt,
+               COALESCE(SUM(b.urgency), 0) AS urgency_score,
+               COALESCE(SUM(b.tons_mid), 0) AS tons_score
         FROM contractors c
         LEFT JOIN candidates b
           ON b.latitude  BETWEEN c.latitude  - (:radius / 69.0)
@@ -120,11 +186,13 @@ _MATCH_CONTRACTORS_BATCH_SQL = text("""
         GROUP BY c.id
     )
     UPDATE contractors AS c
-    SET nearby_replacement_candidates = counts.cnt,
+    SET nearby_replacement_candidates = agg.cnt,
+        nearby_urgency_score = agg.urgency_score,
+        nearby_estimated_tons = agg.tons_score,
         nearby_radius_miles = :radius,
         nearby_computed_at = :now
-    FROM counts
-    WHERE c.id = counts.contractor_id
+    FROM agg
+    WHERE c.id = agg.contractor_id
 """)
 
 
@@ -164,6 +232,8 @@ def _match_contractors_python(session: Session, radius_miles: float, now) -> dic
             continue
         nearby = nearby_replacement_candidates(session, contractor, radius_miles)
         contractor.nearby_replacement_candidates = len(nearby)
+        contractor.nearby_urgency_score = sum(_urgency_weight(b) for b in nearby)
+        contractor.nearby_estimated_tons = sum(_tons_mid(b) for b in nearby)
         contractor.nearby_radius_miles = radius_miles
         contractor.nearby_computed_at = now
         session.add(contractor)
@@ -187,7 +257,7 @@ def match_contractors(session: Session, cfg: Config, *, radius_miles: float | No
     The SQL version does the bounding-box prefilter, haversine distance and
     per-contractor aggregation inside Postgres itself, batched only to keep
     any single transaction from holding locks/undo for the whole run."""
-    radius_miles = radius_miles if radius_miles is not None else default_radius_miles(cfg)
+    radius_miles = radius_miles if radius_miles is not None else ranking_radius_miles(cfg)
     now = utcnow()
 
     if session.get_bind().dialect.name != "postgresql":

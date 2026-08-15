@@ -21,7 +21,8 @@ from sqlmodel import delete, select
 from app.config import Config
 from app.http import PoliteClient
 from app.models import (
-    AssessorCandidate, EquipmentPermit, RetrofitBuilding, RetrofitGeocode, ServiceFrequencyReport, utcnow,
+    AssessorCandidate, EquipmentPermit, RetrofitBuilding, RetrofitGeocode, RetrofitGeocodeFailure,
+    ServiceFrequencyReport, utcnow,
 )
 from app.pipeline.assessor import FEATURE_SERVER, PORTAL_URL as ASSESSOR_PORTAL_URL
 from app.pipeline.permits import PORTAL_URL as PERMITS_PORTAL_URL
@@ -213,12 +214,28 @@ def _split_situs_address(address: str, fallback_state: str) -> tuple[str, str, s
 
 def geocode_retrofit_buildings(session, *, batch_limit: int | None = None,
                                top_n: int | None = None,
-                               population: str = "replacement_candidate") -> dict:
+                               population: str = "replacement_candidate",
+                               retry_unmatched: bool = False) -> dict:
     """Geocodes RetrofitBuilding rows whose apn has no RetrofitGeocode row
     yet, in batches of up to geocode.MAX_BATCH_SIZE, via app.geocode's
     Census Bureau batch geocoder. Idempotent and incremental: an apn once
     geocoded is never re-requested (see geocodes_by_apn's rejoin at build
     time) unless its RetrofitGeocode row is deleted directly.
+
+    An apn the geocoder could NOT match also gets a durable row -- in
+    RetrofitGeocodeFailure, not RetrofitGeocode (whose lat/lon are non-
+    nullable on purpose: a row there is a positive claim, "this apn has
+    coordinates") -- and is skipped on future runs the same way a matched
+    apn is, unless retry_unmatched=True. Before this existed, an unmatched
+    apn had no row anywhere, indistinguishable from "never attempted", so
+    it was resubmitted to Census on every single future run forever
+    (confirmed real, 2026-08-15: the same 1,896 permanently-unmatchable
+    apns retried five times in one session for zero new matches).
+    retry_unmatched=True gives those apns a fresh attempt -- e.g. after an
+    address-data correction upstream -- updating the existing failure row's
+    attempted_at in place if it fails again, rather than leaving a stale
+    timestamp that would otherwise misreport how recently it was last
+    tried.
 
     RetrofitBuilding.address is parcel/permit situs-address text, not
     pre-split into columns -- _split_situs_address parses it into
@@ -239,9 +256,12 @@ def geocode_retrofit_buildings(session, *, batch_limit: int | None = None,
     """
     from app.geocode import batch_geocode, chunk_dict
 
-    stats = {"candidates": 0, "geocoded": 0, "unmatched": 0, "batches": 0}
+    stats = {"candidates": 0, "geocoded": 0, "unmatched": 0, "batches": 0,
+             "skipped_previously_unmatched": 0}
 
     already = set(session.exec(select(RetrofitGeocode.apn)).all())
+    previously_failed = set(session.exec(select(RetrofitGeocodeFailure.apn)).all())
+    skip = already if retry_unmatched else already | previously_failed
     q = (select(RetrofitBuilding.apn, RetrofitBuilding.address, RetrofitBuilding.state,
                RetrofitBuilding.county)
         .where(RetrofitBuilding.address.is_not(None), RetrofitBuilding.population == population)
@@ -253,11 +273,20 @@ def geocode_retrofit_buildings(session, *, batch_limit: int | None = None,
     to_geocode: dict[str, tuple[str, str, str, str]] = {}
     original_address_by_apn: dict[str, str] = {}
     for apn, address, state, county in rows:
-        if apn in already or apn in to_geocode:
+        if apn in to_geocode:
+            continue
+        if apn in skip:
+            if not retry_unmatched and apn in previously_failed and apn not in already:
+                stats["skipped_previously_unmatched"] += 1
             continue
         to_geocode[apn] = _split_situs_address(address, state or "CA")
         original_address_by_apn[apn] = address
     stats["candidates"] = len(to_geocode)
+
+    existing_failures = {
+        f.apn: f for f in session.exec(
+            select(RetrofitGeocodeFailure).where(RetrofitGeocodeFailure.apn.in_(to_geocode))).all()
+    } if retry_unmatched else {}
 
     for i, chunk in enumerate(chunk_dict(to_geocode, 10_000)):
         if batch_limit is not None and i >= batch_limit:
@@ -268,6 +297,12 @@ def geocode_retrofit_buildings(session, *, batch_limit: int | None = None,
         for apn, coords in results.items():
             if coords is None:
                 stats["unmatched"] += 1
+                failure = existing_failures.get(apn)
+                if failure is not None:
+                    failure.attempted_at = utcnow()
+                    session.add(failure)
+                else:
+                    session.add(RetrofitGeocodeFailure(apn=apn, source_address=addr_by_apn[apn]))
                 continue
             lat, lon = coords
             session.add(RetrofitGeocode(apn=apn, source_address=addr_by_apn[apn],

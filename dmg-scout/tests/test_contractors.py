@@ -244,8 +244,81 @@ def test_match_contractors_precomputes_and_persists_count(db_session, cfg):
 
     db_session.refresh(c1)
     assert c1.nearby_replacement_candidates == 1
-    assert c1.nearby_radius_miles == 15
+    assert c1.nearby_radius_miles == 15  # explicit override above, not the ranking default
     assert c1.nearby_computed_at is not None
+
+
+def test_match_contractors_defaults_to_the_tighter_ranking_radius(db_session, cfg):
+    """Not default_radius_miles (15mi, the per-building nearest-contractors
+    default) -- see ranking_radius_miles's docstring for why aggregation
+    needs its own, much tighter default to discriminate at all."""
+    c = _contractor(license_no="1")
+    db_session.add(c)
+    db_session.commit()
+
+    contractors.match_contractors(db_session, cfg)
+
+    db_session.refresh(c)
+    assert c.nearby_radius_miles == contractors.ranking_radius_miles(cfg)
+    assert c.nearby_radius_miles != contractors.default_radius_miles(cfg)
+
+
+# ---- urgency-weighted ranking: raw proximity count doesn't discriminate ----
+# (measured 2026-08-15: top 10 by count alone spanned 1,430-1,456, under 2%,
+# because in a dense area count mostly just measures neighborhood density).
+# See Contractor.nearby_urgency_score's docstring in app/models.py.
+
+def test_urgency_weight_uses_service_life_years_past_capped_at_100(db_session):
+    fresh = RetrofitBuilding(apn="fresh", population="replacement_candidate", service_life_years_past=-5.0)
+    mid = RetrofitBuilding(apn="mid", population="replacement_candidate", service_life_years_past=40.0)
+    # An assessor YearBuilt data error (e.g. "1806") must not tower over a
+    # genuinely ~100yr-overdue building -- same cap rank_buildings itself uses.
+    outlier = RetrofitBuilding(apn="outlier", population="replacement_candidate", service_life_years_past=300.0)
+    never_computed = RetrofitBuilding(apn="none", population="replacement_candidate")
+
+    assert contractors._urgency_weight(fresh) == 0.0
+    assert contractors._urgency_weight(mid) == 40.0
+    assert contractors._urgency_weight(outlier) == 100.0
+    assert contractors._urgency_weight(never_computed) == 0.0
+
+
+def test_tons_mid_is_zero_when_either_bound_missing():
+    both = RetrofitBuilding(apn="a", estimated_tons_low=10.0, estimated_tons_high=20.0)
+    low_only = RetrofitBuilding(apn="b", estimated_tons_low=10.0, estimated_tons_high=None)
+    neither = RetrofitBuilding(apn="c")
+
+    assert contractors._tons_mid(both) == 15.0
+    assert contractors._tons_mid(low_only) == 0.0
+    assert contractors._tons_mid(neither) == 0.0
+
+
+def test_match_contractors_ranks_a_small_severely_overdue_cluster_above_a_large_merely_old_one(db_session, cfg):
+    """The exact scenario the ranking fix exists for: a contractor near 200
+    severely-overdue buildings must outrank one near many more buildings
+    that are merely past due -- raw count alone gets this backwards."""
+    urgent_rep = _contractor(license_no="urgent", lat=34.05, lon=-118.25)
+    volume_rep = _contractor(license_no="volume", lat=35.00, lon=-119.00)
+    db_session.add_all([urgent_rep, volume_rep])
+    # A small, severely overdue cluster near urgent_rep.
+    for i in range(5):
+        db_session.add(RetrofitBuilding(apn=f"severe{i}", population="replacement_candidate",
+                                        latitude=34.051, longitude=-118.251, service_life_years_past=90.0))
+    # A much larger cluster near volume_rep, only barely past due.
+    for i in range(50):
+        db_session.add(RetrofitBuilding(apn=f"barely{i}", population="replacement_candidate",
+                                        latitude=35.001, longitude=-119.001, service_life_years_past=1.0))
+    db_session.commit()
+
+    contractors.match_contractors(db_session, cfg, radius_miles=15)
+    db_session.refresh(urgent_rep)
+    db_session.refresh(volume_rep)
+
+    # Raw count alone would rank volume_rep far above urgent_rep (50 vs 5) --
+    # urgency must flip that.
+    assert volume_rep.nearby_replacement_candidates > urgent_rep.nearby_replacement_candidates
+    assert urgent_rep.nearby_urgency_score > volume_rep.nearby_urgency_score
+    assert urgent_rep.nearby_urgency_score == 5 * 90.0
+    assert volume_rep.nearby_urgency_score == 50 * 1.0
 
 
 def test_nearest_mechanical_contractors_filters_to_c20_c38_only(db_session):

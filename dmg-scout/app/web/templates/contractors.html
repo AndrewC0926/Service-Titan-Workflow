@@ -9,9 +9,12 @@
     (cslb.ca.gov/onlineservices/dataportal/) — C-20, C-38, and B classifications, LA, Orange,
     Riverside, San Bernardino, Ventura, San Diego, and Imperial counties. Every field is exactly
     what CSLB states; this page makes no claim about a contractor's size, quality, or relationship
-    to DMG. Ranked by count of geocoded replacement-candidate buildings within
-    {{ default_radius }} miles, precomputed by <span class="mono">scout match-contractors</span> —
-    not live, not exhaustive of every possible job in the area.</span>
+    to DMG. Ranked by aggregate service-life urgency of geocoded replacement-candidate buildings
+    within {{ ranking_radius }} miles (estimated tonnage as tie-breaker only — see the note above
+    the table; a tighter radius than a single building's own "nearest contractors" list uses, by
+    design — see app.contractors.ranking_radius_miles), precomputed by
+    <span class="mono">scout match-contractors</span> — not live, not exhaustive of every possible
+    job in the area.</span>
 </div>
 
 {% if never_matched %}
@@ -23,17 +26,25 @@
 {% endif %}
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
-  <a href="/contractors" class="chip" aria-pressed="{{ 'true' if not county else 'false' }}">All counties</a>
+  <a href="/contractors?classification=mechanical{% if county %}&county={{ county }}{% endif %}" class="chip" aria-pressed="{{ 'true' if classification == 'mechanical' else 'false' }}">Mechanical (C-20/C-38)</a>
+  <a href="/contractors?classification=all{% if county %}&county={{ county }}{% endif %}" class="chip" aria-pressed="{{ 'true' if classification == 'all' else 'false' }}">All classifications</a>
+</div>
+<div class="mb-2 flex flex-wrap items-center gap-1.5">
+  <a href="/contractors?classification={{ classification }}" class="chip" aria-pressed="{{ 'true' if not county else 'false' }}">All counties</a>
   {% for c in counties %}
-  <a href="/contractors?county={{ c }}" class="chip" aria-pressed="{{ 'true' if county == c else 'false' }}">{{ c }}</a>
+  <a href="/contractors?county={{ c }}&classification={{ classification }}" class="chip" aria-pressed="{{ 'true' if county == c else 'false' }}">{{ c }}</a>
   {% endfor %}
 </div>
 
 <p class="note">{{ '{:,}'.format(total) }} contractor{{ 's' if total != 1 }} in scope, showing top {{ contractors|length }}.</p>
 
+<p class="note">Urgency = sum of nearby buildings' service-life years-past-due (capped 100yr each, same
+  scale the retrofit board itself ranks buildings on). Tonnage is a tie-breaker only, never allowed
+  to outrank urgency. Count is raw proximity, shown for context — not what this page sorts on.</p>
 <table class="tbl">
 <thead><tr><th>Contractor</th><th>License</th><th>Classifications</th><th>Status</th><th>County</th>
-  <th class="num">Nearby replacement candidates</th><th>Workers' comp</th><th>Expires</th></tr></thead>
+  <th class="num">Urgency</th><th class="num">Est. tons</th><th class="num">Nearby count</th>
+  <th>Workers' comp</th><th>Expires</th></tr></thead>
 <tbody>
 {% for c in contractors %}
 <tr>
@@ -42,21 +53,22 @@
   <td>{{ c.classifications }}</td>
   <td>{% if c.primary_status == 'CLEAR' %}<span class="ok">{{ c.primary_status }}</span>{% else %}<span class="warn">{{ c.primary_status or 'unknown' }}</span>{% endif %}</td>
   <td>{{ c.county }}</td>
-  <td class="num nowrap">
-    {%- if c.nearby_computed_at is not none -%}
-      {{ c.nearby_replacement_candidates }}
-      <div class="note">within {{ c.nearby_radius_miles }}mi, as of {{ c.nearby_computed_at.strftime('%Y-%m-%d') }}</div>
-    {%- elif c.latitude is none -%}
-      <span class="note">not geocoded</span>
-    {%- else -%}
-      <span class="note">not yet matched</span>
-    {%- endif -%}
+  {% if c.nearby_computed_at is not none %}
+  <td class="num nowrap">{{ '%.0f'|format(c.nearby_urgency_score) }}</td>
+  <td class="num nowrap">{{ '%.0f'|format(c.nearby_estimated_tons) }}</td>
+  <td class="num nowrap">{{ c.nearby_replacement_candidates }}
+    <div class="note">within {{ c.nearby_radius_miles }}mi, as of {{ c.nearby_computed_at.strftime('%Y-%m-%d') }}</div>
   </td>
+  {% elif c.latitude is none %}
+  <td colspan="3"><span class="note">not geocoded</span></td>
+  {% else %}
+  <td colspan="3"><span class="note">not yet matched</span></td>
+  {% endif %}
   <td class="note">{{ c.workers_comp_coverage_type or '—' }}</td>
   <td class="num nowrap">{{ c.expiration_date.strftime('%Y-%m-%d') if c.expiration_date else '—' }}</td>
 </tr>
 {% else %}
-<tr><td colspan="8" class="note">No contractors imported yet. Run <span class="mono">scout cslb</span> →
+<tr><td colspan="10" class="note">No contractors imported yet. Run <span class="mono">scout cslb</span> →
   <span class="mono">scout geocode-retrofit</span> → <span class="mono">scout match-contractors</span>.</td></tr>
 {% endfor %}
 </tbody>
