@@ -11,15 +11,19 @@ from sqlmodel import select
 
 from app.access_log import KNOWN_IPS
 from app.db import get_session
-from app.models import PipelineRun, RetrofitBuilding, StalenessAlert, utcnow
+from app.models import PipelineRun, PipelineStageRun, RetrofitBuilding, StalenessAlert, utcnow
 from app.pipeline_health import (
+    CRON_MEMORY_LIMIT_BYTES,
     HEARTBEAT_STALE_MINUTES,
+    MEMORY_WARN_FRACTION,
     RETROFIT_STALE_THRESHOLD_HOURS,
     check_and_alert_staleness,
+    memory_pressure_status,
     reap_stale_runs,
     retrofit_population_hours_stale,
 )
 from app.web.main import app
+from tests.conftest import assert_no_orm_objects, call_via_closing_session
 
 
 @pytest.fixture()
@@ -317,3 +321,58 @@ def test_check_freshness_cli_exits_nonzero_when_stale(db_session, monkeypatch):
     assert result.exit_code == 1
     assert "STALE" in result.output
     assert len(calls) == 1
+
+
+# ---- peak memory survives its own session closing --------------------------
+#
+# memory_pressure_status() and check_and_alert_staleness() are exactly the
+# shape that broke in production before: functions that take an OPEN session,
+# query PipelineRun/PipelineStageRun, and hand a result back to a caller
+# (scout check-freshness, the root dashboard view) that reads it only AFTER
+# its own session_scope() has committed and closed. Every test above calls
+# these with db_session, whose session never closes during a test -- so none
+# of them could have caught memory_pressure_status returning {"run": run}
+# (a live ORM object) instead of {"run_id": run.id}, the actual bug this
+# session fixed. These use call_via_closing_session/assert_no_orm_objects
+# (see tests/conftest.py) specifically to close that gap.
+
+def test_memory_pressure_status_survives_a_closed_session(db_session):
+    run = PipelineRun(status="success", started_at=utcnow(), finished_at=utcnow(),
+                      peak_rss_bytes=int(CRON_MEMORY_LIMIT_BYTES * 0.5))
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+    db_session.add(PipelineStageRun(pipeline_run_id=run.id, stage="fetch",
+                                    peak_rss_bytes=int(CRON_MEMORY_LIMIT_BYTES * 0.4)))
+    db_session.commit()
+
+    mem = call_via_closing_session(memory_pressure_status)
+
+    assert_no_orm_objects(mem)
+    # Every field a real caller (app.cli:check_freshness_cmd, health.html) reads:
+    assert mem["run_id"] == run.id
+    assert mem["peak_bytes"] == int(CRON_MEMORY_LIMIT_BYTES * 0.5)  # max(run, stages)
+    assert mem["limit_bytes"] == CRON_MEMORY_LIMIT_BYTES
+    assert mem["warn"] is False
+
+
+def test_check_and_alert_staleness_survives_a_closed_session(db_session, no_email, monkeypatch):
+    """Same proof as above, but through check_and_alert_staleness -- the
+    actual function scout check-freshness and the root dashboard view call
+    -- with a run over the memory-warn threshold, so the "memory" reason
+    string (built from mem['run_id'], not a live PipelineRun) is exercised
+    too, not just the happy path."""
+    monkeypatch.setenv("RESEND_API_KEY", "test-key")
+    _run(db_session, hours_ago=1, status="success")
+    db_session.exec(select(PipelineRun)).one().peak_rss_bytes = int(
+        CRON_MEMORY_LIMIT_BYTES * (MEMORY_WARN_FRACTION + 0.05))
+    db_session.commit()
+    _fresh_retrofit(db_session)
+
+    result = call_via_closing_session(check_and_alert_staleness, _cfg())
+
+    assert_no_orm_objects(result)
+    assert result["memory"]["warn"] is True
+    assert result["stale"] is True  # memory pressure alone trips it
+    assert len(no_email) == 1
+    assert "memory pressure" in no_email[0][1]["json"]["subject"].lower()
