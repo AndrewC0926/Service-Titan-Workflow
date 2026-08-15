@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import logging
 import os
+import resource
+import sys
 from contextvars import ContextVar
 from datetime import timedelta
 
@@ -30,7 +32,7 @@ import httpx
 from sqlmodel import func, or_, select
 
 from app.config import Config, load_config
-from app.models import PipelineRun, RawDocument, RetrofitBuilding, StalenessAlert, utcnow
+from app.models import PipelineRun, PipelineStageRun, RawDocument, RetrofitBuilding, StalenessAlert, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +66,20 @@ RETROFIT_STALE_THRESHOLD_HOURS = {
 # flagging a genuinely slow-but-alive stage, tight enough to catch a dead
 # one long before the next scheduled run (24h) would.
 HEARTBEAT_STALE_MINUTES = 15
+
+# The cron container's own memory ceiling -- must match render.yaml's cron
+# `plan: standard` (2Gi); bump together if the plan ever changes. Render
+# exposes no instance metrics API for one-off Job/cron runs (confirmed
+# 2026-08-15, checked against /v1/metrics/memory both for the job id and the
+# service id, both empty, while the same call against the always-on web
+# service returns real series) -- ru_maxrss logged by the pipeline itself,
+# compared against this, is the only way to see memory pressure on a
+# scheduled run before it OOMs rather than after.
+CRON_MEMORY_LIMIT_BYTES = 2048 * 1024 * 1024  # 2Gi
+
+# Same reasoning as budget_status()'s llm.budget_warn_fraction (app/spend.py):
+# hear about pressure well before the kill, not exactly at it.
+MEMORY_WARN_FRACTION = 0.75
 
 # Same ContextVar pattern app.spend uses for "the currently active run" --
 # lets fetch.py's per-source loop (and any other stage) call heartbeat()
@@ -103,6 +119,32 @@ def heartbeat(session) -> None:
     session.commit()
 
 
+def peak_rss_bytes() -> int:
+    """Process's high-water-mark resident set size so far, in bytes.
+    ru_maxrss is KiB on Linux (every environment this actually runs in --
+    Render's docker images) but bytes on macOS; this is the whole reason
+    for a shared helper instead of calling getrusage() at each call site."""
+    v = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return v if sys.platform == "darwin" else v * 1024
+
+
+def record_stage_peak_memory(session, stage: str) -> None:
+    """Best-effort, same discipline as heartbeat() and the rest of this
+    module -- called from the same place a stage's success/failure is
+    already recorded (app.cli:pipeline's stage loop), so a future OOM has a
+    row for every stage that finished before it, not just the run's own
+    (never-written, in that case) peak_rss_bytes. No-op if no `scout
+    pipeline` run is active -- see _active_pipeline_run_id."""
+    run_id = _active_pipeline_run_id.get()
+    if run_id is None:
+        return
+    try:
+        session.add(PipelineStageRun(pipeline_run_id=run_id, stage=stage, peak_rss_bytes=peak_rss_bytes()))
+        session.commit()
+    except Exception:  # noqa: BLE001 — a memory-logging failure must never break the pipeline itself
+        log.exception("record_stage_peak_memory failed for run #%s stage %r", run_id, stage)
+
+
 def reap_stale_runs(session) -> int:
     """Reclassify any row stuck at status="running" as "failed" rather than
     trust it's still alive. Two ways a row gets here: (1) heartbeat_at was
@@ -139,10 +181,12 @@ def reap_stale_runs(session) -> int:
 
 
 def finish_pipeline_run(session, run_id: int, *, status: str, records_processed: int | None,
-                        error: str | None) -> None:
+                        error: str | None, peak_rss_bytes: int | None = None) -> None:
     """status must be "success" or "failed" -- never "running" again. A run
     this never gets called for (process crash) stays "running" forever,
-    which last_successful_run() correctly never counts as a success."""
+    which last_successful_run() correctly never counts as a success -- and
+    peak_rss_bytes stays None, same caveat; see PipelineStageRun for what
+    still has something to say about that run's memory."""
     run = session.get(PipelineRun, run_id)
     if run is None:
         log.warning("finish_pipeline_run: no pipeline_run row #%s to update", run_id)
@@ -151,6 +195,7 @@ def finish_pipeline_run(session, run_id: int, *, status: str, records_processed:
     run.status = status
     run.records_processed = records_processed
     run.error = error
+    run.peak_rss_bytes = peak_rss_bytes
     session.add(run)
     session.commit()
 
@@ -171,6 +216,54 @@ def last_successful_run(session) -> PipelineRun | None:
         select(PipelineRun).where(PipelineRun.status == "success")
         .order_by(PipelineRun.finished_at.desc()).limit(1)
     ).first()
+
+
+def latest_pipeline_run(session) -> PipelineRun | None:
+    """Most recent run regardless of status -- unlike last_successful_run(),
+    deliberately includes "running" (still going) and "failed" (including
+    OOM-reaped) rows, because memory_pressure_status() needs to see the run
+    that's actually next to fail, not the last one that didn't."""
+    return session.exec(select(PipelineRun).order_by(PipelineRun.id.desc()).limit(1)).first()
+
+
+def stage_peak_memory(session, run_id: int) -> dict[str, int]:
+    """{stage: peak_rss_bytes} for one run, in the order stages were
+    recorded -- see PipelineStageRun docstring for why the last entry is
+    the informative one when a run never finished."""
+    rows = session.exec(
+        select(PipelineStageRun).where(PipelineStageRun.pipeline_run_id == run_id)
+        .order_by(PipelineStageRun.id)
+    ).all()
+    return {r.stage: r.peak_rss_bytes for r in rows}
+
+
+def memory_pressure_status(session) -> dict:
+    """Peak memory observed on the most recent `scout pipeline` run, against
+    CRON_MEMORY_LIMIT_BYTES -- folded into check_and_alert_staleness so the
+    same alert path (and its rate limit) that already emails about staleness
+    also emails about memory pressure, before an OOM rather than after.
+    Takes the max of the run's own peak_rss_bytes (unset if the process was
+    killed before finish_pipeline_run) and every PipelineStageRun logged for
+    it, so a run that died mid-stage still reports whatever the last
+    completed stage saw.
+
+    Returns run_id, not the PipelineRun object itself: SQLAlchemy expires
+    loaded attributes on commit by default, and check_and_alert_staleness
+    (the only caller) may commit again (reap_stale_runs, the StalenessAlert
+    insert) after this returns -- a caller reading this dict once its own
+    session_scope() has exited (scout check-freshness does exactly that)
+    would hit DetachedInstanceError on any attribute of a live ORM object."""
+    run = latest_pipeline_run(session)
+    if run is None:
+        return {"run_id": None, "peak_bytes": None, "limit_bytes": CRON_MEMORY_LIMIT_BYTES,
+                "fraction": None, "warn": False}
+    candidates = [v for v in (run.peak_rss_bytes, *stage_peak_memory(session, run.id).values()) if v is not None]
+    peak = max(candidates) if candidates else None
+    fraction = peak / CRON_MEMORY_LIMIT_BYTES if peak is not None else None
+    return {
+        "run_id": run.id, "peak_bytes": peak, "limit_bytes": CRON_MEMORY_LIMIT_BYTES,
+        "fraction": fraction, "warn": fraction is not None and fraction >= MEMORY_WARN_FRACTION,
+    }
 
 
 def hours_stale(session) -> float | None:
@@ -207,17 +300,17 @@ def _last_alert_within(session, cooldown_hours: float) -> bool:
     ).first() is not None
 
 
-def send_staleness_alert(cfg: Config, reasons: list[str]) -> bool:
+def send_staleness_alert(cfg: Config, reasons: list[str], *, subject: str = "[DMG Scout] Pipeline data is stale") -> bool:
     """Best-effort -- see module docstring. Returns whether it actually sent.
-    `reasons` is one sentence per stale axis (the pipeline run itself, and/or
-    any RetrofitBuilding population past its own cadence) -- see
-    check_and_alert_staleness, the only caller, for how it's built. A single
-    email covering every stale axis, not one per axis, so a night where both
-    the pipeline AND a retrofit population go stale together still only
-    sends (and rate-limits) as one alert."""
+    `reasons` is one sentence per tripped axis (the pipeline run itself,
+    any RetrofitBuilding population past its own cadence, and/or memory
+    pressure on the last run) -- see check_and_alert_staleness, the only
+    caller, for how it's built and how `subject` is chosen. A single email
+    covering every tripped axis, not one per axis, so a night where several
+    go at once still only sends (and rate-limits) as one alert."""
     api_key = os.environ.get(cfg.get("digest.resend.api_key_env", "RESEND_API_KEY"), "")
     if not api_key:
-        log.warning("data is stale but RESEND_API_KEY is empty -- alert not sent")
+        log.warning("alert condition tripped but RESEND_API_KEY is empty -- alert not sent")
         return False
     detail = " ".join(reasons)
     try:
@@ -227,7 +320,7 @@ def send_staleness_alert(cfg: Config, reasons: list[str]) -> bool:
             json={
                 "from": cfg.get("digest.from_addr"),
                 "to": [STALENESS_NOTIFY_TO],
-                "subject": "[DMG Scout] Pipeline data is stale",
+                "subject": subject,
                 "text": f"{detail} Check `scout doctor` / `scout check-freshness` and the Render "
                         f"cron's own logs.",
             },
@@ -251,16 +344,22 @@ def check_and_alert_staleness(session, cfg: Config, *, threshold_hours: float = 
     first so a dead run (external kill, no heartbeat) can't masquerade as
     still in progress.
 
-    Checks two independent axes, either of which alone trips the alarm: (1)
+    Checks three independent axes, any of which alone trips the alarm: (1)
     has `scout pipeline` itself succeeded recently (stale_hours, unchanged
-    behavior/keys from before retrofit coverage existed), and (2) has EVERY
+    behavior/keys from before retrofit coverage existed), (2) has EVERY
     RetrofitBuilding population been rebuilt within its own cadence (see
     RETROFIT_STALE_THRESHOLD_HOURS) -- returned under the `retrofit` key,
-    keyed by population. Before this second axis existed, a pipeline that
-    ran fetch through notify successfully every night still reported fresh
-    even if build-retrofit-buildings/find-replacement-candidates had been
-    silently broken or removed from the schedule for weeks -- retrofit
-    staleness is now exactly as loud as a fetch source going dark."""
+    keyed by population, and (3) did the most recent `scout pipeline` run's
+    peak memory cross MEMORY_WARN_FRACTION of CRON_MEMORY_LIMIT_BYTES --
+    returned under the `memory` key, see memory_pressure_status(). Before
+    the second axis existed, a pipeline that ran fetch through notify
+    successfully every night still reported fresh even if
+    build-retrofit-buildings/find-replacement-candidates had been silently
+    broken or removed from the schedule for weeks; before the third, this
+    alert path had nothing to say about a run that succeeded but crept
+    towards the same OOM ceiling that has already killed one run for
+    real (2026-08-13) -- it only spoke up after the kill, via axis (1) on
+    the next check, never before."""
     reap_stale_runs(session)
     run = last_successful_run(session)
     stale_hours = hours_stale(session)
@@ -274,7 +373,8 @@ def check_and_alert_staleness(session, cfg: Config, *, threshold_hours: float = 
             "threshold_hours": pop_threshold,
             "stale": hrs is None or hrs > pop_threshold,
         }
-    is_stale = pipeline_is_stale or any(v["stale"] for v in retrofit.values())
+    mem = memory_pressure_status(session)
+    is_stale = pipeline_is_stale or any(v["stale"] for v in retrofit.values()) or mem["warn"]
 
     alert_sent = False
     if is_stale:
@@ -291,10 +391,18 @@ def check_and_alert_staleness(session, cfg: Config, *, threshold_hours: float = 
                 f"retrofit_buildings population {population!r} has never been built." if info["hours_stale"] is None
                 else f"retrofit_buildings population {population!r} last rebuilt {info['hours_stale']:.0f} hours "
                     f"ago (threshold {info['threshold_hours']:.0f}h).")
+        if mem["warn"]:
+            reasons.append(
+                f"pipeline run #{mem['run_id']} peak memory {mem['peak_bytes'] / 2**20:.0f} MB is "
+                f"{mem['fraction'] * 100:.0f}% of the {mem['limit_bytes'] / 2**20:.0f} MB instance limit "
+                f"(warn threshold {MEMORY_WARN_FRACTION * 100:.0f}%) -- next run may OOM.")
         log.warning("staleness alarm tripped: %s", " ".join(reasons))
+        subject = ("[DMG Scout] Pipeline memory pressure warning"
+                   if mem["warn"] and not pipeline_is_stale and not any(v["stale"] for v in retrofit.values())
+                   else "[DMG Scout] Pipeline data is stale")
         try:
             if not _last_alert_within(session, cooldown_hours):
-                if send_staleness_alert(cfg, reasons):
+                if send_staleness_alert(cfg, reasons, subject=subject):
                     session.add(StalenessAlert())
                     session.commit()
                     alert_sent = True
@@ -304,5 +412,5 @@ def check_and_alert_staleness(session, cfg: Config, *, threshold_hours: float = 
     return {
         "stale": is_stale, "hours_stale": stale_hours, "threshold_hours": threshold_hours,
         "last_success_at": run.finished_at if run else None, "alert_sent": alert_sent,
-        "retrofit": retrofit,
+        "retrofit": retrofit, "memory": mem,
     }

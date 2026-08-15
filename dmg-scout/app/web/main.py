@@ -191,7 +191,8 @@ def today(request: Request, session: Session = Depends(get_session), _: str = De
     try:
         staleness = check_and_alert_staleness(session, cfg)
     except Exception:  # noqa: BLE001
-        staleness = {"stale": False, "hours_stale": None, "last_success_at": None, "alert_sent": False}
+        staleness = {"stale": False, "hours_stale": None, "last_success_at": None, "alert_sent": False,
+                     "retrofit": {}, "memory": {"warn": False}}
     return templates.TemplateResponse(request, "today.html", {
         **brief, "staleness": staleness, "tb": _title_block(session), "active": "today",
     })
@@ -1387,6 +1388,17 @@ def assumptions_register(request: Request, session: Session = Depends(get_sessio
 
 @app.get("/health", response_class=HTMLResponse)
 def source_health(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.models import PipelineRun
+    from app.pipeline_health import memory_pressure_status, stage_peak_memory
+
+    # `scout pipeline` run history, peak memory alongside it: Render exposes
+    # no instance metrics for one-off cron jobs (confirmed 2026-08-15), so
+    # this table -- backed by PipelineRun.peak_rss_bytes and
+    # PipelineStageRun -- is the only place that history is visible at all.
+    pipeline_runs = session.exec(select(PipelineRun).order_by(PipelineRun.id.desc()).limit(20)).all()
+    mem = memory_pressure_status(session)
+    latest_stage_peaks = stage_peak_memory(session, mem["run_id"]) if mem["run_id"] else {}
+
     sources: dict[str, dict] = {}
     runs = session.exec(select(SourceRun).order_by(SourceRun.started_at.desc())).all()
     for run in runs:
@@ -1434,6 +1446,7 @@ def source_health(request: Request, session: Session = Depends(get_session), _: 
     return templates.TemplateResponse(request, "health.html", {
         "sources": sources, "recent_runs": runs[:50], "budget": budget_status(),
         "chart": chart, "tb": _title_block(session), "active": "health",
+        "pipeline_runs": pipeline_runs, "memory": mem, "latest_stage_peaks": latest_stage_peaks,
     })
 
 

@@ -20,6 +20,11 @@
       {%- endif -%}
       {% endfor %}
     {%- endif %}
+    {%- if staleness.memory and staleness.memory.warn %}
+      Pipeline run #{{ staleness.memory.run_id }} peak memory {{ '%.0f'|format(staleness.memory.peak_bytes / 2**20) }} MB
+      is {{ '%.0f'|format(staleness.memory.fraction * 100) }}% of the {{ '%.0f'|format(staleness.memory.limit_bytes / 2**20) }} MB
+      instance limit — next run may OOM.
+    {%- endif %}
     Run <code>scout check-freshness</code> or <code>scout doctor</code> to dig in.
   </span>
 </div>

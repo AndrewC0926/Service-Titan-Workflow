@@ -4,7 +4,7 @@ from __future__ import annotations
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, Index, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Column, Index, Text, UniqueConstraint
 from sqlalchemy.types import JSON
 from sqlmodel import Field, SQLModel
 
@@ -1217,7 +1217,31 @@ class PipelineRun(SQLModel, table=True):
     finished_at: datetime | None = None
     status: str = Field(default="running", index=True)  # running | success | failed
     records_processed: int | None = None
+    # resource.getrusage(RUSAGE_SELF).ru_maxrss at the end of `scout pipeline`,
+    # normalized to bytes -- see app.pipeline_health.peak_rss_bytes(). A run
+    # killed externally (OOM) never reaches this write, same caveat as
+    # status/finished_at above; PipelineStageRun below is what still has
+    # something to say about a run that never got here.
+    peak_rss_bytes: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
     error: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+
+
+class PipelineStageRun(SQLModel, table=True):
+    """One row per pipeline stage per run, recorded right where stage
+    success/failure already is (app.cli:pipeline's stage loop) -- see
+    app.pipeline_health.record_stage_peak_memory. peak_rss_bytes is the
+    process's cumulative high-water mark AS OF this stage finishing, not this
+    stage's own share of it (ru_maxrss never decreases), so consecutive rows
+    for a run bound where growth happened; the last row for a run that never
+    got a finished pipeline_run is the last stage that completed, which
+    points at the NEXT stage in run order as the one that OOMed."""
+    __tablename__ = "pipeline_stage_run"
+
+    id: int | None = Field(default=None, primary_key=True)
+    pipeline_run_id: int = Field(foreign_key="pipeline_run.id", index=True)
+    stage: str
+    peak_rss_bytes: int = Field(sa_column=Column(BigInteger, nullable=False))
+    recorded_at: datetime = Field(default_factory=utcnow)
 
 
 class StalenessAlert(SQLModel, table=True):

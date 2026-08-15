@@ -223,7 +223,9 @@ def pipeline() -> None:
     from app.pipeline_health import (
         finish_pipeline_run,
         heartbeat,
+        peak_rss_bytes,
         reap_stale_runs,
+        record_stage_peak_memory,
         records_processed_since,
         start_pipeline_run,
     )
@@ -301,13 +303,20 @@ def pipeline() -> None:
             # heartbeat could plausibly go stale while genuinely still alive.
             with session_scope() as session:
                 heartbeat(session)
+                # Recorded here, not just at the run's own end below: ru_maxrss
+                # never decreases, so this stage's row is "peak so far" -- and
+                # unlike the run's own peak_rss_bytes, it survives an external
+                # kill (OOM) mid-NEXT-stage, pointing at whichever stage has no
+                # row of its own as the one that actually died.
+                record_stage_peak_memory(session, step.__name__)
     # The switch measures "the cron ran to completion", not "every source was
     # healthy" — per-source failures already alert via digest + dashboard.
     ping_healthcheck(success=True)
     with session_scope() as session:
         processed = records_processed_since(session, run_started_at)
         finish_pipeline_run(session, run_id, status="failed" if failures else "success",
-                            records_processed=processed, error="; ".join(errors) or None)
+                            records_processed=processed, error="; ".join(errors) or None,
+                            peak_rss_bytes=peak_rss_bytes())
     if failures:
         raise typer.Exit(1)
 
@@ -358,6 +367,18 @@ def check_freshness_cmd() -> None:
         mark = "STALE" if result["hours_stale"] > result["threshold_hours"] else "OK   "
         typer.echo(f"[{mark}] pipeline: last successful run {result['hours_stale']:.1f}h ago "
                    f"({result['last_success_at']:%Y-%m-%d %H:%M} UTC)")
+
+    mem = result["memory"]
+    if mem["run_id"] is None:
+        typer.echo("[--   ] peak memory: no pipeline run recorded yet")
+    elif mem["peak_bytes"] is None:
+        typer.echo(f"[--   ] peak memory: no data for run #{mem['run_id']} (predates this instrumentation, "
+                   f"or it was killed before logging any stage)")
+    else:
+        mark = "WARN " if mem["warn"] else "OK   "
+        stream = typer.echo if not mem["warn"] else lambda s: typer.echo(s, err=True)
+        stream(f"[{mark}] peak memory: run #{mem['run_id']} used {mem['peak_bytes'] / 2**20:.0f} MB "
+               f"of {mem['limit_bytes'] / 2**20:.0f} MB ({mem['fraction'] * 100:.0f}%)")
 
     if not result["stale"]:
         return

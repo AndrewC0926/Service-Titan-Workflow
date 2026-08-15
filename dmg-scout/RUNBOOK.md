@@ -27,11 +27,33 @@ dashboard is the web service; HTTP basic auth, password in the
 
 Quick health read, in order:
 1. Phone got no healthchecks.io alert → the cron ran.
-2. Dashboard → Source Health → every adapter green within 36h, LLM spend sane.
+2. Dashboard → Source Health → every adapter green within 36h, LLM spend sane,
+   peak memory (Pipeline runs table) well under the 75% warn line.
 3. Board has PRE_BOD rows. A red "ZERO PRE-BOD" banner means the early-signal
    sources (CEQAnet NOP, GOED) have stopped producing — that's a fetch problem,
    not a scoring problem.
 4. `scout doctor` from a shell on the web service runs all of these checks at once.
+
+### Memory / OOM
+
+Render exposes no instance metrics API for one-off cron jobs (confirmed
+2026-08-15 against both the job id and the service id — the same call
+against the always-on web service returns real series, so this is a genuine
+platform gap, not a fetch bug), so `resource.getrusage(RUSAGE_SELF).ru_maxrss`
+logged by `scout pipeline` itself is the only visibility into memory on a
+scheduled run. It's written to `pipeline_run.peak_rss_bytes` at the end of a
+run and, per stage, to `pipeline_stage_run` as each stage finishes — so a run
+killed externally (OOM, confirmed real 2026-08-13: the cron container killed
+by Render's own OOM killer mid-fetch on the 512Mi starter plan, since bumped
+to `standard`/2Gi) still leaves a row for its last completed stage, pointing
+at the next stage in run order as the one that died.
+
+`scout check-freshness` and Dashboard → Source Health both report the most
+recent run's peak against `CRON_MEMORY_LIMIT_BYTES`
+(app/pipeline_health.py — bump this if the Render plan ever changes).
+Crossing `MEMORY_WARN_FRACTION` (75%) trips the same staleness alert email
+this section's #1 already depends on, rate-limited the same way — the point
+is hearing about pressure before the next OOM, not diagnosing it after.
 
 ## How to add things
 

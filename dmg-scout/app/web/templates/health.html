@@ -77,6 +77,49 @@
 })();
 </script>
 
+<h2>Pipeline runs — peak memory</h2>
+<div class="note" style="margin-bottom:10px">
+  Render exposes no instance metrics API for one-off cron jobs, so this is logged by the
+  pipeline itself (<code>resource.getrusage(RUSAGE_SELF).ru_maxrss</code> at the end of
+  <code>scout pipeline</code>, and once per stage as it finishes — see the per-stage table
+  below for the most recent run). A run killed externally (OOM) never reaches its own
+  final write; its last completed stage's row is what still says something.
+  {% if memory.peak_bytes is not none %}
+  Last observed: <strong class="{{ 'bad' if memory.warn else 'ok' }}">{{ '%.0f'|format(memory.peak_bytes / 2**20) }} MB
+  / {{ '%.0f'|format(memory.limit_bytes / 2**20) }} MB ({{ '%.0f'|format(memory.fraction * 100) }}%)</strong>
+  {% if memory.warn %}— over the 75% warning threshold{% endif %}.
+  {% endif %}
+</div>
+<table style="margin-bottom:14px">
+<thead><tr><th>#</th><th>Started</th><th>Status</th><th class="num">Duration</th><th class="num">Records</th><th class="num">Peak memory</th><th>Error</th></tr></thead>
+<tbody>
+{% for run in pipeline_runs %}
+<tr>
+  <td class="num">{{ run.id }}</td>
+  <td class="num">{{ run.started_at.strftime('%Y-%m-%d %H:%M') }}</td>
+  <td>{% if run.status == 'success' %}<span class="ok">success</span>{% elif run.status == 'failed' %}<span class="bad">failed</span>{% else %}<span class="dim">running…</span>{% endif %}</td>
+  <td class="num">{% if run.finished_at %}{{ '%.0f'|format((run.finished_at - run.started_at).total_seconds() / 60) }}m{% else %}—{% endif %}</td>
+  <td class="num">{{ run.records_processed if run.records_processed is not none else '—' }}</td>
+  <td class="num">{% if run.peak_rss_bytes %}<span class="{{ 'bad' if run.peak_rss_bytes / memory.limit_bytes >= 0.75 else '' }}">{{ '%.0f'|format(run.peak_rss_bytes / 2**20) }} MB</span>{% else %}—{% endif %}</td>
+  <td class="bad" style="max-width:360px;overflow-wrap:anywhere">{{ (run.error or '').split(';')[0] }}</td>
+</tr>
+{% else %}
+<tr><td colspan="7" class="dim">No pipeline runs recorded yet.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% if latest_stage_peaks %}
+<div class="note" style="margin-bottom:6px">Peak memory by stage, most recent run (#{{ memory.run_id }}) — each figure is the cumulative high-water mark as of that stage finishing, not the stage's own share.</div>
+<table style="max-width:520px;margin-bottom:14px">
+<thead><tr><th>Stage</th><th class="num">Peak memory</th></tr></thead>
+<tbody>
+{% for stage, peak in latest_stage_peaks.items() %}
+<tr><td class="mono">{{ stage }}</td><td class="num">{{ '%.0f'|format(peak / 2**20) }} MB</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endif %}
+
 <h2>LLM spend</h2>
 <table style="max-width:640px;margin-bottom:14px">
 <tr><th>Today</th><th>Daily budget</th><th>This month</th><th>Status</th></tr>
