@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.db import get_session
 from app.manual import add_manual_signal
-from app.models import RawDocument, Signal, SourceRun
+from app.models import Contractor, RawDocument, RetrofitBuilding, Signal, SourceRun
 from app.pipeline.resolve import run_resolve
 from app.pipeline.size_score import run_size_score
 from app.web.main import app
@@ -98,6 +98,72 @@ def test_board_renders(client, db_session, cfg):
     # rendered string is the point — the window has to be legible on the row, and
     # colour alone never carries it.
     assert "IN-BOD" in r.text  # design stage -> IN_BOD window
+
+
+def test_contractors_list_renders(client, db_session, cfg):
+    db_session.add(Contractor(license_no="1", business_name="Test Mechanical", county="Los Angeles",
+                              classifications="C20", primary_status="CLEAR",
+                              nearby_replacement_candidates=3, nearby_radius_miles=15))
+    db_session.commit()
+    r = client.get("/contractors", headers=AUTH)
+    assert r.status_code == 200
+    assert "Test Mechanical" in r.text
+    assert "Los Angeles" in r.text
+
+
+def test_contractors_list_county_filter(client, db_session, cfg):
+    db_session.add(Contractor(license_no="1", business_name="LA Co", county="Los Angeles"))
+    db_session.add(Contractor(license_no="2", business_name="OC Co", county="Orange"))
+    db_session.commit()
+    r = client.get("/contractors?county=Orange", headers=AUTH)
+    assert r.status_code == 200
+    assert "OC Co" in r.text
+    assert "LA Co" not in r.text
+
+
+def test_contractors_list_requires_auth(client, db_session, cfg):
+    assert client.get("/contractors").status_code == 401
+
+
+def test_retrofit_building_detail_renders(client, db_session, cfg):
+    b = RetrofitBuilding(apn="123-456-789", population="replacement_candidate",
+                         address="1 Test Way", county="Los Angeles", state="CA",
+                         latitude=34.05, longitude=-118.25, rank_score=5.0)
+    db_session.add(b)
+    db_session.add(Contractor(license_no="1", business_name="Nearby HVAC", classifications="C20",
+                              primary_status="CLEAR", latitude=34.06, longitude=-118.26))
+    db_session.commit()
+    db_session.refresh(b)
+
+    r = client.get(f"/retrofit/building/{b.id}", headers=AUTH)
+    assert r.status_code == 200
+    assert "1 Test Way" in r.text
+    assert "Nearby HVAC" in r.text
+
+
+def test_retrofit_building_detail_404_for_unknown_id(client, db_session, cfg):
+    assert client.get("/retrofit/building/999999", headers=AUTH).status_code == 404
+
+
+def test_retrofit_building_detail_handles_ungeocoded_building(client, db_session, cfg):
+    b = RetrofitBuilding(apn="no-geo", population="replacement_candidate", address="Unknown Rd")
+    db_session.add(b)
+    db_session.commit()
+    db_session.refresh(b)
+    r = client.get(f"/retrofit/building/{b.id}", headers=AUTH)
+    assert r.status_code == 200
+    assert "not yet geocoded" in r.text
+
+
+def test_retrofit_board_links_to_building_detail(client, db_session, cfg):
+    b = RetrofitBuilding(apn="123", population="replacement_candidate", address="1 Test Way",
+                         county="Los Angeles", state="CA", rank_score=5.0)
+    db_session.add(b)
+    db_session.commit()
+    db_session.refresh(b)
+    r = client.get("/retrofit?population=replacement_candidate", headers=AUTH)
+    assert r.status_code == 200
+    assert f"/retrofit/building/{b.id}" in r.text
 
 
 def test_titleblock_data_as_of_and_printed_use_the_same_timezone_convention(client, db_session, cfg):

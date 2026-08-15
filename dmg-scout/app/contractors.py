@@ -1,0 +1,229 @@
+"""CSLB contractor <-> retrofit-candidate geographic join. See
+app/models.py's Contractor/RetrofitGeocode docstrings for sourcing and
+app/pipeline/cslb.py's module docstring for the CSLB compliance check.
+
+Distance is real haversine miles between geocoded points (app.geocode),
+not county adjacency or ZIP matching -- both sides carry real lat/long
+because the volumes here (tens of thousands on each side) make a live
+per-request N x M join impractical, so every query below bounding-box
+prefilters in SQL (indexed lat/long range) before the exact haversine
+check in Python, and the contractor-ranking direction is precomputed by
+match_contractors rather than computed on page load -- see Contractor's
+nearby_replacement_candidates field docstring.
+
+"Licensed" here means exactly what CSLB's own PrimaryStatus/SecondaryStatus
+fields say, shown as-is -- this module does not decide who counts as
+licensed-enough to list; a suspended contractor still shows up if they are
+geographically nearest, with their real status attached, not silently
+filtered out by a judgment call this project was told not to make.
+"""
+from __future__ import annotations
+
+import math
+
+from sqlalchemy import func, text
+from sqlmodel import Session, select
+
+from app.config import Config
+from app.models import Contractor, RetrofitBuilding, utcnow
+
+# The two CSLB classifications that are actually mechanical (HVAC /
+# refrigeration) -- see app.pipeline.cslb.CLASSIFICATIONS for the full
+# C-20/C-38/B storage scope. "Nearest licensed MECHANICAL contractors" on
+# a retrofit building page narrows to these two; the broader /contractors
+# ranked view is not narrowed, since a B (general building) contractor is
+# a real bidder on an equipment-replacement job too.
+MECHANICAL_CLASSIFICATIONS = frozenset({"C20", "C38"})
+
+MILES_PER_DEGREE_LAT = 69.0
+
+
+def haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r_miles = 3958.8
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlambda / 2) ** 2
+    return 2 * r_miles * math.asin(min(1.0, math.sqrt(a)))
+
+
+def _bounding_box(lat: float, lon: float, radius_miles: float) -> tuple[float, float, float, float]:
+    """(lat_min, lat_max, lon_min, lon_max) -- a cheap SQL prefilter, always
+    a superset of the true radius (a square containing the circle), never a
+    subset -- the exact haversine check afterward is what enforces the real
+    boundary, this just keeps the DB from scanning every geocoded row."""
+    lat_delta = radius_miles / MILES_PER_DEGREE_LAT
+    lon_delta = radius_miles / (MILES_PER_DEGREE_LAT * max(math.cos(math.radians(lat)), 0.01))
+    return lat - lat_delta, lat + lat_delta, lon - lon_delta, lon + lon_delta
+
+
+def default_radius_miles(cfg: Config) -> float:
+    return cfg.get("contractors.default_radius_miles", 15)
+
+
+def nearby_replacement_candidates(session: Session, contractor: Contractor,
+                                  radius_miles: float) -> list[RetrofitBuilding]:
+    """Replacement-candidate RetrofitBuilding rows within radius_miles of
+    this contractor, ranked by service-life urgency (rank_score, descending
+    -- see RetrofitBuilding.rank_score's own docstring for what that number
+    is). Empty if the contractor has never been geocoded -- never an
+    error, and never silently treated as zero real candidates found."""
+    if contractor.latitude is None or contractor.longitude is None:
+        return []
+    lat_min, lat_max, lon_min, lon_max = _bounding_box(contractor.latitude, contractor.longitude, radius_miles)
+    boxed = session.exec(
+        select(RetrofitBuilding).where(
+            RetrofitBuilding.population == "replacement_candidate",
+            RetrofitBuilding.latitude.is_not(None),
+            RetrofitBuilding.latitude.between(lat_min, lat_max),
+            RetrofitBuilding.longitude.between(lon_min, lon_max),
+        )
+    ).all()
+    in_radius = [
+        b for b in boxed
+        if haversine_miles(contractor.latitude, contractor.longitude, b.latitude, b.longitude) <= radius_miles
+    ]
+    in_radius.sort(key=lambda b: (b.rank_score is not None, b.rank_score or 0.0), reverse=True)
+    return in_radius
+
+
+# One UPDATE ... FROM per batch: a bounding-box prefilter (BETWEEN, the
+# cheap superset square -- see _bounding_box's docstring) joined against the
+# exact haversine formula, aggregated with COUNT() per contractor, entirely
+# inside Postgres. GREATEST/RADIANS/ASIN/LEAST/POWER/SQRT mirror
+# _bounding_box and haversine_miles above field-for-field -- if either of
+# those changes, this SQL must change with it.
+_MATCH_CONTRACTORS_BATCH_SQL = text("""
+    WITH candidates AS (
+        SELECT id, latitude, longitude
+        FROM retrofit_buildings
+        WHERE population = 'replacement_candidate'
+          AND latitude IS NOT NULL
+          AND longitude IS NOT NULL
+    ),
+    counts AS (
+        SELECT c.id AS contractor_id, COUNT(b.id) AS cnt
+        FROM contractors c
+        LEFT JOIN candidates b
+          ON b.latitude  BETWEEN c.latitude  - (:radius / 69.0)
+                              AND c.latitude  + (:radius / 69.0)
+         AND b.longitude BETWEEN c.longitude - (:radius / (69.0 * GREATEST(COS(RADIANS(c.latitude)), 0.01)))
+                              AND c.longitude + (:radius / (69.0 * GREATEST(COS(RADIANS(c.latitude)), 0.01)))
+         AND 2 * 3958.8 * ASIN(LEAST(1.0, SQRT(
+                POWER(SIN(RADIANS(b.latitude - c.latitude) / 2), 2)
+                + COS(RADIANS(c.latitude)) * COS(RADIANS(b.latitude))
+                  * POWER(SIN(RADIANS(b.longitude - c.longitude) / 2), 2)
+             ))) <= :radius
+        WHERE c.latitude IS NOT NULL
+          AND c.longitude IS NOT NULL
+          AND c.id BETWEEN :lo AND :hi
+        GROUP BY c.id
+    )
+    UPDATE contractors AS c
+    SET nearby_replacement_candidates = counts.cnt,
+        nearby_radius_miles = :radius,
+        nearby_computed_at = :now
+    FROM counts
+    WHERE c.id = counts.contractor_id
+""")
+
+
+def _match_contractors_sql(session: Session, radius_miles: float, now, *, batch_size: int) -> dict:
+    """Postgres-only fast path -- see _MATCH_CONTRACTORS_BATCH_SQL. Batched
+    by contractor id range (not per-contractor) so a run against the full
+    ~47k-contractor table is a handful of round trips, each its own
+    committed transaction, rather than one all-or-nothing transaction
+    holding locks for the entire run."""
+    skipped = session.exec(
+        select(func.count()).select_from(Contractor).where(Contractor.latitude.is_(None))
+    ).one()
+    geocoded_ids = session.exec(
+        select(Contractor.id).where(Contractor.latitude.is_not(None)).order_by(Contractor.id)
+    ).all()
+
+    matched = 0
+    for i in range(0, len(geocoded_ids), batch_size):
+        batch = geocoded_ids[i:i + batch_size]
+        result = session.execute(_MATCH_CONTRACTORS_BATCH_SQL,
+                                 {"radius": radius_miles, "lo": batch[0], "hi": batch[-1], "now": now})
+        matched += result.rowcount
+        session.commit()
+
+    return {"contractors_matched": matched, "contractors_skipped_ungeocoded": skipped}
+
+
+def _match_contractors_python(session: Session, radius_miles: float, now) -> dict:
+    """Row-by-row fallback for dialects the batch SQL above doesn't target
+    (SQLite, under test -- see conftest.py). Never runs against production,
+    which is Postgres-only; kept only so the behavior this module promises
+    stays covered by the test suite without a live Postgres instance."""
+    stats = {"contractors_matched": 0, "contractors_skipped_ungeocoded": 0}
+    for contractor in session.exec(select(Contractor)).all():
+        if contractor.latitude is None:
+            stats["contractors_skipped_ungeocoded"] += 1
+            continue
+        nearby = nearby_replacement_candidates(session, contractor, radius_miles)
+        contractor.nearby_replacement_candidates = len(nearby)
+        contractor.nearby_radius_miles = radius_miles
+        contractor.nearby_computed_at = now
+        session.add(contractor)
+        stats["contractors_matched"] += 1
+    session.commit()
+    return stats
+
+
+def match_contractors(session: Session, cfg: Config, *, radius_miles: float | None = None,
+                      batch_size: int = 5000) -> dict:
+    """Precomputes Contractor.nearby_replacement_candidates for every
+    geocoded contractor -- see that field's docstring for why this is
+    cached rather than computed per page view. Idempotent: re-running with
+    the same radius just refreshes the count; a changed radius recomputes
+    every contractor against the new value.
+
+    On Postgres (production) this is _MATCH_CONTRACTORS_BATCH_SQL run in
+    id-range batches, not a per-contractor Python loop: the earlier
+    implementation issued one ORM query per contractor -- ~42k round trips
+    to a remote Postgres instance, measured at ~2 hours for the full table.
+    The SQL version does the bounding-box prefilter, haversine distance and
+    per-contractor aggregation inside Postgres itself, batched only to keep
+    any single transaction from holding locks/undo for the whole run."""
+    radius_miles = radius_miles if radius_miles is not None else default_radius_miles(cfg)
+    now = utcnow()
+
+    if session.get_bind().dialect.name != "postgresql":
+        return _match_contractors_python(session, radius_miles, now)
+    return _match_contractors_sql(session, radius_miles, now, batch_size=batch_size)
+
+
+def nearest_mechanical_contractors(session: Session, building: RetrofitBuilding, *,
+                                   radius_miles: float, limit: int = 10) -> list[dict]:
+    """Nearest C-20/C-38 (mechanical) contractors to this building, within
+    radius_miles, nearest first. Returns [{contractor, distance_miles}, ...]
+    -- distance computed fresh here (not cached, unlike the contractor ->
+    count direction), since a single building page is a bounded, cheap
+    query, not an all-contractors sweep."""
+    if building.latitude is None or building.longitude is None:
+        return []
+    lat_min, lat_max, lon_min, lon_max = _bounding_box(building.latitude, building.longitude, radius_miles)
+    boxed = session.exec(
+        select(Contractor).where(
+            Contractor.latitude.is_not(None),
+            Contractor.latitude.between(lat_min, lat_max),
+            Contractor.longitude.between(lon_min, lon_max),
+        )
+    ).all()
+
+    def _is_mechanical(c: Contractor) -> bool:
+        raw = (c.classifications or "").upper()
+        tokens = {t.replace("-", "") for t in raw.replace(",", " ").split()}
+        return bool(tokens & MECHANICAL_CLASSIFICATIONS)
+
+    results = []
+    for c in boxed:
+        if not _is_mechanical(c):
+            continue
+        dist = haversine_miles(building.latitude, building.longitude, c.latitude, c.longitude)
+        if dist <= radius_miles:
+            results.append({"contractor": c, "distance_miles": round(dist, 1)})
+    results.sort(key=lambda r: r["distance_miles"])
+    return results[:limit]

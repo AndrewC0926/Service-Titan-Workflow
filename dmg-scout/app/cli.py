@@ -16,6 +16,22 @@ logging.getLogger(__name__)
 
 app = typer.Typer(help="DMG Scout: early-signal data center project intelligence.")
 
+# find-replacement-candidates only runs on this weekday inside `scout
+# pipeline` (see pipeline() below) -- it re-derives from LA County's ANNUAL
+# assessor parcel roll (roll_year, a once-a-year county publication --
+# hardcoded "2025" as of 2026-08-14, see app/pipeline/retrofit.py) via a
+# full-county ArcGIS scan (measured 2026-08-14 against production: ~55k
+# rows scanned, ~2m40s). The underlying data does
+# not meaningfully change day to day, so running it daily would buy no new
+# signal at real, repeated cost against a free public service. Weekly is
+# still often enough to catch a permit that newly excludes a candidate.
+# build-retrofit-buildings is the opposite case: cheap (measured ~4m50s,
+# a few-thousand-APN batch lookup, not a county-wide scan) and its output
+# changes daily just from equipment aging past service-life thresholds and
+# newly-collected geocodes/service-frequency reports rejoining onto it -- so
+# it runs every day, unconditionally, below.
+RETROFIT_WEEKLY_WEEKDAY = 6  # Sunday -- datetime.weekday(): Monday=0 .. Sunday=6
+
 
 @app.command()
 def initdb() -> None:
@@ -194,10 +210,15 @@ def notify() -> None:
 
 @app.command()
 def pipeline() -> None:
-    """Run the full pipeline: fetch → triage → extract → resolve → score → notify.
-    Pings the dead man's switch (HEALTHCHECK_URL) on completion, and records
-    a pipeline_run row for the in-app staleness alarm (`scout check-
-    freshness` / the root dashboard banner) — see app.pipeline_health."""
+    """Run the full pipeline: fetch → triage → extract → resolve → score →
+    notify → build-retrofit-buildings → find-replacement-candidates (the
+    last one Sundays only — see RETROFIT_WEEKLY_WEEKDAY above). Pings the
+    dead man's switch (HEALTHCHECK_URL) on completion, and records a
+    pipeline_run row for the in-app staleness alarm (`scout check-freshness`
+    / the root dashboard banner) — see app.pipeline_health, which also now
+    tracks retrofit_buildings freshness per population, not just this run's
+    own success/failure."""
+    from app.models import utcnow
     from app.ops import ping_healthcheck
     from app.pipeline_health import (
         finish_pipeline_run,
@@ -228,7 +249,23 @@ def pipeline() -> None:
         # grounding sits between extract and resolve on purpose: it is the last point
         # where a fabricated number can be caught before it becomes a project, a
         # tonnage estimate and a row someone quotes.
-        for step in (fetch, triage, extract, grounding, resolve, score, notify):
+        #
+        # The two retrofit steps sit last, after notify: they are a fully
+        # separate subsystem (EquipmentPermit/AssessorCandidate -> derived
+        # RetrofitBuilding rows, never joined against Project/Signal), so
+        # ordering relative to the project-signal steps above doesn't affect
+        # correctness -- but putting them last means a slow or failing
+        # retrofit step can never delay or block the digest email, the most
+        # time-sensitive thing this pipeline produces. Each is its own
+        # try/except in this same loop (see below), same as every other
+        # stage, so a retrofit failure is recorded and surfaced exactly like
+        # a fetch/triage/extract failure -- it cannot abort a later step,
+        # because there IS no later step for it to abort by the time it runs.
+        for step in (fetch, triage, extract, grounding, resolve, score, notify,
+                    build_retrofit_buildings_cmd, find_replacement_candidates_cmd):
+            if step is find_replacement_candidates_cmd and utcnow().weekday() != RETROFIT_WEEKLY_WEEKDAY:
+                typer.echo(f"--- {step.__name__} (skipped -- weekly, Sundays only) ---")
+                continue
             typer.echo(f"--- {step.__name__} ---")
             try:
                 if step is fetch:
@@ -240,6 +277,12 @@ def pipeline() -> None:
                     # what it could prove wrong, and anything still flagged is for a
                     # human to look at, not a reason to skip scoring.
                     step(strict=False)
+                elif step is find_replacement_candidates_cmd:
+                    # Real values, not this command's typer.Option(...) defaults --
+                    # calling a Typer command directly in Python leaves those
+                    # OptionInfo objects unresolved (same reason fetch/resolve/
+                    # grounding above pass explicit values instead of calling bare).
+                    step(year_built_before=2010, use_codes=None, min_sqft=None, top=50)
                 else:
                     step()
             except BudgetExceeded as exc:
@@ -288,23 +331,36 @@ def doctor() -> None:
 
 @app.command("check-freshness")
 def check_freshness_cmd() -> None:
-    """Is the pipeline actually still landing data? No successful pipeline_run
-    within 36h logs a warning and sends one Resend alert (rate-limited to
-    once per 24h) -- same check the root dashboard view runs on every
-    request, see app.pipeline_health.check_and_alert_staleness."""
+    """Is the pipeline actually still landing data, AND is retrofit_buildings
+    actually still being rebuilt (see app.pipeline_health module docstring
+    for why that second question needs its own check). No successful
+    pipeline_run within 36h, or any RetrofitBuilding population past its own
+    rebuild cadence, logs a warning and sends one combined Resend alert
+    (rate-limited to once per 24h) -- same check the root dashboard view
+    runs on every request, see app.pipeline_health.check_and_alert_staleness."""
     from app.pipeline_health import check_and_alert_staleness
     cfg = load_config()
     with session_scope() as session:
         result = check_and_alert_staleness(session, cfg)
-    if not result["stale"]:
-        typer.echo(f"OK — last successful run {result['hours_stale']:.1f}h ago "
-                   f"({result['last_success_at']:%Y-%m-%d %H:%M} UTC)")
-        return
+
+    for population, info in result["retrofit"].items():
+        if info["stale"]:
+            detail = ("never built" if info["hours_stale"] is None
+                      else f"last rebuilt {info['hours_stale']:.1f}h ago (threshold {info['threshold_hours']:.0f}h)")
+            typer.echo(f"[STALE] retrofit_buildings population {population!r}: {detail}", err=True)
+        else:
+            typer.echo(f"[OK]    retrofit_buildings population {population!r}: "
+                       f"rebuilt {info['hours_stale']:.1f}h ago")
+
     if result["last_success_at"] is None:
         typer.echo("[STALE] no successful pipeline run has ever been recorded", err=True)
-    else:
-        typer.echo(f"[STALE] {result['hours_stale']:.1f}h since last successful run "
-                   f"({result['last_success_at']:%Y-%m-%d %H:%M} UTC)", err=True)
+    elif result["hours_stale"] is not None:
+        mark = "STALE" if result["hours_stale"] > result["threshold_hours"] else "OK   "
+        typer.echo(f"[{mark}] pipeline: last successful run {result['hours_stale']:.1f}h ago "
+                   f"({result['last_success_at']:%Y-%m-%d %H:%M} UTC)")
+
+    if not result["stale"]:
+        return
     typer.echo(f"alert email sent this check: {result['alert_sent']}")
     raise typer.Exit(1)
 
@@ -335,6 +391,61 @@ def sam_gov_cmd(
     with run_budget("sam_gov"), session_scope() as session:
         stats = run_sam_gov(session, cfg, posted_from=posted_from, posted_to=posted_to,
                             max_notices=max_notices, is_scheduled=scheduled)
+    typer.echo(json.dumps(stats))
+
+
+@app.command("cslb")
+def cslb_cmd(
+    geocode_batch_limit: int = typer.Option(
+        None, help="Cap geocoding to this many batches of up to 10,000 addresses each "
+                   "(cost/time control for a first run against the full ~49k-contractor scope)"),
+) -> None:
+    """Import CSLB (California Contractors State License Board) contractor
+    licenses -- C-20/C-38/B classifications, LA/Orange/Riverside/San
+    Bernardino/Ventura/San Diego/Imperial counties. Downloads CSLB's own
+    free public "License Master" bulk file, upserts Contractor rows keyed
+    by license number, geocodes new/changed addresses. See
+    app.pipeline.cslb's module docstring for the compliance check this was
+    built against and app/models.py's Contractor docstring for what gets
+    stored."""
+    from app.pipeline.cslb import run_cslb_import
+    with session_scope() as session:
+        stats = run_cslb_import(session, geocode_batch_limit=geocode_batch_limit)
+    typer.echo(json.dumps(stats))
+
+
+@app.command("geocode-retrofit")
+def geocode_retrofit_cmd(
+    batch_limit: int = typer.Option(
+        None, help="Cap geocoding to this many batches of up to 10,000 addresses each"),
+    top_n: int = typer.Option(
+        None, "--top-n", help="Geocode only the top-N highest rank_score rows, not the whole population "
+                              "-- for a bounded/staged run against a large backlog"),
+    population: str = typer.Option("replacement_candidate", help="RetrofitBuilding.population to scope to"),
+) -> None:
+    """Geocode RetrofitBuilding rows that have never been geocoded, into
+    retrofit_geocodes -- see app.pipeline.retrofit.geocode_retrofit_buildings
+    and RetrofitGeocode's docstring for why this is a separate durable table
+    rather than a column on RetrofitBuilding itself (which gets deleted and
+    rebuilt from scratch on every `scout retrofit-*` run)."""
+    from app.pipeline.retrofit import geocode_retrofit_buildings
+    with session_scope() as session:
+        stats = geocode_retrofit_buildings(session, batch_limit=batch_limit, top_n=top_n, population=population)
+    typer.echo(json.dumps(stats))
+
+
+@app.command("match-contractors")
+def match_contractors_cmd(
+    radius_miles: float = typer.Option(None, help="Override contractors.default_radius_miles"),
+) -> None:
+    """Precompute each geocoded contractor's nearby replacement-candidate
+    count -- see app.contractors.match_contractors for why this is cached
+    rather than computed per page view, and /contractors, which sorts on
+    this cached value."""
+    from app.contractors import match_contractors
+    cfg = load_config()
+    with session_scope() as session:
+        stats = match_contractors(session, cfg, radius_miles=radius_miles)
     typer.echo(json.dumps(stats))
 
 

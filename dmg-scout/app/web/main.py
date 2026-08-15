@@ -38,6 +38,7 @@ from app.models import (
     AccountCoverage,
     Category,
     Contact,
+    Contractor,
     Firm,
     MatchCandidate,
     Outreach,
@@ -420,6 +421,51 @@ def retrofit_report(request: Request, county: str = None, min_status: str = "due
         "buildings": buildings, "county": county or "All counties",
         "min_status": min_status, "population": population, "generated_at": utcnow(),
         "tb": _title_block(session), "active": "retrofit",
+    })
+
+
+@app.get("/retrofit/building/{building_id}", response_class=HTMLResponse)
+def retrofit_building_detail(building_id: int, request: Request,
+                             session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.contractors import default_radius_miles, nearest_mechanical_contractors
+    building = session.get(RetrofitBuilding, building_id)
+    if building is None:
+        raise HTTPException(404)
+    cfg = load_config()
+    radius = default_radius_miles(cfg)
+    nearest = nearest_mechanical_contractors(session, building, radius_miles=radius)
+    return templates.TemplateResponse(request, "retrofit_building_detail.html", {
+        "building": building, "nearest_contractors": nearest, "radius_miles": radius,
+        "tb": _title_block(session), "active": "retrofit",
+    })
+
+
+@app.get("/contractors", response_class=HTMLResponse)
+def contractors_list(request: Request, county: str = None, classification: str = None,
+                     limit: int = 200, session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Ranked by nearby_replacement_candidates -- precomputed by
+    `scout match-contractors` (see app.contractors.match_contractors), not
+    computed live: a per-request N-contractors x M-buildings join does not
+    scale at this row count. Contractors never geocoded, or never matched,
+    sort last (nulls_last), shown with an explicit note rather than
+    silently mixed in as if they scored zero."""
+    from app.contractors import default_radius_miles
+    q = select(Contractor)
+    if county:
+        q = q.where(Contractor.county == county)
+    if classification:
+        q = q.where(Contractor.classifications.contains(classification))
+    total = session.exec(select(func.count()).select_from(q.subquery())).one()
+    contractors = session.exec(
+        q.order_by(Contractor.nearby_replacement_candidates.desc().nulls_last()).limit(limit)).all()
+    counties = sorted({c for c in session.exec(select(Contractor.county).distinct()).all() if c})
+    never_matched = session.exec(
+        select(func.count()).where(Contractor.nearby_computed_at.is_(None))).one()
+    return templates.TemplateResponse(request, "contractors.html", {
+        "contractors": contractors, "total": total, "counties": counties,
+        "county": county, "classification": classification, "limit": limit,
+        "never_matched": never_matched, "default_radius": default_radius_miles(load_config()),
+        "tb": _title_block(session), "active": "contractors",
     })
 
 

@@ -9,11 +9,11 @@ import httpx
 import respx
 
 from app.http import PoliteClient
-from app.models import AssessorCandidate, EquipmentPermit, RetrofitBuilding
+from app.models import AssessorCandidate, EquipmentPermit, RetrofitBuilding, RetrofitGeocode
 from app.pipeline.regulatory import infer_refrigerant
 from app.pipeline.retrofit import (
-    build_retrofit_buildings, estimate_tonnage, find_replacement_candidates, funnel_counts,
-    infer_equipment_type, normalize_address, rank_buildings,
+    _split_situs_address, build_retrofit_buildings, estimate_tonnage, find_replacement_candidates, funnel_counts,
+    geocode_retrofit_buildings, geocodes_by_apn, infer_equipment_type, normalize_address, rank_buildings,
 )
 from app.replacement import generic_service_life
 
@@ -786,3 +786,167 @@ def test_service_life_abstained_count_reported_in_stats(db_session, cfg):
     stats = find_replacement_candidates(db_session, cfg, fast_client())
     assert stats["service_life_abstained"] == 1
     assert stats["replacement_candidates"] == 2
+
+
+# ---- geocoding: durable cache surviving rebuild-and-replace -----------------
+
+def test_geocodes_by_apn_returns_matching_rows(db_session):
+    from sqlmodel import select
+    db_session.add(RetrofitGeocode(apn="a1", source_address="1 X St", latitude=34.0, longitude=-118.0))
+    db_session.add(RetrofitGeocode(apn="a2", source_address="2 Y St", latitude=35.0, longitude=-119.0))
+    db_session.commit()
+    result = geocodes_by_apn(db_session, ["a1", "a3"])
+    assert set(result) == {"a1"}
+    assert result["a1"].latitude == 34.0
+
+
+def test_geocodes_by_apn_empty_for_no_apns(db_session):
+    assert geocodes_by_apn(db_session, []) == {}
+
+
+def test_split_situs_address_parses_double_space_delimited_form():
+    street, city, state, zip_ = _split_situs_address(
+        "2400 E WARDLOW RD  LONG BEACH CA  90807", "CA")
+    assert street == "2400 E WARDLOW RD"
+    assert city == "LONG BEACH"
+    assert state == "CA"
+    assert zip_ == "90807"
+
+
+def test_split_situs_address_falls_back_when_pattern_does_not_match():
+    street, city, state, zip_ = _split_situs_address(
+        "20205 VENTURA BLVD  WOODLAND HILLS  91364", "CA")
+    assert street == "20205 VENTURA BLVD  WOODLAND HILLS  91364"
+    assert city == ""
+    assert state == "CA"
+    assert zip_ == ""
+
+
+@respx.mock
+def test_geocode_retrofit_buildings_sends_structured_address_columns(db_session):
+    """The bug this guards against: passing the whole one-line address as
+    the "street" CSV column with city/zip blank measured a 3.95% match
+    rate against real production addresses (79/2000) -- the batch geocoder
+    needs city/state/zip as separate columns, same as CSLB sends them."""
+    from app.geocode import BATCH_URL
+    db_session.add(RetrofitBuilding(apn="a1", population="replacement_candidate",
+                                    address="2400 E WARDLOW RD  LONG BEACH CA  90807", state="CA"))
+    db_session.commit()
+
+    seen = []
+
+    def _capture(request):
+        seen.append(request.content.decode())
+        return httpx.Response(
+            200, text='"a1","2400 E WARDLOW RD","Match","Exact","2400 E WARDLOW RD","-118.19,33.83","1","L"\n')
+    respx.post(BATCH_URL).mock(side_effect=_capture)
+
+    geocode_retrofit_buildings(db_session)
+    body = seen[0]
+    assert "2400 E WARDLOW RD" in body
+    assert "LONG BEACH" in body
+    assert "90807" in body
+
+
+@respx.mock
+def test_geocode_retrofit_buildings_writes_durable_rows(db_session):
+    from sqlmodel import select
+
+    from app.geocode import BATCH_URL
+    db_session.add(RetrofitBuilding(apn="a1", population="replacement_candidate",
+                                    address="1 Test Way", state="CA"))
+    db_session.commit()
+    respx.post(BATCH_URL).mock(return_value=httpx.Response(
+        200, text='"a1","1 Test Way, , CA, ","Match","Exact","1 Test Way","-118.25,34.05","1","L"\n'))
+    stats = geocode_retrofit_buildings(db_session)
+    assert stats["geocoded"] == 1
+    geo = db_session.exec(select(RetrofitGeocode).where(RetrofitGeocode.apn == "a1")).one()
+    assert geo.latitude == 34.05
+    assert geo.longitude == -118.25
+
+
+@respx.mock
+def test_geocode_retrofit_buildings_skips_already_geocoded(db_session):
+    from app.geocode import BATCH_URL
+    db_session.add(RetrofitBuilding(apn="a1", population="replacement_candidate", address="1 Test Way"))
+    db_session.add(RetrofitGeocode(apn="a1", source_address="1 Test Way", latitude=1.0, longitude=2.0))
+    db_session.commit()
+
+    def _boom(request):
+        raise AssertionError("must not re-geocode an apn that already has a RetrofitGeocode row")
+    respx.post(BATCH_URL).mock(side_effect=_boom)
+
+    stats = geocode_retrofit_buildings(db_session)
+    assert stats["candidates"] == 0
+    assert stats["batches"] == 0
+
+
+@respx.mock
+def test_geocode_retrofit_buildings_top_n_selects_highest_rank_score(db_session):
+    """A bounded/staged run (`--top-n`) must geocode the highest-urgency
+    rows first, via a real SQL ORDER BY + LIMIT -- not geocode everything
+    and discard the rest, which would spend real API calls outside the
+    slice actually requested."""
+    from app.geocode import BATCH_URL
+    db_session.add(RetrofitBuilding(apn="low", population="replacement_candidate",
+                                    address="1 Low St", rank_score=1.0))
+    db_session.add(RetrofitBuilding(apn="high", population="replacement_candidate",
+                                    address="2 High St", rank_score=9.0))
+    db_session.add(RetrofitBuilding(apn="mid", population="replacement_candidate",
+                                    address="3 Mid St", rank_score=5.0))
+    db_session.commit()
+
+    seen_addresses = []
+
+    def _capture(request):
+        seen_addresses.append(request.content.decode())
+        return httpx.Response(200, text='"high","2 High St","Match","Exact","2 High St","-118.0,34.0","1","L"\n')
+    respx.post(BATCH_URL).mock(side_effect=_capture)
+
+    stats = geocode_retrofit_buildings(db_session, top_n=1)
+    assert stats["candidates"] == 1
+    assert "High St" in seen_addresses[0]
+    assert "Low St" not in seen_addresses[0]
+    assert "Mid St" not in seen_addresses[0]
+
+
+@respx.mock
+def test_geocode_retrofit_buildings_scopes_to_given_population(db_session):
+    from app.geocode import BATCH_URL
+    db_session.add(RetrofitBuilding(apn="rc", population="replacement_candidate", address="1 RC St"))
+    db_session.add(RetrofitBuilding(apn="ra", population="recently_active", address="1 RA St"))
+    db_session.commit()
+
+    seen_addresses = []
+
+    def _capture(request):
+        seen_addresses.append(request.content.decode())
+        return httpx.Response(200, text='"rc","1 RC St","Match","Exact","1 RC St","-118.0,34.0","1","L"\n')
+    respx.post(BATCH_URL).mock(side_effect=_capture)
+
+    stats = geocode_retrofit_buildings(db_session, population="replacement_candidate")
+    assert stats["candidates"] == 1
+    assert "RC St" in seen_addresses[0]
+    assert "RA St" not in seen_addresses[0]
+
+
+@respx.mock
+def test_build_retrofit_buildings_rejoins_geocode_onto_new_rows(db_session, cfg):
+    """The whole point of RetrofitGeocode as a separate table: a rebuild
+    (DELETE + reinsert) must not wipe a geocode that already cost a real
+    Census API call."""
+    from sqlmodel import select
+    db_session.add(RetrofitGeocode(apn="8888888888", source_address="8 St", latitude=34.1, longitude=-118.1))
+    db_session.add(_permit("8888888888", datetime.utcnow(), "RTU replacement", "P1"))
+    db_session.commit()
+    _mock_assessor([{"AIN": "8888888888", "PropertyLocation": "8 St", "UseCode": "2100",
+                     "UseCodeDescChar1": "Commercial", "YearBuilt": "2000", "SQFTmain": 10000}])
+    build_retrofit_buildings(db_session, cfg, fast_client())
+
+    row = db_session.exec(
+        select(RetrofitBuilding).where(RetrofitBuilding.apn == "8888888888",
+                                       RetrofitBuilding.population == "recently_active")
+    ).first()
+    assert row is not None
+    assert row.latitude == 34.1
+    assert row.longitude == -118.1

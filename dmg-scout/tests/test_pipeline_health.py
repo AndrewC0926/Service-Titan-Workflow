@@ -11,8 +11,14 @@ from sqlmodel import select
 
 from app.access_log import KNOWN_IPS
 from app.db import get_session
-from app.models import PipelineRun, StalenessAlert, utcnow
-from app.pipeline_health import HEARTBEAT_STALE_MINUTES, check_and_alert_staleness, reap_stale_runs
+from app.models import PipelineRun, RetrofitBuilding, StalenessAlert, utcnow
+from app.pipeline_health import (
+    HEARTBEAT_STALE_MINUTES,
+    RETROFIT_STALE_THRESHOLD_HOURS,
+    check_and_alert_staleness,
+    reap_stale_runs,
+    retrofit_population_hours_stale,
+)
 from app.web.main import app
 
 
@@ -56,8 +62,30 @@ def _run(db_session, *, hours_ago: float, status: str = "success"):
     return run
 
 
+def _retrofit(db_session, *, population: str, hours_ago: float, apn: str | None = None):
+    """One RetrofitBuilding row rebuilt `hours_ago` -- same role for the
+    retrofit-freshness tests below as _run() plays for pipeline-freshness
+    ones. apn only needs to be unique within a single test (the table's own
+    unique constraint), so the default embeds population+hours_ago."""
+    row = RetrofitBuilding(apn=apn or f"stale-test-{population}-{hours_ago}", population=population,
+                           built_at=utcnow() - timedelta(hours=hours_ago))
+    db_session.add(row)
+    db_session.commit()
+    return row
+
+
+def _fresh_retrofit(db_session):
+    """Seeds both populations well inside their own cadence -- for tests
+    that care about pipeline-run freshness only and would otherwise trip
+    the (correct, separately-tested) retrofit axis by having no
+    RetrofitBuilding rows at all."""
+    _retrofit(db_session, population="recently_active", hours_ago=1)
+    _retrofit(db_session, population="replacement_candidate", hours_ago=1)
+
+
 def test_fresh_run_shows_no_banner(client, db_session, no_email):
     _run(db_session, hours_ago=1)
+    _fresh_retrofit(db_session)
     resp = client.get("/", headers=AUTH)
     assert resp.status_code == 200
     assert "Pipeline data is stale" not in resp.text
@@ -111,6 +139,72 @@ def test_no_run_at_all_is_stale(client, db_session, no_email):
     assert "Pipeline data is stale" in resp.text
     assert "No successful pipeline run has ever been recorded" in resp.text
     assert len(no_email) == 1
+
+
+# ---- retrofit_buildings freshness: the pipeline-run alarm above must not
+# be the only thing standing between a broken retrofit rebuild and nobody
+# ever finding out -- see app.pipeline_health's module docstring. ----------
+
+def test_retrofit_population_hours_stale_is_none_when_never_built(db_session):
+    assert retrofit_population_hours_stale(db_session, "recently_active") is None
+
+
+def test_retrofit_population_hours_stale_measures_from_latest_built_at(db_session):
+    _retrofit(db_session, population="recently_active", hours_ago=5)
+    hrs = retrofit_population_hours_stale(db_session, "recently_active")
+    assert 4.9 <= hrs <= 5.1
+
+
+def test_retrofit_population_hours_stale_ignores_the_other_population(db_session):
+    _retrofit(db_session, population="recently_active", hours_ago=5)
+    assert retrofit_population_hours_stale(db_session, "replacement_candidate") is None
+
+
+def test_never_built_retrofit_population_is_stale_even_with_a_fresh_pipeline(client, db_session, no_email):
+    """The exact gap this whole check exists to close: a pipeline that has
+    never run build-retrofit-buildings/find-replacement-candidates at all
+    must not read as fresh just because fetch/triage/.../notify are fine."""
+    _run(db_session, hours_ago=1)  # pipeline itself is fresh
+    resp = client.get("/", headers=AUTH)
+    assert "Pipeline data is stale" in resp.text
+    assert "recently_active" in resp.text
+    assert "replacement_candidate" in resp.text
+    assert len(no_email) == 1
+
+
+def test_retrofit_population_within_its_own_threshold_is_not_stale(db_session, no_email, monkeypatch):
+    monkeypatch.setenv("RESEND_API_KEY", "test-key")
+    _run(db_session, hours_ago=1)
+    _retrofit(db_session, population="recently_active", hours_ago=RETROFIT_STALE_THRESHOLD_HOURS["recently_active"] - 1)
+    _retrofit(db_session, population="replacement_candidate",
+             hours_ago=RETROFIT_STALE_THRESHOLD_HOURS["replacement_candidate"] - 1)
+    result = check_and_alert_staleness(db_session, _cfg())
+    assert result["stale"] is False
+    assert result["retrofit"]["recently_active"]["stale"] is False
+    assert result["retrofit"]["replacement_candidate"]["stale"] is False
+    assert no_email == []
+
+
+def test_retrofit_population_past_its_own_cadence_trips_the_alarm_alone(db_session, no_email, monkeypatch):
+    """recently_active (daily cadence) stale, replacement_candidate (weekly)
+    still fine, pipeline itself fine -- proves the two retrofit axes are
+    independent of each other and of the pipeline-run axis, not one shared
+    boolean that can't tell which thing actually broke."""
+    monkeypatch.setenv("RESEND_API_KEY", "test-key")
+    _run(db_session, hours_ago=1)
+    _retrofit(db_session, population="recently_active",
+             hours_ago=RETROFIT_STALE_THRESHOLD_HOURS["recently_active"] + 1)
+    _retrofit(db_session, population="replacement_candidate", hours_ago=1)
+
+    result = check_and_alert_staleness(db_session, _cfg())
+
+    assert result["stale"] is True
+    assert result["retrofit"]["recently_active"]["stale"] is True
+    assert result["retrofit"]["replacement_candidate"]["stale"] is False
+    assert len(no_email) == 1
+    _args, kwargs = no_email[0]
+    assert "recently_active" in kwargs["json"]["text"]
+    assert "replacement_candidate" not in kwargs["json"]["text"]
 
 
 def _cfg():

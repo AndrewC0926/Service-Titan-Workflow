@@ -754,6 +754,12 @@ retrofit:
     Commercial: {low: 300, high: 500}
     Industrial: {low: 1000, high: 2500}
 
+# app.contractors -- CSLB contractor <-> retrofit-candidate geographic join.
+# See app/models.py's Contractor docstring for sourcing/scope and
+# app/pipeline/cslb.py's module docstring for the compliance check.
+contractors:
+  default_radius_miles: 15
+
 scoring:
   window_multipliers:
     PRE_BOD: 1.0

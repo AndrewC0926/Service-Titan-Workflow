@@ -118,7 +118,7 @@
 <tr>
   <td class="num idx">{{ loop.index }}</td>
   <td>
-    <span class="clamp2" title="{{ b.address or 'address unknown' }}">{{ b.address or 'APN ' + b.apn }}</span>
+    <a href="/retrofit/building/{{ b.id }}" class="clamp2" title="{{ b.address or 'address unknown' }}">{{ b.address or 'APN ' + b.apn }}</a>
     <div class="note">APN {{ b.apn }} · {{ b.county }}, {{ b.state }}{% if b.use_desc %} · {{ b.use_desc }}{% endif %}
       · <a href="https://portal.assessor.lacounty.gov/" target="_blank" rel="noopener">look up on Assessor portal ↗</a></div>
   </td>

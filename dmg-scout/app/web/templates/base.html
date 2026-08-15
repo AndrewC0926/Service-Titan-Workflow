@@ -49,6 +49,7 @@
     <a href="/" class="tab" {% if active=='today' %}aria-current="page"{% endif %}>Today</a>
     <a href="/board" class="tab" {% if active=='board' %}aria-current="page"{% endif %}>Board</a>
     <a href="/retrofit" class="tab" {% if active=='retrofit' %}aria-current="page"{% endif %}>Retrofit</a>
+    <a href="/contractors" class="tab" {% if active=='contractors' %}aria-current="page"{% endif %}>Contractors</a>
     <a href="/watchlist" class="tab" {% if active=='watchlist' %}aria-current="page"{% endif %}>Watch list{% if watch_count %} <span class="tab-badge">{{ watch_count }}</span>{% endif %}</a>
     <a href="/review" class="tab" {% if active=='review' %}aria-current="page"{% endif %}>Review queue{% if review_count %} <span class="tab-badge">{{ review_count }}</span>{% endif %}</a>
     <a href="/ask" class="tab" {% if active=='ask' %}aria-current="page"{% endif %}>Ask</a>

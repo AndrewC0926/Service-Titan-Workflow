@@ -20,7 +20,9 @@ from sqlmodel import delete, select
 
 from app.config import Config
 from app.http import PoliteClient
-from app.models import AssessorCandidate, EquipmentPermit, RetrofitBuilding, ServiceFrequencyReport, utcnow
+from app.models import (
+    AssessorCandidate, EquipmentPermit, RetrofitBuilding, RetrofitGeocode, ServiceFrequencyReport, utcnow,
+)
 from app.pipeline.assessor import FEATURE_SERVER, PORTAL_URL as ASSESSOR_PORTAL_URL
 from app.pipeline.permits import PORTAL_URL as PERMITS_PORTAL_URL
 from app.pipeline.regulatory import infer_refrigerant, sb1206_status
@@ -166,6 +168,116 @@ def latest_service_frequency_by_apn(session, apns: list[str]) -> dict[str, Servi
     return latest
 
 
+def geocodes_by_apn(session, apns: list[str]) -> dict[str, RetrofitGeocode]:
+    """RetrofitGeocode rows for the apns given -- same pattern as
+    latest_service_frequency_by_apn above and for the same reason: this
+    table's own DELETE-and-reinsert rebuild would otherwise wipe a geocode
+    that cost a real (rate-limited-by-courtesy) call to the Census
+    geocoder. One row per apn already (unique index), so no "latest of
+    several" reduction is needed here."""
+    if not apns:
+        return {}
+    geocodes = session.exec(select(RetrofitGeocode).where(RetrofitGeocode.apn.in_(apns))).all()
+    return {g.apn: g for g in geocodes}
+
+
+_SITUS_ADDRESS_RE = re.compile(
+    r"^(?P<street>.+?)\s{2,}(?P<city>[A-Z .]+?)\s+(?P<state>CA)\s{2,}(?P<zip>\d{5})$"
+)
+
+
+def _split_situs_address(address: str, fallback_state: str) -> tuple[str, str, str, str]:
+    """Splits a RetrofitBuilding.address string -- assessor/permit situs
+    text of the form "{street}  {city} CA  {zip}" (double-space delimited,
+    confirmed 2026-08-14 against 52,706 real replacement-candidate rows:
+    52,450 matched) -- into the (street, city, state, zip) tuple the Census
+    batch geocoder actually expects as separate CSV columns.
+
+    Passing the whole address as a single "street" field with city/zip
+    blank (the original approach) was tested live and produced a 3.95%
+    match rate (79/2000) against real production addresses, vs. CSLB's own
+    89.6% using structured fields for the same geocoder -- the structured
+    columns are not optional for reliable matching.
+
+    Addresses that don't match the pattern (256 of 52,706 sampled -- a
+    missing "CA" token, "CALIF"/"CALIFORNIA" instead of "CA", no zip, or a
+    non-standard city format) fall back to the whole string as street with
+    city/zip blank, same as before: worse odds than a clean split, but no
+    worse than the prior behavior for the rows that pattern can't parse.
+    """
+    m = _SITUS_ADDRESS_RE.match(address)
+    if not m:
+        return address, "", fallback_state, ""
+    return m.group("street"), m.group("city"), m.group("state"), m.group("zip")
+
+
+def geocode_retrofit_buildings(session, *, batch_limit: int | None = None,
+                               top_n: int | None = None,
+                               population: str = "replacement_candidate") -> dict:
+    """Geocodes RetrofitBuilding rows whose apn has no RetrofitGeocode row
+    yet, in batches of up to geocode.MAX_BATCH_SIZE, via app.geocode's
+    Census Bureau batch geocoder. Idempotent and incremental: an apn once
+    geocoded is never re-requested (see geocodes_by_apn's rejoin at build
+    time) unless its RetrofitGeocode row is deleted directly.
+
+    RetrofitBuilding.address is parcel/permit situs-address text, not
+    pre-split into columns -- _split_situs_address parses it into
+    (street, city, state, zip) before handing it to the batch geocoder, the
+    same structured shape app/pipeline/cslb.py sends for contractors.
+
+    top_n: geocode only the top_n highest rank_score rows in `population`
+    (nulls last) rather than the whole population -- deliberately a SQL
+    ORDER BY + LIMIT, not "geocode everything then keep the top N", so a
+    bounded run never pays for rows outside the slice actually requested.
+    None means the whole `population` is in scope (bounded only by
+    batch_limit, if given).
+
+    batch_limit caps how many BATCHES (not buildings) this run spends --
+    None means no cap; a real run against a large ungeocoded backlog should
+    set one, since each batch is a real network call against a courtesy
+    rate on a free federal service.
+    """
+    from app.geocode import batch_geocode, chunk_dict
+
+    stats = {"candidates": 0, "geocoded": 0, "unmatched": 0, "batches": 0}
+
+    already = set(session.exec(select(RetrofitGeocode.apn)).all())
+    q = (select(RetrofitBuilding.apn, RetrofitBuilding.address, RetrofitBuilding.state,
+               RetrofitBuilding.county)
+        .where(RetrofitBuilding.address.is_not(None), RetrofitBuilding.population == population)
+        .order_by(RetrofitBuilding.rank_score.desc().nulls_last()))
+    if top_n is not None:
+        q = q.limit(top_n)
+    rows = session.exec(q).all()
+
+    to_geocode: dict[str, tuple[str, str, str, str]] = {}
+    original_address_by_apn: dict[str, str] = {}
+    for apn, address, state, county in rows:
+        if apn in already or apn in to_geocode:
+            continue
+        to_geocode[apn] = _split_situs_address(address, state or "CA")
+        original_address_by_apn[apn] = address
+    stats["candidates"] = len(to_geocode)
+
+    for i, chunk in enumerate(chunk_dict(to_geocode, 10_000)):
+        if batch_limit is not None and i >= batch_limit:
+            break
+        stats["batches"] += 1
+        addr_by_apn = {apn: original_address_by_apn[apn] for apn in chunk}
+        results = batch_geocode(chunk)
+        for apn, coords in results.items():
+            if coords is None:
+                stats["unmatched"] += 1
+                continue
+            lat, lon = coords
+            session.add(RetrofitGeocode(apn=apn, source_address=addr_by_apn[apn],
+                                        latitude=lat, longitude=lon))
+            stats["geocoded"] += 1
+        session.commit()
+
+    return stats
+
+
 def rank_buildings(*, service_life_status: str | None, sqft: float | None,
                    sb1206_trigger_status: str | None, ebewe_candidate: bool,
                    carb_candidate: bool, service_life_years_past: float | None = None,
@@ -297,6 +409,7 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
             ebewe_ains.add(c.ain)
 
     service_freq = latest_service_frequency_by_apn(session, apns)
+    geocodes = geocodes_by_apn(session, apns)
 
     session.exec(delete(RetrofitBuilding).where(RetrofitBuilding.population == "recently_active"))
 
@@ -333,6 +446,7 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
 
         carb_use_code = carb_by_ain.get(apn)
         freq = service_freq.get(apn)
+        geo = geocodes.get(apn)
         rank = rank_buildings(
             service_life_status=sl_status, sqft=chars.get("sqft"),
             sb1206_trigger_status=sb1206["status"] if sb1206 else None,
@@ -360,6 +474,7 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
             service_calls_per_year=freq.service_calls_per_year if freq else None,
             service_calls_per_year_source=freq.source if freq else None,
             service_calls_per_year_reported_at=freq.reported_at if freq else None,
+            latitude=geo.latitude if geo else None, longitude=geo.longitude if geo else None,
             permit_source_url=PERMITS_PORTAL_URL, assessor_source_url=ASSESSOR_PORTAL_URL,
             built_at=now,
         ))
@@ -555,6 +670,7 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
             ebewe_ains.add(c.ain)
 
     service_freq = latest_service_frequency_by_apn(session, ains)
+    geocodes = geocodes_by_apn(session, ains)
 
     now = utcnow()
     session.exec(delete(RetrofitBuilding).where(RetrofitBuilding.population == "replacement_candidate"))
@@ -632,6 +748,7 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
         carb_use_code = carb_by_ain.get(ain)
         tons_low, tons_high, tons_basis = estimate_tonnage(cfg, use_desc, sqft)
         freq = service_freq.get(ain)
+        geo = geocodes.get(ain)
 
         rank = rank_buildings(
             service_life_status=sl_status, sqft=sqft,
@@ -657,6 +774,7 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
             service_calls_per_year=freq.service_calls_per_year if freq else None,
             service_calls_per_year_source=freq.source if freq else None,
             service_calls_per_year_reported_at=freq.reported_at if freq else None,
+            latitude=geo.latitude if geo else None, longitude=geo.longitude if geo else None,
             permit_source_url=PERMITS_PORTAL_URL, assessor_source_url=ASSESSOR_PORTAL_URL,
             built_at=now,
         ))

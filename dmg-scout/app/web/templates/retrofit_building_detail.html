@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{{ building.address or ('APN ' + building.apn) }}{% endblock %}
+{% block sheet_no %}S-16{% endblock %}
+{% block content %}
+<h2>{{ building.address or 'Address unknown' }}
+  <a href="/retrofit?population={{ building.population }}" style="float:right;font-size:12px">← back to retrofit</a>
+</h2>
+<p class="note">APN {{ building.apn }} · {{ building.county }}, {{ building.state }}
+  {% if building.use_desc %} · {{ building.use_desc }}{% endif %}
+  · <a href="https://portal.assessor.lacounty.gov/" target="_blank" rel="noopener">look up on Assessor portal ↗</a></p>
+
+<table style="max-width:900px">
+<tr><th>Population</th><td>{{ 'Replacement candidate — no permit on record' if building.population == 'replacement_candidate' else 'Recently active — permit evidence on file' }}</td>
+    <th>Sqft</th><td>{{ '{:,.0f}'.format(building.sqft) if building.sqft else '—' }}</td></tr>
+<tr><th>Year built</th><td>{{ building.year_built or '—' }}</td>
+    <th>Equipment type</th><td>{{ building.equipment_type.replace('_',' ') if building.equipment_type else 'unknown — no permit on file' }}</td></tr>
+<tr><th>Service life</th>
+    <td>{% if building.service_life_status %}
+      <a class="stamp {{ 'stamp-post' if building.service_life_status in ('overdue','due') else 'stamp-in' if building.service_life_status == 'approaching' else 'stamp-pre' }}"
+         href="/assumptions#{{ assumption_slug('Service life bands — private commercial ownership') }}"
+         title="{{ building.service_life_basis }}">{% if building.population == 'replacement_candidate' %}~{% endif %}{{ building.service_life_status.replace('_',' ') }}{% if building.service_life_years_past is not none %} {{ '%+.0f'|format(building.service_life_years_past) }}yr{% endif %}</a>
+      {% else %}<span class="note">{{ building.service_life_basis or 'unknown' }}</span>{% endif %}</td>
+    <th>Rank score</th><td>{{ '%.2f'|format(building.rank_score) if building.rank_score else '—' }}</td></tr>
+<tr><th>Coordinates</th>
+    <td colspan="3">{% if building.latitude %}{{ '%.5f'|format(building.latitude) }}, {{ '%.5f'|format(building.longitude) }}
+      <span class="note">(geocoded from the address above via the U.S. Census Bureau's public geocoder — see app.geocode)</span>
+      {% else %}<span class="note">not yet geocoded — run <span class="mono">scout geocode-retrofit</span></span>{% endif %}</td></tr>
+</table>
+
+<h2>Nearest licensed mechanical contractors <span class="note">(C-20/C-38, within {{ radius_miles }} miles)</span></h2>
+{% if not building.latitude %}
+<p class="note">This building has not been geocoded yet, so distance to contractors cannot be computed.
+  Run <span class="mono">scout geocode-retrofit</span>.</p>
+{% elif not nearest_contractors %}
+<p class="note">No CSLB-licensed C-20/C-38 contractor with a geocoded address was found within {{ radius_miles }} miles.
+  This reflects import/geocoding coverage as of now, not an actual absence of contractors in the area — see
+  <span class="mono">scout cslb</span> and <span class="mono">scout geocode-retrofit</span>.</p>
+{% else %}
+<div class="callout callout-warn">
+  <strong>CSLB's own status fields only — not a recommendation</strong>
+  <span class="body">Sorted by distance alone. Status shown is exactly what CSLB's public record
+    states as of the last import — this list does not filter out a suspended or non-CLEAR license;
+    check status before calling.</span>
+</div>
+<table class="tbl">
+<thead><tr><th>Contractor</th><th>License</th><th>Classifications</th><th>Status</th><th class="num">Distance</th><th>Workers' comp</th></tr></thead>
+<tbody>
+{% for row in nearest_contractors %}
+{% set c = row.contractor %}
+<tr>
+  <td>{{ c.business_name }}<div class="note">{{ c.business_address }}, {{ c.city }}, {{ c.state }} {{ c.zip_code }}{% if c.business_phone %} · {{ c.business_phone }}{% endif %}</div></td>
+  <td class="mono">{{ c.license_no }}</td>
+  <td>{{ c.classifications }}</td>
+  <td>{% if c.primary_status == 'CLEAR' %}<span class="ok">{{ c.primary_status }}</span>{% else %}<span class="warn">{{ c.primary_status or 'unknown' }}</span>{% endif %}
+    {% if c.secondary_status %}<div class="note">{{ c.secondary_status }}</div>{% endif %}</td>
+  <td class="num nowrap">{{ row.distance_miles }} mi</td>
+  <td class="note">{{ c.workers_comp_coverage_type or '—' }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% endif %}
+{% endblock %}

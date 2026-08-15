@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Contractors{% endblock %}
+{% block sheet_no %}S-15{% endblock %}
+{% block content %}
+
+<div class="callout callout-warn">
+  <strong>CSLB's own public license data, verbatim — nothing inferred</strong>
+  <span class="body">Sourced from CSLB's own free public "License Master" bulk file
+    (cslb.ca.gov/onlineservices/dataportal/) — C-20, C-38, and B classifications, LA, Orange,
+    Riverside, San Bernardino, Ventura, San Diego, and Imperial counties. Every field is exactly
+    what CSLB states; this page makes no claim about a contractor's size, quality, or relationship
+    to DMG. Ranked by count of geocoded replacement-candidate buildings within
+    {{ default_radius }} miles, precomputed by <span class="mono">scout match-contractors</span> —
+    not live, not exhaustive of every possible job in the area.</span>
+</div>
+
+{% if never_matched %}
+<div class="callout callout-warn">
+  <strong>{{ '{:,}'.format(never_matched) }} contractor{{ 's' if never_matched != 1 }} not yet matched</strong>
+  <span class="body">Never geocoded or never run through <span class="mono">scout match-contractors</span> —
+    shown last, not counted as zero nearby candidates.</span>
+</div>
+{% endif %}
+
+<div class="mb-2 flex flex-wrap items-center gap-1.5">
+  <a href="/contractors" class="chip" aria-pressed="{{ 'true' if not county else 'false' }}">All counties</a>
+  {% for c in counties %}
+  <a href="/contractors?county={{ c }}" class="chip" aria-pressed="{{ 'true' if county == c else 'false' }}">{{ c }}</a>
+  {% endfor %}
+</div>
+
+<p class="note">{{ '{:,}'.format(total) }} contractor{{ 's' if total != 1 }} in scope, showing top {{ contractors|length }}.</p>
+
+<table class="tbl">
+<thead><tr><th>Contractor</th><th>License</th><th>Classifications</th><th>Status</th><th>County</th>
+  <th class="num">Nearby replacement candidates</th><th>Workers' comp</th><th>Expires</th></tr></thead>
+<tbody>
+{% for c in contractors %}
+<tr>
+  <td>{{ c.business_name }}<div class="note">{{ c.business_address }}, {{ c.city }}, {{ c.state }} {{ c.zip_code }}{% if c.business_phone %} · {{ c.business_phone }}{% endif %}</div></td>
+  <td class="mono">{{ c.license_no }}</td>
+  <td>{{ c.classifications }}</td>
+  <td>{% if c.primary_status == 'CLEAR' %}<span class="ok">{{ c.primary_status }}</span>{% else %}<span class="warn">{{ c.primary_status or 'unknown' }}</span>{% endif %}</td>
+  <td>{{ c.county }}</td>
+  <td class="num nowrap">
+    {%- if c.nearby_computed_at is not none -%}
+      {{ c.nearby_replacement_candidates }}
+      <div class="note">within {{ c.nearby_radius_miles }}mi, as of {{ c.nearby_computed_at.strftime('%Y-%m-%d') }}</div>
+    {%- elif c.latitude is none -%}
+      <span class="note">not geocoded</span>
+    {%- else -%}
+      <span class="note">not yet matched</span>
+    {%- endif -%}
+  </td>
+  <td class="note">{{ c.workers_comp_coverage_type or '—' }}</td>
+  <td class="num nowrap">{{ c.expiration_date.strftime('%Y-%m-%d') if c.expiration_date else '—' }}</td>
+</tr>
+{% else %}
+<tr><td colspan="8" class="note">No contractors imported yet. Run <span class="mono">scout cslb</span> →
+  <span class="mono">scout geocode-retrofit</span> → <span class="mono">scout match-contractors</span>.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}

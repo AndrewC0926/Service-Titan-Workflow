@@ -1077,6 +1077,14 @@ class RetrofitBuilding(SQLModel, table=True):
     service_calls_per_year_source: str | None = None
     service_calls_per_year_reported_at: datetime | None = None
 
+    # Rejoined from RetrofitGeocode at build time, same pattern and same
+    # reason as service_calls_per_year above -- this table's own DELETE-and-
+    # reinsert rebuild would otherwise wipe it. Null until geocoded; see
+    # RetrofitGeocode's docstring and app.contractors for the join this
+    # feeds (nearest licensed mechanical contractors).
+    latitude: float | None = None
+    longitude: float | None = None
+
     built_at: datetime = Field(default_factory=utcnow, index=True)
 
 
@@ -1330,3 +1338,123 @@ class SamGovSearchCall(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     called_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class Contractor(SQLModel, table=True):
+    """One row per CSLB (California Contractors State License Board)
+    license -- see app/pipeline/cslb.py. Every field here is copied
+    verbatim from CSLB's own public "License Master" bulk file
+    (cslb.ca.gov/onlineservices/dataportal/), the free, no-login,
+    self-service statewide download CSLB itself publishes for this exact
+    purpose (no robots.txt exists on any CSLB domain; their own Conditions
+    of Use states no restriction on automated/bulk use; confirmed by
+    directly downloading it, 2026-08-14 -- 244,100 real records). Scoped at
+    import time to classifications C-20/C-38/B and business addresses in
+    LA, Orange, Riverside, San Bernardino, Ventura, San Diego, and Imperial
+    counties -- see app.pipeline.cslb.COUNTIES/CLASSIFICATIONS.
+
+    Deliberately NOT augmented with any judgment about a contractor's
+    size, quality, or relationship to DMG -- every field below is either a
+    direct CSLB field or (latitude/longitude/geocoded_at/geocode_source)
+    a disclosed DERIVED field for the geographic join, never a claim about
+    the contractor itself. If CSLB doesn't state it, this table doesn't
+    have an opinion about it.
+
+    Mailing address only: CSLB's own public data has no separate physical/
+    business-address field -- MailingAddress is the only address CSLB
+    publishes for a license, so that is what business_address holds. Not a
+    limitation of this import; a fact about CSLB's own public record.
+    """
+    __tablename__ = "contractors"
+
+    id: int | None = Field(default=None, primary_key=True)
+    license_no: str = Field(index=True, unique=True)
+    business_name: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    full_business_name: str | None = None
+    business_type: str | None = None  # CSLB's own field: Sole Owner, Corporation, LLC, Partnership...
+
+    # CSLB's own "MailingAddress" -- the only address CSLB publishes. See
+    # class docstring.
+    business_address: str | None = None
+    city: str | None = Field(default=None, index=True)
+    county: str | None = Field(default=None, index=True)
+    state: str | None = None
+    zip_code: str | None = Field(default=None, index=True)
+    business_phone: str | None = None
+
+    issue_date: datetime | None = Field(default=None, index=True)
+    expiration_date: datetime | None = Field(default=None, index=True)
+    primary_status: str | None = Field(default=None, index=True)  # e.g. CLEAR, Work Comp Susp
+    secondary_status: str | None = None
+
+    # CSLB's raw "Classifications(s)" string, verbatim (e.g. "C20", "B, C38")
+    # -- never split/normalized into a separate table, since a license can
+    # carry classifications outside C-20/C-38/B that this import doesn't
+    # otherwise track and must not silently drop from the record.
+    classifications: str | None = Field(default=None, index=True)
+
+    # Workers' compensation status -- CSLB's own WorkersComp* fields.
+    workers_comp_coverage_type: str | None = None
+    workers_comp_insurance_company: str | None = None
+    workers_comp_policy_number: str | None = None
+    workers_comp_effective_date: datetime | None = None
+    workers_comp_expiration_date: datetime | None = None
+
+    # Contractor's Bond -- CSLB's own CB* fields (the standard bond every
+    # active license carries; distinct from CSLB's separate LLC/Disciplinary
+    # bond fields, which this import does not currently store).
+    bond_company: str | None = None
+    bond_number: str | None = None
+    bond_effective_date: datetime | None = None
+    bond_cancellation_date: datetime | None = None
+    bond_amount: float | None = None
+
+    # Derived, not CSLB-sourced -- see class docstring. Geocoded from
+    # business_address via app.geocode (US Census Bureau's free public
+    # geocoder) so contractors can be joined to nearby retrofit candidates
+    # by real distance. Null until geocoded; a null here is "not yet
+    # geocoded," never treated as "no address."
+    latitude: float | None = None
+    longitude: float | None = None
+    geocoded_at: datetime | None = None
+    geocode_source: str | None = None
+
+    # Precomputed by app.contractors.match_contractors -- see that module.
+    # A live per-request N-buildings x M-contractors join does not scale at
+    # this row count (tens of thousands on each side), so this is a cached
+    # count, refreshed by re-running the match, not computed on page load.
+    nearby_replacement_candidates: int | None = None
+    nearby_radius_miles: float | None = None
+    nearby_computed_at: datetime | None = None
+
+    source_url: str = Field(default="https://www.cslb.ca.gov/onlineservices/dataportal/")
+    retrieved_at: datetime = Field(default_factory=utcnow, index=True)
+    last_update: datetime | None = None  # CSLB's own "LastUpdate" field on the license record itself
+
+
+class RetrofitGeocode(SQLModel, table=True):
+    """Geocoded coordinates for a retrofit building's APN -- lives in its
+    own table for the exact reason ServiceFrequencyReport does (see that
+    model's docstring): build_retrofit_buildings/find_replacement_candidates
+    DELETE and reinsert their whole population every run, so anything
+    stored directly on RetrofitBuilding would be silently wiped and would
+    have to be re-geocoded (a real cost against a rate-limited-by-courtesy
+    free federal API) on every single rebuild. This table survives that;
+    app.pipeline.retrofit rejoins it onto RetrofitBuilding.latitude/
+    longitude at build time, the same way service_calls_per_year is
+    rejoined from ServiceFrequencyReport.
+
+    Geocoded via app.geocode (US Census Bureau's free public batch
+    geocoder), from RetrofitBuilding.address -- source_address is stored
+    alongside the result so a later address correction is visibly a
+    different input, not a silent mismatch.
+    """
+    __tablename__ = "retrofit_geocodes"
+
+    id: int | None = Field(default=None, primary_key=True)
+    apn: str = Field(index=True, unique=True)
+    source_address: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    latitude: float
+    longitude: float
+    geocode_source: str = "us_census_bureau"
+    geocoded_at: datetime = Field(default_factory=utcnow, index=True)

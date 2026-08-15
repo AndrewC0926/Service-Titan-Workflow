@@ -8,9 +8,17 @@
   <span class="body">
     {%- if staleness.hours_stale is none -%}
       No successful pipeline run has ever been recorded.
-    {%- else -%}
+    {%- elif staleness.hours_stale > staleness.threshold_hours -%}
       {{ '%.0f'|format(staleness.hours_stale) }} hours since the last successful run
       {%- if staleness.last_success_at %} ({{ staleness.last_success_at.strftime('%Y-%m-%d %H:%M') }} UTC){% endif -%}.
+    {%- endif %}
+    {%- if staleness.retrofit %}
+      {%- for population, info in staleness.retrofit.items() if info.stale %}
+      Retrofit population "{{ population }}"
+      {%- if info.hours_stale is none %} has never been built.
+      {%- else %} last rebuilt {{ '%.0f'|format(info.hours_stale) }} hours ago (threshold {{ '%.0f'|format(info.threshold_hours) }}h).
+      {%- endif -%}
+      {% endfor %}
     {%- endif %}
     Run <code>scout check-freshness</code> or <code>scout doctor</code> to dig in.
   </span>

@@ -5,6 +5,15 @@ slightly different question: not "did the cron process execute" but "when
 did data last actually land", which also correctly catches a run that
 executed and completed but errored on every stage.
 
+Also covers RetrofitBuilding freshness per population (see
+RETROFIT_STALE_THRESHOLD_HOURS), not just `scout pipeline`'s own success --
+a pipeline that fetches/triages/extracts/resolves/scores/notifies flawlessly
+every night still says nothing about whether build-retrofit-buildings or
+find-replacement-candidates are actually landing fresh rows, and this table
+being derived (DELETE + reinsert every rebuild) means a broken or removed
+rebuild step leaves no error in the data itself to notice later -- only its
+absence.
+
 Every write here is best-effort, same discipline as app.access_log and
 app.ops.ping_healthcheck: a failure to log a pipeline_run row, or to send
 the alert email, must never be the reason a page failed to load or a real
@@ -21,13 +30,30 @@ import httpx
 from sqlmodel import func, or_, select
 
 from app.config import Config, load_config
-from app.models import PipelineRun, RawDocument, StalenessAlert, utcnow
+from app.models import PipelineRun, RawDocument, RetrofitBuilding, StalenessAlert, utcnow
 
 log = logging.getLogger(__name__)
 
 STALE_THRESHOLD_HOURS = 36
 ALERT_COOLDOWN_HOURS = 24
 STALENESS_NOTIFY_TO = "acrane988@gmail.com"
+
+# How stale RetrofitBuilding is allowed to get before it counts as its own
+# staleness-alarm reason, per population -- see app.cli:pipeline for the
+# rebuild cadence each of these matches (recently_active daily,
+# replacement_candidate weekly via RETROFIT_WEEKLY_WEEKDAY). Each threshold
+# is one missed cycle of slack past its cadence, same reasoning
+# STALE_THRESHOLD_HOURS applies to the daily pipeline run: 36h tolerates one
+# missed day; 216h (9 days) tolerates one missed week plus two days before
+# paging. Before this existed, a `scout pipeline` that ran fetch through
+# notify successfully every single night still reported "fresh" while
+# retrofit-buildings silently stopped updating -- this closes exactly that
+# gap; a stuck/broken retrofit step is no longer invisible to the same
+# alarm that already watches everything else.
+RETROFIT_STALE_THRESHOLD_HOURS = {
+    "recently_active": 36,
+    "replacement_candidate": 24 * 9,
+}
 
 # A row stuck at status="running" with no heartbeat for this long is not
 # still running -- reap_stale_runs() reclassifies it as "failed". Sized
@@ -157,6 +183,23 @@ def hours_stale(session) -> float | None:
     return (utcnow() - run.finished_at).total_seconds() / 3600.0
 
 
+def retrofit_population_hours_stale(session, population: str) -> float | None:
+    """Hours since RetrofitBuilding rows for this population were last
+    rebuilt (max(built_at)) -- the same question hours_stale() answers for
+    `scout pipeline` itself, asked instead of app.pipeline.retrofit's own
+    rebuild (build_retrofit_buildings / find_replacement_candidates DELETE
+    and reinsert their whole population every run, so the newest built_at
+    IS the last rebuild time, not an average of old and new rows). None
+    means this population has never been built at all -- maximally stale,
+    same convention as hours_stale()."""
+    built_at = session.exec(
+        select(func.max(RetrofitBuilding.built_at)).where(RetrofitBuilding.population == population)
+    ).one()
+    if built_at is None:
+        return None
+    return (utcnow() - built_at).total_seconds() / 3600.0
+
+
 def _last_alert_within(session, cooldown_hours: float) -> bool:
     since = utcnow() - timedelta(hours=cooldown_hours)
     return session.exec(
@@ -164,17 +207,19 @@ def _last_alert_within(session, cooldown_hours: float) -> bool:
     ).first() is not None
 
 
-def send_staleness_alert(cfg: Config, hours: float | None, last_success_at) -> bool:
-    """Best-effort -- see module docstring. Returns whether it actually sent."""
+def send_staleness_alert(cfg: Config, reasons: list[str]) -> bool:
+    """Best-effort -- see module docstring. Returns whether it actually sent.
+    `reasons` is one sentence per stale axis (the pipeline run itself, and/or
+    any RetrofitBuilding population past its own cadence) -- see
+    check_and_alert_staleness, the only caller, for how it's built. A single
+    email covering every stale axis, not one per axis, so a night where both
+    the pipeline AND a retrofit population go stale together still only
+    sends (and rate-limits) as one alert."""
     api_key = os.environ.get(cfg.get("digest.resend.api_key_env", "RESEND_API_KEY"), "")
     if not api_key:
-        log.warning("pipeline data is stale but RESEND_API_KEY is empty -- alert not sent")
+        log.warning("data is stale but RESEND_API_KEY is empty -- alert not sent")
         return False
-    if hours is None:
-        detail = "No successful pipeline run has ever been recorded."
-    else:
-        detail = (f"{hours:.0f} hours since the last successful run "
-                 f"(finished {last_success_at:%Y-%m-%d %H:%M} UTC).")
+    detail = " ".join(reasons)
     try:
         resp = httpx.post(
             "https://api.resend.com/emails",
@@ -183,15 +228,15 @@ def send_staleness_alert(cfg: Config, hours: float | None, last_success_at) -> b
                 "from": cfg.get("digest.from_addr"),
                 "to": [STALENESS_NOTIFY_TO],
                 "subject": "[DMG Scout] Pipeline data is stale",
-                "text": f"{detail} Threshold is {STALE_THRESHOLD_HOURS} hours. Check `scout doctor` / "
-                        f"`scout check-freshness` and the Render cron's own logs.",
+                "text": f"{detail} Check `scout doctor` / `scout check-freshness` and the Render "
+                        f"cron's own logs.",
             },
             timeout=10,
         )
         resp.raise_for_status()
         return True
     except httpx.HTTPError as exc:
-        log.warning("failed to send pipeline staleness alert: %s", exc)
+        log.warning("failed to send staleness alert: %s", exc)
         return False
 
 
@@ -204,20 +249,52 @@ def check_and_alert_staleness(session, cfg: Config, *, threshold_hours: float = 
     alert (if any) is inserted -- the same before-insert gate app.access_log
     uses for its once-per-username notification. Reaps stale "running" rows
     first so a dead run (external kill, no heartbeat) can't masquerade as
-    still in progress."""
+    still in progress.
+
+    Checks two independent axes, either of which alone trips the alarm: (1)
+    has `scout pipeline` itself succeeded recently (stale_hours, unchanged
+    behavior/keys from before retrofit coverage existed), and (2) has EVERY
+    RetrofitBuilding population been rebuilt within its own cadence (see
+    RETROFIT_STALE_THRESHOLD_HOURS) -- returned under the `retrofit` key,
+    keyed by population. Before this second axis existed, a pipeline that
+    ran fetch through notify successfully every night still reported fresh
+    even if build-retrofit-buildings/find-replacement-candidates had been
+    silently broken or removed from the schedule for weeks -- retrofit
+    staleness is now exactly as loud as a fetch source going dark."""
     reap_stale_runs(session)
     run = last_successful_run(session)
     stale_hours = hours_stale(session)
-    is_stale = stale_hours is None or stale_hours > threshold_hours
+    pipeline_is_stale = stale_hours is None or stale_hours > threshold_hours
+
+    retrofit: dict[str, dict] = {}
+    for population, pop_threshold in RETROFIT_STALE_THRESHOLD_HOURS.items():
+        hrs = retrofit_population_hours_stale(session, population)
+        retrofit[population] = {
+            "hours_stale": hrs,
+            "threshold_hours": pop_threshold,
+            "stale": hrs is None or hrs > pop_threshold,
+        }
+    is_stale = pipeline_is_stale or any(v["stale"] for v in retrofit.values())
 
     alert_sent = False
     if is_stale:
-        log.warning("pipeline data is stale: %s",
-                    "no successful run on record" if stale_hours is None else f"{stale_hours:.0f}h since last success")
+        reasons = []
+        if pipeline_is_stale:
+            reasons.append(
+                "No successful pipeline run has ever been recorded." if stale_hours is None
+                else f"{stale_hours:.0f} hours since the last successful pipeline run "
+                    f"(threshold {threshold_hours:.0f}h).")
+        for population, info in retrofit.items():
+            if not info["stale"]:
+                continue
+            reasons.append(
+                f"retrofit_buildings population {population!r} has never been built." if info["hours_stale"] is None
+                else f"retrofit_buildings population {population!r} last rebuilt {info['hours_stale']:.0f} hours "
+                    f"ago (threshold {info['threshold_hours']:.0f}h).")
+        log.warning("staleness alarm tripped: %s", " ".join(reasons))
         try:
             if not _last_alert_within(session, cooldown_hours):
-                last_success_at = run.finished_at if run else None
-                if send_staleness_alert(cfg, stale_hours, last_success_at):
+                if send_staleness_alert(cfg, reasons):
                     session.add(StalenessAlert())
                     session.commit()
                     alert_sent = True
@@ -225,6 +302,7 @@ def check_and_alert_staleness(session, cfg: Config, *, threshold_hours: float = 
             log.exception("staleness alert bookkeeping failed")
 
     return {
-        "stale": is_stale, "hours_stale": stale_hours,
+        "stale": is_stale, "hours_stale": stale_hours, "threshold_hours": threshold_hours,
         "last_success_at": run.finished_at if run else None, "alert_sent": alert_sent,
+        "retrofit": retrofit,
     }
