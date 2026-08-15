@@ -107,7 +107,9 @@ def test_size_score_end_to_end(db_session, cfg):
     assert p.estimate_basis and "224" in p.estimate_basis
     assert p.window == Window.PRE_BOD
     assert p.score > 0
-    assert p.days_to_estimated_bid == 540
+    assert p.days_to_estimated_bid == 365  # measured (CEQAnet NOP->NOD mean), not the old invented 540
+    assert p.days_to_estimated_bid_low == 221
+    assert p.days_to_estimated_bid_high == 509
 
 
 def test_size_score_uses_permitted_capacity_corroborated_by_generator_split(db_session, cfg):

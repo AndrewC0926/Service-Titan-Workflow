@@ -685,14 +685,17 @@ def export_board(watchlist: bool = False, category: str = "data_center",
              "LOW_CONFIDENCE" if p.estimate_low_confidence else "",
              p.estimate_basis, p.stage.value, p.window.value, p.score,
              p.days_to_estimated_bid, p.status,
-             p.last_signal_at.isoformat() if p.last_signal_at else "", p.next_action or ""]
+             p.last_signal_at.isoformat() if p.last_signal_at else "", p.next_action or "",
+             p.days_to_estimated_bid_low if p.days_to_estimated_bid_low is not None else "",
+             p.days_to_estimated_bid_high if p.days_to_estimated_bid_high is not None else ""]
             for p in projects]
     name = "watchlist.csv" if watchlist else f"board-{cat.value if cat else 'all'}.csv"
     return _csv_response(name,
                          ["id", "project", "category", "developer", "county", "state",
                           "tons_low", "tons_high",
                           "confidence_flag", "estimate_basis", "stage", "window", "score",
-                          "days_to_bid", "status", "last_signal", "next_action"], rows)
+                          "days_to_bid", "status", "last_signal", "next_action",
+                          "days_to_bid_ci_low", "days_to_bid_ci_high"], rows)
 
 
 @app.get("/export/contacts.csv")

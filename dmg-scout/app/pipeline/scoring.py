@@ -149,9 +149,34 @@ def priority_score(
     )
 
 
-def days_to_estimated_bid(cfg: Config, stage: Stage) -> int | None:
+def _days_to_bid_entry(cfg: Config, stage: Stage) -> int | float | dict | None:
+    """Raw scoring.days_to_bid_by_stage value for this stage -- a plain
+    number for a still-invented placeholder, or a {mid, low, high} dict for
+    entitlement, the one stage measured from real CEQAnet NOP->NOD data
+    (see config.yaml's own comment for sample size/method,
+    app/assumptions.py for the full disclosure)."""
     table = cfg.get("scoring.days_to_bid_by_stage", {})
     val = table.get(stage.value)
     if val is None and stage is Stage.unknown:
         val = table.get("entitlement")  # unknown stage: assume mid-window
     return val
+
+
+def days_to_estimated_bid(cfg: Config, stage: Stage) -> int | None:
+    val = _days_to_bid_entry(cfg, stage)
+    if isinstance(val, dict):
+        return val.get("mid")
+    return val
+
+
+def days_to_estimated_bid_range(cfg: Config, stage: Stage) -> tuple[int | None, int | None]:
+    """(low, high) confidence-interval bounds for days_to_estimated_bid --
+    (None, None) for a stage with no measured interval (every stage except
+    entitlement, currently). Never invented: a placeholder constant gets no
+    fake interval just to fill the columns, because a zero-width or
+    guessed range would read as more confidence than the number actually
+    has."""
+    val = _days_to_bid_entry(cfg, stage)
+    if isinstance(val, dict):
+        return val.get("low"), val.get("high")
+    return None, None

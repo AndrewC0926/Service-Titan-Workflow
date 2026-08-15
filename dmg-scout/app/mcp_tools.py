@@ -199,9 +199,12 @@ def get_project(project_id: int) -> str:
         else:
             stage_line += " — no dated evidence on file"
         lines.append(stage_line)
-        lines.append(f"Window: {p.window.value}"
-                     + (f", ~{p.days_to_estimated_bid} days to estimated bid"
-                        if p.days_to_estimated_bid is not None else ""))
+        dtb = ""
+        if p.days_to_estimated_bid is not None:
+            dtb = f", ~{p.days_to_estimated_bid} days to estimated bid"
+            if p.days_to_estimated_bid_low is not None:
+                dtb += f" (95% CI {p.days_to_estimated_bid_low}-{p.days_to_estimated_bid_high})"
+        lines.append(f"Window: {p.window.value}" + dtb)
         lines.append(f"Priority score: {p.score:.2f}")
         lines.append("")
 

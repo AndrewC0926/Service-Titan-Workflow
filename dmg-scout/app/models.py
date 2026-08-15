@@ -256,7 +256,16 @@ class Project(SQLModel, table=True):
     # Both null when the feature is disabled or the county resolved no MW.
     spillover_mw: float | None = None
     spillover_basis: str | None = None
+    # days_to_estimated_bid is the point figure (mean, for entitlement --
+    # see scoring.days_to_bid_by_stage) used everywhere in scoring math
+    # (app.pipeline.notify's reachability window, app.pipeline.scoring's
+    # priority_score). low/high are the 95% CI bounds, populated only for a
+    # stage with a real measured interval -- null for every stage still on
+    # an invented placeholder, never a fake or zero-width range just to
+    # fill the columns. See app.pipeline.scoring.days_to_estimated_bid_range.
     days_to_estimated_bid: int | None = None
+    days_to_estimated_bid_low: int | None = None
+    days_to_estimated_bid_high: int | None = None
     # Rolled up from linked signals in app.pipeline.resolve._absorb -- see
     # app/pipeline/waterrisk.py. water_risk_flag/basis are a CONFIDENCE
     # caveat, same tier as estimate_low_confidence below: never blended into

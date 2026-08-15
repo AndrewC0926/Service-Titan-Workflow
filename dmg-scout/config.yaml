@@ -797,10 +797,34 @@ scoring:
     prequal_invite: 1.0
     bid_invite: 1.0
     manual_tip: 0.7
-  # Days from stage to estimated mechanical bid (midpoints of lead-time windows)
+  # Days from stage to estimated mechanical bid (midpoints of lead-time windows).
+  # concept/design/permitting/procurement/construction/operating are still
+  # invented placeholders (see app/assumptions.py) -- checked 2026-08-16
+  # whether Scout's own LA mechanical-permit data (app/pipeline/permits.py)
+  # could calibrate "permitting": it can't, live-verified against all three
+  # LADBS dataset windows -- there is no application-received date and no
+  # valuation field anywhere in that schema (only issue_date/status_date),
+  # so "application-to-issuance duration by permit type and valuation band"
+  # is not answerable from data Scout holds. Left as a placeholder rather
+  # than fit from a field that doesn't exist.
+  #
+  # entitlement is MEASURED: CEQAnet NOP -> NOD spread, in days, for every
+  # SCH number in raw_documents with both a stored NOP and a stored NOD
+  # (checked 2026-08-16). 9 SCH numbers had both; 3 showed the NOD dated
+  # BEFORE the NOP, which cannot happen within one review cycle -- almost
+  # certainly the same SCH number reused for a second, later environmental
+  # review action (a real, known CEQA practice), not a data error, so those
+  # 3 do not represent a valid NOP->NOD interval and were excluded rather
+  # than sign-flipped or averaged in. The other 6: 199, 225, 350, 393, 470,
+  # 552 days. mid is the mean (364.8, rounded); low/high is a 95% CI on that
+  # mean via the t-distribution (t=2.571, df=5) -- n=6 is a small sample and
+  # this CI is correspondingly wide; see app/assumptions.py for the full
+  # methodology note, sample size, and date range (earliest NOP 2024-08-08,
+  # latest NOD 2026-06-19). Was a flat 540 (an invented placeholder,
+  # "midpoint of lead-time windows" per the comment this replaced).
   days_to_bid_by_stage:
     concept: 900
-    entitlement: 540
+    entitlement: {mid: 365, low: 221, high: 509}
     design: 360
     permitting: 270
     procurement: 60

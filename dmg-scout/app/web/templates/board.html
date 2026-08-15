@@ -113,7 +113,7 @@
   <th class="num" title="Days since a filing last confirmed the CURRENT stage — not the project's age. Past {{ stale_months }} months it's flagged unverified, because the project has probably moved and we haven't seen it.">Stage age</th>
   <th title="Whether the mechanical basis of design can still be influenced — the column that decides whether a project is worth calling.">Window</th>
   <th class="num" title="Position on this board out of the current total, ranked highest-scoring first; the raw score is shown as secondary. Hover the rank for the score's full component breakdown.">Rank</th>
-  <th class="num" title="Estimated days until mechanical equipment is bid. A fixed constant per stage, not a measured or project-specific figure — hover a value for which one.">To bid</th>
+  <th class="num" title="Estimated days until mechanical equipment is bid. Entitlement-stage rows are measured (CEQAnet NOP→NOD, with a 95% CI); every other stage is still a fixed placeholder constant, not measured or project-specific — hover a value for which.">To bid</th>
   <th class="num" title="Days since the most recent signal of any kind — distinct from Stage age, which counts only confirmations of the CURRENT stage.">Last sig.</th>
   <th title="Best contact, ranked by reachability first, then proximity to the mechanical spec decision. Hover a value for the rung and relationship.">Who to call</th>
 </tr></thead>
@@ -178,10 +178,15 @@
     </span>
   </td>
   <td class="num">
-    {%- if p.days_to_estimated_bid is not none -%}
-      <a href="/assumptions#{{ assumption_slug('Days to estimated bid, by stage') }}"
+    {%- if p.days_to_estimated_bid is none -%}
+      <span class="note">—</span>
+    {%- elif p.days_to_estimated_bid_low is not none -%}
+      <a href="/assumptions#{{ assumption_slug('Days to estimated bid: entitlement (NOP to NOD)') }}"
+         title="Measured: mean of {{ p.days_to_estimated_bid }} days from CEQAnet NOP→NOD spreads for this territory, 95% CI {{ p.days_to_estimated_bid_low }}–{{ p.days_to_estimated_bid_high }} days (small sample — see /assumptions for size and date range).">{{ p.days_to_estimated_bid }}<span class="note">&nbsp;({{ p.days_to_estimated_bid_low }}–{{ p.days_to_estimated_bid_high }})</span></a>
+    {%- else -%}
+      <a href="/assumptions#{{ assumption_slug('Days to estimated bid: other stages') }}"
          title="Fixed constant for the {{ p.stage.value }} stage ({{ days_to_bid_by_stage.get(p.stage.value, '?') }} days per scoring.days_to_bid_by_stage) — not measured or project-specific.">{{ p.days_to_estimated_bid }}</a>
-    {%- else -%}<span class="note">—</span>{%- endif -%}
+    {%- endif -%}
   </td>
   <td class="num" title="Days since the most recent signal of any kind on this project — distinct from Stage age, which counts only confirmations of the CURRENT stage.">{% if days_since[p.id] is not none %}{{ days_since[p.id] }}d{% else %}—{% endif %}</td>
   {# The column the charter exists for. A name with no phone and no email is a

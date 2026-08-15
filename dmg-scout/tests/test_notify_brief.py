@@ -80,6 +80,15 @@ def test_three_calls_reason_names_window_and_bid_estimate(db_session, cfg):
     assert "45d" in calls[0]["reason"]
 
 
+def test_three_calls_reason_includes_ci_when_the_stage_has_one(db_session, cfg):
+    p = _project(db_session, "P", score=0.9, window=Window.IN_BOD, days_to_estimated_bid=365,
+                days_to_estimated_bid_low=221, days_to_estimated_bid_high=509)
+    _contactable_signal(db_session, p)
+    calls = three_calls_today(db_session)
+    assert "365d" in calls[0]["reason"]
+    assert "95% CI 221-509d" in calls[0]["reason"]
+
+
 def test_no_contactable_projects_returns_empty(db_session, cfg):
     _project(db_session, "Nobody callable", score=0.9)
     assert three_calls_today(db_session) == []

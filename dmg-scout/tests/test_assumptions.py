@@ -117,6 +117,38 @@ def test_assumptions_by_group_covers_every_assumption(cfg):
     assert sum(len(v) for v in grouped.values()) == len(assumptions)
 
 
+def test_days_to_bid_entitlement_is_measured_others_stay_placeholder(cfg):
+    """The split this register exists to enforce: entitlement is a real fit
+    from CEQAnet data now, but concept/design/permitting/procurement/
+    construction/operating are still invented -- one config table with
+    mixed provenance must not read as a single classification either way."""
+    entitlement = next(a for a in load_assumptions(cfg) if "entitlement (NOP to NOD)" in a.name)
+    assert entitlement.source_type == MEASURED
+    assert "n=6" in entitlement.source_detail or "199, 225, 350, 393, 470, 552" in entitlement.source_detail
+    assert "2024-08-08" in entitlement.source_detail and "2026-06-19" in entitlement.source_detail
+
+    other = next(a for a in load_assumptions(cfg) if a.name == "Days to estimated bid: other stages")
+    assert other.source_type == PLACEHOLDER
+    assert "entitlement" not in other.value  # the measured stage must not leak into the placeholder row
+
+
+def test_contractor_ranking_radius_and_formula_are_registered(cfg):
+    """The user's explicit finding: both were tunable constants that
+    existed nowhere in the register before this."""
+    names = {a.name for a in load_assumptions(cfg)}
+    assert "Ranking radius" in names
+    assert "Urgency weighting formula" in names
+
+    radius = next(a for a in load_assumptions(cfg) if a.name == "Ranking radius")
+    assert radius.source_type == PLACEHOLDER
+    assert radius.config_path == "contractors.ranking_radius_miles"
+    assert "3" in radius.value
+
+    formula = next(a for a in load_assumptions(cfg) if a.name == "Urgency weighting formula")
+    assert formula.source_type == PLACEHOLDER
+    assert formula.config_path is None  # hardcoded in app.contractors, not config.yaml
+
+
 def test_placeholder_is_the_honest_majority_not_hidden(cfg):
     """Not a normative assertion about what SHOULD be true -- a regression
     guard on the finding itself. If this ever flips because someone fixed

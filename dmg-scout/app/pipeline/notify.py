@@ -85,7 +85,11 @@ def _call_priority(project: Project, cs: dict) -> float:
 def _call_reason(project: Project, age) -> str:
     bits = [project.window.value.replace("_", "-")]
     if project.days_to_estimated_bid is not None:
-        bits.append(f"~{project.days_to_estimated_bid}d to est. bid")
+        if project.days_to_estimated_bid_low is not None:
+            bits.append(f"~{project.days_to_estimated_bid}d to est. bid "
+                       f"(95% CI {project.days_to_estimated_bid_low}-{project.days_to_estimated_bid_high}d)")
+        else:
+            bits.append(f"~{project.days_to_estimated_bid}d to est. bid")
     if age is not None and age.days is not None:
         bits.append(f"stage UNVERIFIED, {age.label} old" if age.unverified()
                     else f"stage confirmed {age.label} ago")

@@ -57,6 +57,14 @@ def build_brief(session: Session, project_id: int) -> dict:
     }
 
 
+def _days_to_bid_cell(p) -> str:
+    if p.days_to_estimated_bid is None:
+        return "—"
+    if p.days_to_estimated_bid_low is not None:
+        return f"{p.days_to_estimated_bid} (95% CI {p.days_to_estimated_bid_low}–{p.days_to_estimated_bid_high})"
+    return str(p.days_to_estimated_bid)
+
+
 def brief_markdown(b: dict) -> str:
     p = b["project"]
     tons = (f"{p.tons_estimate_low:,.0f}–{p.tons_estimate_high:,.0f} tons"
@@ -74,7 +82,7 @@ def brief_markdown(b: dict) -> str:
         f"| Estimated cooling | {tons} |",
         f"| Estimate basis | {p.estimate_basis or 'no size input yet'} |",
         f"| Stage / window | {p.stage.value} / {p.window.value} |",
-        f"| Days to estimated bid | {p.days_to_estimated_bid if p.days_to_estimated_bid is not None else '—'} |",
+        f"| Days to estimated bid | {_days_to_bid_cell(p)} |",
         f"| Priority score | {p.score:.2f} |",
         f"| Engineer of record | {b['engineer_of_record'] or 'not yet identified'} |",
         f"| General contractor | {b['gc'] or 'not yet identified'} |",

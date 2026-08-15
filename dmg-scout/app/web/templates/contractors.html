@@ -43,7 +43,9 @@
   to outrank urgency. Count is raw proximity, shown for context — not what this page sorts on.</p>
 <table class="tbl">
 <thead><tr><th>Contractor</th><th>License</th><th>Classifications</th><th>Status</th><th>County</th>
-  <th class="num">Urgency</th><th class="num">Est. tons</th><th class="num">Nearby count</th>
+  <th class="num" title="What this page sorts on. NOT a count of nearby buildings — the sum of each nearby building's service-life years-past-due (capped 100yr each). A small cluster of severely overdue buildings outranks a larger cluster of merely-old ones. Hover a value for the formula and why raw count didn't work.">Urgency (Σ years past-due)</th>
+  <th class="num" title="Tie-breaker only, never allowed to outrank urgency — sum of each nearby building's estimated-tonnage-band midpoint. Hover a value for the formula.">Est. tons (tie-break)</th>
+  <th class="num" title="Raw proximity count — how many replacement-candidate buildings are nearby, with no urgency weighting. Shown for context only; not what this page sorts on.">Nearby count</th>
   <th>Workers' comp</th><th>Expires</th></tr></thead>
 <tbody>
 {% for c in contractors %}
@@ -54,8 +56,14 @@
   <td>{% if c.primary_status == 'CLEAR' %}<span class="ok">{{ c.primary_status }}</span>{% else %}<span class="warn">{{ c.primary_status or 'unknown' }}</span>{% endif %}</td>
   <td>{{ c.county }}</td>
   {% if c.nearby_computed_at is not none %}
-  <td class="num nowrap">{{ '%.0f'|format(c.nearby_urgency_score) }}</td>
-  <td class="num nowrap">{{ '%.0f'|format(c.nearby_estimated_tons) }}</td>
+  <td class="num nowrap">
+    <a href="/assumptions#{{ assumption_slug('Urgency weighting formula') }}"
+       title="Σ clip(service_life_years_past, 0, 100yr) over buildings within {{ c.nearby_radius_miles }}mi — not a count. Hover the column header, or see /assumptions for the full formula and why raw proximity count didn't discriminate.">{{ '%.0f'|format(c.nearby_urgency_score) }}</a>
+  </td>
+  <td class="num nowrap">
+    <a href="/assumptions#{{ assumption_slug('Urgency weighting formula') }}"
+       title="Σ estimated-tonnage-band midpoint over the same nearby buildings — tie-breaker only, never allowed to outrank urgency.">{{ '%.0f'|format(c.nearby_estimated_tons) }}</a>
+  </td>
   <td class="num nowrap">{{ c.nearby_replacement_candidates }}
     <div class="note">within {{ c.nearby_radius_miles }}mi, as of {{ c.nearby_computed_at.strftime('%Y-%m-%d') }}</div>
   </td>

@@ -15,8 +15,8 @@ from app.models import (
 )
 from app.normalize import normalize_county
 from app.pipeline.scoring import (
-    certainty_detail, classify_window, days_to_estimated_bid, identity_factor, priority_score,
-    recency_decay, size_factor,
+    certainty_detail, classify_window, days_to_estimated_bid, days_to_estimated_bid_range,
+    identity_factor, priority_score, recency_decay, size_factor,
 )
 from app.pipeline.sizing import estimate_equipment_value, estimate_tons
 from app.pipeline.spillover import county_spillover_mw, project_spillover, spillover_factor
@@ -138,6 +138,8 @@ def run_size_score(session: Session, cfg: Config) -> dict:
 
         project.score = round(score, 4)
         project.days_to_estimated_bid = days_to_estimated_bid(cfg, project.stage)
+        project.days_to_estimated_bid_low, project.days_to_estimated_bid_high = (
+            days_to_estimated_bid_range(cfg, project.stage))
         project.in_territory = in_territory(cfg, project.state, project.county)
         project.updated_at = utcnow()
         session.add(project)

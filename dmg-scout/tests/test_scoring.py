@@ -6,6 +6,7 @@ from app.pipeline.scoring import (
     certainty_detail,
     classify_window,
     days_to_estimated_bid,
+    days_to_estimated_bid_range,
     identity_factor,
     priority_score,
     recency_decay,
@@ -90,9 +91,26 @@ def test_size_factor_log_scaled():
 
 
 def test_days_to_bid(cfg):
-    assert days_to_estimated_bid(cfg, Stage.entitlement) == 540
+    # entitlement is measured (CEQAnet NOP->NOD, {mid, low, high} in config.yaml,
+    # not a bare int) -- days_to_estimated_bid reads .mid out of it.
+    assert days_to_estimated_bid(cfg, Stage.entitlement) == 365
     assert days_to_estimated_bid(cfg, Stage.procurement) == 60
-    assert days_to_estimated_bid(cfg, Stage.unknown) == 540
+    assert days_to_estimated_bid(cfg, Stage.unknown) == 365  # unknown -> entitlement fallback
+
+
+def test_days_to_bid_range_measured_stage_has_a_real_interval(cfg):
+    low, high = days_to_estimated_bid_range(cfg, Stage.entitlement)
+    assert low == 221
+    assert high == 509
+    assert low < days_to_estimated_bid(cfg, Stage.entitlement) < high
+
+
+def test_days_to_bid_range_placeholder_stage_is_none(cfg):
+    """A stage still on an invented placeholder gets no fake interval --
+    see days_to_estimated_bid_range's docstring for why a zero-width or
+    guessed range would misrepresent confidence that doesn't exist."""
+    assert days_to_estimated_bid_range(cfg, Stage.procurement) == (None, None)
+    assert days_to_estimated_bid_range(cfg, Stage.concept) == (None, None)
 
 
 def test_identity_factor_fully_identified_is_untouched(cfg):

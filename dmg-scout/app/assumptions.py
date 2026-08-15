@@ -170,13 +170,50 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None) ->
     ))
 
     dtb = cfg.get("scoring.days_to_bid_by_stage", {})
+    dtb_entitlement = dtb.get("entitlement")
+    if isinstance(dtb_entitlement, dict):
+        out.append(Assumption(
+            group="Score weights", name="Days to estimated bid: entitlement (NOP to NOD)",
+            config_path="scoring.days_to_bid_by_stage.entitlement",
+            value=f"mean {dtb_entitlement.get('mid')}d, 95% CI [{dtb_entitlement.get('low')}, "
+                 f"{dtb_entitlement.get('high')}]d",
+            source_type=MEASURED,
+            source_detail="CEQAnet NOP→NOD spread, in days, for every SCH number with both a stored NOP and "
+                          "a stored NOD (checked 2026-08-16). 9 SCH numbers had both; 3 showed the NOD dated "
+                          "BEFORE the NOP -- the same SCH number reused for a later, separate environmental "
+                          "review action (a real CEQA practice), not a valid single-cycle interval, so those "
+                          "3 were excluded rather than sign-flipped in. n=6 valid pairs: 199, 225, 350, 393, "
+                          "470, 552 days. CI is the mean ± t(0.975, df=5)×SEM -- a small sample, "
+                          "correspondingly wide interval, reported honestly rather than narrowed by a bigger "
+                          "assumed n. Date range: earliest NOP 2024-08-08, latest NOD 2026-06-19. Replaces a "
+                          "flat, invented 540 (\"midpoint of lead-time windows\").",
+        ))
+    else:
+        # Not yet fit (config reverted, or this environment never ran the
+        # 2026-08-16 calibration) -- same placeholder framing as before,
+        # scoped to entitlement alone rather than silently disappearing.
+        out.append(Assumption(
+            group="Score weights", name="Days to estimated bid: entitlement (NOP to NOD)",
+            config_path="scoring.days_to_bid_by_stage.entitlement",
+            value=f"{dtb_entitlement}" if dtb_entitlement is not None else "—",
+            source_type=PLACEHOLDER,
+            source_detail="\"Midpoint of lead-time windows\" per config.yaml — a judgment call, not measured "
+                          "from this territory's own CEQAnet filings.",
+        ))
+    other_stages = {k: v for k, v in dtb.items() if k != "entitlement"}
     out.append(Assumption(
-        group="Score weights", name="Days to estimated bid, by stage",
+        group="Score weights", name="Days to estimated bid: other stages",
         config_path="scoring.days_to_bid_by_stage",
-        value=_fmt_table(dtb, fmt="{:.0f}"),
+        value=_fmt_table(other_stages, fmt="{:.0f}"),
         source_type=PLACEHOLDER,
-        source_detail="\"Midpoints of lead-time windows\" per config.yaml — a judgment call about typical "
-                      "stage duration, not measured from this territory's own closed deals.",
+        source_detail="\"Midpoints of lead-time windows\" per config.yaml — judgment calls about typical "
+                      "stage duration, not measured from this territory's own closed deals. Checked "
+                      "2026-08-16 whether Scout's own LA mechanical-permit data could calibrate "
+                      "\"permitting\": it can't -- live-verified against all three LADBS dataset windows, "
+                      "none has an application-received date or a valuation field, only issue_date/"
+                      "status_date, so \"application-to-issuance by permit type and valuation band\" is not "
+                      "answerable from data Scout holds. Left as a placeholder rather than fit from a field "
+                      "that doesn't exist.",
     ))
 
     # ---- Spillover ----------------------------------------------------------
@@ -398,6 +435,47 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None) ->
         source_type=PLACEHOLDER,
         source_detail="\"Not zero — an empty gap list on day one is useless — but well under most real "
                       "edges.\" Verbatim from config.yaml.",
+    ))
+
+    # ---- Contractor ranking --------------------------------------------------
+    from app.contractors import URGENCY_YEARS_PAST_CAP, ranking_radius_miles
+
+    out.append(Assumption(
+        group="Contractor ranking", name="Ranking radius",
+        config_path="contractors.ranking_radius_miles",
+        value=f"{ranking_radius_miles(cfg):.0f} miles",
+        source_type=PLACEHOLDER,
+        source_detail="Distinct from contractors.default_radius_miles (15mi, the per-building 'nearest "
+                      "contractors' dispatch list -- deliberately wide, a different question). "
+                      "ranking_radius_miles exists because raw proximity count at 15mi didn't discriminate "
+                      "at all (measured 2026-08-15: top 10 spanned 1,430-1,456, under 2%) -- in a dense "
+                      "metro pocket, every contractor's 15mi catchment overlaps almost entirely with its "
+                      "neighbors', so any sum-based aggregate over nearly-identical inputs converges "
+                      "regardless of what it weights. Tested 1-5mi: spread ranged 18-29% at 1-3mi vs "
+                      "1.4-10.8% at 5mi+. 3mi was picked as the tightest radius that still keeps a "
+                      "substantial per-contractor sample (~135-380 buildings for the top contractors "
+                      "tested) -- a judgment call about that tradeoff, not a further-optimized or "
+                      "statistically derived value, so this stays a placeholder despite being informed by "
+                      "real measurement.",
+    ))
+    out.append(Assumption(
+        group="Contractor ranking", name="Urgency weighting formula",
+        config_path=None,
+        value=f"Σ clip(service_life_years_past, 0, {URGENCY_YEARS_PAST_CAP:.0f}) over nearby buildings; "
+             f"Σ estimated-tons midpoint as tie-breaker only",
+        source_type=PLACEHOLDER,
+        source_detail="Hardcoded in app.contractors (_urgency_weight/_tons_mid), not config.yaml -- a "
+                      "judgment call about HOW to aggregate, not a measured relationship between years-past "
+                      "and actual callability. Deliberately mirrors app.pipeline.retrofit:rank_buildings' "
+                      "own service_life_years_past cap (100yr) rather than inventing a second definition of "
+                      "\"urgent\", and deliberately keeps tonnage a tie-breaker only (added only after "
+                      "urgency ties), same discipline rank_buildings itself uses for building size: never "
+                      "allowed to buy back urgency. Summing per-building years-past (rather than, say, "
+                      "averaging, or counting only buildings past some threshold) was chosen because it's "
+                      "the simplest formula that satisfies the one concrete test case this was built "
+                      "against -- a small severely-overdue cluster should outrank a larger merely-old one "
+                      "-- not validated against actual booked/lost deals, since none exist yet for this "
+                      "board.",
     ))
 
     return out

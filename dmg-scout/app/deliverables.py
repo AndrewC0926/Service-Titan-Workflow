@@ -31,6 +31,11 @@ def write_call_list(session: Session, out_path: Path) -> int:
             "confidence_flag", "estimate_basis", "stage", "days_to_est_bid", "score",
             "contact_name", "contact_title", "contact_company", "ladder_rung",
             "rung_meaning", "contact_source_url",
+            # Appended, not inserted, to keep every existing column's position stable
+            # for anything already parsing this file positionally rather than by
+            # header name. Empty unless the stage has a measured interval (currently
+            # only entitlement) -- see Project.days_to_estimated_bid_low's docstring.
+            "days_to_est_bid_ci_low", "days_to_est_bid_ci_high",
         ])
         for rank, p in enumerate(projects, 1):
             contact = best_contact(session, p)
@@ -48,6 +53,8 @@ def write_call_list(session: Session, out_path: Path) -> int:
                 contact["rung"] if contact else "",
                 contact["rung_label"] if contact else "",
                 (contact.get("source_url") or "") if contact else "",
+                p.days_to_estimated_bid_low if p.days_to_estimated_bid_low is not None else "",
+                p.days_to_estimated_bid_high if p.days_to_estimated_bid_high is not None else "",
             ])
     return len(projects)
 
@@ -83,6 +90,8 @@ def write_baseline(session: Session, out_path: Path) -> dict:
                 "low_confidence": p.estimate_low_confidence,
                 "stage": p.stage.value, "window": p.window.value,
                 "score": p.score, "days_to_estimated_bid": p.days_to_estimated_bid,
+                "days_to_estimated_bid_low": p.days_to_estimated_bid_low,
+                "days_to_estimated_bid_high": p.days_to_estimated_bid_high,
                 "in_territory": p.in_territory, "status": p.status,
                 "last_signal_at": p.last_signal_at.isoformat() if p.last_signal_at else None,
             }
