@@ -89,12 +89,25 @@ def certainty(cfg: Config, signal_types: list[SignalType]) -> float:
     return certainty_detail(cfg, signal_types)[0]
 
 
-def size_factor(tons_midpoint: float | None) -> float:
+def size_factor(cfg: Config, tons_midpoint: float | None) -> float:
     """Log-scaled so a 10x bigger project doesn't drown out winnability.
-    1,000 tons -> 1.0; 10,000 -> 2.0; 100,000 -> 3.0. Unknown size -> 0.5."""
+    At the defaults below (offset=2.0, floor=0.25): 1,000 tons -> 1.0;
+    10,000 -> 2.0; 100,000 -> 3.0. Unknown size -> unknown_default (0.5).
+
+    Config-tunable as of 2026-08-16 -- was hardcoded until a sensitivity
+    sweep (see app/assumptions.py) found this the single most sensitive
+    constant in the whole scoring system (98% of board rows moved, only
+    10 of the top 20 survived, at a ±50% perturbation of the offset) with
+    no way to calibrate it at all. Moved into scoring.size_factor in
+    config.yaml with these three defaults reproducing the exact prior
+    hardcoded behavior -- confirmed byte-identical Project.score for
+    every active project against production before this shipped."""
+    table = cfg.get("scoring.size_factor", {})
     if not tons_midpoint or tons_midpoint <= 0:
-        return 0.5
-    return max(0.25, math.log10(tons_midpoint) - 2.0)
+        return table.get("unknown_default", 0.5)
+    offset = table.get("offset", 2.0)
+    floor = table.get("floor", 0.25)
+    return max(floor, math.log10(tons_midpoint) - offset)
 
 
 def identity_factor(cfg: Config, name: str | None, developer: str | None,
@@ -143,7 +156,7 @@ def priority_score(
     return round(
         certainty(cfg, signal_types)
         * mult
-        * size_factor(tons_midpoint)
+        * size_factor(cfg, tons_midpoint)
         * recency_decay(cfg, last_signal_at, now),
         4,
     )

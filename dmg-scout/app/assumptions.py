@@ -142,19 +142,36 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None) ->
         config_path="scoring.recency_halflife_days",
         value=f"{rh:.0f} days",
         source_type=PLACEHOLDER,
-        source_detail="\"No new signal in 180 days ~ halves the score.\" A round-number judgment call — not "
-                      "measured against how often a quiet-for-180-days project has actually gone stale versus "
-                      "simply being between filings.",
+        source_detail="\"No new signal in 180 days ~ halves the score.\" A round-number judgment call, and "
+                      "still not being changed in this pass -- there are no call outcomes to fit a decay "
+                      "rate against. What Scout's own history CAN show, as a proxy (checked 2026-08-16): the "
+                      "distribution of gaps between successive signals on the same project -- how often new "
+                      "information actually arrives, not how fast confidence in stale information should "
+                      "decay, a related but distinct question. 90 projects have 2+ dated signals, 115 "
+                      "consecutive gaps: median 130 days, mean 159, p25=53, p75=236, p90=319 (18% of gaps "
+                      "≤30d, 63% ≤180d, 6% >365d). 180 days sits between the median and p75 -- a plausible "
+                      "ballpark, not a validated number: a project that averages a new filing every 130 days "
+                      "isn't necessarily one whose SCORE should have halved by day 180, and this proxy can't "
+                      "tell the two apart. Does not prove 180 is correct, or measure the actual thing this "
+                      "constant claims (how fast a REP's confidence a project is still live should erode).",
     ))
 
+    sfc = cfg.get("scoring.size_factor", {})
     out.append(Assumption(
         group="Score weights", name="Size factor formula",
-        config_path=None,
-        value="max(0.25, log10(tons_midpoint) − 2.0); unknown size → 0.5",
+        config_path="scoring.size_factor",
+        value=f"max({sfc.get('floor', 0.25):.2f}, log10(tons_midpoint) − {sfc.get('offset', 2.0):.2f}); "
+             f"unknown size → {sfc.get('unknown_default', 0.5):.2f}",
         source_type=PLACEHOLDER,
-        source_detail="Hardcoded in app/pipeline/scoring.py — not even config-tunable without a code change, "
-                      "unlike every other row on this page. Log-scaled so a 10x bigger project doesn't drown "
-                      "out winnability; the specific −2.0 offset and 0.25 floor are not measured.",
+        source_detail="Config-tunable as of 2026-08-16 -- was hardcoded in app/pipeline/scoring.py, the one "
+                      "row on this page with no config_path at all, until a sensitivity sweep (see this "
+                      "page's own methodology, and the offset/floor/unknown_default fields' commit history) "
+                      "found it the single most sensitive constant in the whole scoring system: a ±50% "
+                      "perturbation of the offset moved 98% of board rows and only 10 of the top 20 "
+                      "survived, with no way to calibrate it. Log-scaled so a 10x bigger project doesn't "
+                      "drown out winnability; the specific offset/floor/unknown_default values are still "
+                      "not measured against anything -- being tunable now is what makes that possible next, "
+                      "not evidence it's already been done.",
     ))
 
     ip = cfg.get("scoring.identity_penalty", {})
@@ -166,7 +183,19 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None) ->
         source_detail="Steep on purpose — a row missing two of {name, developer, county} scores near zero. "
                       "Design decision to suppress placeholder rows (\"Unnamed project (Storey)\" once "
                       "outranked fully-identified rows), not a measured relationship between missing fields "
-                      "and actual callability.",
+                      "and actual callability, and still not being changed in this pass -- there are no call "
+                      "outcomes to fit against. Proxy checked 2026-08-16: whether a project ever flagged "
+                      "with uncertain identity later resolved (merged into a fuller duplicate) or was "
+                      "dropped (lost/dead/archived), vs staying an open lead. Genuinely thin, and one real "
+                      "limitation up front -- Project has no history of past identity states, so this is "
+                      "CURRENT snapshot, not \"flagged then later resolved\": of 335 projects, 247 are fully "
+                      "identified (1 merged, 0.4%), 80 are missing one field (1 merged, 1.25%), 5 are "
+                      "missing two, 3 are missing all three (0 merged from either). Only 2 merges exist in "
+                      "this system's entire history, and ZERO projects have ever reached lost/dead/archived "
+                      "-- there is no dropped population to compare against AT ALL yet. Consistent with (not "
+                      "proof of) thinner identity meaning a duplicate is somewhat likelier, at a sample size "
+                      "(n=2) nowhere near large enough to size a penalty from, and answers only the "
+                      "\"merged\" half of the question the proxy was meant to check.",
     ))
 
     dtb = cfg.get("scoring.days_to_bid_by_stage", {})
@@ -321,15 +350,45 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None) ->
     ))
 
     isqft = cfg.get("sizing.industrial_sqft_per_ton_by_type", {})
+    isqft_other = {k: v for k, v in isqft.items() if k != "cleanroom"}
     out.append(Assumption(
-        group="Equipment sizing", name="Industrial sqft/ton, by facility type (new-construction sizing)",
+        group="Equipment sizing", name="Industrial sqft/ton — cleanroom",
+        config_path="sizing.industrial_sqft_per_ton_by_type.cleanroom",
+        value=f"{isqft.get('cleanroom', {}).get('low', '?')}–{isqft.get('cleanroom', {}).get('high', '?')} sqft/ton",
+        source_type=RULE_OF_THUMB,
+        source_detail="Upgraded 2026-08-16 from a bare stated figure once a fit was attempted and found "
+                      "corroboration, not a fit: a peer-reviewed semiconductor-cleanroom cooling-load study "
+                      "(200-1,400 W/m², ScienceDirect 10.1016/j.energy.2023.129948) plus an industry "
+                      "technical source (60-220 W/sqft electrical load, airinnovations.com) convert to "
+                      "roughly 16-190 sqft/ton. Wide — cleanroom load varies enormously by ISO class — but "
+                      "this figure sits inside it. The value itself is UNCHANGED (still Andrew's original "
+                      "50-150): the published range corroborates it without being precise enough to justify "
+                      "moving it. Scout's own project data gave zero usable ground truth (see the sibling "
+                      "'other facility types' entry) — this classification rests entirely on the published "
+                      "sources above, not on anything measured internally.",
+    ))
+    out.append(Assumption(
+        group="Equipment sizing", name="Industrial sqft/ton — other facility types",
         config_path="sizing.industrial_sqft_per_ton_by_type",
-        value=(f"{len(isqft)} types, "
-              f"{min(b['low'] for b in isqft.values())}–{max(b['high'] for b in isqft.values())} sqft/ton"
-              if isqft else "—"),
+        value=(f"{len(isqft_other)} types, "
+              f"{min(b['low'] for b in isqft_other.values())}–{max(b['high'] for b in isqft_other.values())} sqft/ton"
+              if isqft_other else "—"),
         source_type=STATED,
         source_detail="\"These are Andrew's numbers, not defaults — the spread across types is 50x, so type "
-                      "matters more than area\" — verbatim from config.yaml. Stated by name, no date recorded.",
+                      "matters more than area\" — verbatim from config.yaml. Stated by name, no date "
+                      "recorded. A fit was attempted 2026-08-16 (see cleanroom's sibling entry for the one "
+                      "type it worked for) and came back empty for these five: Scout's own data has only 3 "
+                      "industrial signals in the whole system stating both floor area and any MW/generator "
+                      "field, and all 3 fail the app's own data-completeness rules for an independent "
+                      "tonnage figure (no generator corroboration, or an incomplete generator record) — "
+                      "n=0 usable ground truth. Published ASHRAE/AHRI figures: nothing credible found for "
+                      "distribution_fulfillment, warehouse_conditioned, light_manufacturing, or "
+                      "heavy_manufacturing (only mutually-contradictory, uncited web rules of thumb — one "
+                      "pair disagreed by ~3x for the same building type); office_rnd had one source "
+                      "attributing 190-360 sqft/ton to ASHRAE \"national average data\", but with no "
+                      "specific handbook/table/edition cited and no coverage of the R&D-equipment-load "
+                      "component this type is meant to capture — too weak to act on. Left exactly as "
+                      "stated rather than fit on data that doesn't exist.",
         last_reviewed=None,
     ))
 

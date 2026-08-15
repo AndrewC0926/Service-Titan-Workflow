@@ -127,7 +127,13 @@
   <td class="nowrap">{{ p.county or '?' }}{{ ', ' + p.state if p.state }}</td>
   <td class="num nowrap">
     {%- if p.tons_estimate_low -%}
-      {%- set tons_assumption = 'Industrial sqft/ton, by facility type (new-construction sizing)'
+      {#- Industrial sqft/ton split into two entries 2026-08-16 (cleanroom got
+          real published corroboration, the other five didn't) -- estimate_basis
+          embeds the facility_type verbatim (see _industrial_from_sqft), so a
+          substring check routes the link correctly without new plumbing. #}
+      {%- set tons_assumption = 'Industrial sqft/ton — cleanroom'
+            if ('cleanroom' in (p.estimate_basis or '') and p.category.value in ('industrial', 'esco'))
+            else 'Industrial sqft/ton — other facility types'
             if (p.estimate_low_confidence and p.category.value in ('industrial', 'esco'))
             else 'Data center watts/sqft fallback' if p.estimate_low_confidence
             else 'Tons per MW installed (default)' -%}

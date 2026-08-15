@@ -83,11 +83,21 @@ def test_recency_decay_halves_at_halflife(cfg):
     assert recency_decay(cfg, now, now) > 0.99
 
 
-def test_size_factor_log_scaled():
-    assert size_factor(1_000) == 1.0
-    assert size_factor(10_000) == 2.0
-    assert size_factor(None) == 0.5
-    assert size_factor(10) == 0.25  # floor
+def test_size_factor_log_scaled(cfg):
+    assert size_factor(cfg, 1_000) == 1.0
+    assert size_factor(cfg, 10_000) == 2.0
+    assert size_factor(cfg, None) == 0.5
+    assert size_factor(cfg, 10) == 0.25  # floor
+
+
+def test_size_factor_reads_config_not_hardcoded():
+    """The whole point of moving this into config.yaml -- a different
+    offset/floor/unknown_default must actually change the result."""
+    from app.config import Config
+    cfg = Config({"scoring": {"size_factor": {"offset": 1.0, "floor": 0.1, "unknown_default": 0.9}}})
+    assert size_factor(cfg, 1_000) == 2.0  # log10(1000) - 1.0 = 2.0, not the old 1.0
+    assert size_factor(cfg, 10) == 0.1     # custom floor, not the old 0.25
+    assert size_factor(cfg, None) == 0.9   # custom unknown_default, not the old 0.5
 
 
 def test_days_to_bid(cfg):

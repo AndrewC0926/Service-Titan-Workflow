@@ -76,26 +76,53 @@ def test_equipment_value_per_ton_is_measured_with_mixed_verified_detail(cfg):
 
 
 def test_industrial_sqft_per_ton_attributed_to_named_person(cfg):
-    entry = next(a for a in load_assumptions(cfg) if "Industrial sqft/ton" in a.name)
+    """The five facility types a 2026-08-16 fit attempt came back empty for
+    -- still Andrew's stated numbers. Cleanroom (upgraded to rule-of-thumb)
+    is a separate entry, see test_industrial_sqft_per_ton_cleanroom_split_
+    from_the_rest."""
+    entry = next(a for a in load_assumptions(cfg) if a.name == "Industrial sqft/ton — other facility types")
     assert entry.source_type == STATED
     assert "Andrew" in entry.source_detail
 
 
 def test_retrofit_sqft_per_ton_is_rule_of_thumb_not_conflated_with_new_construction(cfg):
     """Two genuinely different tables (new-construction sizing vs. retrofit
-    tonnage estimate) must appear as two separate entries, not merged."""
+    tonnage estimate) must appear as separate entries, not merged."""
     names = [a.name for a in load_assumptions(cfg)]
-    assert any("new-construction sizing" in n for n in names)
+    assert any(n.startswith("Industrial sqft/ton") for n in names)
     assert any("retrofit tonnage estimate" in n for n in names)
     entry = next(a for a in load_assumptions(cfg) if "retrofit tonnage estimate" in a.name)
     assert entry.source_type == RULE_OF_THUMB
 
 
-def test_size_factor_formula_flagged_as_not_config_tunable(cfg):
-    """The one constant that isn't even in config.yaml -- must be visible
-    on the register anyway, with config_path=None disclosed as such."""
-    entry = next(a for a in load_assumptions(cfg) if a.name == "Size factor formula")
+def test_industrial_sqft_per_ton_cleanroom_split_from_the_rest(cfg):
+    """Fit attempted 2026-08-16: cleanroom got real published corroboration
+    (upgraded to rule-of-thumb), the other five didn't (stay stated-by-
+    Andrew) -- two different classifications must not be blended under one
+    entry, same discipline the days-to-bid split already established."""
+    cleanroom = next(a for a in load_assumptions(cfg) if a.name == "Industrial sqft/ton — cleanroom")
+    assert cleanroom.source_type == RULE_OF_THUMB
+    assert "50" in cleanroom.value and "150" in cleanroom.value  # value unchanged, only classification moved
+
+    other = next(a for a in load_assumptions(cfg) if a.name == "Industrial sqft/ton — other facility types")
+    assert other.source_type == STATED
+    assert "cleanroom" not in other.value.lower()  # the 5-type summary must not include the split-out type
+
+
+def test_hardcoded_constants_disclosed_with_config_path_none(cfg):
+    """A constant not even in config.yaml must be visible on the register
+    anyway, with config_path=None disclosed as such."""
+    entry = next(a for a in load_assumptions(cfg) if a.name == "Urgency weighting formula")
     assert entry.config_path is None
+
+
+def test_size_factor_formula_is_now_config_tunable(cfg):
+    """Was the one entry with config_path=None until a sensitivity sweep
+    found it the most sensitive constant in the system with no way to
+    calibrate it -- moved into scoring.size_factor 2026-08-16."""
+    entry = next(a for a in load_assumptions(cfg) if a.name == "Size factor formula")
+    assert entry.config_path == "scoring.size_factor"
+    assert entry.source_type == PLACEHOLDER  # tunable now, still not measured
 
 
 def test_source_tally_sums_to_total_and_respects_order(cfg):
@@ -147,6 +174,24 @@ def test_contractor_ranking_radius_and_formula_are_registered(cfg):
     formula = next(a for a in load_assumptions(cfg) if a.name == "Urgency weighting formula")
     assert formula.source_type == PLACEHOLDER
     assert formula.config_path is None  # hardcoded in app.contractors, not config.yaml
+
+
+def test_recency_halflife_value_unchanged_evidence_only(cfg):
+    """Explicit instruction for this pass: proxy evidence, no value change,
+    still classified placeholder -- a proxy is not a fit."""
+    entry = next(a for a in load_assumptions(cfg) if a.name == "Recency half-life")
+    assert entry.value == "180 days"
+    assert entry.source_type == PLACEHOLDER
+    assert "130 days" in entry.source_detail  # the measured median gap, not a new half-life
+    assert "does not prove" in entry.source_detail.lower() or "not measure" in entry.source_detail.lower()
+
+
+def test_identity_penalty_value_unchanged_evidence_only(cfg):
+    entry = next(a for a in load_assumptions(cfg) if a.name == "Identity penalty")
+    assert entry.value == "1=0.70, 2=0.25, 3=0.10"
+    assert entry.source_type == PLACEHOLDER
+    assert "2 merges" in entry.source_detail or "n=2" in entry.source_detail
+    assert "lost/dead/archived" in entry.source_detail or "dropped population" in entry.source_detail.lower()
 
 
 def test_placeholder_is_the_honest_majority_not_hidden(cfg):

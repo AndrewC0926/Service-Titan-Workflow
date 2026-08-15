@@ -208,7 +208,7 @@ def score_breakdown(cfg: Config, *, signal_types: list[SignalType], window: Wind
         "Window", mult, f"{window.value.replace('_', '-')} -> ×{mult:.2f}"))
     running *= mult
 
-    sf = size_factor(tons_midpoint)
+    sf = size_factor(cfg, tons_midpoint)
     sf_detail = (f"{tons_midpoint:,.0f} tons (midpoint) -> ×{sf:.2f}" if tons_midpoint
                 else f"size unknown -> default ×{sf:.2f}")
     terms.append(ScoreTerm("Size", sf, sf_detail))
