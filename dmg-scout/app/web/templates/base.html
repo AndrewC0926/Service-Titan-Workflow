@@ -55,6 +55,7 @@
     <a href="/ask" class="tab" {% if active=='ask' %}aria-current="page"{% endif %}>Ask</a>
     <a href="/searches" class="tab" {% if active=='searches' %}aria-current="page"{% endif %}>Saved searches</a>
     <a href="/outreach" class="tab" {% if active=="outreach" %}aria-current="page"{% endif %}>Outreach</a>
+    <a href="/captures" class="tab" {% if active=='captures' %}aria-current="page"{% endif %}>Captures{% if pending_capture_count %} <span class="tab-badge">{{ pending_capture_count }}</span>{% endif %}</a>
     <a href="/accounts" class="tab" {% if active=='accounts' %}aria-current="page"{% endif %}>Accounts</a>
     <a href="/lines" class="tab" {% if active=='lines' %}aria-current="page"{% endif %}>Line card</a>
     <a href="/firms" class="tab" {% if active=='firms' %}aria-current="page"{% endif %}>Firms</a>

@@ -443,7 +443,8 @@ def log_outreach(project_id: int, notes: str, channel: str = "call",
     from datetime import datetime
 
     from app.db import session_scope
-    from app.models import Outreach, Project
+    from app.models import Project
+    from app.outreach import log_outreach as _log_outreach
 
     parsed_date = None
     if next_action_date:
@@ -456,8 +457,8 @@ def log_outreach(project_id: int, notes: str, channel: str = "call",
         project = session.get(Project, project_id)
         if project is None:
             return f"No project #{project_id}."
-        session.add(Outreach(project_id=project_id, channel=channel, notes=notes,
-                             next_action=next_action, next_action_date=parsed_date))
+        _log_outreach(session, project_id=project_id, channel=channel, notes=notes,
+                     next_action=next_action, next_action_date=parsed_date)
         confirmation = f"Logged: {channel} on #{project.id} {project.name} — {notes}"
         if next_action:
             confirmation += f" — next: {next_action}"

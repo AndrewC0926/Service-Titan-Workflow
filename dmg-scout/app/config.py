@@ -60,3 +60,18 @@ def database_url() -> str:
 
 def anthropic_api_key() -> str | None:
     return os.environ.get("ANTHROPIC_API_KEY")
+
+
+def openai_api_key() -> str | None:
+    """Whisper transcription only (app/pipeline/voice_capture.py) -- every
+    other LLM call in this codebase goes through Anthropic."""
+    return os.environ.get("OPENAI_API_KEY")
+
+
+def capture_api_key() -> str | None:
+    """Bearer token for POST /capture/voice (the iOS Shortcut endpoint) --
+    deliberately separate from DASHBOARD_PASSWORD (app/web/main.py:auth):
+    a phone automation credential and an interactive human login are
+    different secrets with different exposure surfaces, and a leaked one
+    should not hand over the other."""
+    return os.environ.get("CAPTURE_API_KEY")

@@ -27,6 +27,10 @@ services:
         sync: false
       - key: RESEND_API_KEY
         sync: false
+      - key: OPENAI_API_KEY   # Whisper transcription only -- see app/pipeline/voice_capture.py
+        sync: false
+      - key: CAPTURE_API_KEY  # bearer token for POST /capture/voice (the iOS Shortcut), separate
+        sync: false          # from DASHBOARD_PASSWORD on purpose -- see app/config.py:capture_api_key
 
   - type: cron
     name: dmg-scout-pipeline

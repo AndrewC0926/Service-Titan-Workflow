@@ -10,8 +10,8 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.security import HTTPBasic, HTTPBasicCredentials, HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, func, or_, select
@@ -36,6 +36,7 @@ from app.models import (
     OUTCOME_STATUSES,
     Account,
     AccountCoverage,
+    CaptureAudio,
     Category,
     Contact,
     Contractor,
@@ -48,6 +49,7 @@ from app.models import (
     ProjectFirm,
     ProjectSignal,
     RawDocument,
+    ReviewQueue,
     RetrofitBuilding,
     SavedSearch,
     Signal,
@@ -156,6 +158,25 @@ def auth(credentials: HTTPBasicCredentials = Depends(security)) -> str:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED,
                             headers={"WWW-Authenticate": "Basic"})
     return credentials.username
+
+
+capture_bearer = HTTPBearer(auto_error=False)
+
+
+def capture_auth(credentials: HTTPAuthorizationCredentials = Depends(capture_bearer)) -> str:
+    """Auth for POST /capture/voice (the iOS Shortcut endpoint) -- a bearer
+    token via CAPTURE_API_KEY, deliberately separate from the dashboard's
+    HTTP Basic DASHBOARD_PASSWORD (see auth() above and
+    app.config.capture_api_key's docstring)."""
+    from app.config import capture_api_key
+    key = capture_api_key()
+    if not key:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="CAPTURE_API_KEY env var is not set")
+    if credentials is None or not secrets.compare_digest(credentials.credentials, key):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED,
+                            headers={"WWW-Authenticate": "Bearer"})
+    return "capture"
 
 
 @app.get("/healthz")
@@ -612,16 +633,15 @@ def save_notes(project_id: int, notes: str = Form(""), next_action: str = Form("
 
 
 @app.post("/project/{project_id}/outreach")
-def log_outreach(project_id: int, request: Request, channel: str = Form("call"),
-                 notes: str = Form(""), next_action: str = Form(""),
-                 session: Session = Depends(get_session), _: str = Depends(auth)):
+def log_outreach_form(project_id: int, request: Request, channel: str = Form("call"),
+                      notes: str = Form(""), next_action: str = Form(""),
+                      session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.outreach import log_outreach
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(404)
-    o = Outreach(project_id=project_id, channel=channel, notes=notes,
-                next_action=next_action or None)
-    session.add(o)
-    session.commit()
+    o = log_outreach(session, project_id=project_id, channel=channel, notes=notes,
+                     next_action=next_action or None)
     # The Today page's one-tap "called them" button posts here via HTMX and
     # must NOT navigate away — that is the whole point of one-tap. A plain
     # browser form (the project page's own outreach log) has no HX-Request
@@ -1554,3 +1574,157 @@ def add_signal_submit(
     # Land on the board the entry actually went to, not the default one.
     return RedirectResponse(f"/?category={category or Category.data_center.value}",
                             status_code=303)
+
+
+# --- Voice capture: iOS Shortcut -> transcribe -> extract -> resolve ->     -
+# --- review_queue proposal -> human confirms/rejects. See                  -
+# --- app/pipeline/voice_capture.py for the full chain and app/outreach.py  -
+# --- for the one writer a confirm calls through.                           -
+
+@app.post("/capture/voice")
+async def capture_voice(file: UploadFile = File(...), _: str = Depends(capture_auth),
+                        session: Session = Depends(get_session)):
+    """Authenticated multipart endpoint the iOS Shortcut posts a recorded
+    voice note to. Deliberately returns plain text, not HTML/JSON with a
+    schema to maintain -- the Shortcut only needs to know it worked; the
+    actual review happens later at /captures on a browser."""
+    from app.pipeline.voice_capture import MAX_UPLOAD_BYTES, TranscriptionFailed, capture_voice_note
+
+    audio_bytes = await file.read()
+    if not audio_bytes:
+        raise HTTPException(400, detail="empty upload")
+    if len(audio_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, detail=f"{len(audio_bytes)} bytes exceeds the "
+                                        f"{MAX_UPLOAD_BYTES}-byte limit")
+    try:
+        row = capture_voice_note(
+            session, load_config(), audio_bytes=audio_bytes,
+            filename=file.filename or "capture.m4a",
+            content_type=file.content_type or "audio/m4a",
+        )
+    except TranscriptionFailed as exc:
+        # The one failure with nothing to review yet -- no transcript exists,
+        # so there is no partial capture worth keeping. Every failure AFTER
+        # this point (extraction, matching) is instead absorbed into the
+        # review_queue row itself -- see capture_voice_note.
+        raise HTTPException(502, detail=f"transcription failed: {exc}") from exc
+    return Response(content=f"logged, review at /captures/{row.id}\n", media_type="text/plain")
+
+
+@app.get("/captures", response_class=HTMLResponse)
+def captures_list(request: Request, status_filter: str = "pending",
+                  session: Session = Depends(get_session), _: str = Depends(auth)):
+    q = select(ReviewQueue).order_by(ReviewQueue.created_at.desc())
+    if status_filter and status_filter != "all":
+        q = q.where(ReviewQueue.status == status_filter)
+    rows = session.exec(q.limit(200)).all()
+    pending_capture_count = session.exec(
+        select(func.count()).select_from(select(ReviewQueue).where(ReviewQueue.status == "pending").subquery())
+    ).one()
+    return templates.TemplateResponse(request, "captures.html", {
+        "rows": rows, "status_filter": status_filter, "pending_capture_count": pending_capture_count,
+        "tb": _title_block(session), "active": "captures",
+    })
+
+
+@app.get("/captures/{capture_id}", response_class=HTMLResponse)
+def capture_review(capture_id: int, request: Request,
+                   session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.voice_match import resolve_all
+
+    row = session.get(ReviewQueue, capture_id)
+    if row is None:
+        raise HTTPException(404)
+    # Candidates were computed once at capture time and are stored in
+    # provenance for the record, but re-resolved live here too: Scout's own
+    # contacts/firms/projects keep changing after a capture lands in the
+    # queue (a contact gets added, a project gets renamed), and a reviewer
+    # picking from a stale candidate list is worse than one extra query.
+    payload = row.proposed_payload or {}
+    candidates = resolve_all(
+        session, contact_name=payload.get("contact_name"), firm_name=payload.get("firm_name"),
+        project_or_building_name=payload.get("project_or_building_name"),
+    )
+    return templates.TemplateResponse(request, "capture_review.html", {
+        "row": row, "payload": payload, "candidates": candidates,
+        "tb": _title_block(session), "active": "captures",
+    })
+
+
+@app.get("/captures/{capture_id}/audio")
+def capture_audio_file(capture_id: int, session: Session = Depends(get_session), _: str = Depends(auth)):
+    row = session.get(ReviewQueue, capture_id)
+    if row is None:
+        raise HTTPException(404)
+    audio_id = (row.provenance or {}).get("audio_id")
+    audio = session.get(CaptureAudio, audio_id) if audio_id else None
+    if audio is None:
+        raise HTTPException(404, detail="no audio stored for this capture")
+    return Response(content=audio.data, media_type=audio.content_type)
+
+
+@app.post("/captures/{capture_id}/confirm", response_class=HTMLResponse)
+def capture_confirm(capture_id: int, request: Request,
+                    project_id: int = Form(...), contact_id: str = Form(""),
+                    notes: str = Form(""), next_action: str = Form(""),
+                    next_action_date: str = Form(""), channel: str = Form("call"),
+                    session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Confirm calls app.outreach.log_outreach -- the SAME writer the
+    dashboard's own outreach form and the log_outreach MCP tool use -- so
+    this review card is never a second, independent way an Outreach row
+    gets created. project_id is required: Outreach has no unresolved-entity
+    concept, so a capture with no project picked cannot be confirmed (see
+    app/voice_match.py:resolve_project's docstring) -- edit the field or
+    reject instead."""
+    from datetime import datetime
+
+    from app.outreach import log_outreach
+
+    row = session.get(ReviewQueue, capture_id)
+    if row is None:
+        raise HTTPException(404)
+    if row.status != "pending":
+        raise HTTPException(409, detail=f"capture #{capture_id} is already {row.status}")
+    project = session.get(Project, project_id)
+    if project is None:
+        raise HTTPException(400, detail=f"no project #{project_id}")
+
+    parsed_date = None
+    if next_action_date.strip():
+        try:
+            parsed_date = datetime.fromisoformat(next_action_date.strip())
+        except ValueError:
+            raise HTTPException(400, detail=f"could not parse next_action_date {next_action_date!r}")
+
+    log_outreach(session, project_id=project_id,
+                contact_id=int(contact_id) if contact_id.strip() else None,
+                channel=channel, notes=notes, next_action=next_action or None,
+                next_action_date=parsed_date)
+
+    row.status = "approved"
+    row.decided_at = utcnow()
+    session.add(row)
+    session.commit()
+    if request.headers.get("HX-Request"):
+        return HTMLResponse(f'<span class="ok">✓ Confirmed — logged on #{project.id} {project.name}</span>')
+    return RedirectResponse("/captures", status_code=303)
+
+
+@app.post("/captures/{capture_id}/reject", response_class=HTMLResponse)
+def capture_reject(capture_id: int, request: Request,
+                   session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Discards the proposal. Nothing about a rejected capture is ever
+    written anywhere else -- the row (and its audio/transcript) stays for
+    audit, but log_outreach is never called."""
+    row = session.get(ReviewQueue, capture_id)
+    if row is None:
+        raise HTTPException(404)
+    if row.status != "pending":
+        raise HTTPException(409, detail=f"capture #{capture_id} is already {row.status}")
+    row.status = "rejected"
+    row.decided_at = utcnow()
+    session.add(row)
+    session.commit()
+    if request.headers.get("HX-Request"):
+        return HTMLResponse('<span class="dim">Rejected — discarded.</span>')
+    return RedirectResponse("/captures", status_code=303)

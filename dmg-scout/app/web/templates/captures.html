@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Captures{% endblock %}
+{% block content %}
+
+<div class="sec-head">
+  <div class="sec-title">Voice captures — proposals from a phone call, never a final record</div>
+  <span class="note">Confirm writes to the outreach log; reject discards. See /assumptions for how names get matched.</span>
+</div>
+
+<div class="mb-2 flex flex-wrap items-center gap-1.5">
+  {% for key, label in [('pending','Pending'), ('approved','Confirmed'), ('rejected','Rejected'), ('all','All')] %}
+  <a href="/captures?status_filter={{ key }}" class="chip" aria-pressed="{{ 'true' if status_filter == key else 'false' }}">{{ label }}</a>
+  {% endfor %}
+</div>
+
+<table class="tbl">
+<colgroup><col style="width:9rem"><col style="width:16rem"><col style="width:14rem"><col style="width:22rem"><col style="width:7rem"><col style="width:9rem"></colgroup>
+<thead><tr>
+  <th>Captured</th><th>Contact / firm</th><th>Project or building</th><th>Outcome</th>
+  <th class="num">Confidence</th><th>Status</th>
+</tr></thead>
+<tbody>
+{% for r in rows %}
+<tr>
+  <td class="note nowrap">{{ r.created_at.strftime('%b %-d, %-I:%M %p') }}</td>
+  <td>
+    <a href="/captures/{{ r.id }}">{{ r.proposed_payload.contact_name or '(no name captured)' }}</a>
+    {% if r.proposed_payload.firm_name %}<div class="note">{{ r.proposed_payload.firm_name }}</div>{% endif %}
+  </td>
+  <td>{{ r.proposed_payload.project_or_building_name or '—' }}</td>
+  <td class="note clamp2">{{ r.proposed_payload.outcome or (r.provenance.extraction_error and 'extraction failed — transcript only, fill in by hand') or '—' }}</td>
+  <td class="num mono">{{ '%.2f'|format(r.confidence) if r.confidence is not none else '—' }}</td>
+  <td>
+    {%- if r.status == 'pending' -%}<span class="stamp stamp-in">pending</span>
+    {%- elif r.status == 'approved' -%}<span class="stamp stamp-pre">confirmed</span>
+    {%- else -%}<span class="note">rejected</span>{%- endif -%}
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="6" class="note">No captures yet. Record a voice note via the iOS Shortcut and it will land here.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}

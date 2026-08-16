@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Capture #{{ row.id }}{% endblock %}
+{% block content %}
+
+<div class="sec-head">
+  <div class="sec-title">Capture #{{ row.id }} — {{ row.created_at.strftime('%b %-d, %Y %-I:%M %p') }}</div>
+  <span class="note">A proposal, not a record yet — edit anything below, then confirm or reject.</span>
+</div>
+
+{% if row.status != 'pending' %}
+<div class="callout callout-warn">
+  <strong>Already {{ row.status }}</strong>
+  <span class="body">Decided {{ row.decided_at.strftime('%b %-d, %-I:%M %p') if row.decided_at else '' }}. Shown read-only below.</span>
+</div>
+{% endif %}
+
+{% if row.provenance.extraction_error %}
+<div class="callout callout-warn">
+  <strong>Extraction failed — nothing was proposed automatically</strong>
+  <span class="body">{{ row.provenance.extraction_error }}. The transcript below is still real; fill in the fields
+    by hand from it, or reject if the call isn't worth logging.</span>
+</div>
+{% endif %}
+
+<div id="capture-card">
+
+<div class="kv mb-3">
+  <div><div class="k">Confidence</div><div class="v mono">{{ '%.2f'|format(row.confidence) if row.confidence is not none else '—' }}</div></div>
+  <div><div class="k">Contact heard</div><div class="v">{{ payload.contact_name or '—' }}</div></div>
+  <div><div class="k">Firm heard</div><div class="v">{{ payload.firm_name or '—' }}</div></div>
+  <div><div class="k">Project/building heard</div><div class="v">{{ payload.project_or_building_name or '—' }}</div></div>
+  <div><div class="k">Stage stated</div><div class="v">{{ payload.stage or '—' }}</div></div>
+</div>
+
+<div class="mb-3">
+  <audio controls src="/captures/{{ row.id }}/audio" style="width:100%;max-width:32rem"></audio>
+</div>
+
+<div class="mb-3">
+  <div class="k">Full transcript</div>
+  <div class="note" style="white-space:pre-wrap;max-width:52rem;border:1px solid var(--line,#ccc);padding:0.6rem;border-radius:4px">{{ row.provenance.transcript or '(empty transcript)' }}</div>
+</div>
+
+{% if row.status == 'pending' %}
+<form hx-post="/captures/{{ row.id }}/confirm" hx-target="#capture-card" hx-swap="innerHTML">
+  <div class="kv mb-3">
+    <div style="grid-column:span 2">
+      <div class="k">Project <span class="note">(required to confirm — see candidates below)</span></div>
+      <select name="project_id" required>
+        <option value="">— select a project —</option>
+        {% for c in candidates.project %}
+        <option value="{{ c.entity_id }}">{{ c.label }} (match {{ c.score }})</option>
+        {% endfor %}
+      </select>
+      {% if not candidates.project %}
+      <div class="note">No project match found above {{ 60.0 }}. This capture can't be confirmed until one
+        exists in Scout — reject it and log the call by hand once the project is added, or edit the
+        project/building name above and reload.</div>
+      {% endif %}
+    </div>
+    <div style="grid-column:span 2">
+      <div class="k">Contact <span class="note">(optional)</span></div>
+      <select name="contact_id">
+        <option value="">— none —</option>
+        {% for c in candidates.contact %}
+        <option value="{{ c.entity_id }}">{{ c.label }} (match {{ c.score }})</option>
+        {% endfor %}
+      </select>
+      {% if candidates.firm or candidates.contractor %}
+      <div class="note">Firm/contractor candidates (reference only, not written — Outreach has no firm field):
+        {% for c in candidates.firm + candidates.contractor %}{{ c.label }} ({{ c.score }}){% if not loop.last %}, {% endif %}{% endfor %}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="mb-2">
+    <div class="k">Notes <span class="note">(from outcome — edit freely)</span></div>
+    <textarea name="notes" rows="3" style="width:100%;max-width:52rem">{{ payload.outcome or '' }}{% if payload.stage %}
+
+Stage: {{ payload.stage }}{% endif %}</textarea>
+  </div>
+
+  <div class="kv mb-3">
+    <div><div class="k">Next action</div>
+      <input type="text" name="next_action" value="{{ payload.next_action or '' }}" style="width:100%">
+    </div>
+    <div><div class="k">Next action date</div>
+      <input type="date" name="next_action_date" value="{{ payload.next_action_date or '' }}">
+    </div>
+    <div><div class="k">Channel</div>
+      <select name="channel">
+        {% for ch in ['call', 'text', 'email', 'meeting', 'other'] %}
+        <option value="{{ ch }}" {% if ch == 'call' %}selected{% endif %}>{{ ch }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <div class="flex gap-1.5">
+    <button type="submit">✓ Confirm — log to outreach</button>
+  </div>
+</form>
+
+<form hx-post="/captures/{{ row.id }}/reject" hx-target="#capture-card" hx-swap="innerHTML" class="mt-2">
+  <button type="submit" class="warn">Reject — discard this proposal</button>
+</form>
+{% endif %}
+
+</div>
+{% endblock %}

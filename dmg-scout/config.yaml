@@ -13,6 +13,11 @@ llm:
   extract_model: "claude-sonnet-4-6"
   adjudicate_model: "claude-sonnet-4-6"
   outreach_model: "claude-sonnet-4-6"  # see app/pipeline/fathom_outreach.py
+  # Sonnet 5, not 4-6: a short, well-scoped extraction task, and Sonnet 5's
+  # intro pricing ($2/$10 per MTok through 2026-08-31) runs out the same day
+  # this feature's own deadline does -- see app/assumptions.py's entry for
+  # this constant and app/pipeline/voice_capture.py's cost-per-capture math.
+  voice_capture_model: "claude-sonnet-5"
   # Triage reads the WHOLE document up to this, then falls to a spanning sample.
   # Was 6000, which meant 144 of 204 documents were classified on their first few
   # pages and 86% of all stored text never reached triage at all — an 82,724-char

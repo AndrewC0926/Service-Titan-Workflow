@@ -610,6 +610,36 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None) ->
                       "same document.",
     ))
 
+    # ---- Voice capture -----------------------------------------------------
+
+    import app.pipeline.voice_capture as vc
+    from app.voice_match import MATCH_THRESHOLD as _VM_THRESHOLD
+    out.append(Assumption(
+        group="Voice capture", name="Fuzzy name-match threshold (app.voice_match)",
+        config_path=None,
+        value=f"{_VM_THRESHOLD:.0f} / 100 (rapidfuzz token_sort_ratio), top 5 candidates shown",
+        source_type=PLACEHOLDER,
+        source_detail="A judgment call, not measured against labeled outcomes -- no confirmed/rejected "
+                      "capture history exists yet to fit against. Matches the floor "
+                      "app/importers/accounts_csv.py already uses for its own fuzzy account-name "
+                      "matching, for the same reasoning: below this, a suggestion trains the reviewer "
+                      "to stop reading the candidate list. Never auto-selects a match regardless of "
+                      "score -- every candidate is a suggestion a human picks from, at /captures/{id}.",
+    ))
+
+    out.append(Assumption(
+        group="Voice capture", name="Whisper transcription cost ($/minute)",
+        config_path=None,
+        value=f"${vc.WHISPER_USD_PER_MINUTE:.3f}/min ({vc.WHISPER_MODEL})",
+        source_type=MEASURED,
+        source_detail="OpenAI's own published rate for the whisper-1 endpoint as of 2026-08-16 -- "
+                      "not this system's own measurement, but a stated third-party price, not a "
+                      "guess. Duration-proportional (verbose_json's own reported duration), no "
+                      "per-request minimum. gpt-4o-mini-transcribe is cheaper ($0.003/min) but is a "
+                      "different, newer model this task did not ask for -- left as a future swap, "
+                      "not made here.",
+    ))
+
     return out
 
 

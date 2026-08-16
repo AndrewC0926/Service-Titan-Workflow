@@ -1,6 +1,10 @@
 """Extraction schema shared by the LLM layer and the pipeline. Nulls mean 'not stated'."""
 from __future__ import annotations
 
+from datetime import date
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
 EXTRACTION_JSON_SCHEMA: dict = {
     "type": "object",
     "properties": {
@@ -156,3 +160,65 @@ def coerce_extraction(data: dict) -> dict:
     except (TypeError, ValueError):
         out["confidence"] = 0.0
     return out
+
+
+class OutreachCallExtraction(BaseModel):
+    """Structured facts pulled from ONE voice-captured call note. See
+    app/pipeline/voice_capture.py.
+
+    Real Pydantic validation, deliberately distinct from coerce_extraction
+    above -- this is a review_queue PROPOSAL a human confirms before
+    anything is written, so a field that fails to validate should raise and
+    surface as an error on the capture, not silently clamp to null the way
+    coerce_extraction does for the fully-automated extract pipeline. Fields
+    the transcript doesn't clearly support are None -- the model is
+    instructed never to infer them (see VOICE_CAPTURE_SYSTEM in app/llm.py)
+    and this model does not backfill a guess either.
+
+    Names are NOT resolved here -- contact_name/firm_name/
+    project_or_building_name are exactly what the caller said, misheard
+    proper nouns and all. app.voice_match fuzzy-matches these against
+    Scout's own contacts/firms/projects and puts the resolution decision in
+    front of the human; this model's job is only to say clearly what the
+    transcript supports, not to guess which existing record it refers to.
+
+    model_json_schema() (extra="forbid" -> additionalProperties: false) IS
+    the Anthropic tool input_schema for constrained decoding -- see
+    VOICE_CAPTURE_TOOL in app/llm.py. One schema, not two hand-maintained
+    copies that could drift: the same definition both constrains what the
+    model can emit and validates what it did emit.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    contact_name: str | None = Field(
+        default=None, description="The person's name exactly as stated, e.g. as heard by "
+                                  "the caller -- do not correct or normalize spelling.")
+    firm_name: str | None = Field(default=None, description="The company/firm name, if named.")
+    project_or_building_name: str | None = Field(
+        default=None, description="The project or building name/address discussed, if named.")
+    outcome: str | None = Field(
+        default=None, max_length=1000,
+        description="What actually happened on this specific call -- 1-3 sentences, "
+                    "specific to the deal/project discussed, not a generic call recap.")
+    stage: str | None = Field(
+        default=None, max_length=100,
+        description="The deal/relationship stage as the caller described it (e.g. "
+                    "'prequalified', 'bid submitted', 'awarded', 'lost') -- verbatim or "
+                    "closely paraphrased, never inferred from context alone.")
+    next_action: str | None = Field(default=None, max_length=300)
+    next_action_date: date | None = Field(
+        default=None, description="ISO date (YYYY-MM-DD), only if a specific date or "
+                                  "clear timeframe was actually stated. Null otherwise.")
+    confidence: float = Field(ge=0.0, le=1.0)
+
+    @field_validator("contact_name", "firm_name", "project_or_building_name", "outcome",
+                     "stage", "next_action", mode="before")
+    @classmethod
+    def _blank_to_none(cls, v):
+        """The model sometimes emits "" or "unknown"/"not stated" instead of
+        the null the schema asks for -- treat those as null rather than
+        raising, since they carry the same meaning the schema intends."""
+        if v is None:
+            return None
+        s = str(v).strip()
+        return None if s == "" or s.lower() in ("unknown", "not stated", "n/a", "none") else s

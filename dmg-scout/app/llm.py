@@ -5,13 +5,28 @@ from __future__ import annotations
 
 import json
 import logging
+from contextvars import ContextVar
 
 import anthropic
 
 from app.config import anthropic_api_key, load_config
-from app.schemas import EXTRACTION_JSON_SCHEMA, coerce_extraction
+from app.schemas import EXTRACTION_JSON_SCHEMA, OutreachCallExtraction, coerce_extraction
 
 log = logging.getLogger(__name__)
+
+# Same ContextVar pattern app.spend uses for "the currently active run" and
+# app.pipeline_health for "the currently active pipeline_run" -- lets a
+# caller read what the call it JUST made cost without changing _tool_call's
+# return shape, which every other caller in this file already treats as a
+# plain dict. Set at the end of _tool_call; read via last_call_cost_usd().
+_last_call_cost_usd: ContextVar[float | None] = ContextVar("_last_call_cost_usd", default=None)
+
+
+def last_call_cost_usd() -> float | None:
+    """Cost of the most recent _tool_call in this task/thread, or None if
+    none has run yet. See app.pipeline.voice_capture for the one caller
+    that needs a per-call cost figure rather than just the daily total."""
+    return _last_call_cost_usd.get()
 
 TRIAGE_SYSTEM = """You triage documents for an HVAC manufacturers' rep firm that sells
 mechanical equipment into new buildings in California, Nevada and Arizona. You CLASSIFY;
@@ -309,7 +324,8 @@ def _tool_call(model: str, system: str, tool: dict, user_content: str,
         tool_choice={"type": "tool", "name": tool["name"]},
         messages=[{"role": "user", "content": user_content}],
     )
-    record(stage, model, resp.usage.input_tokens, resp.usage.output_tokens)
+    cost = record(stage, model, resp.usage.input_tokens, resp.usage.output_tokens)
+    _last_call_cost_usd.set(cost)
     for block in resp.content:
         if block.type == "tool_use" and block.name == tool["name"]:
             return dict(block.input)
@@ -473,3 +489,54 @@ def dc_news_facts(title: str, summary: str) -> dict:
     content = f"Title: {title}\n\nSummary: {summary}"
     return _tool_call(model, DC_NEWS_SYSTEM, DC_NEWS_TOOL, content,
                       max_tokens=256, stage="dc_news_enrichment")
+
+
+VOICE_CAPTURE_SYSTEM = """You extract structured facts about a sales call from a voice-note
+transcript for an HVAC/mechanical equipment manufacturers' rep firm. The transcript comes
+from a phone recording, not a written report — expect filler words, false starts, and
+misheard proper nouns from the transcription step itself; extract what the transcript
+actually says, not what you assume the caller meant.
+
+Rules — these are absolute:
+- NEVER guess or infer a value. If the transcript does not clearly state a field, return
+  null for it. A transcript that never gives a next-step date must leave next_action_date
+  null — do not default to "today", "tomorrow", or any other assumed date.
+- Do not correct, normalize, or "clean up" a name (person, firm, project, or building).
+  Transcribe it as heard, even if it sounds like it could be a mishearing — a downstream
+  fuzzy-match step handles reconciling it against known names, and normalizing it here
+  would hide the very ambiguity that step needs to see.
+- outcome is a factual account of what happened on THIS call, specific to the deal or
+  project discussed — not a generic "had a call" summary. 1-3 sentences.
+- stage is the caller's own words for where the deal/relationship stands (e.g.
+  "prequalified", "bid submitted", "awarded the job", "lost to a competitor"), verbatim or
+  closely paraphrased. Null if the caller didn't characterize a stage.
+- confidence reflects how clearly the transcript supports the extraction overall — a
+  garbled or very short transcript should score low even if a few fields came through
+  clearly."""
+
+VOICE_CAPTURE_TOOL = {
+    "name": "record_outreach_call",
+    "description": "Record the structured facts this call transcript supports.",
+    # The Anthropic tool input_schema IS OutreachCallExtraction's own JSON
+    # schema (see that class's docstring) -- title/top-level description are
+    # stripped here since they'd otherwise duplicate this dict's own
+    # "description" and burn tokens on the class's Python docstring.
+    "input_schema": {
+        k: v for k, v in OutreachCallExtraction.model_json_schema().items()
+        if k not in ("title", "description")
+    },
+}
+
+
+def extract_voice_capture(transcript: str) -> OutreachCallExtraction:
+    """Constrained decoding (forced tool_choice against OutreachCallExtraction's
+    own schema) PLUS explicit Pydantic validation -- the tool_choice force is
+    not trusted alone. Raises pydantic.ValidationError if the model's output
+    doesn't actually validate (e.g. an out-of-range confidence, a malformed
+    date) -- see app/pipeline/voice_capture.py for how the caller handles
+    that without losing the underlying transcript."""
+    cfg = load_config()
+    model = cfg.get("llm.voice_capture_model", cfg.get("llm.outreach_model"))
+    raw = _tool_call(model, VOICE_CAPTURE_SYSTEM, VOICE_CAPTURE_TOOL, transcript,
+                     max_tokens=1024, stage="voice_capture")
+    return OutreachCallExtraction.model_validate(raw)

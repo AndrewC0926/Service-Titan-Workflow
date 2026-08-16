@@ -4,7 +4,7 @@ from __future__ import annotations
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Column, Index, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Column, Index, LargeBinary, Text, UniqueConstraint
 from sqlalchemy.types import JSON
 from sqlmodel import Field, SQLModel
 
@@ -1628,3 +1628,65 @@ class RetrofitGeocodeFailure(SQLModel, table=True):
     apn: str = Field(index=True, unique=True)
     source_address: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
     attempted_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class ReviewQueue(SQLModel, table=True):
+    """A PROPOSAL from an automated agent, never a final record -- the human
+    reviews proposed_payload and either confirms it (which routes through
+    that entity type's own real writer -- for voice_capture, that is
+    app.outreach.log_outreach, the same path the dashboard's own outreach
+    form and the log_outreach MCP tool both use, so there is exactly one
+    place an Outreach row is ever created) or rejects it (discarded, never
+    written anywhere).
+
+    Deliberately generic, not voice-capture-specific -- `agent` and
+    `entity_type` are how a future agent (a different capture channel, a
+    different entity kind) shares this same table and this same review UI
+    instead of building its own queue and its own review page. See
+    app/pipeline/voice_capture.py for the first (and so far only) writer.
+
+    provenance carries where this came from and what it's based on -- for
+    voice_capture: {source: "ios_shortcut", retrieved_at, audio_id,
+    transcript} -- so a reviewer (or an audit six months from now) can see
+    the original evidence next to the proposal, not just trust the
+    extraction. trace_id correlates every row this session and its errors,
+    even across future agents that log more than one row per run.
+    """
+    __tablename__ = "review_queue"
+
+    id: int | None = Field(default=None, primary_key=True)
+    agent: str = Field(index=True)
+    trace_id: str = Field(index=True)
+    entity_type: str = Field(index=True)
+    proposed_payload: dict = Field(sa_column=Column(JSON, nullable=False))
+    provenance: dict = Field(sa_column=Column(JSON, nullable=False))
+    confidence: float | None = None
+    status: str = Field(default="pending", index=True)  # pending | approved | rejected
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    decided_at: datetime | None = None
+
+
+class CaptureAudio(SQLModel, table=True):
+    """Raw bytes for one voice-capture upload, so the review card can play
+    the original recording back next to the transcript and the proposed
+    fields -- the transcript is not trusted as the only record of what was
+    actually said. One row per ReviewQueue row (see
+    ReviewQueue.provenance['audio_id']), not a shared media library.
+
+    Stored in Postgres, not on Render's local disk: the web/cron
+    containers' disks are ephemeral across deploys (confirmed by this
+    project's own render.yaml -- no persistent volume is declared), and a
+    voice note surviving to review time is the entire point. Fine at the
+    volume one rep's sales calls produce; if capture volume or audio length
+    grows enough to strain the basic-256mb Postgres plan, move this to
+    object storage -- not done here on purpose, since nothing about this
+    schema needs to change to do that later (this table becomes a pointer
+    table instead of a blob table).
+    """
+    __tablename__ = "capture_audio"
+
+    id: int | None = Field(default=None, primary_key=True)
+    content_type: str = Field(default="audio/m4a")
+    data: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
+    size_bytes: int = 0
+    created_at: datetime = Field(default_factory=utcnow, index=True)
