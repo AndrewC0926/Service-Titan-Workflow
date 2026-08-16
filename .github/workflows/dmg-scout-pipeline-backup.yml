@@ -1,0 +1,52 @@
+name: dmg-scout pipeline backup trigger
+
+# Redundant trigger for the dmg-scout-pipeline Render cron job, NOT a
+# replacement for it. Investigated 2026-08-16: Render's own "0 13 * * *"
+# schedule has not fired even once since going live 2026-08-07, despite
+# correct config (schedule set, service not suspended, autoDeploy on) and
+# long stable deploy windows spanning multiple missed opportunities with no
+# other explanation found -- looks like a Render platform-side scheduling
+# defect, escalated to Render support separately.
+#
+# This fires 20 minutes after Render's own scheduled time, so a Render run
+# that DOES start gets a head start and is very likely already
+# status="running" (or has already finished) by the time this checks.
+# Render's cron entry (render.yaml) is left in place on purpose: if it ever
+# starts firing on its own, `scout pipeline`'s own guards (see app/cli.py's
+# pipeline() docstring -- currently-running is never bypassable, and a
+# recent success within RECENT_SUCCESS_SKIP_HOURS makes this workflow's
+# trigger a clean no-op) mean this workflow does nothing that day. Its
+# continued silence stays evidence for the Render support ticket.
+#
+# Triggers a Render JOB (same mechanism as every manual "Trigger Run" used
+# during debugging on 2026-08-13/15) against the cron service's own image
+# and plan (standard, 2Gi) -- not run inside this workflow and not run on
+# the smaller web service, so it gets the same resources a real scheduled
+# run would.
+
+on:
+  schedule:
+    - cron: '20 13 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger a Render job run (scripts/run-pipeline.sh)
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_CRON_SERVICE_ID: crn-d9qlfmks728c73a3n1v0
+        run: |
+          set -euo pipefail
+          http_code=$(curl -s -o /tmp/render_job_response.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"startCommand": "scripts/run-pipeline.sh"}' \
+            "https://api.render.com/v1/services/${RENDER_CRON_SERVICE_ID}/jobs")
+          cat /tmp/render_job_response.json
+          echo
+          if [ "$http_code" -ge 300 ]; then
+            echo "Render job creation failed with HTTP $http_code" >&2
+            exit 1
+          fi
