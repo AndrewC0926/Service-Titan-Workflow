@@ -20,7 +20,8 @@ def _patch_stages(monkeypatch, calls, *, boom: str | None = None):
     stand-in, so the run touches no network/LLM/real retrofit code. `boom`
     names one stage to raise instead of recording success."""
     for name in ("fetch", "triage", "extract", "grounding", "resolve", "score", "notify",
-                "build_retrofit_buildings_cmd", "find_replacement_candidates_cmd"):
+                "fetch_ebewe_benchmarks_cmd", "build_retrofit_buildings_cmd",
+                "find_replacement_candidates_cmd"):
         if name == boom:
             def _raiser(*a, _name=name, **k):
                 calls.append(_name)
@@ -72,4 +73,85 @@ def test_find_replacement_candidates_runs_on_a_matching_weekly_day(db_session, m
     result = CliRunner().invoke(cli_app, ["pipeline"])
 
     assert "find_replacement_candidates_cmd" in calls
+    assert result.exit_code == 0
+
+
+# --- collision guards: Render's own schedule, the GitHub Actions backup   -
+# --- trigger, and a human running `scout pipeline` by hand must never    -
+# --- run two pipelines at once, or re-run a cycle that already succeeded -
+
+
+def test_pipeline_refuses_to_start_when_one_is_already_running(db_session, monkeypatch):
+    """The currently-running guard is never bypassable -- not even by
+    --force -- because the risk is two processes sharing one daily LLM
+    budget concurrently, not just wasted time."""
+    from app.models import PipelineRun
+
+    db_session.add(PipelineRun(status="running", started_at=utcnow(), heartbeat_at=utcnow()))
+    db_session.commit()
+
+    calls = []
+    _patch_stages(monkeypatch, calls)
+
+    result = CliRunner().invoke(cli_app, ["pipeline", "--force"])
+
+    assert calls == [], "no stage should run while another pipeline_run is status=running"
+    assert result.exit_code == 0
+
+
+def test_pipeline_skips_a_second_run_within_the_recent_success_window(db_session, monkeypatch):
+    """This is what makes the GitHub Actions backup trigger a true no-op on
+    any day Render's own scheduler starts working again -- if a run already
+    succeeded a few hours ago, a second trigger firing later the same day
+    must not start a genuinely duplicate full pipeline."""
+    from datetime import timedelta
+
+    from app.models import PipelineRun
+
+    db_session.add(PipelineRun(status="success", started_at=utcnow() - timedelta(hours=2),
+                               finished_at=utcnow() - timedelta(hours=1, minutes=50)))
+    db_session.commit()
+
+    calls = []
+    _patch_stages(monkeypatch, calls)
+
+    result = CliRunner().invoke(cli_app, ["pipeline"])
+
+    assert calls == []
+    assert result.exit_code == 0
+
+
+def test_pipeline_force_bypasses_only_the_recent_success_guard(db_session, monkeypatch):
+    from datetime import timedelta
+
+    from app.models import PipelineRun
+
+    db_session.add(PipelineRun(status="success", started_at=utcnow() - timedelta(hours=2),
+                               finished_at=utcnow() - timedelta(hours=1, minutes=50)))
+    db_session.commit()
+
+    calls = []
+    _patch_stages(monkeypatch, calls)
+
+    result = CliRunner().invoke(cli_app, ["pipeline", "--force"])
+
+    assert "fetch" in calls, "--force must bypass the recent-success guard"
+    assert result.exit_code == 0
+
+
+def test_pipeline_runs_normally_when_last_success_is_old(db_session, monkeypatch):
+    from datetime import timedelta
+
+    from app.models import PipelineRun
+
+    db_session.add(PipelineRun(status="success", started_at=utcnow() - timedelta(hours=30),
+                               finished_at=utcnow() - timedelta(hours=29)))
+    db_session.commit()
+
+    calls = []
+    _patch_stages(monkeypatch, calls)
+
+    result = CliRunner().invoke(cli_app, ["pipeline"])
+
+    assert "fetch" in calls, "a success older than RECENT_SUCCESS_SKIP_HOURS must not block a new run"
     assert result.exit_code == 0

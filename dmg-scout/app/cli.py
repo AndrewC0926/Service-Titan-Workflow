@@ -208,8 +208,23 @@ def notify() -> None:
     typer.echo(json.dumps(result))
 
 
+# hours_stale() < this -> `scout pipeline` refuses to start a second time
+# without --force. Sized against the real gap between Render's own "0 13
+# * * *" schedule and .github/workflows/pipeline-backup.yml's 13:20 UTC
+# backup trigger (20 minutes, see that workflow's own comment) -- 20 hours
+# comfortably covers either one firing late, or both firing the same day,
+# while still being well under the ~24h until the NEXT day's legitimate
+# run is due. See PipelineRun's docstring in app/models.py and
+# app.pipeline_health:hours_stale.
+RECENT_SUCCESS_SKIP_HOURS = 20
+
+
 @app.command()
-def pipeline() -> None:
+def pipeline(force: bool = typer.Option(
+    False, "--force",
+    help="Run even if a pipeline_run already succeeded within RECENT_SUCCESS_SKIP_HOURS. "
+        "Never bypasses the currently-running guard -- that one is not optional.",
+)) -> None:
     """Run the full pipeline: fetch → triage → extract → resolve → score →
     notify → fetch-ebewe-benchmarks → build-retrofit-buildings →
     find-replacement-candidates (the last two -- ebewe and replacement-
@@ -218,12 +233,40 @@ def pipeline() -> None:
     pipeline_run row for the in-app staleness alarm (`scout check-freshness`
     / the root dashboard banner) — see app.pipeline_health, which also now
     tracks retrofit_buildings freshness per population, not just this run's
-    own success/failure."""
-    from app.models import utcnow
+    own success/failure.
+
+    TWO GUARDS run before anything else, unconditionally, regardless of who
+    or what invoked this command -- Render's own cron schedule (confirmed
+    2026-08-16: has not fired even once since going live 2026-08-07, despite
+    correct config -- see the investigation this session), the GitHub
+    Actions backup trigger (.github/workflows/pipeline-backup.yml, added for
+    exactly that reason), or a human running `scout pipeline` by hand:
+
+      1. Currently-running guard (never bypassable): if reap_stale_runs
+         leaves any pipeline_run at status="running", another process has
+         this. Exit clean, don't start a second one concurrently -- the
+         risk isn't just wasted work, it's two processes sharing one daily
+         LLM budget (app.spend.run_budget) unaware of each other.
+      2. Recent-success guard (--force bypasses only this one): if the
+         last successful run finished under RECENT_SUCCESS_SKIP_HOURS ago,
+         today's cycle already happened -- don't run it again just because
+         a second trigger fired. This is what makes the GitHub Actions
+         backup a true no-op on any day Render's own scheduler starts
+         working again, rather than a guaranteed second full run every day.
+
+    Both guards are a small SELECT-then-INSERT, not a DB-level lock -- an
+    exact-same-second race between two triggers could in principle still
+    slip both past the check before either commits. Accepted, not fixed:
+    every write downstream is upsert-based, so a doubled run costs wasted
+    budget and time, not corrupted data, and Render's own schedule tick and
+    a daily GitHub Actions cron tick landing within literal seconds of each
+    other is not a realistic case to design against."""
+    from app.models import PipelineRun, utcnow
     from app.ops import ping_healthcheck
     from app.pipeline_health import (
         finish_pipeline_run,
         heartbeat,
+        hours_stale,
         peak_rss_bytes,
         reap_stale_runs,
         record_stage_peak_memory,
@@ -238,6 +281,23 @@ def pipeline() -> None:
         # confirmed real 2026-08-13) -- otherwise a dead row sits there
         # forever and last_successful_run()/hours_stale() never recover.
         reap_stale_runs(session)
+
+        already_running = session.exec(select(PipelineRun).where(PipelineRun.status == "running")).first()
+        if already_running is not None:
+            typer.echo(f"pipeline_run #{already_running.id} is already running (started "
+                       f"{already_running.started_at}Z, heartbeat {already_running.heartbeat_at}Z) -- "
+                       f"refusing to start a second, concurrent run. See this command's own docstring "
+                       f"for why this guard exists and is never bypassable.")
+            raise typer.Exit(0)
+
+        if not force:
+            stale = hours_stale(session)
+            if stale is not None and stale < RECENT_SUCCESS_SKIP_HOURS:
+                typer.echo(f"a pipeline_run already succeeded {stale:.1f}h ago (< "
+                           f"{RECENT_SUCCESS_SKIP_HOURS}h) -- not starting a duplicate for the same "
+                           f"cycle. Pass --force to override.")
+                raise typer.Exit(0)
+
         run = start_pipeline_run(session)
         run_id, run_started_at = run.id, run.started_at
 
