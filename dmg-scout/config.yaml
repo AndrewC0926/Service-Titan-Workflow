@@ -519,6 +519,14 @@ sources:
     enabled: true
     dataset_id: "9yda-i4ya"
     portal_url: "https://data.lacity.org/City-Infrastructure-Service-Requests/Existing-Buildings-Energy-Water-Efficiency-EBEWE-P/9yda-i4ya"
+  # UA Local 250's own public signatory contractor list -- see
+  # app/pipeline/local250.py for the compliance check, fetch, and CSLB join.
+  # Weekly, same day as the retrofit steps: a public union roster doesn't
+  # change daily, and a full refresh re-matches every contractor from
+  # scratch (safe to re-run, not incremental).
+  ua_local_250:
+    enabled: true
+    contractors_url: "https://socalhvacr.info/contractors"
   manual:
     enabled: true
 

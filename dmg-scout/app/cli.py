@@ -324,18 +324,21 @@ def pipeline(force: bool = typer.Option(
         # stage, so a retrofit failure is recorded and surfaced exactly like
         # a fetch/triage/extract failure -- it cannot abort a later step,
         # because there IS no later step for it to abort by the time it runs.
-        # fetch_ebewe_benchmarks_cmd runs weekly, same day as
-        # find_replacement_candidates_cmd, and BEFORE build_retrofit_buildings_cmd
-        # so the same day's rebuild joins the freshest data: EBEWE files
-        # annually, so a daily refetch of all 96k+ rows would buy nothing
-        # over what's already durable in ebewe_benchmarks -- see
-        # app.pipeline.ebewe:ebewe_matches_by_normalized_address, which
-        # re-joins from that table at every build regardless of when it was
-        # last fetched, same tolerance geocodes/service_calls already have.
+        # fetch_ebewe_benchmarks_cmd and fetch_local250_cmd both run weekly,
+        # same day as find_replacement_candidates_cmd, and BEFORE
+        # build_retrofit_buildings_cmd so the same day's rebuild joins the
+        # freshest data: EBEWE files annually, so a daily refetch of all
+        # 96k+ rows would buy nothing over what's already durable in
+        # ebewe_benchmarks -- see app.pipeline.ebewe:
+        # ebewe_matches_by_normalized_address, which re-joins from that
+        # table at every build regardless of when it was last fetched, same
+        # tolerance geocodes/service_calls already have. UA Local 250's own
+        # public list is a small, slow-changing roster -- no reason to
+        # re-scrape and re-match all 47k+ contractors daily either.
         for step in (fetch, triage, extract, grounding, resolve, score, notify,
-                    fetch_ebewe_benchmarks_cmd, build_retrofit_buildings_cmd,
+                    fetch_ebewe_benchmarks_cmd, fetch_local250_cmd, build_retrofit_buildings_cmd,
                     find_replacement_candidates_cmd):
-            if (step in (find_replacement_candidates_cmd, fetch_ebewe_benchmarks_cmd)
+            if (step in (find_replacement_candidates_cmd, fetch_ebewe_benchmarks_cmd, fetch_local250_cmd)
                     and utcnow().weekday() != RETROFIT_WEEKLY_WEEKDAY):
                 typer.echo(f"--- {step.__name__} (skipped -- weekly, Sundays only) ---")
                 continue
@@ -937,6 +940,24 @@ def fetch_ebewe_benchmarks_cmd() -> None:
     with session_scope() as session, PoliteClient() as client:
         stats = fetch_ebewe_benchmarks(session, load_config(), client)
     typer.echo(f"fetched {stats['fetched']}, stored/updated {stats['stored']}")
+    if stats.get("error"):
+        typer.echo(f"  ERROR: {stats['error']}", err=True)
+
+
+@app.command("fetch-local250")
+def fetch_local250_cmd() -> None:
+    """UA Local 250's public signatory contractor list (socalhvacr.info/
+    contractors) -> Contractor.ua_local_250_signatory, matched by name (and
+    city as corroboration) onto the existing CSLB roster -- see
+    app/pipeline/local250.py for the compliance check, the parser, and the
+    match method. An attribute of the contractor, never a ranking term.
+    Writes its own SourceRun so `scout doctor` / source_health can see it
+    (config.yaml's sources.ua_local_250)."""
+    from app.pipeline.local250 import fetch_and_match_local250
+    with session_scope() as session:
+        stats = fetch_and_match_local250(session)
+    typer.echo(f"{stats['local250_total']} Local 250 contractors, {stats['matched']} matched, "
+               f"{stats['ambiguous']} ambiguous (excluded), {stats['unmatched']} unmatched")
     if stats.get("error"):
         typer.echo(f"  ERROR: {stats['error']}", err=True)
 

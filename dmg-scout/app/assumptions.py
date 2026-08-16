@@ -540,6 +540,55 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "board.",
     ))
 
+    # ---- Union signatory (UA Local 250) --------------------------------------
+
+    from app.pipeline.local250 import NAME_ONLY_THRESHOLD, NAME_WITH_CITY_THRESHOLD
+    out.append(Assumption(
+        group="Union signatory (UA Local 250)", name="UA Local 250 signatory join method and match rate",
+        config_path=None,
+        value="Name-fuzzy + city-corroboration join: 47 of 108 listed contractors matched (44%), "
+             "4 excluded as ambiguous, 57 unmatched",
+        source_type=MEASURED,
+        source_detail=(
+            "Measured 2026-08-16 against real production CSLB data (47,572 contractors in scope). "
+            "UA Local 250's own public signatory list (socalhvacr.info/contractors) carries no "
+            "license number, so the join is by company name (rapidfuzz token_sort_ratio on a "
+            "legal-suffix-stripped name -- deliberately NOT app.normalize.normalize_name, which "
+            "is tuned for project/SPE names and was caught silently reducing the real company "
+            "\"Building Aire Inc.\" to an empty string, spuriously tying it against every other "
+            "short/coded CSLB name -- see app/pipeline/local250.py's module comment), with city "
+            "agreement as corroboration that lowers the acceptance bar. Multiple CSLB candidates "
+            "tying at the same score are excluded as ambiguous rather than guessed at (4 cases: "
+            "e.g. \"Master Cooling Corp.\" matches three distinct CSLB licenses named Master "
+            "Cooling/Master Cooling Corp across two cities). Spot-checking the closest unmatched "
+            "near-misses (0.91-0.95 similarity, just under threshold) shows several look like real "
+            "matches missed on abbreviation/word-order differences or a different city on file "
+            "(\"Critchfield Mechanical Inc. of So. Calif.\" in Irvine vs CSLB's \"Critchfield "
+            "Mechanical Inc of Southern California\" in Huntington Beach, 86% similarity) -- but "
+            "lowering the threshold to catch those also pulls in genuinely different companies at "
+            "a similar or higher score (\"Brymax Construction Services\" vs \"Aramax Construction "
+            "Services\", 93%). No single cutoff cleanly separates the two in this sample, so 44% "
+            "is a FLOOR on the true match rate, not the true rate itself -- reported honestly "
+            "rather than tuned past what unlabeled data can justify."
+        ),
+        verified=True,
+        last_reviewed="Measured 2026-08-16 against live production Contractor data.",
+    ))
+    out.append(Assumption(
+        group="Union signatory (UA Local 250)", name="Fuzzy match thresholds",
+        config_path=None,
+        value=f"{NAME_ONLY_THRESHOLD:.0f}/100 name-only, {NAME_WITH_CITY_THRESHOLD:.0f}/100 with city agreement",
+        source_type=PLACEHOLDER,
+        source_detail="A judgment call, not measured against labeled true/false outcomes -- no "
+                      "confirmed-signatory ground truth exists to fit against. Set high because this "
+                      "flag is written directly with no human review step, unlike app.voice_match's "
+                      "MATCH_THRESHOLD=60, which only ever feeds a human-picked suggestion list. City "
+                      "agreement is treated as real corroboration and earns a lower bar, but is not "
+                      "reliably present even for genuine matches (see the sibling entry's spot-check) "
+                      "-- a company can be listed at a different address on the two sources without "
+                      "being a different company.",
+    ))
+
     # ---- EBEWE benchmarking -------------------------------------------------
 
     out.append(Assumption(

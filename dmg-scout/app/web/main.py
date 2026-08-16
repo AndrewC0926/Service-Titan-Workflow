@@ -500,7 +500,8 @@ def retrofit_building_detail(building_id: int, request: Request,
 
 @app.get("/contractors", response_class=HTMLResponse)
 def contractors_list(request: Request, county: str = None, classification: str = "mechanical",
-                     limit: int = 200, session: Session = Depends(get_session), _: str = Depends(auth)):
+                     signatory: str = "", limit: int = 200,
+                     session: Session = Depends(get_session), _: str = Depends(auth)):
     """Ranked by nearby_urgency_score -- precomputed by `scout
     match-contractors` (see app.contractors.match_contractors), not
     computed live: a per-request N-contractors x M-buildings join does not
@@ -526,6 +527,8 @@ def contractors_list(request: Request, county: str = None, classification: str =
         q = q.where(or_(*(Contractor.classifications.contains(c) for c in MECHANICAL_CLASSIFICATIONS)))
     elif classification and classification != "all":
         q = q.where(Contractor.classifications.contains(classification))
+    if signatory == "ua_local_250":
+        q = q.where(Contractor.ua_local_250_signatory == True)
     total = session.exec(select(func.count()).select_from(q.subquery())).one()
     contractors = session.exec(
         q.order_by(Contractor.nearby_urgency_score.desc().nulls_last(),
@@ -534,10 +537,15 @@ def contractors_list(request: Request, county: str = None, classification: str =
     counties = sorted({c for c in session.exec(select(Contractor.county).distinct()).all() if c})
     never_matched = session.exec(
         select(func.count()).where(Contractor.nearby_computed_at.is_(None))).one()
+    signatory_total = session.exec(
+        select(func.count()).where(Contractor.ua_local_250_signatory == True)).one()
+    signatory_checked_at = session.exec(
+        select(func.max(Contractor.ua_local_250_checked_at))).one()
     return templates.TemplateResponse(request, "contractors.html", {
         "contractors": contractors, "total": total, "counties": counties,
-        "county": county, "classification": classification, "limit": limit,
+        "county": county, "classification": classification, "signatory": signatory, "limit": limit,
         "never_matched": never_matched, "ranking_radius": ranking_radius_miles(load_config()),
+        "signatory_total": signatory_total, "signatory_checked_at": signatory_checked_at,
         "tb": _title_block(session), "active": "contractors",
     })
 

@@ -1595,6 +1595,22 @@ class Contractor(SQLModel, table=True):
     retrieved_at: datetime = Field(default_factory=utcnow, index=True)
     last_update: datetime | None = None  # CSLB's own "LastUpdate" field on the license record itself
 
+    # UA Local 250's own public signatory/service-agreement contractor list
+    # (socalhvacr.info/contractors) -- see app/pipeline/local250.py for the
+    # fetch/match. An ATTRIBUTE of the contractor, never a ranking term: does
+    # NOT feed nearby_urgency_score or any sort order on /contractors, only a
+    # filter and a badge. False means "not found on Local 250's current list
+    # as of the last check" -- the same real-status-as-is discipline CSLB's
+    # own primary_status gets, not a claim that no relationship exists at
+    # all (a contractor could be signatory to a different local, or have an
+    # individual project agreement Local 250's own public list doesn't
+    # cover). ua_local_250_matched_name is the exact name string from Local
+    # 250's list that matched, kept for audit -- so a bad match is visible
+    # and correctable, not just a silent boolean.
+    ua_local_250_signatory: bool = Field(default=False, index=True)
+    ua_local_250_matched_name: str | None = None
+    ua_local_250_checked_at: datetime | None = None
+
 
 class RetrofitGeocode(SQLModel, table=True):
     """Geocoded coordinates for a retrofit building's APN -- lives in its
