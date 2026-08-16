@@ -19,6 +19,27 @@
      class="chip" aria-pressed="{{ 'true' if population == 'recently_active' else 'false' }}">Recently active (market intel)</a>
 </div>
 
+<div class="callout callout-warn">
+  <strong>EBEWE benchmark data covers {{ '{:,}'.format(summary.ebewe_covered) }} of
+    {{ '{:,}'.format(summary.ebewe_covered_of) }} buildings in this view ({{ summary.ebewe_covered_pct }}%)</strong>
+  <span class="body">Real measured energy performance (weather-normalized site EUI, ENERGY STAR score),
+    address-joined from LA's own EBEWE filings — not the sqft-threshold "EBEWE candidate" scope proxy shown
+    below, which just says a building is IN SCOPE for the ordinance, not how it performs. Coverage is this
+    low because EBEWE itself only has ~11,500 buildings that have ever filed against an ordinance with real
+    non-compliance, not primarily a join defect — see <a href="/assumptions#{{ assumption_slug('Benchmark-to-building join method and coverage') }}">the join method and full measurement</a>.
+    Because coverage is this sparse, energy performance is used as a tie-breaker ONLY within the covered
+    subset below, never blended into the board-wide score.</span>
+</div>
+
+<div class="mb-2 flex flex-wrap items-center gap-1.5">
+  <a href="/retrofit?population={{ population }}{% if county %}&county={{ county }}{% endif %}{% if min_status %}&min_status={{ min_status }}{% endif %}&has_ebewe=true"
+     class="chip" aria-pressed="{{ 'true' if has_ebewe else 'false' }}">Has EBEWE data ({{ '{:,}'.format(summary.ebewe_covered) }})</a>
+  {% if has_ebewe %}
+  <a href="/retrofit?population={{ population }}{% if county %}&county={{ county }}{% endif %}{% if min_status %}&min_status={{ min_status }}{% endif %}"
+     class="chip" aria-pressed="false">Clear</a>
+  {% endif %}
+</div>
+
 {% if population == 'replacement_candidate' %}
 <div class="sec-head">
   <div><div class="sec-title">Replacement candidates — no permit on record, absence is the signal</div></div>
@@ -76,13 +97,13 @@
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
   {% for c in counties %}
-  <a href="/retrofit?population={{ population }}&county={{ c }}{% if min_status %}&min_status={{ min_status }}{% endif %}"
+  <a href="/retrofit?population={{ population }}&county={{ c }}{% if min_status %}&min_status={{ min_status }}{% endif %}{% if has_ebewe %}&has_ebewe=true{% endif %}"
      class="chip" aria-pressed="{{ 'true' if county == c else 'false' }}">{{ c }}</a>
   {% endfor %}
-  <a href="/retrofit?population={{ population }}{% if min_status %}&min_status={{ min_status }}{% endif %}" class="chip" aria-pressed="{{ 'true' if not county else 'false' }}">All counties</a>
+  <a href="/retrofit?population={{ population }}{% if min_status %}&min_status={{ min_status }}{% endif %}{% if has_ebewe %}&has_ebewe=true{% endif %}" class="chip" aria-pressed="{{ 'true' if not county else 'false' }}">All counties</a>
   <span class="note ml-1">|</span>
   {% for key, label in [('overdue','Overdue only'), ('due','Due+'), ('approaching','Approaching+'), ('', 'All statuses')] %}
-  <a href="/retrofit?population={{ population }}&{% if county %}county={{ county }}&{% endif %}min_status={{ key }}" class="chip" aria-pressed="{{ 'true' if min_status == key else 'false' }}">{{ label }}</a>
+  <a href="/retrofit?population={{ population }}&{% if county %}county={{ county }}&{% endif %}min_status={{ key }}{% if has_ebewe %}&has_ebewe=true{% endif %}" class="chip" aria-pressed="{{ 'true' if min_status == key else 'false' }}">{{ label }}</a>
   {% endfor %}
   {% if county %}
   <a href="/retrofit/report?population={{ population }}&county={{ county }}" class="chip ml-1">🖨 Printable contractor report ↗</a>
@@ -100,7 +121,7 @@
 <colgroup>
   <col style="width:2.6rem"><col style="width:18rem"><col style="width:8rem">
   <col style="width:7rem"><col style="width:8rem"><col style="width:12rem">
-  <col style="width:9rem"><col style="width:9rem"><col>
+  <col style="width:9rem"><col style="width:11rem"><col style="width:9rem"><col>
 </colgroup>
 <thead><tr>
   <th class="num" title="Position on this page, top to bottom.">#</th>
@@ -110,6 +131,7 @@
   <th title="What's on site, from permit text when one exists; a wide sqft-derived tonnage estimate when it doesn't.">Equipment</th>
   <th title="How far past its expected service life the existing equipment is, by ownership-tier bands. Hover a value for the basis and whether it's permit-verified or a YearBuilt proxy.">Service life</th>
   <th title="Refrigerant/regulatory triggers (SB 1206, CARB, EBEWE) that force replacement independent of service life.">Regulations</th>
+  <th title="Measured energy performance from LA's EBEWE benchmark filings, address-joined (~8% board coverage — see the callout above). A poor ENERGY STAR score is direct evidence of an underperforming mechanical plant. A/RCx = the LAMC-mandated 5-year audit/retro-commissioning cycle, keyed to the LADBS Building ID.">EBEWE benchmark</th>
   <th class="num" title="This board's own ranking, tier-first by service-life status then size and regulatory pressure as tie-breakers — a different formula from the project board's score. Hover a value for how this row's tier was set.">Score</th>
   <th title="What's actually on file for this building — permit count and latest install year, or the absence of any permit.">Basis</th>
 </tr></thead>
@@ -169,6 +191,22 @@
     {%- if b.ebewe_candidate -%}<span class="note">EBEWE candidate</span>{%- endif -%}
     {%- if not b.sb1206_trigger_status and not b.carb_candidate and not b.ebewe_candidate -%}<span class="note">{% if b.population == 'replacement_candidate' %}none (SB 1206 n/a — pre-2010 built){% else %}—{% endif %}</span>{%- endif -%}
   </td>
+  <td class="nowrap">
+    {%- if b.ebewe_matched -%}
+      <a class="stamp stamp-in" href="/assumptions#{{ assumption_slug('Benchmark-to-building join method and coverage') }}"
+         title="LADBS Building ID {{ b.ebewe_building_id }}, {{ b.ebewe_program_year }} filing · {{ b.ebewe_property_type or 'property type unknown' }}. Site EUI {{ b.ebewe_site_eui if b.ebewe_site_eui is not none else '—' }} kBtu/ft². Address-text join, ain_last3-checksum-confirmed — see the join method and measured coverage.">EBEWE {{ b.ebewe_program_year }}</a><br>
+      <span class="note">{{ '%.0f'|format(b.ebewe_weather_normalized_site_eui) if b.ebewe_weather_normalized_site_eui is not none else '—' }} EUI (wx-norm)
+        · ★{{ b.ebewe_energy_star_score if b.ebewe_energy_star_score is not none else '—' }}</span><br>
+      {%- if b.ebewe_arcx_due_this_year -%}
+      <a class="stamp stamp-post" href="https://dbs.lacity.gov/services/green-building-sustainability/ebewe" target="_blank" rel="noopener"
+         title="LAMC Table 9708.2: A/RCx (audit/retro-commissioning) compliance due once every 5 years, keyed to the last digit of the LADBS Building ID. This building's cycle is due by {{ b.ebewe_arcx_next_compliance_date.strftime('%b %-d, %Y') if b.ebewe_arcx_next_compliance_date else 'this year' }}.">A/RCx due this year</a>
+      {%- elif b.ebewe_arcx_next_compliance_date -%}
+      <span class="note">A/RCx next due {{ b.ebewe_arcx_next_compliance_date.strftime('%Y') }}</span>
+      {%- endif -%}
+    {%- else -%}
+      <span class="note">no EBEWE match</span>
+    {%- endif -%}
+  </td>
   <td class="num">
     <span class="score" title="Tier: {{ b.service_life_status or 'unknown' }}. Every overdue building outranks every due one, which outranks every approaching one, regardless of size — then, within a tier, further-past-due breaks the tie ahead of size and regulatory triggers.">
       <span class="val">{{ '%.2f'|format(b.rank_score) if b.rank_score else '—' }}</span>
@@ -185,8 +223,9 @@
   </td>
 </tr>
 {% else %}
-<tr><td colspan="9" class="note">No retrofit buildings yet. Run <span class="mono">scout fetch-permits --window all</span> →
+<tr><td colspan="10" class="note">No retrofit buildings yet. Run <span class="mono">scout fetch-permits --window all</span> →
   <span class="mono">scout fetch-assessor-candidates</span> →
+  <span class="mono">scout fetch-ebewe-benchmarks</span> →
   <span class="mono">scout build-retrofit-buildings</span> / <span class="mono">scout find-replacement-candidates</span>.</td></tr>
 {% endfor %}
 </tbody>

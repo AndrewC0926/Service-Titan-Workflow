@@ -189,6 +189,35 @@ def test_retrofit_board_links_to_building_detail(client, db_session, cfg):
     assert f"/retrofit/building/{b.id}" in r.text
 
 
+def test_retrofit_board_shows_ebewe_coverage_and_has_ebewe_filter(client, db_session, cfg):
+    """Coverage is disclosed on the page itself (same discipline as the
+    replacement-candidate population's false-positive-direction callout),
+    and has_ebewe=true must narrow to only matched rows -- see
+    app/assumptions.py's "Benchmark-to-building join method and coverage"
+    entry for why this can never be a board-wide rank_buildings() term."""
+    matched = RetrofitBuilding(apn="M1", population="replacement_candidate", address="1 Matched Way",
+                               county="Los Angeles", state="CA", rank_score=5.0,
+                               ebewe_matched=True, ebewe_building_id="B1", ebewe_program_year=2024,
+                               ebewe_energy_star_score=22, ebewe_weather_normalized_site_eui=88.0,
+                               ebewe_arcx_due_this_year=True)
+    unmatched = RetrofitBuilding(apn="U1", population="replacement_candidate", address="2 Unmatched Rd",
+                                 county="Los Angeles", state="CA", rank_score=4.0)
+    db_session.add(matched)
+    db_session.add(unmatched)
+    db_session.commit()
+
+    r = client.get("/retrofit?population=replacement_candidate", headers=AUTH)
+    assert r.status_code == 200
+    assert "1 of" in r.text or "1 of&#160;" in r.text or "covers" in r.text.lower()
+    assert "1 Matched Way" in r.text and "2 Unmatched Rd" in r.text
+    assert "A/RCx due this year" in r.text
+
+    filtered = client.get("/retrofit?population=replacement_candidate&has_ebewe=true", headers=AUTH)
+    assert filtered.status_code == 200
+    assert "1 Matched Way" in filtered.text
+    assert "2 Unmatched Rd" not in filtered.text
+
+
 def test_titleblock_data_as_of_and_printed_use_the_same_timezone_convention(client, db_session, cfg):
     """Both are UTC (tb.data_as_of = max(RawDocument.fetched_at); Printed =
     app.models.utcnow, the Jinja `now` global) -- they must render with the

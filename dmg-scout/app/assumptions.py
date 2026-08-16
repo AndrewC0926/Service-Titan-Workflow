@@ -537,6 +537,79 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None) ->
                       "board.",
     ))
 
+    # ---- EBEWE benchmarking -------------------------------------------------
+
+    out.append(Assumption(
+        group="EBEWE benchmarking", name="Benchmark-to-building join method and coverage",
+        config_path=None,
+        value="Address-text join (normalize_address), ain_last3-checksum-confirmed: 4,790 buildings "
+             "matched, of 11,497 EBEWE buildings that have ever filed and 60,166 total retrofit_buildings "
+             "rows (~8% board-wide coverage)",
+        source_type=MEASURED,
+        source_detail=(
+            "Measured 2026-08-16 against real production data before this shipped, per the user's explicit "
+            "gate that nothing feeds a rank score until the join is verified. EBEWE's own `apn` field, which "
+            "Socrata itself labels \"AIN\", is NOT usable as a join key -- every one of 96,211 rows is "
+            "exactly 3 characters; the dataset's own description confirms it's \"the last 3 digits of the "
+            "AIN\", not the AIN. Two real join strategies were measured and compared: (1) "
+            "app.pipeline.retrofit:normalize_address address-text matching -- 4,983 clean 1:1 matches (both "
+            "directions of ambiguity excluded: 113 EBEWE addresses hit >1 retrofit apn, 40 retrofit apns hit "
+            ">1 EBEWE building_id, neither guessed at); (2) US Census batch-geocoding both sides and matching "
+            "spatially (nearest-neighbor, grid-indexed) -- WORSE, not better: 2,740 clean matches at the "
+            "best threshold tested (15m; 25m and 40m did worse still, 2,087 and 1,578 -- LA's parcels are "
+            "dense enough that independent geocoding runs on each side create MORE ambiguity at wider "
+            "radii, not less). The geocoded matches were 94.8% consistent with the text join where both "
+            "found a match, and added only 255 new matches text alone missed -- the union of both methods "
+            "(5,238) barely exceeds text alone. Conclusion: normalize_address was not the limiter; if "
+            "anything it outperforms independent geocoding here. Shipped: text join alone, tightened further "
+            "by ain_last3 as a free independent checksum (matched apn's own last 3 digits vs EBEWE's "
+            "documented fragment) -- 193 of 4,983 (3.9%) disagreed and were dropped rather than trusted, "
+            "for a final 4,790. See app/pipeline/ebewe.py's module docstring for the full method and "
+            "app.pipeline.ebewe:ebewe_matches_by_normalized_address for the code. Reference point: the "
+            "assessor-derived ebewe_candidate sqft-threshold SCOPE proxy (not measured performance) sits at "
+            "18,301 true rows as of this measurement -- EBEWE's own universe of 11,497 ever-filed buildings "
+            "cannot reach that regardless of join quality (real non-compliance, plus the proxy itself being "
+            "inflated with non-LA-city parcels; see AssessorCandidate's docstring), so the shortfall is "
+            "substantially real, not primarily a join defect. Even a hypothetically perfect join tops out "
+            "around 11,497 of ~53,000 replacement-candidate rows, roughly 22% -- this is why "
+            "RetrofitBuilding.ebewe_matched/energy figures are NOT a rank_buildings() term: a column this "
+            "sparse blended board-wide is exactly the false-precision problem this register exists to flag. "
+            "Used only as an in-subset tie-breaker on the /retrofit?has_ebewe=true view (sort: rank_score "
+            "DESC, then ebewe_energy_star_score ASC -- a worse ENERGY STAR score breaks a tie toward the top "
+            "only among buildings that already have EBEWE data), never board-wide. Coverage % is disclosed "
+            "on the board itself, the same way the replacement-candidate population's false-positive "
+            "direction already is."
+        ),
+        verified=True,
+        last_reviewed="Measured 2026-08-16 against live production retrofit_buildings addresses.",
+    ))
+
+    out.append(Assumption(
+        group="EBEWE benchmarking", name="A/RCx audit compliance cycle (LAMC Table 9708.2)",
+        config_path=None,
+        value="5-year cycle keyed to last digit of LADBS Building ID: 0/1->Dec 1 2021+5n, 2/3->2022+5n, "
+             "4/5->2023+5n, 6/7->2024+5n, 8/9->2025+5n",
+        source_type=RULE_OF_THUMB,
+        source_detail=(
+            "Not a judgment call like every other row in this register -- a verified legal compliance "
+            "schedule, transcribed exactly from LADBS's own \"Audits and Retro-Commissioning FAQs\" PDF "
+            "(dbs.lacity.gov/sites/default/files/efs/forms/pc17/EBEWE-ARCx-FAQs-FINAL.pdf, Last Updated "
+            "04/30/2026), FAQ #2, which reproduces LAMC Table 9708.2 directly, cross-checked against that "
+            "same document's FAQ #1 prose (\"the next A/RCx compliance due date for Building IDs ending in "
+            "0 or 1 is still December 1, 2026... ending in 2 or 3 is still December 1, 2027\") -- both "
+            "consistent with the table (2021+5=2026, 2022+5=2027). Listed in this register anyway, per "
+            "instruction, as a new constant this task introduced -- see "
+            "app.pipeline.regulatory:arcx_compliance_status and ARCX_INITIAL_COMPLIANCE_YEAR_BY_LAST_DIGIT. "
+            "Only ever computed for a building that already has an ebewe_matched row (it needs a real LADBS "
+            "Building ID, which only a successful EBEWE join provides) -- shown as its own flag "
+            "(ebewe_arcx_due_this_year) regardless of the benchmark-data join's coverage, since a dated "
+            "legal obligation is useful information on its own, independent of whether it feeds a score."
+        ),
+        verified=True,
+        last_reviewed="Verified 2026-08-16 against LADBS's own FAQ PDF, cross-checked two ways within the "
+                      "same document.",
+    ))
+
     return out
 
 

@@ -503,6 +503,17 @@ sources:
     enabled: false   # Tier 2
   water_districts:
     enabled: false   # Tier 2
+  # Not run through app.sources' adapter registry / `scout fetch` -- like
+  # la_county_assessor and la_city_mechanical (app/pipeline/assessor.py,
+  # permits.py), this is a direct import into its own table
+  # (ebewe_benchmarks), not a Signal source. Listed here anyway, unlike
+  # those two, specifically so `scout doctor` / source_health's per-source
+  # loop enumerates it -- see app/pipeline/ebewe.py's module docstring for
+  # why this one gets that treatment and its older siblings still don't.
+  la_ebewe_benchmarking:
+    enabled: true
+    dataset_id: "9yda-i4ya"
+    portal_url: "https://data.lacity.org/City-Infrastructure-Service-Requests/Existing-Buildings-Energy-Water-Efficiency-EBEWE-P/9yda-i4ya"
   manual:
     enabled: true
 

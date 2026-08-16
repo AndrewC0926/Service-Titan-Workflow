@@ -349,6 +349,7 @@ def _board_extras(session: Session, projects: list[Project]) -> dict:
 @app.get("/retrofit", response_class=HTMLResponse)
 def retrofit_board(request: Request, county: str = None, min_status: str = None,
                    population: str = "replacement_candidate", limit: int = 200,
+                   has_ebewe: bool = False,
                    session: Session = Depends(get_session), _: str = Depends(auth)):
     """Two SEPARATE populations, never merged — see RetrofitBuilding's
     docstring:
@@ -371,9 +372,33 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
         base_q = base_q.where(RetrofitBuilding.service_life_status.in_(
             STATUS_ORDER[:STATUS_ORDER.index(min_status) + 1]))
 
-    total = session.exec(select(func.count()).select_from(base_q.subquery())).one()
-    buildings = session.exec(
-        base_q.order_by(RetrofitBuilding.rank_score.desc().nulls_last()).limit(limit)).all()
+    # Coverage is measured against base_q BEFORE has_ebewe is applied -- the
+    # honest denominator is "this view, before you asked to see only the
+    # covered subset". Measuring against the has_ebewe-filtered query instead
+    # would always read 100%. total/summary.n (below) DOES reflect has_ebewe,
+    # same as it already reflects county/min_status -- "showing top N of
+    # TOTAL" should describe the population actually being paged through.
+    unfiltered_total = session.exec(select(func.count()).select_from(base_q.subquery())).one()
+    ebewe_covered = session.exec(
+        select(func.count()).select_from(base_q.where(RetrofitBuilding.ebewe_matched.is_(True)).subquery())
+    ).one()
+
+    ranked_q = base_q
+    if has_ebewe:
+        ranked_q = ranked_q.where(RetrofitBuilding.ebewe_matched.is_(True))
+    total = session.exec(select(func.count()).select_from(ranked_q.subquery())).one()
+    order = [RetrofitBuilding.rank_score.desc().nulls_last()]
+    if has_ebewe:
+        # Energy performance is a TIE-BREAKER within this covered subset only
+        # -- never a rank_buildings() term, never applied board-wide (see
+        # app/assumptions.py's "Benchmark-to-building join method and
+        # coverage" entry for why: coverage is ~8% board-wide, and blending a
+        # column that sparse into a global score is exactly the false-
+        # precision problem that register exists to flag). A worse (lower)
+        # ENERGY STAR score is direct evidence of an underperforming
+        # mechanical plant -- YearBuilt only infers that; this is measured.
+        order.append(RetrofitBuilding.ebewe_energy_star_score.asc().nulls_last())
+    buildings = session.exec(ranked_q.order_by(*order).limit(limit)).all()
 
     # Column-only, not select(RetrofitBuilding) -- this used to load all 53,252
     # full ORM rows (every column, including long basis-text fields) just to
@@ -390,10 +415,14 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
         "sb1206": sum(1 for b in buildings if b.sb1206_trigger_status),
         "carb": sum(1 for b in buildings if b.carb_candidate),
         "ebewe": sum(1 for b in buildings if b.ebewe_candidate),
+        "ebewe_covered": ebewe_covered,
+        "ebewe_covered_of": unfiltered_total,
+        "ebewe_covered_pct": round(100 * ebewe_covered / unfiltered_total, 1) if unfiltered_total else 0.0,
     }
     return templates.TemplateResponse(request, "retrofit_board.html", {
         "buildings": buildings, "summary": summary, "counties": counties,
         "county": county, "min_status": min_status, "population": population, "limit": limit,
+        "has_ebewe": has_ebewe,
         "score_max": max([b.rank_score for b in buildings if b.rank_score] or [1.0]),
         "tb": _title_block(session), "active": "retrofit",
     })

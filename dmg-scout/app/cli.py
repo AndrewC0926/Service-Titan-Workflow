@@ -211,8 +211,9 @@ def notify() -> None:
 @app.command()
 def pipeline() -> None:
     """Run the full pipeline: fetch → triage → extract → resolve → score →
-    notify → build-retrofit-buildings → find-replacement-candidates (the
-    last one Sundays only — see RETROFIT_WEEKLY_WEEKDAY above). Pings the
+    notify → fetch-ebewe-benchmarks → build-retrofit-buildings →
+    find-replacement-candidates (the last two -- ebewe and replacement-
+    candidates -- Sundays only, see RETROFIT_WEEKLY_WEEKDAY above). Pings the
     dead man's switch (HEALTHCHECK_URL) on completion, and records a
     pipeline_run row for the in-app staleness alarm (`scout check-freshness`
     / the root dashboard banner) — see app.pipeline_health, which also now
@@ -263,9 +264,19 @@ def pipeline() -> None:
         # stage, so a retrofit failure is recorded and surfaced exactly like
         # a fetch/triage/extract failure -- it cannot abort a later step,
         # because there IS no later step for it to abort by the time it runs.
+        # fetch_ebewe_benchmarks_cmd runs weekly, same day as
+        # find_replacement_candidates_cmd, and BEFORE build_retrofit_buildings_cmd
+        # so the same day's rebuild joins the freshest data: EBEWE files
+        # annually, so a daily refetch of all 96k+ rows would buy nothing
+        # over what's already durable in ebewe_benchmarks -- see
+        # app.pipeline.ebewe:ebewe_matches_by_normalized_address, which
+        # re-joins from that table at every build regardless of when it was
+        # last fetched, same tolerance geocodes/service_calls already have.
         for step in (fetch, triage, extract, grounding, resolve, score, notify,
-                    build_retrofit_buildings_cmd, find_replacement_candidates_cmd):
-            if step is find_replacement_candidates_cmd and utcnow().weekday() != RETROFIT_WEEKLY_WEEKDAY:
+                    fetch_ebewe_benchmarks_cmd, build_retrofit_buildings_cmd,
+                    find_replacement_candidates_cmd):
+            if (step in (find_replacement_candidates_cmd, fetch_ebewe_benchmarks_cmd)
+                    and utcnow().weekday() != RETROFIT_WEEKLY_WEEKDAY):
                 typer.echo(f"--- {step.__name__} (skipped -- weekly, Sundays only) ---")
                 continue
             typer.echo(f"--- {step.__name__} ---")
@@ -692,6 +703,8 @@ def build_retrofit_buildings_cmd() -> None:
     typer.echo(f"{stats['distinct_buildings']} distinct buildings")
     typer.echo(f"assessor join: {stats['assessor_matched']} matched, "
                f"{stats['assessor_unmatched']} unmatched")
+    typer.echo(f"EBEWE benchmark join: {stats['ebewe_matched']} matched "
+               f"(address-text join, checksum-confirmed -- see app/assumptions.py)")
 
 
 @app.command("find-replacement-candidates")
@@ -735,6 +748,8 @@ def find_replacement_candidates_cmd(
         typer.echo(f"  {stats['service_life_abstained']:>8,}  of those ABSTAIN from service-life scoring — "
                    f"built more than two average service cycles before permit records begin; they rank on "
                    f"size/use code alone, see app.pipeline.retrofit:find_replacement_candidates")
+        typer.echo(f"  {stats['ebewe_matched']:>8,}  EBEWE benchmark matches (address-text join, "
+                   f"checksum-confirmed) -- see app/assumptions.py for the method and coverage rate")
 
         ranked = session.exec(
             select(RetrofitBuilding)
@@ -847,6 +862,23 @@ def fetch_assessor_candidates_cmd(
         if trigger in ("ebewe", "all"):
             stats = fetch_ebewe_candidates(session, cfg, client, roll_year=roll_year, max_pages=max_pages)
             typer.echo(f"EBEWE candidates: fetched {stats.get('fetched', 0)}, stored {stats.get('stored', 0)}")
+
+
+@app.command("fetch-ebewe-benchmarks")
+def fetch_ebewe_benchmarks_cmd() -> None:
+    """LA EBEWE benchmark filings (data.lacity.org 9yda-i4ya) -> weather-
+    normalized site EUI and ENERGY STAR score, joined onto the retrofit
+    board by address at build time -- see app/pipeline/ebewe.py for the
+    join method and its measured coverage, and app/assumptions.py for the
+    full figures. Writes its own SourceRun so `scout doctor` / source_health
+    can see it (config.yaml's sources.la_ebewe_benchmarking)."""
+    from app.http import PoliteClient
+    from app.pipeline.ebewe import fetch_ebewe_benchmarks
+    with session_scope() as session, PoliteClient() as client:
+        stats = fetch_ebewe_benchmarks(session, load_config(), client)
+    typer.echo(f"fetched {stats['fetched']}, stored/updated {stats['stored']}")
+    if stats.get("error"):
+        typer.echo(f"  ERROR: {stats['error']}", err=True)
 
 
 @app.command("fetch-dc-news-enrichment")

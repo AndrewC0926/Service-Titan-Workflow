@@ -446,10 +446,23 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
     service_freq = latest_service_frequency_by_apn(session, apns)
     geocodes = geocodes_by_apn(session, apns)
 
+    # Built BEFORE the main loop so the EBEWE join's reverse-ambiguity check
+    # (an address claimed by more than one apn) sees every address THIS
+    # build is about to write, not just whatever's already on disk from a
+    # previous run -- see app.pipeline.ebewe:ebewe_matches_by_normalized_address.
+    from app.pipeline.ebewe import ebewe_matches_by_normalized_address
+    candidate_addresses = {
+        apn: characteristics.get(apn, {}).get("address") or max(
+            group, key=lambda p: p.issue_date or datetime.min).address
+        for apn, group in by_apn.items()
+    }
+    ebewe_index = ebewe_matches_by_normalized_address(session, candidate_addresses)
+
     session.exec(delete(RetrofitBuilding).where(RetrofitBuilding.population == "recently_active"))
 
     now = utcnow()
     built = 0
+    ebewe_matched_count = 0
     for apn, group in by_apn.items():
         latest = max(group, key=lambda p: p.issue_date or datetime.min)
         equipment_type = None
@@ -482,6 +495,10 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
         carb_use_code = carb_by_ain.get(apn)
         freq = service_freq.get(apn)
         geo = geocodes.get(apn)
+        row_address = chars.get("address") or latest.address
+        ebewe = ebewe_index.get(normalize_address(row_address)) or {}
+        if ebewe:
+            ebewe_matched_count += 1
         rank = rank_buildings(
             service_life_status=sl_status, sqft=chars.get("sqft"),
             sb1206_trigger_status=sb1206["status"] if sb1206 else None,
@@ -492,7 +509,7 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
 
         session.add(RetrofitBuilding(
             apn=apn, population="recently_active",
-            address=chars.get("address") or latest.address,
+            address=row_address,
             use_code=chars.get("use_code"), use_desc=chars.get("use_desc"),
             sqft=chars.get("sqft"), year_built=chars.get("year_built"),
             permit_count=len(group), latest_permit_nbr=latest.permit_nbr,
@@ -512,6 +529,7 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
             latitude=geo.latitude if geo else None, longitude=geo.longitude if geo else None,
             permit_source_url=PERMITS_PORTAL_URL, assessor_source_url=ASSESSOR_PORTAL_URL,
             built_at=now,
+            **ebewe,
         ))
         built += 1
 
@@ -523,6 +541,7 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
         "assessor_matched": sum(1 for a in apns if a in characteristics),
         "assessor_unmatched": sum(1 for a in apns if a not in characteristics),
         "service_frequency_reports_applied": len(service_freq),
+        "ebewe_matched": ebewe_matched_count,
     }
 
 
@@ -707,6 +726,13 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
     service_freq = latest_service_frequency_by_apn(session, ains)
     geocodes = geocodes_by_apn(session, ains)
 
+    # See build_retrofit_buildings' identical comment -- built from THIS
+    # population's own parcels so reverse-ambiguity detection isn't blind
+    # to addresses this build is about to write.
+    from app.pipeline.ebewe import ebewe_matches_by_normalized_address
+    candidate_addresses = {a["AIN"]: a.get("PropertyLocation") for a in parcels if a.get("AIN")}
+    ebewe_index = ebewe_matches_by_normalized_address(session, candidate_addresses)
+
     now = utcnow()
     session.exec(delete(RetrofitBuilding).where(RetrofitBuilding.population == "replacement_candidate"))
 
@@ -714,6 +740,7 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
     apn_excluded = 0
     address_excluded = 0
     service_life_abstained = 0
+    ebewe_matched_count = 0
     for attrs in parcels:
         ain = attrs.get("AIN")
         if not ain:
@@ -784,6 +811,9 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
         tons_low, tons_high, tons_basis = estimate_tonnage(cfg, use_desc, sqft)
         freq = service_freq.get(ain)
         geo = geocodes.get(ain)
+        ebewe = ebewe_index.get(normalize_address(attrs.get("PropertyLocation"))) or {}
+        if ebewe:
+            ebewe_matched_count += 1
 
         rank = rank_buildings(
             service_life_status=sl_status, sqft=sqft,
@@ -812,6 +842,7 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
             latitude=geo.latitude if geo else None, longitude=geo.longitude if geo else None,
             permit_source_url=PERMITS_PORTAL_URL, assessor_source_url=ASSESSOR_PORTAL_URL,
             built_at=now,
+            **ebewe,
         ))
         candidates += 1
 
@@ -827,6 +858,7 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
         "use_codes": use_codes, "min_sqft": min_sqft, "year_built_before": year_built_before,
         "service_frequency_reports_applied": len(service_freq),
         "service_life_abstained": service_life_abstained,
+        "ebewe_matched": ebewe_matched_count,
     }
 
 

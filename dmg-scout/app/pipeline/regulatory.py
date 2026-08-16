@@ -154,3 +154,65 @@ def sb1206_status(cfg: Config, install_year: int | None, as_of: date | None = No
             "source_url": trigger["source_url"],
         }
     return None
+
+
+# LAMC Section 91.9708, Table 9708.2 -- A/RCx (Audit and Retro-Commissioning)
+# compliance is due once every 5 years, keyed to the LAST DIGIT of the
+# LADBS Building ID (a 12-digit id LADBS assigns per building, distinct
+# from the assessor AIN). Transcribed verbatim from LADBS's own "Audits and
+# Retro-Commissioning FAQs" PDF (dbs.lacity.gov/sites/default/files/efs/
+# forms/pc17/EBEWE-ARCx-FAQs-FINAL.pdf, "Last Updated 04/30/2026"), FAQ #2,
+# which reproduces Table 9708.2 as an image and independently states (FAQ
+# #1) "The next A/RCx compliance due date for Building IDs ending in 0 or 1
+# is still December 1, 2026" and "...ending in 2 or 3 is still December 1,
+# 2027" -- both consistent with the table below (2021+5=2026, 2022+5=2027),
+# corroborating the OCR read against the document's own prose. This is a
+# LEGAL COMPLIANCE SCHEDULE, not a judgment call or an estimate -- see
+# app/assumptions.py for why it's listed there anyway (every new constant
+# this task added, verified fact or not).
+ARCX_INITIAL_COMPLIANCE_YEAR_BY_LAST_DIGIT = {
+    0: 2021, 1: 2021,
+    2: 2022, 3: 2022,
+    4: 2023, 5: 2023,
+    6: 2024, 7: 2024,
+    8: 2025, 9: 2025,
+}
+ARCX_CYCLE_YEARS = 5
+ARCX_SOURCE_URL = "https://dbs.lacity.gov/sites/default/files/efs/forms/pc17/EBEWE-ARCx-FAQs-FINAL.pdf"
+
+
+def arcx_compliance_status(building_id: str | None, as_of: date | None = None) -> dict | None:
+    """Whether `building_id` (a LADBS Building ID, not an AIN) owes an
+    A/RCx filing in as_of's calendar year (default: today), and its next
+    compliance date regardless of whether that's this year. Returns None if
+    building_id is missing or doesn't end in a digit -- never guessed.
+
+    Compares CALENDAR YEARS, not the exact December 1 due date -- exact
+    because every cycle year for a given last digit is precisely 5 years
+    apart starting from Table 9708.2's initial year (see
+    ARCX_INITIAL_COMPLIANCE_YEAR_BY_LAST_DIGIT), so "as_of.year is one of
+    those years" is not an approximation of the real rule, it IS the real
+    rule at year granularity. next_compliance_date is still the exact
+    December 1 date for a caller that needs it (e.g. to know a due-this-
+    year building's filing deadline has or hasn't passed yet within the
+    year)."""
+    if not building_id or not building_id[-1].isdigit():
+        return None
+    last_digit = int(building_id[-1])
+    initial_year = ARCX_INITIAL_COMPLIANCE_YEAR_BY_LAST_DIGIT[last_digit]
+    as_of = as_of or date.today()
+
+    if as_of.year < initial_year:
+        next_due_year = initial_year
+    else:
+        offset = as_of.year - initial_year
+        remainder = offset % ARCX_CYCLE_YEARS
+        next_due_year = as_of.year if remainder == 0 else as_of.year + (ARCX_CYCLE_YEARS - remainder)
+
+    return {
+        "last_digit": last_digit,
+        "initial_compliance_year": initial_year,
+        "due_this_year": next_due_year == as_of.year,
+        "next_compliance_date": date(next_due_year, 12, 1),
+        "source_url": ARCX_SOURCE_URL,
+    }

@@ -962,6 +962,69 @@ class AssessorCandidate(SQLModel, table=True):
     imported_at: datetime = Field(default_factory=utcnow, index=True)
 
 
+class EbeweBenchmark(SQLModel, table=True):
+    """One building's annual LA EBEWE benchmark filing — data.lacity.org
+    Socrata dataset 9yda-i4ya. See app/pipeline/ebewe.py.
+
+    ain_last3 is EBEWE's own documented field (Socrata calls the column
+    "AIN" and its dataset description says it is "the last 3 digits of the
+    Assessor Identification Number") — NOT a usable join key alone (three
+    digits collide constantly across 60,000+ retrofit_buildings rows,
+    confirmed 2026-08-16), but a free independent checksum against a
+    text-address join's result — see
+    app.pipeline.ebewe:ebewe_matches_by_normalized_address, which uses it
+    to drop matches the checksum disagrees with rather than trust the
+    address text alone.
+
+    building_id is the LADBS Building ID (12 digits, distinct from AIN) --
+    the key the A/RCx audit compliance cycle (LAMC Table 9708.2, see
+    app.pipeline.regulatory:arcx_compliance_status) is actually keyed to.
+
+    Keyed (building_id, program_year): EBEWE is an ANNUAL filing, so the
+    same physical building recurs across years with different usage
+    figures. Every year is stored (never overwritten) — the join in
+    app.pipeline.ebewe always resolves to the MOST RECENT program_year per
+    building_id, but older years stay on file rather than being discarded,
+    the same discipline app/pipeline/permits.py applies to permit history.
+    """
+    __tablename__ = "ebewe_benchmarks"
+    __table_args__ = (UniqueConstraint("building_id", "program_year", name="uq_ebewe_building_year"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    source: str = Field(default="la_ebewe_benchmarking", index=True)
+    building_id: str = Field(index=True)
+    program_year: int = Field(index=True)
+    ain_last3: str | None = None  # see docstring — checksum only, never a join key alone
+    building_address: str | None = None
+    postal_code: str | None = None
+    primary_property_type: str | None = None
+    property_gfa: float | None = None
+    year_built: int | None = None
+    occupancy: float | None = None
+    compliance_status: str | None = None
+    organization: str | None = None
+    number_of_buildings: int | None = None
+    site_eui: float | None = None
+    source_eui: float | None = None
+    weather_normalized_site_eui: float | None = None
+    weather_normalized_source_eui: float | None = None
+    percent_diff_national_median_site_eui: float | None = None
+    percent_diff_national_median_source_eui: float | None = None
+    # ENERGY STAR 1-100 national percentile score, "Not Available" (-> null)
+    # when usage was estimated rather than metered (see LADBS's own A/RCx
+    # FAQ #4: ESPM will not assign a score to estimated usage) or when the
+    # property type has no ENERGY STAR scoring model.
+    energy_star_score: int | None = None
+    energy_star_cert_years: str | None = None
+    total_ghg_emissions: float | None = None
+    indoor_water_use: float | None = None
+    indoor_water_use_intensity: float | None = None
+    outdoor_water_use: float | None = None
+    total_water_use: float | None = None
+    source_url: str
+    imported_at: datetime = Field(default_factory=utcnow, index=True)
+
+
 class RetrofitBuilding(SQLModel, table=True):
     """One BUILDING (not permit) — the retrofit board's unit of record. See
     app/pipeline/retrofit.py: this is a deduplication of EquipmentPermit
@@ -1042,6 +1105,36 @@ class RetrofitBuilding(SQLModel, table=True):
     carb_candidate: bool = Field(default=False, index=True)
     carb_use_code: str | None = None
     ebewe_candidate: bool = Field(default=False, index=True)
+
+    # Actual EBEWE benchmark data (data.lacity.org 9yda-i4ya), joined at
+    # build time by normalized address -- see
+    # app.pipeline.ebewe:ebewe_matches_by_normalized_address. A DIRECT
+    # MEASURED-PERFORMANCE claim, unlike ebewe_candidate above (a
+    # sqft-threshold proxy for audit SCOPE, not measured performance) --
+    # never conflate the two. ebewe_matched is false on the large majority
+    # of rows by construction: measured coverage 2026-08-16 was ~9% of all
+    # retrofit_buildings (join method + rate in app/assumptions.py) --
+    # deliberately NOT a rank_buildings() term for exactly that reason (a
+    # ~9%-populated column blended into a board-wide score is the false-
+    # precision problem app/assumptions.py exists to flag). Used only as an
+    # in-subset tie-breaker on the /retrofit?has_ebewe=true view -- see
+    # app/web/main.py:retrofit_board.
+    ebewe_matched: bool = Field(default=False, index=True)
+    ebewe_building_id: str | None = None
+    ebewe_program_year: int | None = None
+    ebewe_energy_star_score: int | None = None
+    ebewe_site_eui: float | None = None
+    ebewe_weather_normalized_site_eui: float | None = None
+    ebewe_property_type: str | None = None
+    # LAMC Table 9708.2 A/RCx compliance cycle, keyed off ebewe_building_id
+    # -- see app.pipeline.regulatory:arcx_compliance_status. Only ever set
+    # when ebewe_matched (the cycle needs a real LADBS Building ID; a
+    # sqft-proxy ebewe_candidate row without a match has none to key off).
+    # A dated legal obligation, useful on its own regardless of the
+    # benchmark-data join's coverage -- surfaced as its own flag, not
+    # folded into ebewe_matched.
+    ebewe_arcx_due_this_year: bool = Field(default=False, index=True)
+    ebewe_arcx_next_compliance_date: datetime | None = None
 
     # From app/replacement.py's ownership-branched service life table.
     # ownership is always "private_commercial" (the default, longest cycle)
