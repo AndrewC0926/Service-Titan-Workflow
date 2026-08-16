@@ -324,21 +324,26 @@ def pipeline(force: bool = typer.Option(
         # stage, so a retrofit failure is recorded and surfaced exactly like
         # a fetch/triage/extract failure -- it cannot abort a later step,
         # because there IS no later step for it to abort by the time it runs.
-        # fetch_ebewe_benchmarks_cmd and fetch_local250_cmd both run weekly,
-        # same day as find_replacement_candidates_cmd, and BEFORE
-        # build_retrofit_buildings_cmd so the same day's rebuild joins the
-        # freshest data: EBEWE files annually, so a daily refetch of all
-        # 96k+ rows would buy nothing over what's already durable in
-        # ebewe_benchmarks -- see app.pipeline.ebewe:
-        # ebewe_matches_by_normalized_address, which re-joins from that
-        # table at every build regardless of when it was last fetched, same
-        # tolerance geocodes/service_calls already have. UA Local 250's own
-        # public list is a small, slow-changing roster -- no reason to
-        # re-scrape and re-match all 47k+ contractors daily either.
+        # fetch_ebewe_benchmarks_cmd, fetch_local250_cmd, and
+        # fetch_ownership_recency_cmd all run weekly, same day as
+        # find_replacement_candidates_cmd, and BEFORE build_retrofit_buildings_cmd
+        # so the same day's rebuild joins the freshest data: EBEWE files
+        # annually, so a daily refetch of all 96k+ rows would buy nothing
+        # over what's already durable in ebewe_benchmarks -- see
+        # app.pipeline.ebewe:ebewe_matches_by_normalized_address, which
+        # re-joins from that table at every build regardless of when it was
+        # last fetched, same tolerance geocodes/service_calls already have.
+        # UA Local 250's own public list is a small, slow-changing roster --
+        # no reason to re-scrape and re-match all 47k+ contractors daily
+        # either. Ownership doesn't change daily either, and (see
+        # app/pipeline/ownership.py) the fetch itself reads
+        # RetrofitBuilding.apn, so it needs a population already on disk --
+        # positioned right before the rebuild it feeds, same as the other two.
         for step in (fetch, triage, extract, grounding, resolve, score, notify,
-                    fetch_ebewe_benchmarks_cmd, fetch_local250_cmd, build_retrofit_buildings_cmd,
-                    find_replacement_candidates_cmd):
-            if (step in (find_replacement_candidates_cmd, fetch_ebewe_benchmarks_cmd, fetch_local250_cmd)
+                    fetch_ebewe_benchmarks_cmd, fetch_local250_cmd, fetch_ownership_recency_cmd,
+                    build_retrofit_buildings_cmd, find_replacement_candidates_cmd):
+            if (step in (find_replacement_candidates_cmd, fetch_ebewe_benchmarks_cmd,
+                        fetch_local250_cmd, fetch_ownership_recency_cmd)
                     and utcnow().weekday() != RETROFIT_WEEKLY_WEEKDAY):
                 typer.echo(f"--- {step.__name__} (skipped -- weekly, Sundays only) ---")
                 continue
@@ -974,6 +979,26 @@ def seed_competitors_cmd() -> None:
         stats = seed_competitor_lines(session)
     typer.echo(f"{stats['rep_firms']} rep firms, {stats['lines_total']} line assignments "
                f"({stats['confirmed']} confirmed, {stats['unconfirmed']} unconfirmed)")
+
+
+@app.command("fetch-ownership-recency")
+def fetch_ownership_recency_cmd() -> None:
+    """Change-of-ownership recency for the retrofit board, from LA County's
+    own Assessor parcel FeatureServer -- see app/pipeline/ownership.py for
+    the LA County Recorder compliance finding (no bulk/API access, not
+    built) and why the Assessor's own RecordingDate field is used instead.
+    Writes to ownership_recency (survives RetrofitBuilding's own rebuild);
+    rejoined onto RetrofitBuilding.last_sale_date at build time. Writes its
+    own SourceRun so `scout doctor` / source_health can see it (config.yaml's
+    sources.la_county_ownership)."""
+    from app.http import PoliteClient
+    from app.pipeline.ownership import fetch_ownership_recency
+    with session_scope() as session, PoliteClient() as client:
+        stats = fetch_ownership_recency(session, load_config(), client)
+    typer.echo(f"{stats['matched']} of {stats['apns_total']} retrofit_buildings APNs matched "
+               f"a recording date")
+    if stats.get("error"):
+        typer.echo(f"  ERROR: {stats['error']}", err=True)
 
 
 @app.command("fetch-dc-news-enrichment")

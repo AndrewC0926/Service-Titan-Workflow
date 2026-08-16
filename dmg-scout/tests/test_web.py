@@ -218,6 +218,47 @@ def test_retrofit_board_shows_ebewe_coverage_and_has_ebewe_filter(client, db_ses
     assert "2 Unmatched Rd" not in filtered.text
 
 
+def test_retrofit_board_excludes_no_address_rows_and_discloses_the_count(client, db_session, cfg):
+    """A call list should not contain a row that can't be called -- see the
+    commit that added this. No-address rows are excluded from the ranked
+    view and its total entirely (not sorted last), and the exclusion is
+    disclosed via a callout, not silently dropped from view."""
+    has_address = RetrofitBuilding(apn="HA1", population="replacement_candidate",
+                                   address="1 Callable St", county="Los Angeles", state="CA",
+                                   rank_score=5.0)
+    no_address_null = RetrofitBuilding(apn="NA1", population="replacement_candidate",
+                                       address=None, county="Los Angeles", state="CA", rank_score=9.0)
+    no_address_blank = RetrofitBuilding(apn="NA2", population="replacement_candidate",
+                                        address="", county="Los Angeles", state="CA", rank_score=8.0)
+    db_session.add(has_address)
+    db_session.add(no_address_null)
+    db_session.add(no_address_blank)
+    db_session.commit()
+
+    r = client.get("/retrofit?population=replacement_candidate", headers=AUTH)
+    assert r.status_code == 200
+    assert "1 Callable St" in r.text
+    assert "NA1" not in r.text and "NA2" not in r.text
+    assert "2 buildings excluded" in r.text or "2&nbsp;buildings excluded" in r.text
+
+
+def test_retrofit_report_excludes_no_address_rows(client, db_session, cfg):
+    has_address = RetrofitBuilding(apn="HA2", population="replacement_candidate",
+                                   address="1 Reportable Ave", county="Los Angeles", state="CA",
+                                   rank_score=5.0, service_life_status="due")
+    no_address = RetrofitBuilding(apn="NA3", population="replacement_candidate", address=None,
+                                  county="Los Angeles", state="CA", rank_score=9.0,
+                                  service_life_status="overdue")
+    db_session.add(has_address)
+    db_session.add(no_address)
+    db_session.commit()
+
+    r = client.get("/retrofit/report?population=replacement_candidate&min_status=due", headers=AUTH)
+    assert r.status_code == 200
+    assert "1 Reportable Ave" in r.text
+    assert "NA3" not in r.text
+
+
 def test_titleblock_data_as_of_and_printed_use_the_same_timezone_convention(client, db_session, cfg):
     """Both are UTC (tb.data_as_of = max(RawDocument.fetched_at); Printed =
     app.models.utcnow, the Jinja `now` global) -- they must render with the

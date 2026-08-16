@@ -89,7 +89,8 @@ def _fmt_table(d: dict, fmt: str = "{:.2f}") -> str:
 
 
 def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
-                     delivery_method_coverage: dict | None = None) -> list[Assumption]:
+                     delivery_method_coverage: dict | None = None,
+                     ownership_recency_coverage: dict | None = None) -> list[Assumption]:
     """Everything below is read from cfg at call time — never hand-copied —
     so the VALUE column can't drift from what's actually running even if
     this function's prose goes stale.
@@ -524,6 +525,59 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
         ),
     ))
 
+    orc = ownership_recency_coverage or {}
+    orc_total = orc.get("retrofit_buildings_total")
+    orc_matched = orc.get("matched")
+    orc_recent = orc.get("sold_last_24mo")
+    out.append(Assumption(
+        group="Retrofit ranking", name="Ownership-change recency: source and match rate",
+        config_path=None,
+        value=(f"{orc_matched:,} of {orc_total:,} retrofit_buildings rows matched "
+              f"({100*orc_matched/orc_total:.1f}%); {orc_recent:,} sold in the last 24 months"
+              if orc_total else "not available on this page load"),
+        source_type=MEASURED,
+        source_detail=(
+            "The actual ask was LA County Recorder deed records -- checked first, 2026-08-16: the "
+            "Recorder (Registrar-Recorder/County Clerk) offers no bulk or API access to its deed "
+            "index, only an in-person visit or a paid per-document request through VitalChek "
+            "(~20 business day turnaround) -- the same dead end as DIR's contractor registry, so "
+            "no Recorder scraper was built. What's used instead is a different, independently "
+            "public source carrying the same underlying fact: the LA County ASSESSOR's own "
+            "RecordingDate field (already used in production for CARB/EBEWE candidate detection, "
+            "see app/pipeline/assessor.py), which changes whenever Prop 13 reassesses a parcel for "
+            "a change of ownership. Two disclosed limitations: no document type is available (the "
+            "Recorder's own index would carry deed type; the Assessor's roll does not), and "
+            "RecordingDate is not proof of an arms-length market sale -- some non-sale transfers "
+            "are also reassessable. Live count, checked at every page load -- see "
+            "app.pipeline.ownership:ownership_recency_coverage."
+        ),
+        verified=True,
+        last_reviewed="Live count as of this page load.",
+    ))
+
+    from app.pipeline.retrofit import RECENCY_HALFLIFE_MONTHS
+    out.append(Assumption(
+        group="Retrofit ranking", name="Ownership-change recency: decay half-life and ranking weight",
+        config_path=None,
+        value=f"{RECENCY_HALFLIFE_MONTHS:.0f}-month half-life, weighted 0.22 within a service-life tier",
+        source_type=PLACEHOLDER,
+        source_detail=(
+            "A judgment call, not fit to any labeled outcome -- no data exists linking a sale date "
+            "to an actual subsequent equipment replacement to fit against. The instruction's own "
+            "framing (new owners run capital plans and price deferred HVAC into offers on roughly a "
+            "6-18 month lag) motivated a SHORT half-life so the term concentrates weight on recent "
+            "sales rather than still crediting one from a decade ago, but 24 months specifically is "
+            "a round-number choice. Reuses the same exponential-decay shape "
+            "scoring.recency_halflife_days already uses for signal recency, for consistency rather "
+            "than inventing a new curve. The 0.22 weight (reallocated from magnitude 0.55->0.42 and "
+            "size 0.25->0.16, keeping the same 0.92 total ceiling documented in "
+            "app.pipeline.retrofit:rank_buildings) is sized so a very recent sale meaningfully "
+            "outranks a stale one within a tier, matching the instruction's own worked example (a "
+            "building 30 years past due that just sold outranks one 30 years past due with no "
+            "recent sale) -- not fit against outcomes either.",
+        ),
+    ))
+
     # ---- Contractor ranking --------------------------------------------------
     from app.contractors import URGENCY_YEARS_PAST_CAP, ranking_radius_miles
 
@@ -796,10 +850,12 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
 
 
 def assumptions_by_group(cfg: Config, service_calls_coverage: dict | None = None,
-                         delivery_method_coverage: dict | None = None) -> dict[str, list[Assumption]]:
+                         delivery_method_coverage: dict | None = None,
+                         ownership_recency_coverage: dict | None = None) -> dict[str, list[Assumption]]:
     grouped: dict[str, list[Assumption]] = {}
     for a in load_assumptions(cfg, service_calls_coverage=service_calls_coverage,
-                              delivery_method_coverage=delivery_method_coverage):
+                              delivery_method_coverage=delivery_method_coverage,
+                              ownership_recency_coverage=ownership_recency_coverage):
         grouped.setdefault(a.group, []).append(a)
     return grouped
 

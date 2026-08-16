@@ -19,6 +19,15 @@
      class="chip" aria-pressed="{{ 'true' if population == 'recently_active' else 'false' }}">Recently active (market intel)</a>
 </div>
 
+{% if summary.no_address_total %}
+<div class="callout callout-warn">
+  <strong>{{ '{:,}'.format(summary.no_address_total) }} building{{ 's' if summary.no_address_total != 1 }} excluded — no address on file</strong>
+  <span class="body">A call list should not contain a row that can't be called. Excluded from this
+    ranked view and its total entirely (not just sorted last) — one previously sat at #9 in the top 10.
+    Still real rows in the underlying data, just not actionable from here.</span>
+</div>
+{% endif %}
+
 <div class="callout callout-warn">
   <strong>EBEWE benchmark data covers {{ '{:,}'.format(summary.ebewe_covered) }} of
     {{ '{:,}'.format(summary.ebewe_covered_of) }} buildings in this view ({{ summary.ebewe_covered_pct }}%)</strong>
@@ -219,6 +228,9 @@
     {%- else -%}
       {{ b.permit_count }} permit{{ 's' if b.permit_count != 1 }} on file, latest {{ b.latest_install_year or '?' }}
       {%- if b.inferred_refrigerant %}, {{ b.inferred_refrigerant }} inferred{% endif -%}
+    {%- endif -%}
+    {%- if b.last_sale_date -%}
+      <br><span title="LA County Assessor's own RecordingDate (a Prop 13 reassessment trigger, not confirmed proof of an arms-length sale, no document type available) -- see /assumptions.">Sold {{ b.last_sale_date.strftime('%Y-%m-%d') }}</span>
     {%- endif -%}
   </td>
 </tr>

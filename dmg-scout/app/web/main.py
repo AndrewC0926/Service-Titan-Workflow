@@ -400,6 +400,18 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
         base_q = base_q.where(RetrofitBuilding.service_life_status.in_(
             STATUS_ORDER[:STATUS_ORDER.index(min_status) + 1]))
 
+    # A call list should not contain rows that can't be called (2026-08-16):
+    # a no-address row can still rank near the top on urgency/size alone
+    # (one sat at #9 in the top 10) with no way to act on it. Excluded from
+    # the ranked view/total entirely, not just sorted last -- counted and
+    # disclosed below (no_address_total) the same way never-matched
+    # contractors are on /contractors, never silently dropped from
+    # existence.
+    no_address_total = session.exec(select(func.count()).select_from(
+        base_q.where(or_(RetrofitBuilding.address.is_(None), RetrofitBuilding.address == "")).subquery()
+    )).one()
+    base_q = base_q.where(RetrofitBuilding.address.is_not(None), RetrofitBuilding.address != "")
+
     # Coverage is measured against base_q BEFORE has_ebewe is applied -- the
     # honest denominator is "this view, before you asked to see only the
     # covered subset". Measuring against the has_ebewe-filtered query instead
@@ -446,6 +458,7 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
         "ebewe_covered": ebewe_covered,
         "ebewe_covered_of": unfiltered_total,
         "ebewe_covered_pct": round(100 * ebewe_covered / unfiltered_total, 1) if unfiltered_total else 0.0,
+        "no_address_total": no_address_total,
     }
     return templates.TemplateResponse(request, "retrofit_board.html", {
         "buildings": buildings, "summary": summary, "counties": counties,
@@ -465,8 +478,11 @@ def retrofit_report(request: Request, county: str = None, min_status: str = "due
     a YearBuilt-derived service life (weaker evidence, disclosed as such in
     each row's basis line) rather than the permit-verified figure
     recently_active rows carry. Hand this to a service contractor — every
-    fact traces to a public record."""
-    q = select(RetrofitBuilding).where(RetrofitBuilding.population == population)
+    fact traces to a public record. No-address rows are excluded, same as
+    the board itself: a call list should not contain a row that can't be
+    called."""
+    q = select(RetrofitBuilding).where(RetrofitBuilding.population == population,
+                                       RetrofitBuilding.address.is_not(None), RetrofitBuilding.address != "")
     if county:
         q = q.where(RetrofitBuilding.county == county)
     STATUS_ORDER = ["overdue", "due", "approaching", "not_due"]
@@ -1484,14 +1500,18 @@ def assumptions_register(request: Request, session: Session = Depends(get_sessio
     from app.assumptions import assumptions_by_group, load_assumptions, source_tally
     from app.pipeline.retrofit import service_calls_coverage as get_service_calls_coverage
     from app.pipeline.resolve import delivery_method_coverage as get_delivery_method_coverage
+    from app.pipeline.ownership import ownership_recency_coverage as get_ownership_recency_coverage
     cfg = load_config()
     coverage = get_service_calls_coverage(session)
     delivery_coverage = get_delivery_method_coverage(session)
+    ownership_coverage = get_ownership_recency_coverage(session)
     assumptions = load_assumptions(cfg, service_calls_coverage=coverage,
-                                   delivery_method_coverage=delivery_coverage)
+                                   delivery_method_coverage=delivery_coverage,
+                                   ownership_recency_coverage=ownership_coverage)
     return templates.TemplateResponse(request, "assumptions.html", {
         "grouped": assumptions_by_group(cfg, service_calls_coverage=coverage,
-                                        delivery_method_coverage=delivery_coverage),
+                                        delivery_method_coverage=delivery_coverage,
+                                        ownership_recency_coverage=ownership_coverage),
         "tally": source_tally(assumptions),
         "total": len(assumptions),
         "tb": _title_block(session), "active": "assumptions",

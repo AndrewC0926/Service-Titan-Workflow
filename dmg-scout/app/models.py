@@ -1258,6 +1258,18 @@ class RetrofitBuilding(SQLModel, table=True):
     service_calls_per_year_source: str | None = None
     service_calls_per_year_reported_at: datetime | None = None
 
+    # Rejoined from OwnershipRecency at build time, same DELETE-and-reinsert
+    # reason as service_calls_per_year and latitude/longitude above -- see
+    # app/pipeline/ownership.py. last_sale_date is the Assessor's own
+    # RecordingDate (a Prop 13 reassessment trigger, the strongest publicly
+    # available proxy for "this parcel changed hands" -- NOT proof of an
+    # arms-length sale, and carries no document type; see that module's
+    # docstring for the full compliance finding and both limitations). Feeds
+    # rank_buildings' recency_factor -- see that function's docstring.
+    last_sale_date: datetime | None = None
+    last_sale_source: str | None = None
+    last_sale_checked_at: datetime | None = None
+
     # Rejoined from RetrofitGeocode at build time, same pattern and same
     # reason as service_calls_per_year above -- this table's own DELETE-and-
     # reinsert rebuild would otherwise wipe it. Null until geocoded; see
@@ -1723,6 +1735,33 @@ class RetrofitGeocodeFailure(SQLModel, table=True):
     apn: str = Field(index=True, unique=True)
     source_address: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
     attempted_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class OwnershipRecency(SQLModel, table=True):
+    """Change-of-ownership evidence for a retrofit building's APN -- lives
+    in its own table for the exact reason RetrofitGeocode does (see that
+    model's docstring): build_retrofit_buildings/find_replacement_candidates
+    DELETE and reinsert their whole population every run, so anything
+    stored directly on RetrofitBuilding would be silently wiped on the next
+    rebuild. This table survives that; app.pipeline.retrofit rejoins it
+    onto RetrofitBuilding.last_sale_date at build time.
+
+    See app/pipeline/ownership.py's module docstring for the full sourcing
+    story: LA County Recorder's own deed index has no bulk/API access (a
+    real, checked, documented dead end -- not built), so last_sale_date is
+    the LA County ASSESSOR's own public RecordingDate field instead (a
+    Prop 13 reassessment-trigger date, the strongest publicly available
+    proxy for a change of ownership, but NOT proof of an arms-length sale
+    and carrying no document type -- both disclosed limitations, not
+    silently assumed away).
+    """
+    __tablename__ = "ownership_recency"
+
+    id: int | None = Field(default=None, primary_key=True)
+    apn: str = Field(index=True, unique=True)
+    last_sale_date: datetime = Field(index=True)
+    source: str = "la_county_assessor_recording_date"
+    checked_at: datetime = Field(default_factory=utcnow, index=True)
 
 
 class ReviewQueue(SQLModel, table=True):

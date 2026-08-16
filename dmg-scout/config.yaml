@@ -535,6 +535,13 @@ sources:
   # not an automated re-fetch cadence.
   competitor_lines:
     enabled: true
+  # Change-of-ownership recency for the retrofit board -- see
+  # app/pipeline/ownership.py's module docstring for why this is the LA
+  # County ASSESSOR's own RecordingDate field, not the Recorder's deed
+  # index (no bulk/API access there, confirmed and not built). Weekly,
+  # same day as EBEWE/Local 250 -- ownership doesn't change daily either.
+  la_county_ownership:
+    enabled: true
   manual:
     enabled: true
 

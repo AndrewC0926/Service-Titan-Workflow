@@ -182,6 +182,20 @@ def geocodes_by_apn(session, apns: list[str]) -> dict[str, RetrofitGeocode]:
     return {g.apn: g for g in geocodes}
 
 
+def ownership_by_apn(session, apns: list[str]) -> dict[str, "OwnershipRecency"]:
+    """OwnershipRecency rows for the apns given -- same pattern as
+    geocodes_by_apn above and for the same reason: this table's own
+    DELETE-and-reinsert rebuild would otherwise wipe a fetch that cost real
+    (rate-limited-by-courtesy) calls against LA County's own FeatureServer.
+    See app/pipeline/ownership.py for the fetch and OwnershipRecency's
+    docstring for the compliance finding."""
+    if not apns:
+        return {}
+    from app.models import OwnershipRecency
+    rows = session.exec(select(OwnershipRecency).where(OwnershipRecency.apn.in_(apns))).all()
+    return {r.apn: r for r in rows}
+
+
 _SITUS_ADDRESS_RE = re.compile(
     r"^(?P<street>.+?)\s{2,}(?P<city>[A-Z .]+?)\s+(?P<state>CA)\s{2,}(?P<zip>\d{5})$"
 )
@@ -325,11 +339,26 @@ def geocode_retrofit_buildings(session, *, batch_limit: int | None = None,
 # ranking: age-curve shape parameter" entry.
 AGE_CURVE_SHAPE = 2.0
 
+# Half-life, in months, for the ownership-change recency term below
+# (2026-08-16). A building that changed hands very recently gets full
+# recency credit; the credit halves every RECENCY_HALFLIFE_MONTHS and is
+# effectively zero for a sale decades old. Same exponential-decay shape
+# app.pipeline.scoring already uses for signal-recency decay
+# (scoring.recency_halflife_days), reused here for consistency rather than
+# inventing a new curve. 24 months is a judgment call, not fit to any
+# labeled outcome -- chosen to concentrate the term's weight on the window
+# the instruction itself named (new owners price/run capital plans on
+# roughly a 6-18 month lag), not to still meaningfully credit a sale from
+# 10+ years ago. See app/assumptions.py's "Retrofit ranking: ownership-
+# change recency" entry.
+RECENCY_HALFLIFE_MONTHS = 24.0
+
 
 def rank_buildings(*, service_life_status: str | None, sqft: float | None,
                    sb1206_trigger_status: str | None, ebewe_candidate: bool,
                    carb_candidate: bool, service_life_years_past: float | None = None,
-                   service_calls_per_year: float | None = None) -> float:
+                   service_calls_per_year: float | None = None,
+                   months_since_sale: float | None = None) -> float:
     """Hierarchy first, composite within tier — the same fix ladder.py's
     reachability-first sort applies to contacts, applied here to buildings.
 
@@ -357,11 +386,24 @@ def rank_buildings(*, service_life_status: str | None, sqft: float | None,
     varies WITHIN the saturated tier. service_life_years_past (age minus the
     low/"due" threshold — negative before the window, growing through due
     into overdue, see app/replacement.py) is now the lead term within a
-    tier; size and regulatory proximity are secondary tie-breakers, not the
-    sort key. All three terms are still capped well under 1.0 combined
-    (0.55 + 0.25 + 0.4*0.3=0.12 = 0.92 max), so — same invariant as before —
-    no combination of magnitude, size and regulatory pressure can ever cross
-    a full tier step.
+    tier; size, ownership-change recency, and regulatory proximity are
+    secondary tie-breakers, not the sort key. All four terms are still
+    capped well under 1.0 combined (0.42 + 0.22 + 0.16 + 0.4*0.3=0.12 = 0.92
+    max — same 0.92 ceiling as before this term existed, just reallocated
+    to make room for it), so — same invariant as before — no combination of
+    magnitude, recency, size and regulatory pressure can ever cross a full
+    tier step.
+
+    months_since_sale (2026-08-16, from RetrofitBuilding.last_sale_date —
+    see app/pipeline/ownership.py) is the newest of these secondary terms: a
+    building that just changed hands is disproportionately likely to see
+    mechanical capex on roughly a 6-18 month lag (new owners run capital
+    plans; buyers price deferred HVAC into offers), so recency of ownership
+    change gets real weight alongside magnitude, not a token nudge — a
+    building 30 years past due that just sold outranks one 30 years past
+    due that hasn't traded in 20 years, entirely from this term. Decays
+    exponentially (see RECENCY_HALFLIFE_MONTHS); None (no sale on record,
+    still most rows) contributes 0, same as every other null input here.
 
     service_calls_per_year (2026-08-11, manual entry only — see
     ServiceFrequencyReport) OVERRIDES all of the above when present: actual
@@ -430,6 +472,10 @@ def rank_buildings(*, service_life_status: str | None, sqft: float | None,
         import math
         size_factor = max(0.0, min(1.0, math.log10(sqft) / 6.0))
 
+    recency_factor = 0.0
+    if months_since_sale is not None:
+        recency_factor = max(0.0, min(1.0, 0.5 ** (max(0.0, months_since_sale) / RECENCY_HALFLIFE_MONTHS)))
+
     reg_weight = 0.0
     if sb1206_trigger_status == "in_effect":
         reg_weight = 0.3
@@ -440,7 +486,8 @@ def rank_buildings(*, service_life_status: str | None, sqft: float | None,
     if carb_candidate:
         reg_weight = max(reg_weight, 0.1)
 
-    within_tier = round(magnitude_factor * 0.55 + size_factor * 0.25 + reg_weight * 0.4, 4)
+    within_tier = round(magnitude_factor * 0.42 + recency_factor * 0.22
+                        + size_factor * 0.16 + reg_weight * 0.4, 4)
     return round(life_tier + within_tier, 4)
 
 
@@ -476,6 +523,7 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
 
     service_freq = latest_service_frequency_by_apn(session, apns)
     geocodes = geocodes_by_apn(session, apns)
+    ownership = ownership_by_apn(session, apns)
 
     # Built BEFORE the main loop so the EBEWE join's reverse-ambiguity check
     # (an address claimed by more than one apn) sees every address THIS
@@ -526,6 +574,8 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
         carb_use_code = carb_by_ain.get(apn)
         freq = service_freq.get(apn)
         geo = geocodes.get(apn)
+        own = ownership.get(apn)
+        months_since_sale = ((now - own.last_sale_date).days / 30.44) if own else None
         row_address = chars.get("address") or latest.address
         ebewe = ebewe_index.get(normalize_address(row_address)) or {}
         if ebewe:
@@ -536,6 +586,7 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
             ebewe_candidate=apn in ebewe_ains, carb_candidate=carb_use_code is not None,
             service_life_years_past=years_past,
             service_calls_per_year=freq.service_calls_per_year if freq else None,
+            months_since_sale=months_since_sale,
         )
 
         session.add(RetrofitBuilding(
@@ -557,6 +608,9 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
             service_calls_per_year=freq.service_calls_per_year if freq else None,
             service_calls_per_year_source=freq.source if freq else None,
             service_calls_per_year_reported_at=freq.reported_at if freq else None,
+            last_sale_date=own.last_sale_date if own else None,
+            last_sale_source=own.source if own else None,
+            last_sale_checked_at=own.checked_at if own else None,
             latitude=geo.latitude if geo else None, longitude=geo.longitude if geo else None,
             permit_source_url=PERMITS_PORTAL_URL, assessor_source_url=ASSESSOR_PORTAL_URL,
             built_at=now,
@@ -756,6 +810,7 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
 
     service_freq = latest_service_frequency_by_apn(session, ains)
     geocodes = geocodes_by_apn(session, ains)
+    ownership = ownership_by_apn(session, ains)
 
     # See build_retrofit_buildings' identical comment -- built from THIS
     # population's own parcels so reverse-ambiguity detection isn't blind
@@ -842,6 +897,8 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
         tons_low, tons_high, tons_basis = estimate_tonnage(cfg, use_desc, sqft)
         freq = service_freq.get(ain)
         geo = geocodes.get(ain)
+        own = ownership.get(ain)
+        months_since_sale = ((now - own.last_sale_date).days / 30.44) if own else None
         ebewe = ebewe_index.get(normalize_address(attrs.get("PropertyLocation"))) or {}
         if ebewe:
             ebewe_matched_count += 1
@@ -852,6 +909,7 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
             ebewe_candidate=ain in ebewe_ains, carb_candidate=carb_use_code is not None,
             service_life_years_past=years_past,
             service_calls_per_year=freq.service_calls_per_year if freq else None,
+            months_since_sale=months_since_sale,
         )
 
         session.add(RetrofitBuilding(
@@ -870,6 +928,9 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
             service_calls_per_year=freq.service_calls_per_year if freq else None,
             service_calls_per_year_source=freq.source if freq else None,
             service_calls_per_year_reported_at=freq.reported_at if freq else None,
+            last_sale_date=own.last_sale_date if own else None,
+            last_sale_source=own.source if own else None,
+            last_sale_checked_at=own.checked_at if own else None,
             latitude=geo.latitude if geo else None, longitude=geo.longitude if geo else None,
             permit_source_url=PERMITS_PORTAL_URL, assessor_source_url=ASSESSOR_PORTAL_URL,
             built_at=now,
