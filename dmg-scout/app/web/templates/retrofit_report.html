@@ -57,7 +57,7 @@ is imperfect, so some rows below have already been serviced. Qualify by phone be
   <td class="num nowrap">{{ '{:,.0f}'.format(b.sqft) if b.sqft else '—' }}</td>
   <td class="nowrap">
     {%- if b.equipment_type -%}
-      {{ b.equipment_type.replace('_',' ') }}
+      <span{% if equipment_tooltip(b.equipment_type) %} title="{{ equipment_tooltip(b.equipment_type) }}"{% endif %}>{{ b.equipment_type.replace('_',' ') }}</span>
       {%- if b.mined_equipment_count %} ×{{ b.mined_equipment_count }}{% endif -%}
       {%- if b.mined_tons_each %} @ {{ b.mined_tons_each|int }}t{% endif -%}
     {%- elif b.population == 'replacement_candidate' and b.estimated_tons_low -%}

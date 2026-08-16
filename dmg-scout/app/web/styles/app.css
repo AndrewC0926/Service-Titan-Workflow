@@ -396,4 +396,35 @@
     .tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
     .tab { flex: 0 0 auto; }
   }
+
+  /* ---- /reference: static field-reference content --------------------
+     No new visual language -- same hairline/uppercase-label vocabulary as
+     everything else in this file, just a grid for equipment cards and a
+     bordered frame for the plant diagram, since nothing existing covers
+     either shape. */
+  .eqrack { display: grid; gap: 0.9rem; margin-top: 1rem; }
+  @media (min-width: 45rem) { .eqrack { grid-template-columns: repeat(2, 1fr); } }
+  @media (min-width: 68rem) { .eqrack { grid-template-columns: repeat(3, 1fr); } }
+  .eqcard { border: 1px solid var(--color-rule-hard); background: var(--color-panel); display: flex; flex-direction: column; }
+  .eqcard figure { margin: 0; padding: 0.8rem 0.8rem 0.3rem; border-bottom: 1px solid var(--color-rule); }
+  .eqcard svg { display: block; width: 100%; height: auto; color: var(--color-ink); }
+  .eqcard .body { padding: 0.7rem 0.85rem 0.9rem; }
+  .eqcard .body h3 { font-size: 0.9375rem; font-weight: 600; color: var(--color-ink); margin: 0.3rem 0 0.5rem; }
+  .eqcard .body p { margin: 0 0 0.55rem; font-size: 0.8125rem; }
+  .eqcard .body p:last-child { margin-bottom: 0; }
+
+  .plant { border: 1px solid var(--color-rule-hard); background: var(--color-panel); padding: 1rem 0.85rem; margin-top: 1rem; overflow-x: auto; }
+  .plant svg { display: block; min-width: 42rem; width: 100%; height: auto; margin: 0 auto; color: var(--color-ink); }
+  .legend { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.85rem; font-family: var(--font-mono); font-size: var(--text-tiny); color: var(--color-ink-dim); }
+  .legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .swatch { display: inline-block; width: 1.1rem; height: 3px; }
+
+  .calcs { display: grid; gap: 0.7rem; margin-top: 1rem; }
+  @media (min-width: 42rem) { .calcs { grid-template-columns: repeat(2, 1fr); } }
+  .calc { border-left: 3px solid var(--color-blueprint); background: var(--color-panel-alt); padding: 0.7rem 0.9rem; }
+  .calc.hot { border-left-color: var(--color-stamp-warn); }
+  .calc.air { border-left-color: var(--color-stamp-ok); }
+  .calc h4 { font-size: var(--text-tiny); letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-ink-mid); margin: 0 0 0.4rem; font-weight: 600; }
+  .calc .eq { display: block; font-family: var(--font-mono); font-size: 0.875rem; color: var(--color-ink); background: var(--color-panel); border: 1px solid var(--color-rule); padding: 0.4rem 0.6rem; margin: 0 0 0.45rem; overflow-x: auto; }
+  .calc p { margin: 0; font-size: 0.8125rem; color: var(--color-ink-dim); }
 }

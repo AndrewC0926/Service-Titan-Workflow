@@ -1,0 +1,572 @@
+{% extends "base.html" %}
+{% block title %}Reference{% endblock %}
+{% block sheet_no %}M-000{% endblock %}
+{% block content %}
+
+<div class="sec-head">
+  <div class="sec-title">Field reference — mechanical systems</div>
+  <span class="note">Equipment, units and rules of thumb for reading a schedule, a submittal, or a
+    conversation with the engineer who wrote it. Static content — nothing on this sheet is pulled
+    from a source or a pipeline, so there's no "data as of" for it.</span>
+</div>
+
+<div class="mb-2 flex flex-wrap items-center gap-1.5">
+{% for t in tab_order %}
+<a class="chip" aria-pressed="{{ 'true' if t==active_tab else 'false' }}" href="/reference?tab={{ t }}">{{ TAB_LABELS[t] }}</a>
+{% endfor %}
+</div>
+
+{% if active_tab == 'systems' %}
+<p class="note mb-2" style="max-width:62rem">Two architectures cover most of what you will sell.
+  Everything else is a variation. The distinction that matters commercially: a packaged system puts
+  the whole refrigeration cycle in one box on the roof, and a chilled-water plant splits it across a
+  building, which is why the second one has more equipment in it and more lines on your card.</p>
+
+<div class="plant">
+  <svg viewBox="0 0 900 380" role="img" aria-label="Chilled water plant diagram showing cooling tower, chiller, pumps, air handler and VAV boxes">
+    <defs>
+      <marker id="ref-ah" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M0,1 L8,4.5 L0,8 z" fill="currentColor"/>
+      </marker>
+    </defs>
+    <g font-family="var(--font-mono)" font-size="11" fill="var(--color-ink-dim)">
+
+      <!-- cooling tower -->
+      <g stroke="var(--color-ink)" stroke-width="1.6" fill="none">
+        <path d="M60 40 L170 40 L156 108 L74 108 Z"/>
+        <line x1="74" y1="58" x2="156" y2="58"/>
+        <line x1="80" y1="70" x2="150" y2="70"/>
+        <line x1="84" y1="82" x2="146" y2="82"/>
+        <circle cx="115" cy="28" r="11"/>
+        <line x1="106" y1="28" x2="124" y2="28"/>
+      </g>
+      <text x="115" y="126" text-anchor="middle" fill="var(--color-ink)" font-size="12">COOLING TOWER</text>
+      <text x="115" y="140" text-anchor="middle">rejects heat outdoors</text>
+
+      <!-- condenser water loop -->
+      <g stroke="var(--color-stamp-warn)" stroke-width="2.2" fill="none" color="var(--color-stamp-warn)">
+        <path d="M156 96 L230 96 L230 150" marker-end="url(#ref-ah)"/>
+        <path d="M270 150 L310 150 L310 74 L170 74" marker-end="url(#ref-ah)"/>
+      </g>
+      <text x="330" y="70" fill="var(--color-stamp-warn)">condenser water · warm</text>
+
+      <!-- chiller -->
+      <g stroke="var(--color-ink)" stroke-width="1.6" fill="none">
+        <rect x="230" y="150" width="200" height="82"/>
+        <rect x="244" y="164" width="172" height="22" rx="11"/>
+        <rect x="244" y="196" width="172" height="22" rx="11"/>
+        <circle cx="330" cy="191" r="9" fill="var(--color-panel)"/>
+      </g>
+      <text x="330" y="178" text-anchor="middle" font-size="10">CONDENSER</text>
+      <text x="330" y="210" text-anchor="middle" font-size="10">EVAPORATOR</text>
+      <text x="330" y="250" text-anchor="middle" fill="var(--color-ink)" font-size="12">CHILLER</text>
+      <text x="330" y="264" text-anchor="middle">makes the cold water</text>
+
+      <!-- pump -->
+      <g stroke="var(--color-ink)" stroke-width="1.6" fill="none">
+        <circle cx="500" cy="207" r="15"/>
+        <path d="M500 192 L500 222 M486 207 L514 207"/>
+      </g>
+      <text x="500" y="240" text-anchor="middle">PUMP</text>
+
+      <!-- chilled water loop -->
+      <g stroke="var(--color-blueprint)" stroke-width="2.2" fill="none" color="var(--color-blueprint)">
+        <path d="M430 207 L485 207" marker-end="url(#ref-ah)"/>
+        <path d="M515 207 L600 207 L600 150" marker-end="url(#ref-ah)"/>
+        <path d="M600 250 L600 296 L250 296 L250 232" marker-end="url(#ref-ah)"/>
+      </g>
+      <text x="628" y="196" fill="var(--color-blueprint)">chilled water · 44&deg;F</text>
+      <text x="420" y="290" fill="var(--color-blueprint)">return · 54&deg;F</text>
+
+      <!-- AHU -->
+      <g stroke="var(--color-ink)" stroke-width="1.6" fill="none">
+        <rect x="540" y="120" width="130" height="76"/>
+        <line x1="586" y1="120" x2="586" y2="196"/>
+        <path d="M596 132 L596 184 M606 132 L606 184 M616 132 L616 184" stroke="var(--color-blueprint)"/>
+        <circle cx="562" cy="158" r="16"/>
+        <path d="M562 142 A16 16 0 0 1 574 166 Z" fill="var(--color-panel-alt)"/>
+      </g>
+      <text x="605" y="112" text-anchor="middle" fill="var(--color-ink)" font-size="12">AIR HANDLER</text>
+      <text x="605" y="212" text-anchor="middle">fan + coil</text>
+
+      <!-- supply air -->
+      <g stroke="var(--color-stamp-ok)" stroke-width="2.2" fill="none" color="var(--color-stamp-ok)">
+        <path d="M670 158 L740 158" marker-end="url(#ref-ah)"/>
+        <path d="M790 158 L790 120 L830 120" marker-end="url(#ref-ah)"/>
+        <path d="M790 196 L790 232 L830 232" marker-end="url(#ref-ah)"/>
+      </g>
+
+      <!-- VAV boxes -->
+      <g stroke="var(--color-ink)" stroke-width="1.6" fill="none">
+        <rect x="740" y="138" width="50" height="40"/>
+        <path d="M752 150 L778 166"/>
+      </g>
+      <text x="765" y="196" text-anchor="middle" font-size="10">VAV</text>
+      <g stroke="var(--color-ink)" stroke-width="1.4" fill="none">
+        <path d="M830 108 L870 108 L870 132 L830 132 Z"/>
+        <path d="M830 220 L870 220 L870 244 L830 244 Z"/>
+        <path d="M838 108 L838 132 M846 108 L846 132 M854 108 L854 132"/>
+        <path d="M838 220 L838 244 M846 220 L846 244 M854 220 L854 244"/>
+      </g>
+      <text x="850" y="100" text-anchor="middle" font-size="10">DIFFUSER</text>
+      <text x="850" y="260" text-anchor="middle" font-size="10">DIFFUSER</text>
+      <text x="765" y="118" text-anchor="middle">damper meters air per zone</text>
+    </g>
+  </svg>
+</div>
+<div class="legend">
+  <span><i class="swatch" style="background:var(--color-stamp-warn)"></i> condenser water — heat leaving</span>
+  <span><i class="swatch" style="background:var(--color-blueprint)"></i> chilled water — 44&deg;F supply</span>
+  <span><i class="swatch" style="background:var(--color-stamp-ok)"></i> conditioned air — 55&deg;F supply</span>
+</div>
+
+<div class="callout callout-warn" style="margin-top:1.5rem">
+  <strong>The one sentence version</strong>
+  <span class="body">Heat moves outward in stages. Room air gives its heat to chilled water at the air
+    handler's coil. Chilled water gives its heat to refrigerant inside the chiller. Refrigerant gives
+    its heat to condenser water. Condenser water gives it to the sky at the cooling tower.<br><br>
+    A packaged rooftop unit does all four of those steps inside one cabinet, using outdoor air instead
+    of a tower. That is the whole difference, and it is why a rooftop is cheaper and a chilled-water
+    plant scales better.</span>
+</div>
+
+{% elif active_tab == 'equipment' %}
+<p class="note mb-2" style="max-width:62rem">Drawn the way a drawing legend draws them. Blue indicates
+  water, green indicates air, orange indicates the hot side. Tags shown are the abbreviations used on
+  a mechanical schedule. Lines listed are unverified — check the current DMG/ToroAire card before
+  repeating one to a customer.</p>
+
+<div class="eqrack">
+
+  <article class="eqcard">
+    <figure>
+      <svg viewBox="0 0 320 150" role="img" aria-label="Packaged rooftop unit shown on a roof curb with supply and return ducts">
+        <g stroke="var(--color-ink)" stroke-width="1.6" fill="none">
+          <rect x="40" y="34" width="200" height="66" rx="3"/>
+          <line x1="140" y1="34" x2="140" y2="100"/>
+          <circle cx="90" cy="60" r="15"/>
+          <path d="M90 45 A15 15 0 0 1 101 68 Z" fill="var(--color-panel-alt)"/>
+          <path d="M156 46 L156 88 M168 46 L168 88 M180 46 L180 88" stroke="var(--color-stamp-ok)"/>
+          <rect x="196" y="44" width="34" height="46" rx="2"/>
+          <path d="M200 50 L226 50 M200 60 L226 60 M200 70 L226 70 M200 80 L226 80"/>
+          <path d="M40 100 L240 100 L240 112 L40 112 Z" fill="var(--color-panel-alt)"/>
+          <path d="M0 112 L320 112" stroke-width="2.4"/>
+        </g>
+        <g stroke="var(--color-stamp-ok)" stroke-width="2" fill="none">
+          <path d="M100 124 L100 138 L200 138" />
+          <path d="M60 124 L60 132"/>
+        </g>
+        <g font-family="var(--font-mono)" font-size="10" fill="var(--color-ink-dim)">
+          <text x="90" y="28" text-anchor="middle">fan</text>
+          <text x="168" y="28" text-anchor="middle">coil</text>
+          <text x="213" y="28" text-anchor="middle">condenser</text>
+          <text x="140" y="126" text-anchor="middle">roof curb</text>
+          <text x="230" y="142">to ductwork</text>
+        </g>
+      </svg>
+    </figure>
+    <div class="body">
+      <span class="stamp stamp-quiet">RTU</span>
+      <h3>Packaged rooftop unit</h3>
+      <p>Everything in one cabinet on the roof: fan, cooling coil, compressor, condenser, usually gas
+        heat. Sits on a curb, ducts drop through the roof. The workhorse of retail, warehouse, small
+        office and schools.</p>
+      <p class="note">Sized in tons · 3–150 typical · life 15–20 yr<br>DMG: AAON is the flagship line here (unverified)</p>
+    </div>
+  </article>
+
+  <article class="eqcard">
+    <figure>
+      <svg viewBox="0 0 320 150" role="img" aria-label="Air handling unit sections: mixing box, filter, coil, fan">
+        <g stroke="var(--color-ink)" stroke-width="1.6" fill="none">
+          <rect x="26" y="36" width="268" height="78"/>
+          <line x1="96" y1="36" x2="96" y2="114"/>
+          <line x1="152" y1="36" x2="152" y2="114"/>
+          <line x1="212" y1="36" x2="212" y2="114"/>
+          <path d="M40 50 L84 50 M40 62 L84 62 M40 74 L84 74" />
+          <path d="M110 44 L110 106 M122 44 L122 106 M134 44 L134 106"/>
+          <path d="M166 44 L166 106 M178 44 L178 106 M190 44 L190 106" stroke="var(--color-blueprint)"/>
+          <circle cx="252" cy="75" r="22"/>
+          <path d="M252 53 A22 22 0 0 1 268 86 Z" fill="var(--color-panel-alt)"/>
+        </g>
+        <g stroke="var(--color-stamp-ok)" stroke-width="2" fill="none">
+          <path d="M4 75 L24 75"/><path d="M296 75 L316 75"/>
+        </g>
+        <g font-family="var(--font-mono)" font-size="9.5" fill="var(--color-ink-dim)">
+          <text x="61" y="30" text-anchor="middle">mixing</text>
+          <text x="124" y="30" text-anchor="middle">filter</text>
+          <text x="182" y="30" text-anchor="middle">coil</text>
+          <text x="252" y="30" text-anchor="middle">fan</text>
+          <text x="61" y="130" text-anchor="middle">outside + return air</text>
+          <text x="252" y="130" text-anchor="middle">supply air out</text>
+        </g>
+      </svg>
+    </figure>
+    <div class="body">
+      <span class="stamp stamp-quiet">AHU</span>
+      <h3>Air handling unit</h3>
+      <p>A fan and a coil in a cabinet, fed by chilled water from a central plant instead of its own
+        compressor. Lives in a mechanical room. Sections bolt together, so it can be built to almost
+        any configuration, which is why custom AHUs are a real product category.</p>
+      <p class="note">Sized in CFM · 2,000–100,000+ · life 20–25 yr<br>DMG: Energy Labs, ClimateCraft, BASX, Scott Springfield (unverified)</p>
+    </div>
+  </article>
+
+  <article class="eqcard">
+    <figure>
+      <svg viewBox="0 0 320 150" role="img" aria-label="Water cooled chiller with compressor, condenser and evaporator barrels">
+        <g stroke="var(--color-ink)" stroke-width="1.6" fill="none">
+          <rect x="40" y="42" width="240" height="26" rx="13"/>
+          <rect x="40" y="92" width="240" height="26" rx="13"/>
+          <circle cx="160" cy="80" r="15" fill="var(--color-panel)"/>
+          <path d="M152 80 L168 80 M160 72 L160 88"/>
+          <path d="M76 68 L76 92 M244 68 L244 92"/>
+        </g>
+        <g stroke="var(--color-stamp-warn)" stroke-width="2" fill="none">
+          <path d="M14 48 L40 48"/><path d="M280 48 L306 48"/>
+        </g>
+        <g stroke="var(--color-blueprint)" stroke-width="2" fill="none">
+          <path d="M14 112 L40 112"/><path d="M280 112 L306 112"/>
+        </g>
+        <g font-family="var(--font-mono)" font-size="9.5" fill="var(--color-ink-dim)">
+          <text x="160" y="34" text-anchor="middle">condenser barrel</text>
+          <text x="160" y="138" text-anchor="middle">evaporator barrel</text>
+          <text x="196" y="84">compressor</text>
+        </g>
+      </svg>
+    </figure>
+    <div class="body">
+      <span class="stamp stamp-quiet">CH</span>
+      <h3>Chiller</h3>
+      <p>Makes cold water, typically 44&deg;F, and sends it out to every coil in the building.
+        Water-cooled types pair with a cooling tower and are more efficient; air-cooled types reject
+        heat to outdoor air and skip the tower entirely.</p>
+      <p class="note">Sized in tons · 20–3,000 · life 20–23 yr<br>DMG: ClimaCool modular, Geoclima (unverified)</p>
+    </div>
+  </article>
+
+  <article class="eqcard">
+    <figure>
+      <svg viewBox="0 0 320 150" role="img" aria-label="Cooling tower with fan, fill media and basin">
+        <g stroke="var(--color-ink)" stroke-width="1.6" fill="none">
+          <path d="M96 40 L224 40 L206 116 L114 116 Z"/>
+          <circle cx="160" cy="26" r="13"/>
+          <path d="M149 26 L171 26"/>
+          <path d="M114 58 L206 58 M118 72 L202 72 M122 86 L198 86"/>
+          <path d="M108 116 L212 116 L212 130 L108 130 Z"/>
+        </g>
+        <g stroke="var(--color-stamp-warn)" stroke-width="2" fill="none">
+          <path d="M240 52 L212 52"/>
+        </g>
+        <g stroke="var(--color-blueprint)" stroke-width="2" fill="none">
+          <path d="M108 124 L74 124"/>
+        </g>
+        <g font-family="var(--font-mono)" font-size="9.5" fill="var(--color-ink-dim)">
+          <text x="248" y="48">warm in</text>
+          <text x="70" y="120" text-anchor="end">cool out</text>
+          <text x="160" y="146" text-anchor="middle">evaporation does the work</text>
+        </g>
+      </svg>
+    </figure>
+    <div class="body">
+      <span class="stamp stamp-quiet">CT</span>
+      <h3>Cooling tower</h3>
+      <p>Sheds building heat by evaporating a small fraction of the water passing through it. Cheap
+        and effective, but it drinks water — which is why drought restrictions push owners toward
+        adiabatic and dry-cooled alternatives that use far less.</p>
+      <p class="note">Sized in tons or GPM · life 20–25 yr<br>DMG: Marley, Recold — both carry hybrid units (unverified)</p>
+    </div>
+  </article>
+
+  <article class="eqcard">
+    <figure>
+      <svg viewBox="0 0 320 150" role="img" aria-label="VAV terminal box with modulating damper and reheat coil">
+        <g stroke="var(--color-ink)" stroke-width="1.6" fill="none">
+          <rect x="70" y="48" width="180" height="56" rx="2"/>
+          <path d="M104 58 L134 94" stroke-width="2.4"/>
+          <circle cx="119" cy="76" r="4" fill="var(--color-ink)"/>
+          <rect x="112" y="26" width="16" height="16"/>
+          <line x1="120" y1="42" x2="120" y2="48"/>
+          <path d="M186 56 L186 96 M198 56 L198 96 M210 56 L210 96" stroke="var(--color-stamp-warn)"/>
+        </g>
+        <g stroke="var(--color-stamp-ok)" stroke-width="2" fill="none">
+          <path d="M34 76 L68 76"/><path d="M252 76 L288 76"/>
+        </g>
+        <g font-family="var(--font-mono)" font-size="9.5" fill="var(--color-ink-dim)">
+          <text x="120" y="20" text-anchor="middle">actuator</text>
+          <text x="119" y="122" text-anchor="middle">damper</text>
+          <text x="198" y="122" text-anchor="middle">reheat coil</text>
+          <text x="30" y="72" text-anchor="end">in</text>
+          <text x="292" y="72">to zone</text>
+        </g>
+      </svg>
+    </figure>
+    <div class="body">
+      <span class="stamp stamp-quiet">VAV</span>
+      <h3>VAV terminal box</h3>
+      <p>A damper in a box above the ceiling that meters how much air each zone gets. Most carry a
+        reheat coil, because the air arrives at one cold temperature for the whole floor and some
+        rooms need it warmer. One per zone, so a floor has many.</p>
+      <p class="note">Sized in CFM · 100–4,000 · life 20 yr<br>DMG: Titus and Nailor, plus the diffusers downstream (unverified)</p>
+    </div>
+  </article>
+
+  <article class="eqcard">
+    <figure>
+      <svg viewBox="0 0 320 150" role="img" aria-label="Fan coil unit with coil and blower in a small cabinet">
+        <g stroke="var(--color-ink)" stroke-width="1.6" fill="none">
+          <rect x="72" y="42" width="176" height="66" rx="2"/>
+          <path d="M92 52 L92 98 M104 52 L104 98 M116 52 L116 98" stroke="var(--color-blueprint)"/>
+          <circle cx="182" cy="75" r="21"/>
+          <path d="M182 54 A21 21 0 0 1 197 86 Z" fill="var(--color-panel-alt)"/>
+          <path d="M132 60 L156 60 M132 72 L156 72 M132 84 L156 84"/>
+        </g>
+        <g stroke="var(--color-stamp-ok)" stroke-width="2" fill="none">
+          <path d="M40 75 L70 75"/><path d="M250 75 L282 75"/>
+        </g>
+        <g font-family="var(--font-mono)" font-size="9.5" fill="var(--color-ink-dim)">
+          <text x="104" y="126" text-anchor="middle">coil</text>
+          <text x="144" y="126" text-anchor="middle">filter</text>
+          <text x="182" y="126" text-anchor="middle">blower</text>
+        </g>
+      </svg>
+    </figure>
+    <div class="body">
+      <span class="stamp stamp-quiet">FCU</span>
+      <h3>Fan coil unit</h3>
+      <p>A small AHU serving one room or one suite, fed by the same chilled water loop. Common in
+        hotels, dorms, hospitals and multifamily — anywhere you want individual control without
+        running a duct system to every room.</p>
+      <p class="note">Sized in CFM or tons · 200–2,000 CFM · life 20 yr<br>DMG: Nailor, Engineered Comfort (unverified)</p>
+    </div>
+  </article>
+
+  <article class="eqcard">
+    <figure>
+      <svg viewBox="0 0 320 150" role="img" aria-label="VRF outdoor unit connected by refrigerant piping to several indoor units">
+        <g stroke="var(--color-ink)" stroke-width="1.6" fill="none">
+          <rect x="26" y="46" width="66" height="62" rx="2"/>
+          <circle cx="59" cy="66" r="12"/><circle cx="59" cy="92" r="12"/>
+          <path d="M59 54 A12 12 0 0 1 68 72 Z" fill="var(--color-panel-alt)"/>
+          <path d="M59 80 A12 12 0 0 1 68 98 Z" fill="var(--color-panel-alt)"/>
+          <rect x="196" y="30" width="60" height="22" rx="2"/>
+          <rect x="196" y="72" width="60" height="22" rx="2"/>
+          <rect x="196" y="112" width="60" height="22" rx="2"/>
+          <path d="M204 36 L248 36 M204 44 L248 44"/>
+          <path d="M204 78 L248 78 M204 86 L248 86"/>
+          <path d="M204 118 L248 118 M204 126 L248 126"/>
+        </g>
+        <g stroke="var(--color-stamp-warn)" stroke-width="1.8" fill="none">
+          <path d="M92 76 L140 76"/>
+          <path d="M140 76 L140 41 L194 41"/>
+          <path d="M140 76 L194 83"/>
+          <path d="M140 76 L140 123 L194 123"/>
+          <circle cx="140" cy="76" r="4" fill="var(--color-stamp-warn)"/>
+        </g>
+        <g font-family="var(--font-mono)" font-size="9.5" fill="var(--color-ink-dim)">
+          <text x="59" y="126" text-anchor="middle">outdoor unit</text>
+          <text x="226" y="146" text-anchor="middle">indoor heads</text>
+          <text x="140" y="66" text-anchor="middle">branch</text>
+        </g>
+      </svg>
+    </figure>
+    <div class="body">
+      <span class="stamp stamp-quiet">VRF</span>
+      <h3>Variable refrigerant flow</h3>
+      <p>Refrigerant piped directly to many small indoor units, each modulating independently. No
+        ductwork, no water loop. Heat-recovery versions can cool one zone while heating another.
+        Strong in retrofits where there is no room for ducts.</p>
+      <p class="note">Sized in tons · 6–40 per system · life 15–20 yr<br>DMG: LG (unverified)</p>
+    </div>
+  </article>
+
+  <article class="eqcard">
+    <figure>
+      <svg viewBox="0 0 320 150" role="img" aria-label="Energy recovery ventilator with a rotating wheel between two airstreams">
+        <g stroke="var(--color-ink)" stroke-width="1.6" fill="none">
+          <rect x="54" y="34" width="212" height="82"/>
+          <circle cx="160" cy="75" r="30"/>
+          <circle cx="160" cy="75" r="9"/>
+          <path d="M160 45 L160 66 M160 84 L160 105 M130 75 L151 75 M169 75 L190 75"/>
+          <path d="M139 54 L153 68 M167 82 L181 96 M181 54 L167 68 M153 82 L139 96"/>
+        </g>
+        <g stroke="var(--color-stamp-ok)" stroke-width="2" fill="none">
+          <path d="M20 52 L54 52"/><path d="M266 52 L300 52"/>
+        </g>
+        <g stroke="var(--color-stamp-warn)" stroke-width="2" fill="none">
+          <path d="M300 98 L266 98"/><path d="M54 98 L20 98"/>
+        </g>
+        <g font-family="var(--font-mono)" font-size="9.5" fill="var(--color-ink-dim)">
+          <text x="18" y="46" text-anchor="end">fresh</text>
+          <text x="302" y="46">supply</text>
+          <text x="302" y="112">exhaust</text>
+          <text x="18" y="112" text-anchor="end">out</text>
+          <text x="160" y="132" text-anchor="middle">wheel trades heat between streams</text>
+        </g>
+      </svg>
+    </figure>
+    <div class="body">
+      <span class="stamp stamp-quiet">ERV</span>
+      <h3>Energy recovery ventilator</h3>
+      <p>Codes require outside air for occupants, and conditioning that air is expensive. An ERV
+        passes exhaust and intake past each other through a wheel or plate so the outgoing air
+        pre-treats the incoming air. Title 24 has made these near-standard on new work.</p>
+      <p class="note">Sized in CFM · effectiveness 50–80% · life 15–20 yr<br>DMG: Aldes, and ERV sections inside AAON and custom AHUs (unverified)</p>
+    </div>
+  </article>
+
+  <article class="eqcard">
+    <figure>
+      <svg viewBox="0 0 320 150" role="img" aria-label="Hot water boiler with burner, heat exchanger and flue">
+        <g stroke="var(--color-ink)" stroke-width="1.6" fill="none">
+          <rect x="82" y="40" width="156" height="76" rx="3"/>
+          <path d="M96 56 L224 56 M96 70 L224 70 M96 84 L224 84"/>
+          <path d="M100 100 q10 -12 20 0 q10 -12 20 0 q10 -12 20 0 q10 -12 20 0 q10 -12 20 0" stroke="var(--color-stamp-warn)"/>
+          <path d="M140 40 L140 20 L180 20 L180 40"/>
+        </g>
+        <g stroke="var(--color-stamp-warn)" stroke-width="2" fill="none">
+          <path d="M238 58 L276 58"/>
+        </g>
+        <g stroke="var(--color-blueprint)" stroke-width="2" fill="none">
+          <path d="M44 92 L82 92"/>
+        </g>
+        <g font-family="var(--font-mono)" font-size="9.5" fill="var(--color-ink-dim)">
+          <text x="160" y="14" text-anchor="middle">flue</text>
+          <text x="280" y="54">hot supply</text>
+          <text x="40" y="88" text-anchor="end">return</text>
+          <text x="160" y="136" text-anchor="middle">burner below the exchanger</text>
+        </g>
+      </svg>
+    </figure>
+    <div class="body">
+      <span class="stamp stamp-quiet">B</span>
+      <h3>Boiler</h3>
+      <p>Makes hot water, typically 140–180&deg;F, for heating coils and reheat. Condensing models
+        pull extra efficiency from flue gas at low return temperatures. Title 24's heat pump baseline
+        is steadily pushing new work away from gas-fired heating.</p>
+      <p class="note">Sized in MBH · life 24–30 yr<br>Watch: SB 1206 and Title 24 both bear on replacement decisions</p>
+    </div>
+  </article>
+
+</div>
+
+{% elif active_tab == 'numbers' %}
+<p class="note mb-2" style="max-width:62rem">Six relationships cover most of what gets said out loud
+  in a design meeting. Learn the first two cold; the rest you can look up without anyone noticing.</p>
+
+<div class="calcs">
+  <div class="calc">
+    <h4>Ton of refrigeration</h4>
+    <span class="eq">1 ton = 12,000 BTU/hr = 3.517 kW</span>
+    <p>The heat needed to melt one ton of ice in a day. Every capacity conversation runs on this.</p>
+  </div>
+  <div class="calc air">
+    <h4>Airflow per ton</h4>
+    <span class="eq">≈ 400 CFM per ton</span>
+    <p>Comfort cooling rule of thumb, roughly 350–450. If someone says 20,000 CFM, think about 50 tons.</p>
+  </div>
+  <div class="calc air">
+    <h4>Sensible heat in an airstream</h4>
+    <span class="eq">Q = 1.08 &times; CFM &times; &Delta;T</span>
+    <p>BTU/hr from airflow and temperature difference, at sea level. The 1.08 already folds in air
+      density and specific heat.</p>
+  </div>
+  <div class="calc">
+    <h4>Heat in a water loop</h4>
+    <span class="eq">Q = 500 &times; GPM &times; &Delta;T</span>
+    <p>The water-side twin of the formula above. At a 10&deg;F delta, chilled water works out to
+      about 2.4 GPM per ton.</p>
+  </div>
+  <div class="calc hot">
+    <h4>Condenser water</h4>
+    <span class="eq">≈ 3 GPM per ton</span>
+    <p>Higher than chilled water because the tower rejects the building's heat plus the compressor's
+      work, roughly 15,000 BTU/hr per ton.</p>
+  </div>
+  <div class="calc hot">
+    <h4>Efficiency terms</h4>
+    <span class="eq">COP · EER · IEER · kW/ton</span>
+    <p>Chillers are usually quoted in kW/ton, where lower is better. Rooftops use EER and IEER, where
+      higher is better. IEER is the part-load number and is what actually matters, since equipment
+      rarely runs at full load.</p>
+  </div>
+</div>
+
+<div class="callout callout-warn" style="margin-top:1.5rem">
+  <strong>Ranges, not values</strong>
+  <span class="body">A number like 400 CFM per ton is a starting assumption, not an answer. Real
+    values move with climate, occupancy, ceiling height and code. Quote them as approximations, name
+    them as rules of thumb, and let the engineer supply the real figure — being the rep who says
+    "roughly, and your calc will tell us" is worth more than being the one who sounded certain and
+    was wrong.</span>
+</div>
+
+{% elif active_tab == 'abbreviations' %}
+<p class="note mb-2" style="max-width:62rem">These appear on drawings and in conversation without
+  explanation. Read down the left column until none of them make you pause.</p>
+
+<table class="tbl">
+<colgroup><col style="width:7rem"><col style="width:16rem"><col></colgroup>
+<thead><tr><th class="mono">Abbr.</th><th>Term</th><th>What it means in practice</th></tr></thead>
+<tbody>
+<tr><td class="mono">AHU</td><td>Air handling unit</td><td>Fan and coil in a cabinet, fed by a central plant</td></tr>
+<tr><td class="mono">RTU</td><td>Rooftop unit</td><td>Self-contained packaged unit on a curb</td></tr>
+<tr><td class="mono">FCU</td><td>Fan coil unit</td><td>Small AHU serving one room or suite</td></tr>
+<tr><td class="mono">VAV / CAV</td><td>Variable / constant air volume</td><td>Whether zone airflow modulates or stays fixed</td></tr>
+<tr><td class="mono">DOAS</td><td>Dedicated outdoor air system</td><td>A unit that conditions ventilation air only</td></tr>
+<tr><td class="mono">DX</td><td>Direct expansion</td><td>Refrigerant cools the air directly, no water loop</td></tr>
+<tr><td class="mono">CHW / CW</td><td>Chilled water / condenser water</td><td>The two water loops in a central plant</td></tr>
+<tr><td class="mono">CFM</td><td>Cubic feet per minute</td><td>Airflow. The unit air-side equipment is sold in</td></tr>
+<tr><td class="mono">GPM</td><td>Gallons per minute</td><td>Water flow. The unit pumps and coils are sized on</td></tr>
+<tr><td class="mono">ESP / TSP</td><td>External / total static pressure</td><td>Resistance the fan must overcome, in inches w.g.</td></tr>
+<tr><td class="mono">MBH</td><td>Thousand BTU per hour</td><td>How heating capacity is quoted</td></tr>
+<tr><td class="mono">EAT / LAT</td><td>Entering / leaving air temp</td><td>Across a coil. The pair that defines its duty</td></tr>
+<tr><td class="mono">ACH</td><td>Air changes per hour</td><td>Room volume replaced per hour. Drives lab and healthcare design</td></tr>
+<tr><td class="mono">MERV</td><td>Filter efficiency rating</td><td>Higher catches smaller particles and costs more static</td></tr>
+<tr><td class="mono">VFD</td><td>Variable frequency drive</td><td>Slows a motor down. Where most fan and pump savings come from</td></tr>
+<tr><td class="mono">BOD</td><td>Basis of design</td><td>The manufacturer the spec is written around. The one that matters to you</td></tr>
+</tbody>
+</table>
+
+{% elif active_tab == 'roles' %}
+<p class="note mb-2" style="max-width:62rem">The useful mental model is role in a building, not
+  manufacturer. When an engineer describes a system, you are listening for which roles are in play
+  and whether your card covers them. Every row links straight into the line card for that role.</p>
+
+<table class="tbl">
+<colgroup><col style="width:15rem"><col style="width:20rem"><col></colgroup>
+<thead><tr><th>Role</th><th>Equipment</th><th>Said out loud as</th></tr></thead>
+<tbody>
+{% for r in role_order %}
+<tr>
+  <td><a href="/lines?role={{ r }}">{{ ROLE_LABELS[r] }}</a></td>
+  <td>{{ role_reference[r].equipment }}</td>
+  <td>{{ role_reference[r].said_out_loud }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+
+<div class="callout callout-warn" style="margin-top:1.5rem">
+  <strong>The question behind every one of those</strong>
+  <span class="body">An engineer asking a spec question is testing whether you can be relied on to
+    bring back a real answer. You are not expected to know the selection off the top of your head —
+    you are expected to know which factory to call and to come back when you said you would.<br><br>
+    The fastest way to lose a spec is to answer confidently and be wrong. The fastest way to win one
+    is to be the person whose numbers hold up.</span>
+</div>
+{% endif %}
+
+<footer class="note" style="margin-top:2.5rem;border-top:1px solid var(--color-rule-hard);padding-top:0.85rem;line-height:1.65;max-width:70rem">
+  <strong style="color:var(--color-ink)">Basis.</strong> Capacity, flow and heat-transfer relationships
+  are the standard ASHRAE forms — see the ASHRAE Handbook of Fundamentals for the sensible, latent and
+  total heat equations, ASHRAE 62.1 for ventilation rates by occupancy, and ASHRAE Standard 90.1 for
+  efficiency metrics. Service-life ranges follow the ASHRAE service life database. Rules of thumb are
+  stated as ranges on purpose.<br><br>
+  <strong style="color:var(--color-ink)">Verify before quoting.</strong> Line assignments on this sheet
+  reflect general product roles and should be checked against the current DMG and ToroAire line card
+  before being repeated to a customer. Regulatory items — Title 24, SB 1206, ASHRAE 241, HCAI OSP
+  status — change on their own schedule and carry dates.
+</footer>
+
+{% endblock %}

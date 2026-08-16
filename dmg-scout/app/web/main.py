@@ -27,6 +27,7 @@ from app.accounts import (
 from app.access_log import access_logging_middleware, access_summary, admin_username
 from app.assumptions import slugify
 from app.config import load_config
+from app.reference import ROLE_REFERENCE, TAB_LABELS, TAB_ORDER, equipment_tooltip
 from app.db import get_session
 from app.firmprofile import CONTACT_STATE_LABELS
 from app.manual import add_manual_signal
@@ -139,6 +140,7 @@ templates.env.globals["CONTACT_STATE_LABELS"] = CONTACT_STATE_LABELS
 templates.env.globals["assumption_slug"] = slugify
 templates.env.globals["ROLE_LABELS"] = ROLE_LABELS
 templates.env.globals["MARKET_LABELS"] = MARKET_LABELS
+templates.env.globals["equipment_tooltip"] = equipment_tooltip
 
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")),
           name="static")
@@ -1122,6 +1124,21 @@ def lines_index(request: Request, role: str = "", firm: str = "", market: str = 
         "total": len(lines), "total_all": session.exec(
             select(func.count(ProductLine.id))).one(),
         "tb": _title_block(session), "active": "lines",
+    })
+
+
+@app.get("/reference", response_class=HTMLResponse)
+def reference_index(request: Request, tab: str = "",
+                     session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Static field-reference sheet -- equipment, formulas, abbreviations and
+    role definitions. No source, no pipeline, nothing here to go stale --
+    see app/reference.py's module docstring for why this carries no
+    source-health entry and no assumptions-register entry."""
+    active_tab = tab if tab in TAB_ORDER else TAB_ORDER[0]
+    return templates.TemplateResponse(request, "reference.html", {
+        "tab_order": TAB_ORDER, "TAB_LABELS": TAB_LABELS, "active_tab": active_tab,
+        "role_order": ROLE_ORDER, "role_reference": ROLE_REFERENCE,
+        "tb": _title_block(session), "active": "reference",
     })
 
 

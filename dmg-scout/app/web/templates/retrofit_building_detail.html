@@ -13,7 +13,7 @@
 <tr><th>Population</th><td>{{ 'Replacement candidate — no permit on record' if building.population == 'replacement_candidate' else 'Recently active — permit evidence on file' }}</td>
     <th>Sqft</th><td>{{ '{:,.0f}'.format(building.sqft) if building.sqft else '—' }}</td></tr>
 <tr><th>Year built</th><td>{{ building.year_built or '—' }}</td>
-    <th>Equipment type</th><td>{{ building.equipment_type.replace('_',' ') if building.equipment_type else 'unknown — no permit on file' }}</td></tr>
+    <th>Equipment type</th><td{% if building.equipment_type and equipment_tooltip(building.equipment_type) %} title="{{ equipment_tooltip(building.equipment_type) }}"{% endif %}>{{ building.equipment_type.replace('_',' ') if building.equipment_type else 'unknown — no permit on file' }}</td></tr>
 <tr><th>Service life</th>
     <td>{% if building.service_life_status %}
       <a class="stamp {{ 'stamp-post' if building.service_life_status in ('overdue','due') else 'stamp-in' if building.service_life_status == 'approaching' else 'stamp-pre' }}"
