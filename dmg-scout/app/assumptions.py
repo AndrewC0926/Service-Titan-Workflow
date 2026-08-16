@@ -540,6 +540,43 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "board.",
     ))
 
+    # ---- Competitor line card map --------------------------------------------
+
+    from app.competitors import COMPETITOR_LINES, REP_FIRMS
+    _confirmed = sum(1 for row in COMPETITOR_LINES if row[4] == "confirmed")
+    _unconfirmed = sum(1 for row in COMPETITOR_LINES if row[4] == "unconfirmed")
+    out.append(Assumption(
+        group="Competitor line card map", name="Competitor line card map: coverage and confirmed vs. unconfirmed",
+        config_path=None,
+        value=f"{len(REP_FIRMS)} rep firms (+ Trane, factory-direct), {len(COMPETITOR_LINES)} line "
+             f"assignments — {_confirmed} confirmed, {_unconfirmed} unconfirmed",
+        source_type=MEASURED,
+        source_detail=(
+            "Every row sourced ONLY from that rep firm's own published line card page, or (for "
+            "Greenheck) the manufacturer's own live 'find a rep' locator -- never a third-party "
+            "directory, never a guess from reputation. Compliance checked before any fetch, "
+            "2026-08-16: all seven rep-firm sites' robots.txt permit the pages read (standard "
+            "WordPress/Squarespace admin/search/config paths only; wrightsales.net has no robots.txt "
+            "at all, the default-allow case). Full research method, per-line role-classification "
+            "reasoning, and both kinds of 'unconfirmed' (a genuine source conflict on Greenheck; "
+            "four lines -- Twin City Fan, Panasonic, Soler & Palau, Airzone -- that also sit on "
+            "DMG's OWN line card for the identical role, discovered by cross-checking manufacturer "
+            "names against the seeded ProductLine table, not something this research set out to "
+            "find) are documented in app/competitors.py's module docstring, not repeated here. 33 "
+            "of the 66 rows carry no building_role -- accessories, tools, and components a rep firm "
+            "also carries alongside its real equipment lines (gauges, brazing alloys, lineset "
+            "covers, relays, insulation) that map onto none of the 13 roles -- recorded as real, "
+            "sourced facts anyway, just excluded from the per-role competitive surfacing on "
+            "/project/{id} and /line/{id}. Trane recorded factory-direct (2 rows, cooling_generation "
+            "and air_handling) on an absence basis: no independent rep firm's card checked here "
+            "lists Trane, and Trane operates its own branded Commercial Sales Office pages across "
+            "California rather than routing through a third party -- disclosed as absence-based, "
+            "not a positive locator-tool statement the way Greenheck's finding is."
+        ),
+        verified=True,
+        last_reviewed="Researched and seeded 2026-08-16 (scout seed-competitors).",
+    ))
+
     # ---- Union signatory (UA Local 250) --------------------------------------
 
     from app.pipeline.local250 import NAME_ONLY_THRESHOLD, NAME_WITH_CITY_THRESHOLD

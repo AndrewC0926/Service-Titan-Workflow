@@ -797,6 +797,65 @@ class ProductLine(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class RepFirm(SQLModel, table=True):
+    """A COMPETING manufacturers' rep firm in DMG/ToroAire's territory --
+    the other side of the line card. See app/competitors.py for the
+    hand-researched dataset (each firm's own published line card only,
+    never a directory or a guess) and its seed_competitor_lines function,
+    which writes these rows and CompetitorLine below."""
+    __tablename__ = "rep_firms"
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(index=True, unique=True)
+    website: str | None = None
+    territory_note: str | None = None
+
+
+class CompetitorLine(SQLModel, table=True):
+    """One manufacturer line -> role -> channel assignment, sourced ONLY
+    from that manufacturer's or rep firm's own published line card (never a
+    third-party directory, never guessed) -- see app/competitors.py's
+    module docstring for the full research method and app/assumptions.py's
+    "Competitor line card map" entry for the count of what got confirmed
+    vs. not.
+
+    channel is 'rep_firm' (rep_firm_id set) or 'factory_direct' (rep_firm_id
+    null -- e.g. Trane, which sells direct in California rather than
+    through any independent rep) -- a manufacturer competes against DMG's
+    card either way, and which channel it is changes who a rep actually
+    calls.
+
+    building_role is null when the line's own published description doesn't
+    map cleanly onto any of app.accounts.ROLE_ORDER's 13 roles (most
+    accessories, tools, and components a rep firm also carries alongside
+    its real equipment lines) -- left null rather than forced into the
+    nearest-sounding role, and such rows simply don't appear on the
+    per-role competitive surfacing.
+
+    status is 'confirmed' only when a single, current, first-party source
+    states the assignment with nothing else contradicting it. 'unconfirmed'
+    covers two distinct cases, both recorded rather than resolved by
+    picking a side: (1) a real conflict between sources -- e.g. Greenheck,
+    where an older third-party directory listing is known to disagree with
+    both Greenheck's own live rep locator and the rep firm's own site, which
+    currently agree with each other; (2) the SAME manufacturer name also
+    appears on DMG's own line card for the same role (Twin City Fan,
+    Panasonic, Soler & Palau, Airzone) -- a rep firm's published card and
+    DMG's own card both claiming the identical line is exactly the kind of
+    thing this table exists to surface honestly, not paper over."""
+    __tablename__ = "competitor_lines"
+
+    id: int | None = Field(default=None, primary_key=True)
+    manufacturer: str = Field(index=True)
+    building_role: str | None = Field(default=None, index=True)  # ROLE_ORDER value, or null
+    channel: str = Field(default="rep_firm", index=True)  # rep_firm | factory_direct
+    rep_firm_id: int | None = Field(default=None, foreign_key="rep_firms.id", index=True)
+    status: str = Field(default="confirmed", index=True)  # confirmed | unconfirmed
+    conflict_note: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    source_url: str
+    retrieved_at: datetime = Field(default_factory=utcnow)
+
+
 class Account(SQLModel, table=True):
     """A company DMG/ToroAire sells to or through — deliberately distinct from
     Firm, which is the roster extracted named_firms resolve against on the

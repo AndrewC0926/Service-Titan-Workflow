@@ -603,6 +603,11 @@ def project_detail(project_id: int, request: Request,
     facility_type = project_facility_type(project, signals)
     role_offerings = line_offering_by_role(session, project.category, facility_type)
 
+    from app.competitors import competing_lines_by_role
+    from app.models import RepFirm
+    competing_by_role = competing_lines_by_role(session)
+    competitor_rep_firms = {f.id: f for f in session.exec(select(RepFirm)).all()}
+
     from app.staleness import stage_ages
     stage_progression = session.exec(
         select(StageObservation).where(StageObservation.project_id == project_id)
@@ -629,6 +634,7 @@ def project_detail(project_id: int, request: Request,
         "stage_progression": stage_progression, "stage_age": stage_age,
         "stale_months": stale_months, "score_breakdown": score_breakdown,
         "role_offerings": role_offerings, "facility_type": facility_type,
+        "competing_by_role": competing_by_role, "competitor_rep_firms": competitor_rep_firms,
         "tb": _title_block(session), "active": "board",
     })
 
@@ -1167,13 +1173,16 @@ def line_detail(line_id: int, request: Request,
         pull_through,
         value_tier_band,
     )
-    from app.models import SelectionTool
+    from app.competitors import competing_lines_by_role
+    from app.models import RepFirm, SelectionTool
     line = session.get(ProductLine, line_id)
     if line is None:
         raise HTTPException(404)
     cfg = load_config()
     selection_tool = session.exec(
         select(SelectionTool).where(SelectionTool.product_line_id == line.id)).first()
+    competing = competing_lines_by_role(session).get(line.building_role, [])
+    rep_firms = {f.id: f for f in session.exec(select(RepFirm)).all()}
     return templates.TemplateResponse(request, "line_detail.html", {
         "line": line, "best_guess": category_is_best_guess(line),
         "pull_through": pull_through(session, cfg, line),
@@ -1182,6 +1191,7 @@ def line_detail(line_id: int, request: Request,
         "value_band": value_tier_band(cfg, line.value_tier),
         "selection_tool": selection_tool,
         "access_labels": SELECTION_TOOL_ACCESS_LABELS, "verif_labels": SELECTION_TOOL_VERIFICATION_LABELS,
+        "competing_lines": competing, "rep_firms": rep_firms,
         "tb": _title_block(session), "active": "lines",
     })
 

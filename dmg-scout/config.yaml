@@ -527,6 +527,14 @@ sources:
   ua_local_250:
     enabled: true
     contractors_url: "https://socalhvacr.info/contractors"
+  # Competitor line-card map -- see app/competitors.py's module docstring
+  # for the research method (each rep firm's own published line card only)
+  # and the two kinds of "unconfirmed" it records. Not a live scraper --
+  # a hand-researched dataset, re-loaded by `scout seed-competitors` --
+  # so this entry exists purely for /health visibility (per instruction),
+  # not an automated re-fetch cadence.
+  competitor_lines:
+    enabled: true
   manual:
     enabled: true
 

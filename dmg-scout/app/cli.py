@@ -962,6 +962,20 @@ def fetch_local250_cmd() -> None:
         typer.echo(f"  ERROR: {stats['error']}", err=True)
 
 
+@app.command("seed-competitors")
+def seed_competitors_cmd() -> None:
+    """Loads the hand-researched competitor line-card map (app/competitors.py)
+    into rep_firms/competitor_lines -- not a live scraper, just an
+    idempotent reload of that dataset, with a SourceRun so it isn't
+    invisible on `scout doctor` / source_health if it goes stale (config.yaml's
+    sources.competitor_lines). Re-run after editing app/competitors.py."""
+    from app.competitors import seed_competitor_lines
+    with session_scope() as session:
+        stats = seed_competitor_lines(session)
+    typer.echo(f"{stats['rep_firms']} rep firms, {stats['lines_total']} line assignments "
+               f"({stats['confirmed']} confirmed, {stats['unconfirmed']} unconfirmed)")
+
+
 @app.command("fetch-dc-news-enrichment")
 def fetch_dc_news_enrichment_cmd() -> None:
     """Data Center Frontier / Data Center Dynamics RSS -- matches articles

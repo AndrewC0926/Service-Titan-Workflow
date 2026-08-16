@@ -136,9 +136,12 @@
   /lines) — given this project's category ({{ p.category.value.replace('_',' ') }}) and facility type
   ({{ facility_type.value.replace('_',' ') if facility_type.value != 'unknown' else 'not stated in any linked filing' }}),
   which of the 13 roles are relevant here, what we offer in each, and where we offer nothing at all. Knowing
-  the gap matters as much as knowing the fit.</p>
-<table style="max-width:900px">
-<thead><tr><th>Role</th><th>Status</th><th>Lines</th></tr></thead>
+  the gap matters as much as knowing the fit. The last column names which competing rep firm (or, for
+  factory-direct lines like Trane, which manufacturer directly) would likely be pushing an alternative for
+  that same role — sourced only from published line cards, see /assumptions for what's confirmed vs. not.</p>
+<table style="max-width:1100px">
+<thead><tr><th>Role</th><th>Status</th><th>Our lines</th>
+  <th title="Rep firms in territory carrying a competing line for this role, sourced only from each firm's own published line card — see /assumptions for the research method.">Who else would be pushing what</th></tr></thead>
 <tbody>
 {% for ro in role_offerings %}
 {% if ro.relevant %}
@@ -146,6 +149,18 @@
   <td>{{ ro.label }}</td>
   <td>{% if ro.gap %}<span class="bad">GAP — no line on the card</span>{% else %}<span class="ok">✓ covered</span>{% endif %}</td>
   <td>{% for line in ro.lines %}<a href="/line/{{ line.id }}">{{ line.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</td>
+  <td class="note">
+    {%- set competing = competing_by_role.get(ro.role, []) -%}
+    {%- if competing -%}
+      {%- for c in competing -%}
+        {{ c.manufacturer }}
+        ({%- if c.channel == 'factory_direct' -%}factory-direct{%- else -%}{{ competitor_rep_firms[c.rep_firm_id].name if c.rep_firm_id in competitor_rep_firms else '?' }}{%- endif -%}{%- if c.status == 'unconfirmed' %}, unconfirmed{% endif -%})
+        {%- if not loop.last %}; {% endif -%}
+      {%- endfor -%}
+    {%- else -%}
+      none confirmed yet
+    {%- endif -%}
+  </td>
 </tr>
 {% endif %}
 {% endfor %}
