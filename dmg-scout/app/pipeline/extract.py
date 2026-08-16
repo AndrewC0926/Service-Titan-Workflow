@@ -142,7 +142,7 @@ def _extract_docs(session: Session, cfg: Config, limit: int) -> dict:
                       "acres", "building_count", "cooling_type", "water_acre_feet_per_year",
                       "water_source_stated", "water_reclaimed_identified",
                       "water_use_efficiency_stated", "water_opposition_stated",
-                      "filing_type"):
+                      "filing_type", "delivery_method"):
                 setattr(signal, f, data.get(f))
             # Normalized on write, not left for a downstream state-keyed lookup
             # to silently miss: the extraction prompt correctly reports a state

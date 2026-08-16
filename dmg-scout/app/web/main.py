@@ -27,6 +27,7 @@ from app.accounts import (
 from app.access_log import access_logging_middleware, access_summary, admin_username
 from app.assumptions import slugify
 from app.config import load_config
+from app.delivery import DELIVERY_METHOD_ABBR, DELIVERY_METHOD_LABELS, DELIVERY_METHOD_NOTES
 from app.reference import ROLE_REFERENCE, TAB_LABELS, TAB_ORDER, equipment_tooltip
 from app.db import get_session
 from app.firmprofile import CONTACT_STATE_LABELS
@@ -141,6 +142,9 @@ templates.env.globals["assumption_slug"] = slugify
 templates.env.globals["ROLE_LABELS"] = ROLE_LABELS
 templates.env.globals["MARKET_LABELS"] = MARKET_LABELS
 templates.env.globals["equipment_tooltip"] = equipment_tooltip
+templates.env.globals["DELIVERY_METHOD_LABELS"] = DELIVERY_METHOD_LABELS
+templates.env.globals["DELIVERY_METHOD_ABBR"] = DELIVERY_METHOD_ABBR
+templates.env.globals["DELIVERY_METHOD_NOTES"] = DELIVERY_METHOD_NOTES
 
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")),
           name="static")
@@ -365,6 +369,7 @@ def _board_extras(session: Session, projects: list[Project]) -> dict:
             "sized": sum(1 for p in projects if p.tons_estimate_low),
             "tons_low": tons_low, "tons_high": tons_high,
             "windows": windows,
+            "delivery_method_known": sum(1 for p in projects if p.delivery_method),
         },
     }
 
@@ -1460,11 +1465,16 @@ def assumptions_register(request: Request, session: Session = Depends(get_sessio
     for why this page exists and the discipline it follows."""
     from app.assumptions import assumptions_by_group, load_assumptions, source_tally
     from app.pipeline.retrofit import service_calls_coverage as get_service_calls_coverage
+    from app.pipeline.resolve import delivery_method_coverage as get_delivery_method_coverage
     cfg = load_config()
     coverage = get_service_calls_coverage(session)
-    assumptions = load_assumptions(cfg, service_calls_coverage=coverage)
+    delivery_coverage = get_delivery_method_coverage(session)
+    assumptions = load_assumptions(cfg, service_calls_coverage=coverage,
+                                   delivery_method_coverage=delivery_coverage)
     return templates.TemplateResponse(request, "assumptions.html", {
-        "grouped": assumptions_by_group(cfg, service_calls_coverage=coverage), "tally": source_tally(assumptions),
+        "grouped": assumptions_by_group(cfg, service_calls_coverage=coverage,
+                                        delivery_method_coverage=delivery_coverage),
+        "tally": source_tally(assumptions),
         "total": len(assumptions),
         "tb": _title_block(session), "active": "assumptions",
     })

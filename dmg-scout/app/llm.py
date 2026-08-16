@@ -186,7 +186,33 @@ document states it. Do not collapse them into one judgment about whether water i
   opposition, an objection, a comment letter, or a hearing continuance citing water
   use or availability for THIS project. This is about what the document says
   happened, not a general impression that water is a controversial topic in the
-  jurisdiction. Null when not discussed."""
+  jurisdiction. Null when not discussed.
+
+delivery_method — how the project is being procured, which decides WHO selects the
+mechanical equipment. Report it ONLY when the document itself names the delivery
+method; never infer it from project type, owner, agency, or stage. A school district
+or hospital project is NOT automatically design-bid-build, and a tech-company
+project is NOT automatically design-build — guessing from the owner type is exactly
+the mistake this field exists to prevent. Recognize these terms and their common
+phrasings:
+- design_bid_build: "design-bid-build", "DBB", "traditional design-bid-build
+  delivery", a filing that separately names an architect/engineer of record AND a
+  general contractor selected through competitive bid on completed plans.
+- design_build: "design-build", "design/build", "DB delivery", "design-build
+  entity", a single firm or joint venture holding both design and construction.
+- design_assist: "design-assist", "design assist", "early contractor involvement
+  with design input", a subcontractor or trade contractor joining the design team
+  before construction documents are complete.
+- cm_at_risk: "CM at risk", "CMAR", "CM@Risk", "construction manager at risk",
+  "construction manager/general contractor", "CMGC" — a construction manager holds
+  the GC contract and commits to a guaranteed maximum price before design is fully
+  complete.
+- progressive_design_build: "progressive design-build", "PDB", "progressive
+  design/build" — design-build where scope and price are negotiated in phases
+  rather than fixed at award.
+Null when the document doesn't use language like this — most public filings never
+state a delivery method at all, and that absence is the honest, expected answer,
+not a gap to fill with a guess."""
 
 EXTRACT_TOOL = {
     "name": "record_extraction",

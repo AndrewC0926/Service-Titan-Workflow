@@ -74,6 +74,15 @@ EXTRACTION_JSON_SCHEMA: dict = {
                      "construction", "operating", "unknown", None],
         },
         "filing_type": {"type": ["string", "null"]},
+        # Who selects the mechanical equipment -- see EXTRACT_SYSTEM's
+        # delivery_method section in app/llm.py for the full extraction rules.
+        # Null unless the filing itself names the delivery method; never
+        # inferred from project type, agency, or stage.
+        "delivery_method": {
+            "type": ["string", "null"],
+            "enum": ["design_bid_build", "design_build", "design_assist", "cm_at_risk",
+                     "progressive_design_build", None],
+        },
         "event_date": {"type": ["string", "null"], "description": "ISO date YYYY-MM-DD"},
         "named_people": {
             "type": "array",
@@ -119,7 +128,7 @@ NUMERIC_FIELDS = [
 INT_FIELDS = ["generator_count", "generator_critical_count", "generator_house_count", "building_count"]
 STR_FIELDS = [
     "project_name", "developer_or_owner", "jurisdiction", "county", "state", "street_address",
-    "apn_parcel", "cooling_type", "filing_type", "facility_type",
+    "apn_parcel", "cooling_type", "filing_type", "facility_type", "delivery_method",
     "water_source_stated", "water_use_efficiency_stated",
 ]
 # Nullable booleans -- tri-state (True / False / not stated), never defaulted

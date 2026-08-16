@@ -409,6 +409,11 @@ def _absorb(project: Project, signal: Signal) -> None:
     project.water_risk_flag, project.water_risk_basis = water_risk_read(
         project.water_reclaimed_identified, project.water_opposition_stated)
 
+    # First-stated-value wins, same discipline as everything else in this
+    # function -- a later filing that simply doesn't discuss delivery method
+    # must not blank out an earlier one that did.
+    project.delivery_method = project.delivery_method or signal.delivery_method
+
     project.updated_at = utcnow()
 
 
@@ -601,3 +606,18 @@ def apply_review_decision(session: Session, candidate_id: int, decision: str) ->
     mc.resolved_at = utcnow()
     session.add(mc)
     session.commit()
+
+
+def delivery_method_coverage(session: Session) -> dict:
+    """How many of the board's active projects state a delivery method at all,
+    read live rather than cached -- see Project.delivery_method's docstring.
+    Used both by the board's own summary strip and by the assumptions
+    register, so the two numbers can never drift apart."""
+    active = session.exec(
+        select(func.count(Project.id)).where(Project.status.in_(ACTIVE_STATUSES))
+    ).one()
+    stated = session.exec(
+        select(func.count(Project.id)).where(
+            Project.status.in_(ACTIVE_STATUSES), Project.delivery_method.is_not(None))
+    ).one()
+    return {"active_total": active, "active_with_delivery_method": stated}

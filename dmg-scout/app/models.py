@@ -211,6 +211,10 @@ class Signal(SQLModel, table=True):
     water_reclaimed_identified: bool | None = None
     water_use_efficiency_stated: str | None = None
     water_opposition_stated: bool | None = None
+    # Who actually selects the mechanical equipment -- see Project.delivery_method's
+    # docstring for the full explanation. Null unless the filing itself states the
+    # project delivery method; never inferred from project type, agency, or stage.
+    delivery_method: str | None = None
     stage: Stage = Field(default=Stage.unknown)
     filing_type: str | None = None
     summary_one_line: str = ""
@@ -278,6 +282,22 @@ class Project(SQLModel, table=True):
     water_opposition_stated: bool | None = None
     water_risk_flag: str | None = None       # null | noise | elevated
     water_risk_basis: str | None = None
+    # Project delivery method, when a filing states it -- one of
+    # design_bid_build, design_build, design_assist, cm_at_risk,
+    # progressive_design_build, or null. Rolled up from linked signals in
+    # app.pipeline.resolve._absorb, same first-stated-value-wins discipline as
+    # water_source_stated above. NEVER inferred from project type, agency, or
+    # stage -- public filings frequently don't state this at all, and a wrong
+    # guess here sends a rep to the wrong door.
+    #
+    # This is the field that answers "who do I call": under design-bid-build
+    # the engineer of record writes Division 23 and names a basis of design,
+    # so the right call is to the MEP firm. Under design-build and
+    # design-assist the mechanical contractor selects equipment -- often
+    # before a specification even exists -- so the right call is to the
+    # contractor. See app/delivery.py's DELIVERY_METHOD_NOTES for the
+    # plain-language explanation shown on the board and project page.
+    delivery_method: str | None = None
     in_territory: bool = Field(default=True, index=True)
     # active | contacted | specified | bidding | won | lost | dead | archived
     status: str = Field(default="active", index=True)

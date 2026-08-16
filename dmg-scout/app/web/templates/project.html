@@ -24,6 +24,11 @@
 {%- if p.spillover_basis %}
 <tr><th>Spillover</th><td colspan="3">{{ p.spillover_basis }}</td></tr>
 {%- endif %}
+{%- if p.delivery_method and p.delivery_method in DELIVERY_METHOD_LABELS %}
+<tr><th>Delivery method</th><td colspan="3">
+  <strong>{{ DELIVERY_METHOD_LABELS[p.delivery_method] }}</strong> — {{ DELIVERY_METHOD_NOTES[p.delivery_method] }}
+</td></tr>
+{%- endif %}
 {%- if p.water_source_stated or p.water_risk_flag %}
 <tr><th>Water</th><td colspan="3">
   {%- if p.water_source_stated -%}

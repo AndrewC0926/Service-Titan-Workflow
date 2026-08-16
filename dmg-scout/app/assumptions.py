@@ -34,6 +34,7 @@ import re
 from dataclasses import dataclass
 
 from app.config import Config
+from app.delivery import DELIVERY_METHOD_LABELS
 
 
 def slugify(name: str) -> str:
@@ -87,17 +88,19 @@ def _fmt_table(d: dict, fmt: str = "{:.2f}") -> str:
     return ", ".join(f"{k}={fmt.format(v)}" for k, v in d.items())
 
 
-def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None) -> list[Assumption]:
+def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
+                     delivery_method_coverage: dict | None = None) -> list[Assumption]:
     """Everything below is read from cfg at call time — never hand-copied —
     so the VALUE column can't drift from what's actually running even if
     this function's prose goes stale.
 
-    service_calls_coverage is the one exception to "cfg only": a live row
-    count (app.pipeline.retrofit:service_calls_coverage) for the one entry
-    below where the honest VALUE is "how many rows have this populated
-    right now", not a config constant. Optional and defaults to None (value
-    reads "not available" rather than crashing) so every existing caller
-    that passes only cfg keeps working unchanged."""
+    service_calls_coverage and delivery_method_coverage are the two
+    exceptions to "cfg only": live row counts (app.pipeline.retrofit:
+    service_calls_coverage, app.pipeline.resolve:delivery_method_coverage)
+    for the entries below where the honest VALUE is "how many rows have
+    this populated right now", not a config constant. Both optional and
+    default to None (value reads "not available" rather than crashing) so
+    every existing caller that passes only cfg keeps working unchanged."""
     out: list[Assumption] = []
 
     # ---- Score weights ----------------------------------------------------
@@ -610,6 +613,44 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None) ->
                       "same document.",
     ))
 
+    # ---- Project delivery method --------------------------------------------
+
+    dmc = delivery_method_coverage or {}
+    active_total = dmc.get("active_total")
+    active_with = dmc.get("active_with_delivery_method")
+    out.append(Assumption(
+        group="Project delivery method", name="Coverage: active projects stating a delivery method",
+        config_path=None,
+        value=(f"{active_with} of {active_total} active projects "
+              f"({100 * active_with / active_total:.0f}%)" if active_total else "not available on this page load"),
+        source_type=MEASURED,
+        source_detail="Live count, checked at every page load — not a config constant. Extracted only when a "
+                      "filing itself states the delivery method (app.llm.EXTRACT_SYSTEM's delivery_method "
+                      "section); never inferred from project type, owner, or agency. Expect this to be low: "
+                      "most public filings (CEQA documents, board packets, permits) simply don't discuss "
+                      "procurement structure — that scarcity is the honest finding, not a defect in the "
+                      "extraction. Low coverage means the field is a real-but-occasional signal, not a "
+                      "board-wide ranking term — it isn't used in scoring.",
+        verified=True,
+        last_reviewed="Live count as of this page load.",
+    ))
+
+    out.append(Assumption(
+        group="Project delivery method", name="Who selects equipment, by delivery method",
+        config_path=None,
+        value=f"{len(DELIVERY_METHOD_LABELS)} methods mapped: design-bid-build, design-build, design-assist, "
+             f"CM at risk, progressive design-build",
+        source_type=RULE_OF_THUMB,
+        source_detail="General AIA/DBIA project-delivery definitions, not measured against this territory's "
+                      "own outcomes: under design-bid-build the engineer of record writes Division 23 and "
+                      "names a basis of design, so the right call is to the MEP firm; under design-build and "
+                      "design-assist the mechanical contractor typically selects equipment, often before a "
+                      "specification exists, so the right call is to the contractor. CM at risk and "
+                      "progressive design-build are mixed cases (see app/delivery.py's "
+                      "DELIVERY_METHOD_NOTES) — who owns Division 23 depends on how that specific project's "
+                      "trade packages are structured, and the note says so rather than picking a side.",
+    ))
+
     # ---- Voice capture -----------------------------------------------------
 
     import app.pipeline.voice_capture as vc
@@ -643,9 +684,11 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None) ->
     return out
 
 
-def assumptions_by_group(cfg: Config, service_calls_coverage: dict | None = None) -> dict[str, list[Assumption]]:
+def assumptions_by_group(cfg: Config, service_calls_coverage: dict | None = None,
+                         delivery_method_coverage: dict | None = None) -> dict[str, list[Assumption]]:
     grouped: dict[str, list[Assumption]] = {}
-    for a in load_assumptions(cfg, service_calls_coverage=service_calls_coverage):
+    for a in load_assumptions(cfg, service_calls_coverage=service_calls_coverage,
+                              delivery_method_coverage=delivery_method_coverage):
         grouped.setdefault(a.group, []).append(a)
     return grouped
 

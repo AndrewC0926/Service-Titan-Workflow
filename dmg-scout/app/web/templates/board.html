@@ -60,6 +60,12 @@
   {% for w, label in [('PRE_BOD','Pre-BOD'), ('IN_BOD','In BOD'), ('POST_BOD','Post-BOD')] %}
   <div><div class="k">{{ label }}</div><div class="v">{{ summary.windows.get(w, 0) }}</div></div>
   {% endfor %}
+  <div>
+    <div class="k" title="A filing stated a project delivery method (design-bid-build, design-build, design-assist, CM at risk, or progressive design-build) -- most filings never say, so expect this low. See /assumptions for the definitions.">Delivery method known</div>
+    <div class="v">{{ summary.delivery_method_known }}
+      <span class="note">/ {{ summary.n }}{% if summary.n %} · {{ (100 * summary.delivery_method_known / summary.n)|round|int }}%{% endif %}</span>
+    </div>
+  </div>
 </div>
 
 {% if not is_watchlist and cat_counts is defined %}
@@ -122,7 +128,11 @@
 {% set c = contacts.get(p.id) %}
 <tr>
   <td class="num idx">{{ loop.index }}</td>
-  <td><a href="/project/{{ p.id }}" class="clamp2" title="{{ p.name }}">{{ p.name }}</a></td>
+  <td><a href="/project/{{ p.id }}" class="clamp2" title="{{ p.name }}">{{ p.name }}</a>
+    {%- if p.delivery_method and p.delivery_method in DELIVERY_METHOD_ABBR -%}
+    <div class="note"><span class="stamp stamp-quiet" title="{{ DELIVERY_METHOD_LABELS[p.delivery_method] }} — {{ DELIVERY_METHOD_NOTES[p.delivery_method] }}">{{ DELIVERY_METHOD_ABBR[p.delivery_method] }}</span></div>
+    {%- endif -%}
+  </td>
   <td><span class="clip" title="{{ p.developer or '' }}">{{ p.developer or '—' }}</span></td>
   <td class="nowrap">{{ p.county or '?' }}{{ ', ' + p.state if p.state }}</td>
   <td class="num nowrap">
