@@ -313,6 +313,19 @@ def geocode_retrofit_buildings(session, *, batch_limit: int | None = None,
     return stats
 
 
+# Shape parameter for the convex years-past-due weighting inside rank_buildings
+# below (2026-08-16). Mechanical/HVAC equipment wear-out failure is commonly
+# modeled with a Weibull hazard of shape > 1 (increasing failure rate with
+# age) in the reliability engineering literature -- that CONVEXITY is the
+# well-supported part. The specific value of 2.0 (a plain square, the
+# simplest convex curve past linear) is NOT fit to this population's actual
+# failure/replacement outcomes -- there is no labeled failure-date data to
+# fit against, same reason every other shape constant in this module stays a
+# judgment call rather than a measurement. See app/assumptions.py's "Retrofit
+# ranking: age-curve shape parameter" entry.
+AGE_CURVE_SHAPE = 2.0
+
+
 def rank_buildings(*, service_life_status: str | None, sqft: float | None,
                    sb1206_trigger_status: str | None, ebewe_candidate: bool,
                    carb_candidate: bool, service_life_years_past: float | None = None,
@@ -378,7 +391,7 @@ def rank_buildings(*, service_life_status: str | None, sqft: float | None,
 
     magnitude_factor = 0.0
     if service_life_years_past is not None:
-        # Capped, not linear: a building 300yr past its service-life window
+        # Capped, not unbounded: a building 300yr past its service-life window
         # (a handful of these exist -- almost certainly assessor YearBuilt
         # data errors, e.g. "1806") shouldn't infinitely outrank a merely
         # 90yr-overdue one. The cap is set from the observed distribution,
@@ -392,7 +405,25 @@ def rank_buildings(*, service_life_status: str | None, sqft: float | None,
         # a top-50, and still caps the handful of 150-300yr data-error rows
         # at parity with a genuinely ~100yr-overdue building instead of
         # letting them tower over everything.
-        magnitude_factor = max(0.0, min(1.0, service_life_years_past / 100.0))
+        #
+        # Convex, not linear (2026-08-16): mechanical equipment failure
+        # follows a Weibull hazard with shape > 1 for wear-out failure modes
+        # -- replacement probability rises with age, and rises FASTER as age
+        # increases, not at a constant rate. A straight-line years-past term
+        # treats 5 years past due and 30 years past due as differing only by
+        # a fixed increment, when the reliability literature says a building
+        # 30 years past is disproportionately likelier to be mid-failure than
+        # one merely 5 years past. AGE_CURVE_SHAPE (see module constant)
+        # raises the capped [0,1] fraction to a power > 1, which is convex on
+        # that domain (bows below the line y=x, compressing low years-past
+        # together and stretching the top of the range apart) -- the same
+        # qualitative shape a Weibull hazard/CDF produces for shape > 1,
+        # without requiring the equipment's characteristic life as a second
+        # input this function doesn't have. Tier boundaries are untouched:
+        # this only reorders WITHIN a tier, same as the linear term did --
+        # see this function's own docstring on why tier beats magnitude.
+        normalized = max(0.0, min(1.0, service_life_years_past / 100.0))
+        magnitude_factor = normalized ** AGE_CURVE_SHAPE
 
     size_factor = 0.0
     if sqft and sqft > 0:

@@ -499,6 +499,31 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "edges.\" Verbatim from config.yaml.",
     ))
 
+    # ---- Retrofit ranking ------------------------------------------------------
+
+    from app.pipeline.retrofit import AGE_CURVE_SHAPE
+    out.append(Assumption(
+        group="Retrofit ranking", name="Retrofit ranking: age-curve shape parameter",
+        config_path=None,
+        value=f"years-past-due fraction raised to the power {AGE_CURVE_SHAPE:.1f} (convex, was linear)",
+        source_type=PLACEHOLDER,
+        source_detail=(
+            "Two separate claims, classified separately rather than blended into one: the CONVEX "
+            "FORM is well-supported -- mechanical/HVAC equipment wear-out failure is commonly "
+            "modeled with a Weibull hazard of shape > 1 in the reliability engineering literature, "
+            "meaning replacement probability rises with age at an INCREASING rate, not a constant "
+            "one, which a straight-line years-past term cannot represent. The SPECIFIC exponent "
+            "(2.0, a plain square) is not that literature's fitted value -- it is not fit to "
+            "anything, because no labeled failure/replacement-date data exists for this population "
+            "to fit against, the same gap every other shape constant in app.pipeline.retrofit runs "
+            "into (see the Contractor ranking and Replacement service life entries below). Replaces "
+            "a straight-line normalization (years_past/100, capped) with that same capped fraction "
+            "raised to this power -- see app.pipeline.retrofit:rank_buildings's own comment for the "
+            "full reasoning. Reorders buildings WITHIN a service-life tier only: overdue still "
+            "strictly outranks due, which still strictly outranks approaching, unchanged.",
+        ),
+    ))
+
     # ---- Contractor ranking --------------------------------------------------
     from app.contractors import URGENCY_YEARS_PAST_CAP, ranking_radius_miles
 
