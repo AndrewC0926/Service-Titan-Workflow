@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
@@ -377,7 +377,7 @@ def _board_extras(session: Session, projects: list[Project]) -> dict:
 @app.get("/retrofit", response_class=HTMLResponse)
 def retrofit_board(request: Request, county: str = None, min_status: str = None,
                    population: str = "replacement_candidate", limit: int = 200,
-                   has_ebewe: bool = False,
+                   has_ebewe: bool = False, sold_last_24mo: bool = False,
                    session: Session = Depends(get_session), _: str = Depends(auth)):
     """Two SEPARATE populations, never merged — see RetrofitBuilding's
     docstring:
@@ -422,10 +422,20 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
     ebewe_covered = session.exec(
         select(func.count()).select_from(base_q.where(RetrofitBuilding.ebewe_matched.is_(True)).subquery())
     ).one()
+    # Same sparse-coverage discipline as EBEWE -- see app/assumptions.py's
+    # "Retrofit ranking: ownership-change recency" entry for why this is a
+    # filter, not a rank_buildings() term.
+    sold_24mo_cutoff = utcnow() - timedelta(days=730)
+    sold_24mo_covered = session.exec(
+        select(func.count()).select_from(
+            base_q.where(RetrofitBuilding.last_sale_date >= sold_24mo_cutoff).subquery())
+    ).one()
 
     ranked_q = base_q
     if has_ebewe:
         ranked_q = ranked_q.where(RetrofitBuilding.ebewe_matched.is_(True))
+    if sold_last_24mo:
+        ranked_q = ranked_q.where(RetrofitBuilding.last_sale_date >= sold_24mo_cutoff)
     total = session.exec(select(func.count()).select_from(ranked_q.subquery())).one()
     order = [RetrofitBuilding.rank_score.desc().nulls_last()]
     if has_ebewe:
@@ -438,6 +448,11 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
         # ENERGY STAR score is direct evidence of an underperforming
         # mechanical plant -- YearBuilt only infers that; this is measured.
         order.append(RetrofitBuilding.ebewe_energy_star_score.asc().nulls_last())
+    if sold_last_24mo:
+        # Same discipline: recency is a TIE-BREAKER within this filtered
+        # subset only, never board-wide -- see app/assumptions.py's
+        # "Retrofit ranking: ownership-change recency" entry.
+        order.append(RetrofitBuilding.last_sale_date.desc().nulls_last())
     buildings = session.exec(ranked_q.order_by(*order).limit(limit)).all()
 
     # Column-only, not select(RetrofitBuilding) -- this used to load all 53,252
@@ -459,11 +474,14 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
         "ebewe_covered_of": unfiltered_total,
         "ebewe_covered_pct": round(100 * ebewe_covered / unfiltered_total, 1) if unfiltered_total else 0.0,
         "no_address_total": no_address_total,
+        "sold_24mo_covered": sold_24mo_covered,
+        "sold_24mo_covered_of": unfiltered_total,
+        "sold_24mo_covered_pct": round(100 * sold_24mo_covered / unfiltered_total, 1) if unfiltered_total else 0.0,
     }
     return templates.TemplateResponse(request, "retrofit_board.html", {
         "buildings": buildings, "summary": summary, "counties": counties,
         "county": county, "min_status": min_status, "population": population, "limit": limit,
-        "has_ebewe": has_ebewe,
+        "has_ebewe": has_ebewe, "sold_last_24mo": sold_last_24mo,
         "score_max": max([b.rank_score for b in buildings if b.rank_score] or [1.0]),
         "tb": _title_block(session), "active": "retrofit",
     })

@@ -128,35 +128,67 @@ def _rank(**kw):
     return rank_buildings(**{**base, **kw})
 
 
-def test_recent_sale_outranks_no_sale_within_the_same_tier():
-    # The instruction's own worked example: 30yr past due, just sold, vs.
-    # 30yr past due, never sold on record.
-    just_sold = _rank(months_since_sale=0)
-    never_sold = _rank(months_since_sale=None)
+def test_recency_weight_defaults_to_zero_and_does_not_reorder_the_board():
+    # 2026-08-16 demotion: months_since_sale alone, with no explicit
+    # recency_weight, must contribute NOTHING -- the config default
+    # (retrofit.ownership_recency_weight=0.0) is what production actually
+    # runs, and this is the byte-for-byte guarantee that a caller who
+    # forgets to pass the weight gets the safe (off) behavior, not a
+    # silent reordering.
+    just_sold_no_weight = _rank(months_since_sale=0)
+    never_sold_no_weight = _rank(months_since_sale=None)
+    assert just_sold_no_weight == never_sold_no_weight
+
+
+def test_recency_weight_zero_restores_exact_original_magnitude_and_size():
+    # rank_buildings had no recency term at all before 2026-08-16; a
+    # weight=0.0 caller must reproduce that exact score, not a shrunken
+    # version of it -- this is the whole point of the proportional
+    # reallocation (BASE_MAGNITUDE_WEIGHT/BASE_SIZE_WEIGHT), not just
+    # "recency contributes zero".
+    with_zero_weight = rank_buildings(
+        service_life_status="overdue", sqft=500000, sb1206_trigger_status=None,
+        ebewe_candidate=False, carb_candidate=False, service_life_years_past=30,
+        months_since_sale=0, recency_weight=0.0,
+    )
+    no_recency_args_at_all = rank_buildings(
+        service_life_status="overdue", sqft=500000, sb1206_trigger_status=None,
+        ebewe_candidate=False, carb_candidate=False, service_life_years_past=30,
+    )
+    assert with_zero_weight == no_recency_args_at_all
+
+
+def test_recent_sale_outranks_no_sale_when_weight_is_deliberately_enabled():
+    # The instruction's own worked example, still true when a caller
+    # deliberately re-enables the term (config.yaml's documented
+    # "set this back to 0.22" path) -- 30yr past due, just sold, vs. 30yr
+    # past due, never sold on record.
+    just_sold = _rank(months_since_sale=0, recency_weight=0.22)
+    never_sold = _rank(months_since_sale=None, recency_weight=0.22)
     assert just_sold > never_sold
 
 
-def test_recent_sale_outranks_a_stale_sale_within_the_same_tier():
-    just_sold = _rank(months_since_sale=0)
-    sold_20_years_ago = _rank(months_since_sale=240)
+def test_recent_sale_outranks_a_stale_sale_when_weight_is_enabled():
+    just_sold = _rank(months_since_sale=0, recency_weight=0.22)
+    sold_20_years_ago = _rank(months_since_sale=240, recency_weight=0.22)
     assert just_sold > sold_20_years_ago
 
 
-def test_stale_sale_is_close_to_no_sale_at_all():
+def test_stale_sale_is_close_to_no_sale_at_all_when_weight_is_enabled():
     # A sale two decades old has decayed to near-nothing at a 24-month
     # half-life -- should score close to, not meaningfully above, no sale.
-    sold_20_years_ago = _rank(months_since_sale=240)
-    never_sold = _rank(months_since_sale=None)
+    sold_20_years_ago = _rank(months_since_sale=240, recency_weight=0.22)
+    never_sold = _rank(months_since_sale=None, recency_weight=0.22)
     assert abs(sold_20_years_ago - never_sold) < 0.01
 
 
-def test_recency_never_crosses_a_tier():
+def test_recency_never_crosses_a_tier_even_when_enabled():
     # Same invariant as magnitude/size/regulatory pressure: no combination
     # can make a "due" building outrank an "overdue" one.
     maxed_out_due = rank_buildings(
         service_life_status="due", sqft=2_000_000, sb1206_trigger_status="in_effect",
         ebewe_candidate=True, carb_candidate=True, service_life_years_past=100,
-        months_since_sale=0,
+        months_since_sale=0, recency_weight=0.22,
     )
     barely_overdue = rank_buildings(
         service_life_status="overdue", sqft=1, sb1206_trigger_status=None,
@@ -166,11 +198,19 @@ def test_recency_never_crosses_a_tier():
     assert barely_overdue > maxed_out_due
 
 
-def test_null_months_since_sale_contributes_nothing_same_as_before():
-    # Backward compatibility: omitting months_since_sale entirely must be
-    # byte-identical to passing None explicitly.
-    assert _rank() == _rank(months_since_sale=None)
+def test_recency_weight_negative_is_clamped_to_zero():
+    negative = _rank(months_since_sale=0, recency_weight=-1.0)
+    zero = _rank(months_since_sale=0, recency_weight=0.0)
+    assert negative == zero
+
+
+def test_null_months_since_sale_contributes_nothing_regardless_of_weight():
+    assert _rank(recency_weight=0.22) == _rank(months_since_sale=None, recency_weight=0.22)
 
 
 def test_recency_half_life_constant_is_positive():
     assert RECENCY_HALFLIFE_MONTHS > 0
+
+
+def test_config_default_recency_weight_is_zero(cfg):
+    assert cfg.get("retrofit.ownership_recency_weight", 0.0) == 0.0

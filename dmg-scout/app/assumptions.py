@@ -530,51 +530,62 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
     orc_matched = orc.get("matched")
     orc_recent = orc.get("sold_last_24mo")
     out.append(Assumption(
-        group="Retrofit ranking", name="Ownership-change recency: source and match rate",
-        config_path=None,
-        value=(f"{orc_matched:,} of {orc_total:,} retrofit_buildings rows matched "
-              f"({100*orc_matched/orc_total:.1f}%); {orc_recent:,} sold in the last 24 months"
-              if orc_total else "not available on this page load"),
-        source_type=MEASURED,
-        source_detail=(
-            "The actual ask was LA County Recorder deed records -- checked first, 2026-08-16: the "
-            "Recorder (Registrar-Recorder/County Clerk) offers no bulk or API access to its deed "
-            "index, only an in-person visit or a paid per-document request through VitalChek "
-            "(~20 business day turnaround) -- the same dead end as DIR's contractor registry, so "
-            "no Recorder scraper was built. What's used instead is a different, independently "
-            "public source carrying the same underlying fact: the LA County ASSESSOR's own "
-            "RecordingDate field (already used in production for CARB/EBEWE candidate detection, "
-            "see app/pipeline/assessor.py), which changes whenever Prop 13 reassesses a parcel for "
-            "a change of ownership. Two disclosed limitations: no document type is available (the "
-            "Recorder's own index would carry deed type; the Assessor's roll does not), and "
-            "RecordingDate is not proof of an arms-length market sale -- some non-sale transfers "
-            "are also reassessable. Live count, checked at every page load -- see "
-            "app.pipeline.ownership:ownership_recency_coverage."
-        ),
-        verified=True,
-        last_reviewed="Live count as of this page load.",
-    ))
-
-    from app.pipeline.retrofit import RECENCY_HALFLIFE_MONTHS
-    out.append(Assumption(
-        group="Retrofit ranking", name="Ownership-change recency: decay half-life and ranking weight",
-        config_path=None,
-        value=f"{RECENCY_HALFLIFE_MONTHS:.0f}-month half-life, weighted 0.22 within a service-life tier",
+        group="Retrofit ranking", name="Retrofit ranking: ownership-change recency",
+        config_path="retrofit.ownership_recency_weight",
+        value=(f"weight=0.0 (off) — {orc_matched:,} of {orc_total:,} rows have SOME recording date "
+              f"({100*orc_matched/orc_total:.1f}%), but only {orc_recent:,} ({100*orc_recent/orc_total:.1f}%) "
+              f"sold in the last 24 months" if orc_total else "not available on this page load"),
         source_type=PLACEHOLDER,
         source_detail=(
-            "A judgment call, not fit to any labeled outcome -- no data exists linking a sale date "
-            "to an actual subsequent equipment replacement to fit against. The instruction's own "
+            "Shipped as a ranking term, then demoted to a filter + badge three commits later, once "
+            "two problems became clear from the buildings that actually landed at the top of the "
+            "board: (1) COVERAGE -- only ~2% of retrofit_buildings show a sale in the last 24 "
+            "months (measured 2026-08-16, live count above), so weighting it board-wide meant a "
+            "sparse column was doing most of the sorting for a large share of top-ranked rows, the "
+            "same false-precision failure mode EBEWE's own coverage flag exists to name; and (2) "
+            "VERIFICATION -- the Assessor's RecordingDate is a Prop 13 reassessment trigger, not a "
+            "sale record: it fires on trust and family transfers and reassessment-triggering "
+            "refinances as well as arms-length sales, and this system cannot currently tell those "
+            "apart (no document type is available -- see the source note below). A column that "
+            "fires on a refinance is not verified enough evidence to re-sort a board this many "
+            "people read. Set to weight=0.0 in config.yaml (retrofit.ownership_recency_weight) -- "
+            "app.pipeline.retrofit:rank_buildings borrows proportionally from magnitude/size only "
+            "when this is above 0.0, so 0.0 restores the exact pre-recency ranking. Surfaced instead "
+            "as /retrofit's 'Sold in last 24 months' filter and a per-row badge (LA County Assessor's "
+            "RecordingDate, with the same trust/family/refinance caveat in its hover text) -- the "
+            "same treatment EBEWE's own sparse column got. The underlying source itself (LA County "
+            "Recorder deed records have no bulk/API access, confirmed 2026-08-16 -- an in-person "
+            "visit or a paid per-document VitalChek request is the only path, same dead end as DIR; "
+            "the Assessor's own RecordingDate field is used instead, not a workaround) is unchanged "
+            "and still disclosed in full on the /retrofit filter callout."
+        ),
+        verified=True,
+        last_reviewed="Live count as of this page load; weight set to 0.0 2026-08-16.",
+    ))
+
+    from app.pipeline.retrofit import BASE_MAGNITUDE_WEIGHT, BASE_SIZE_WEIGHT, RECENCY_HALFLIFE_MONTHS
+    out.append(Assumption(
+        group="Retrofit ranking", name="Ownership-change recency: decay half-life (if re-enabled)",
+        config_path=None,
+        value=f"{RECENCY_HALFLIFE_MONTHS:.0f}-month half-life; a re-enabled weight of W would borrow "
+             f"proportionally from magnitude ({BASE_MAGNITUDE_WEIGHT}) and size ({BASE_SIZE_WEIGHT})",
+        source_type=PLACEHOLDER,
+        source_detail=(
+            "Kept for the record now that the weight defaults to 0.0 (see the sibling entry above for "
+            "why) -- this is the shape a re-enabled term would take, not something currently applied "
+            "to the board. A judgment call, not fit to any labeled outcome -- no data exists linking "
+            "a sale date to an actual subsequent equipment replacement to fit against. The original "
             "framing (new owners run capital plans and price deferred HVAC into offers on roughly a "
-            "6-18 month lag) motivated a SHORT half-life so the term concentrates weight on recent "
-            "sales rather than still crediting one from a decade ago, but 24 months specifically is "
-            "a round-number choice. Reuses the same exponential-decay shape "
+            "6-18 month lag) motivated a SHORT half-life so the term would concentrate weight on "
+            "recent sales rather than still crediting one from a decade ago, but 24 months "
+            "specifically is a round-number choice. Reuses the same exponential-decay shape "
             "scoring.recency_halflife_days already uses for signal recency, for consistency rather "
-            "than inventing a new curve. The 0.22 weight (reallocated from magnitude 0.55->0.42 and "
-            "size 0.25->0.16, keeping the same 0.92 total ceiling documented in "
-            "app.pipeline.retrofit:rank_buildings) is sized so a very recent sale meaningfully "
-            "outranks a stale one within a tier, matching the instruction's own worked example (a "
-            "building 30 years past due that just sold outranks one 30 years past due with no "
-            "recent sale) -- not fit against outcomes either.",
+            "than inventing a new curve. Measured once at weight=0.22 (2026-08-16, before demotion): "
+            "reordered the entire top of the board -- only 11 of the top 200 buildings survived from "
+            "the pre-recency ranking -- because most already-overdue buildings cluster in a narrow "
+            "years-past band where a full recency credit dominates the much smaller remaining "
+            "magnitude spread. Worth knowing before choosing a re-enable value: 0.22 read as "
+            "aggressive in practice, not just in principle.",
         ),
     ))
 

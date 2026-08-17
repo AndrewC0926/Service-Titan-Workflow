@@ -815,6 +815,22 @@ retrofit:
     Commercial: {low: 300, high: 500}
     Industrial: {low: 1000, high: 2500}
 
+  # Change-of-ownership recency's WEIGHT in rank_buildings' within-tier
+  # composite -- see app/pipeline/retrofit.py:rank_buildings and
+  # app/assumptions.py's "Retrofit ranking: ownership-change recency"
+  # entry. Set to 0.0 (2026-08-16): only ~2% of retrofit_buildings show a
+  # sale in the last 24 months (app.pipeline.ownership:
+  # ownership_recency_coverage), and the Assessor's RecordingDate fires on
+  # trust and family transfers and reassessment-triggering refinances, not
+  # only arms-length sales -- not verified enough to re-sort a board this
+  # many people read. Surfaced instead as a /retrofit filter + badge
+  # (sold_last_24mo), the same treatment EBEWE's own sparse column got.
+  # Was 0.22 -- set this back to that value to deliberately turn the
+  # ranking term back on once coverage/verification improve; rank_buildings
+  # borrows proportionally from magnitude/size to preserve the same
+  # tier-safe ceiling either way, no other code change needed.
+  ownership_recency_weight: 0.0
+
 # app.contractors -- CSLB contractor <-> retrofit-candidate geographic join.
 # See app/models.py's Contractor docstring for sourcing/scope and
 # app/pipeline/cslb.py's module docstring for the compliance check.

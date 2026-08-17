@@ -259,6 +259,50 @@ def test_retrofit_report_excludes_no_address_rows(client, db_session, cfg):
     assert "NA3" not in r.text
 
 
+def test_retrofit_board_sold_last_24mo_filter_and_badge(client, db_session, cfg):
+    """Change-of-ownership recency is a filter + badge, not a board-wide
+    ranking term (demoted 2026-08-16 -- see app/assumptions.py's "Retrofit
+    ranking: ownership-change recency" entry for why: ~2% coverage, and the
+    Assessor's RecordingDate fires on trust/family transfers and
+    reassessment-triggering refinances, not only arms-length sales). The
+    filter must narrow to recently-sold rows; the badge must show on any
+    row with a sale on record regardless of the filter."""
+    from datetime import timedelta
+
+    from app.models import utcnow
+
+    recent = RetrofitBuilding(apn="R1", population="replacement_candidate",
+                              address="1 Recent Sale Way", county="Los Angeles", state="CA",
+                              rank_score=5.0, last_sale_date=utcnow() - timedelta(days=30),
+                              last_sale_source="la_county_assessor_recording_date")
+    stale = RetrofitBuilding(apn="S1", population="replacement_candidate",
+                             address="2 Stale Sale Rd", county="Los Angeles", state="CA",
+                             rank_score=4.0, last_sale_date=utcnow() - timedelta(days=3000),
+                             last_sale_source="la_county_assessor_recording_date")
+    never = RetrofitBuilding(apn="N1", population="replacement_candidate",
+                             address="3 Never Sold Ln", county="Los Angeles", state="CA",
+                             rank_score=3.0)
+    db_session.add(recent)
+    db_session.add(stale)
+    db_session.add(never)
+    db_session.commit()
+
+    unfiltered = client.get("/retrofit?population=replacement_candidate", headers=AUTH)
+    assert unfiltered.status_code == 200
+    assert "1 Recent Sale Way" in unfiltered.text
+    assert "2 Stale Sale Rd" in unfiltered.text
+    assert "3 Never Sold Ln" in unfiltered.text
+    # Every row with a sale on record gets a badge, recent or not.
+    assert unfiltered.text.count("Sold ") >= 2
+
+    filtered = client.get("/retrofit?population=replacement_candidate&sold_last_24mo=true", headers=AUTH)
+    assert filtered.status_code == 200
+    assert "1 Recent Sale Way" in filtered.text
+    assert "2 Stale Sale Rd" not in filtered.text
+    assert "3 Never Sold Ln" not in filtered.text
+    assert "Sold in last 24 months" in filtered.text
+
+
 def test_titleblock_data_as_of_and_printed_use_the_same_timezone_convention(client, db_session, cfg):
     """Both are UTC (tb.data_as_of = max(RawDocument.fetched_at); Printed =
     app.models.utcnow, the Jinja `now` global) -- they must render with the

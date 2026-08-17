@@ -353,12 +353,23 @@ AGE_CURVE_SHAPE = 2.0
 # change recency" entry.
 RECENCY_HALFLIFE_MONTHS = 24.0
 
+# Original within-tier weights, before the recency term existed --
+# magnitude leads, size is a distant second. recency_weight (below) borrows
+# from these two proportionally to its own share, so recency_weight=0.0
+# (the default, and the current config.yaml value -- see rank_buildings'
+# recency_weight parameter and retrofit.ownership_recency_weight) restores
+# these two numbers EXACTLY, byte-for-byte, rather than leaving them
+# permanently shrunk by a term that isn't contributing anything.
+BASE_MAGNITUDE_WEIGHT = 0.55
+BASE_SIZE_WEIGHT = 0.25
+
 
 def rank_buildings(*, service_life_status: str | None, sqft: float | None,
                    sb1206_trigger_status: str | None, ebewe_candidate: bool,
                    carb_candidate: bool, service_life_years_past: float | None = None,
                    service_calls_per_year: float | None = None,
-                   months_since_sale: float | None = None) -> float:
+                   months_since_sale: float | None = None,
+                   recency_weight: float = 0.0) -> float:
     """Hierarchy first, composite within tier — the same fix ladder.py's
     reachability-first sort applies to contacts, applied here to buildings.
 
@@ -386,24 +397,32 @@ def rank_buildings(*, service_life_status: str | None, sqft: float | None,
     varies WITHIN the saturated tier. service_life_years_past (age minus the
     low/"due" threshold — negative before the window, growing through due
     into overdue, see app/replacement.py) is now the lead term within a
-    tier; size, ownership-change recency, and regulatory proximity are
-    secondary tie-breakers, not the sort key. All four terms are still
-    capped well under 1.0 combined (0.42 + 0.22 + 0.16 + 0.4*0.3=0.12 = 0.92
-    max — same 0.92 ceiling as before this term existed, just reallocated
-    to make room for it), so — same invariant as before — no combination of
-    magnitude, recency, size and regulatory pressure can ever cross a full
-    tier step.
+    tier; size and regulatory proximity are secondary tie-breakers, not the
+    sort key. All terms are still capped well under 1.0 combined
+    (0.55 + 0.25 + 0.4*0.3=0.12 = 0.92 max), so — same invariant as before —
+    no combination of magnitude, size and regulatory pressure can ever cross
+    a full tier step.
 
-    months_since_sale (2026-08-16, from RetrofitBuilding.last_sale_date —
-    see app/pipeline/ownership.py) is the newest of these secondary terms: a
-    building that just changed hands is disproportionately likely to see
-    mechanical capex on roughly a 6-18 month lag (new owners run capital
-    plans; buyers price deferred HVAC into offers), so recency of ownership
-    change gets real weight alongside magnitude, not a token nudge — a
-    building 30 years past due that just sold outranks one 30 years past
-    due that hasn't traded in 20 years, entirely from this term. Decays
-    exponentially (see RECENCY_HALFLIFE_MONTHS); None (no sale on record,
-    still most rows) contributes 0, same as every other null input here.
+    months_since_sale / recency_weight (2026-08-16, from
+    RetrofitBuilding.last_sale_date — see app/pipeline/ownership.py) started
+    as a fifth weighted term and was demoted to OFF by default
+    (recency_weight=0.0) three commits later, once the coverage and
+    verification problems became clear: only ~2% of retrofit_buildings show
+    a sale in the last 24 months (measured 2026-08-16 — see
+    app.pipeline.ownership:ownership_recency_coverage), and the Assessor's
+    RecordingDate fires on trust and family transfers and reassessment-
+    triggering refinances, not only arms-length sales -- not verified
+    enough to re-sort a board this many people read. Recency now surfaces
+    as a /retrofit filter + badge instead (sold_last_24mo), the same
+    treatment EBEWE's own sparse-coverage column got, rather than a global
+    ranking term. recency_weight is still a real parameter, still config-
+    tunable (retrofit.ownership_recency_weight), and still borrows
+    proportionally from BASE_MAGNITUDE_WEIGHT/BASE_SIZE_WEIGHT to preserve
+    the same tier-safe ceiling when set above 0.0 -- turning verified
+    change-of-ownership evidence back into a ranking term later is a config
+    edit, not a rewrite. Decays exponentially (see RECENCY_HALFLIFE_MONTHS);
+    None (no sale on record) or recency_weight=0.0 both contribute exactly
+    0, same as every other null/off input here.
 
     service_calls_per_year (2026-08-11, manual entry only — see
     ServiceFrequencyReport) OVERRIDES all of the above when present: actual
@@ -486,8 +505,17 @@ def rank_buildings(*, service_life_status: str | None, sqft: float | None,
     if carb_candidate:
         reg_weight = max(reg_weight, 0.1)
 
-    within_tier = round(magnitude_factor * 0.42 + recency_factor * 0.22
-                        + size_factor * 0.16 + reg_weight * 0.4, 4)
+    # recency_weight borrows from magnitude/size proportionally to their
+    # BASE share, so recency_weight=0.0 (the default) restores
+    # BASE_MAGNITUDE_WEIGHT/BASE_SIZE_WEIGHT exactly -- see this function's
+    # own docstring for why the term defaults off.
+    recency_weight = max(0.0, min(BASE_MAGNITUDE_WEIGHT + BASE_SIZE_WEIGHT, recency_weight))
+    base_total = BASE_MAGNITUDE_WEIGHT + BASE_SIZE_WEIGHT
+    magnitude_weight = BASE_MAGNITUDE_WEIGHT - recency_weight * (BASE_MAGNITUDE_WEIGHT / base_total)
+    size_weight = BASE_SIZE_WEIGHT - recency_weight * (BASE_SIZE_WEIGHT / base_total)
+
+    within_tier = round(magnitude_factor * magnitude_weight + recency_factor * recency_weight
+                        + size_factor * size_weight + reg_weight * 0.4, 4)
     return round(life_tier + within_tier, 4)
 
 
@@ -524,6 +552,10 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
     service_freq = latest_service_frequency_by_apn(session, apns)
     geocodes = geocodes_by_apn(session, apns)
     ownership = ownership_by_apn(session, apns)
+    # 0.0 by default -- see rank_buildings' docstring and
+    # app/assumptions.py's "Retrofit ranking: ownership-change recency"
+    # entry for why. A deliberate config edit turns it back on.
+    recency_weight = cfg.get("retrofit.ownership_recency_weight", 0.0)
 
     # Built BEFORE the main loop so the EBEWE join's reverse-ambiguity check
     # (an address claimed by more than one apn) sees every address THIS
@@ -587,6 +619,7 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
             service_life_years_past=years_past,
             service_calls_per_year=freq.service_calls_per_year if freq else None,
             months_since_sale=months_since_sale,
+            recency_weight=recency_weight,
         )
 
         session.add(RetrofitBuilding(
@@ -811,6 +844,8 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
     service_freq = latest_service_frequency_by_apn(session, ains)
     geocodes = geocodes_by_apn(session, ains)
     ownership = ownership_by_apn(session, ains)
+    # See build_retrofit_buildings' identical comment on this line.
+    recency_weight = cfg.get("retrofit.ownership_recency_weight", 0.0)
 
     # See build_retrofit_buildings' identical comment -- built from THIS
     # population's own parcels so reverse-ambiguity detection isn't blind
@@ -910,6 +945,7 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
             service_life_years_past=years_past,
             service_calls_per_year=freq.service_calls_per_year if freq else None,
             months_since_sale=months_since_sale,
+            recency_weight=recency_weight,
         )
 
         session.add(RetrofitBuilding(

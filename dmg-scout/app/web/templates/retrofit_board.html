@@ -40,10 +40,25 @@
     subset below, never blended into the board-wide score.</span>
 </div>
 
+<div class="callout callout-warn">
+  <strong>Change-of-ownership recency covers {{ '{:,}'.format(summary.sold_24mo_covered) }} of
+    {{ '{:,}'.format(summary.sold_24mo_covered_of) }} buildings in this view ({{ summary.sold_24mo_covered_pct }}%)</strong>
+  <span class="body">A recorded sale within the last 24 months, per LA County Assessor's own RecordingDate
+    field (not the Recorder's deed index — no bulk/API access exists there, see
+    <a href="/assumptions#{{ assumption_slug('Retrofit ranking: ownership-change recency') }}">the full sourcing note</a>).
+    Coverage is this low because a recent sale is genuinely rare across the whole board, not a join
+    defect — 98.9% of buildings have SOME recording date on file, just usually an old one. Because
+    coverage is this sparse, AND because RecordingDate fires on trust/family transfers and
+    reassessment-triggering refinances as well as arms-length sales, this is a filter and a badge
+    only — never a board-wide ranking term.</span>
+</div>
+
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
-  <a href="/retrofit?population={{ population }}{% if county %}&county={{ county }}{% endif %}{% if min_status %}&min_status={{ min_status }}{% endif %}&has_ebewe=true"
+  <a href="/retrofit?population={{ population }}{% if county %}&county={{ county }}{% endif %}{% if min_status %}&min_status={{ min_status }}{% endif %}&has_ebewe=true{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}"
      class="chip" aria-pressed="{{ 'true' if has_ebewe else 'false' }}">Has EBEWE data ({{ '{:,}'.format(summary.ebewe_covered) }})</a>
-  {% if has_ebewe %}
+  <a href="/retrofit?population={{ population }}{% if county %}&county={{ county }}{% endif %}{% if min_status %}&min_status={{ min_status }}{% endif %}{% if has_ebewe %}&has_ebewe=true{% endif %}&sold_last_24mo=true"
+     class="chip" aria-pressed="{{ 'true' if sold_last_24mo else 'false' }}">Sold in last 24 months ({{ '{:,}'.format(summary.sold_24mo_covered) }})</a>
+  {% if has_ebewe or sold_last_24mo %}
   <a href="/retrofit?population={{ population }}{% if county %}&county={{ county }}{% endif %}{% if min_status %}&min_status={{ min_status }}{% endif %}"
      class="chip" aria-pressed="false">Clear</a>
   {% endif %}
@@ -106,13 +121,13 @@
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
   {% for c in counties %}
-  <a href="/retrofit?population={{ population }}&county={{ c }}{% if min_status %}&min_status={{ min_status }}{% endif %}{% if has_ebewe %}&has_ebewe=true{% endif %}"
+  <a href="/retrofit?population={{ population }}&county={{ c }}{% if min_status %}&min_status={{ min_status }}{% endif %}{% if has_ebewe %}&has_ebewe=true{% endif %}{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}"
      class="chip" aria-pressed="{{ 'true' if county == c else 'false' }}">{{ c }}</a>
   {% endfor %}
-  <a href="/retrofit?population={{ population }}{% if min_status %}&min_status={{ min_status }}{% endif %}{% if has_ebewe %}&has_ebewe=true{% endif %}" class="chip" aria-pressed="{{ 'true' if not county else 'false' }}">All counties</a>
+  <a href="/retrofit?population={{ population }}{% if min_status %}&min_status={{ min_status }}{% endif %}{% if has_ebewe %}&has_ebewe=true{% endif %}{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}" class="chip" aria-pressed="{{ 'true' if not county else 'false' }}">All counties</a>
   <span class="note ml-1">|</span>
   {% for key, label in [('overdue','Overdue only'), ('due','Due+'), ('approaching','Approaching+'), ('', 'All statuses')] %}
-  <a href="/retrofit?population={{ population }}&{% if county %}county={{ county }}&{% endif %}min_status={{ key }}{% if has_ebewe %}&has_ebewe=true{% endif %}" class="chip" aria-pressed="{{ 'true' if min_status == key else 'false' }}">{{ label }}</a>
+  <a href="/retrofit?population={{ population }}&{% if county %}county={{ county }}&{% endif %}min_status={{ key }}{% if has_ebewe %}&has_ebewe=true{% endif %}{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}" class="chip" aria-pressed="{{ 'true' if min_status == key else 'false' }}">{{ label }}</a>
   {% endfor %}
   {% if county %}
   <a href="/retrofit/report?population={{ population }}&county={{ county }}" class="chip ml-1">🖨 Printable contractor report ↗</a>
@@ -230,7 +245,9 @@
       {%- if b.inferred_refrigerant %}, {{ b.inferred_refrigerant }} inferred{% endif -%}
     {%- endif -%}
     {%- if b.last_sale_date -%}
-      <br><span title="LA County Assessor's own RecordingDate (a Prop 13 reassessment trigger, not confirmed proof of an arms-length sale, no document type available) -- see /assumptions.">Sold {{ b.last_sale_date.strftime('%Y-%m-%d') }}</span>
+      <br><a class="stamp {{ 'stamp-in' if (now() - b.last_sale_date).days <= 730 else 'stamp-quiet' }}"
+             href="/assumptions#{{ assumption_slug('Retrofit ranking: ownership-change recency') }}"
+             title="LA County Assessor's own RecordingDate -- a Prop 13 reassessment trigger, NOT confirmed proof of an arms-length sale (also fires on trust/family transfers and reassessment-triggering refinances), and carries no document type. Not a ranking term -- see /assumptions.">Sold {{ b.last_sale_date.strftime('%Y-%m-%d') }}</a>
     {%- endif -%}
   </td>
 </tr>
