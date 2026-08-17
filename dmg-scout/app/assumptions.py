@@ -90,7 +90,8 @@ def _fmt_table(d: dict, fmt: str = "{:.2f}") -> str:
 
 def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                      delivery_method_coverage: dict | None = None,
-                     ownership_recency_coverage: dict | None = None) -> list[Assumption]:
+                     ownership_recency_coverage: dict | None = None,
+                     portfolio_coverage: dict | None = None) -> list[Assumption]:
     """Everything below is read from cfg at call time — never hand-copied —
     so the VALUE column can't drift from what's actually running even if
     this function's prose goes stale.
@@ -589,6 +590,49 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
         ),
     ))
 
+    from app.portfolios import PORTFOLIO_DATE_WINDOW_DAYS, PORTFOLIO_MAX_GROUP_SIZE, PORTFOLIO_RADIUS_MILES
+    pfc = portfolio_coverage or {}
+    buildings_grouped = pfc.get("buildings_grouped")
+    n_groups = pfc.get("distinct_groups")
+    out.append(Assumption(
+        group="Retrofit ranking", name="Portfolio-transaction detection",
+        config_path=None,
+        value=(f"window={PORTFOLIO_DATE_WINDOW_DAYS}d, radius={PORTFOLIO_RADIUS_MILES}mi, "
+              f"max group size={PORTFOLIO_MAX_GROUP_SIZE} — {buildings_grouped:,} buildings in "
+              f"{n_groups:,} groups" if buildings_grouped is not None else
+              f"window={PORTFOLIO_DATE_WINDOW_DAYS}d, radius={PORTFOLIO_RADIUS_MILES}mi, "
+              f"max group size={PORTFOLIO_MAX_GROUP_SIZE} (not available on this page load)"),
+        source_type=PLACEHOLDER,
+        source_detail=(
+            "Buildings sharing a recording date within a short window AND close geographic "
+            "proximity are likely one buyer picking up several adjacent parcels at once, not "
+            "independent leads. Calibrated 2026-08-17 against one real, confirmed example (five "
+            "adjacent S Azusa Ave parcels in City of Industry, sold within an 11-day window, three "
+            "of which the user identified directly) -- window and radius clear that example's "
+            "measured gaps (max 0.149mi, 11 days) with margin, but are not fit against a labeled "
+            "set of confirmed vs. rejected portfolios; no such set exists. PORTFOLIO_MAX_GROUP_SIZE "
+            "exists because the FIRST run against real production data found a 44-building group -- "
+            "an entire Glendale industrial park (Hazel St/Flower St/Paula Ave/Circle Seven Dr) all "
+            "sharing the exact same 1997-06-17 recording date, far more consistent with a mass "
+            "administrative event (a subdivision map recorded in one filing, or a bulk reassessment) "
+            "than a single buyer's simultaneous purchase. Groups larger than the cap are excluded "
+            "entirely (members revert to standalone rows) rather than truncated, so a shown group's "
+            "membership is never partial. Same underlying limitation as ownership-change recency "
+            "itself (see the sibling entry above): the Assessor's RecordingDate is not proof of an "
+            "arms-length sale, so a detected group is probabilistic evidence, not confirmed common "
+            "ownership -- every group is shown with its member addresses so a rep can sanity-check "
+            "it. Only runs among buildings with both a recording date AND a geocode -- ~80% of the "
+            "24-month-recent population is geocoded, so some real portfolios are missed, not "
+            "falsely split. That 80% is not evenly spread: confirmed 2026-08-16, it comes entirely "
+            "from replacement_candidate (~96% geocoded) -- recently_active has ZERO geocoded rows on "
+            "this build, so portfolio detection never fires there at all, not even at reduced recall. "
+            "A pipeline gap upstream of this feature (recently_active buildings are never passed "
+            "through the geocoder), not a portfolio-detection bug.",
+        ),
+        verified=True,
+        last_reviewed="Live count as of this page load.",
+    ))
+
     # ---- Contractor ranking --------------------------------------------------
     from app.contractors import URGENCY_YEARS_PAST_CAP, ranking_radius_miles
 
@@ -862,11 +906,13 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
 
 def assumptions_by_group(cfg: Config, service_calls_coverage: dict | None = None,
                          delivery_method_coverage: dict | None = None,
-                         ownership_recency_coverage: dict | None = None) -> dict[str, list[Assumption]]:
+                         ownership_recency_coverage: dict | None = None,
+                         portfolio_coverage: dict | None = None) -> dict[str, list[Assumption]]:
     grouped: dict[str, list[Assumption]] = {}
     for a in load_assumptions(cfg, service_calls_coverage=service_calls_coverage,
                               delivery_method_coverage=delivery_method_coverage,
-                              ownership_recency_coverage=ownership_recency_coverage):
+                              ownership_recency_coverage=ownership_recency_coverage,
+                              portfolio_coverage=portfolio_coverage):
         grouped.setdefault(a.group, []).append(a)
     return grouped
 

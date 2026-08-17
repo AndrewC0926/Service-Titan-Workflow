@@ -1270,6 +1270,24 @@ class RetrofitBuilding(SQLModel, table=True):
     last_sale_source: str | None = None
     last_sale_checked_at: datetime | None = None
 
+    # Portfolio-transaction grouping -- see app/portfolios.py:detect_portfolios.
+    # Buildings sharing a recording date within a short window AND close
+    # geographic proximity are likely one transaction (a buyer picking up
+    # several adjacent aging parcels at once), not independent leads.
+    # Computed fresh at the end of every rebuild (a pure derived fact from
+    # last_sale_date/latitude/longitude already on THIS table -- no external
+    # fetch, so no rebuild-survival table needed the way OwnershipRecency/
+    # RetrofitGeocode are). Null/1 means standalone -- no group. group_id is
+    # the smallest APN among the group's members, deterministic and stable
+    # across rebuilds as long as membership doesn't change. combined_sqft
+    # sums every member with a known sqft; members lists every OTHER building
+    # in the group (apn/address/sqft/last_sale_date) for display -- this row
+    # is not included in its own members list.
+    portfolio_group_id: str | None = Field(default=None, index=True)
+    portfolio_member_count: int | None = None
+    portfolio_combined_sqft: float | None = None
+    portfolio_members: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
+
     # Rejoined from RetrofitGeocode at build time, same pattern and same
     # reason as service_calls_per_year above -- this table's own DELETE-and-
     # reinsert rebuild would otherwise wipe it. Null until geocoded; see

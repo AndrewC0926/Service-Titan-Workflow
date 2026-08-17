@@ -652,6 +652,10 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
         built += 1
 
     session.commit()
+
+    from app.portfolios import apply_portfolio_grouping
+    portfolio_stats = apply_portfolio_grouping(session, "recently_active")
+
     return {
         "permits_considered": len(permits),
         "permits_masked_apn_skipped": masked,
@@ -660,6 +664,8 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
         "assessor_unmatched": sum(1 for a in apns if a not in characteristics),
         "service_frequency_reports_applied": len(service_freq),
         "ebewe_matched": ebewe_matched_count,
+        "portfolio_buildings_grouped": portfolio_stats["buildings_grouped"],
+        "portfolio_distinct_groups": portfolio_stats["distinct_groups"],
     }
 
 
@@ -975,6 +981,10 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
         candidates += 1
 
     session.commit()
+
+    from app.portfolios import apply_portfolio_grouping
+    portfolio_stats = apply_portfolio_grouping(session, "replacement_candidate")
+
     return {
         "use_code_match": funnel["use_code_match"],
         "built_before": funnel["built_before"],
@@ -987,6 +997,8 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
         "service_frequency_reports_applied": len(service_freq),
         "service_life_abstained": service_life_abstained,
         "ebewe_matched": ebewe_matched_count,
+        "portfolio_buildings_grouped": portfolio_stats["buildings_grouped"],
+        "portfolio_distinct_groups": portfolio_stats["distinct_groups"],
     }
 
 

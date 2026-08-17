@@ -50,7 +50,10 @@
     defect — 98.9% of buildings have SOME recording date on file, just usually an old one. Because
     coverage is this sparse, AND because RecordingDate fires on trust/family transfers and
     reassessment-triggering refinances as well as arms-length sales, this is a filter and a badge
-    only — never a board-wide ranking term.</span>
+    only — never a board-wide ranking term.{% if summary.max_recording_date %} The feed itself lags:
+    the newest recording date on file in this view is {{ summary.max_recording_date.strftime('%Y-%m-%d') }} —
+    so "last 24 months" is bounded by whenever the Assessor's feed was last refreshed, not by today.
+    A cluster of hits concentrated in one quarter reflects that lag, not the ranking.{% endif %}</span>
 </div>
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
@@ -168,7 +171,11 @@
     <div class="note">APN {{ b.apn }} · {{ b.county }}, {{ b.state }}{% if b.use_desc %} · {{ b.use_desc }}{% endif %}
       · <a href="https://portal.assessor.lacounty.gov/" target="_blank" rel="noopener">look up on Assessor portal ↗</a></div>
   </td>
-  <td class="num nowrap">{{ '{:,.0f}'.format(b.sqft) if b.sqft else '—' }}</td>
+  <td class="num nowrap">{{ '{:,.0f}'.format(b.sqft) if b.sqft else '—' }}
+    {%- if b.portfolio_member_count and b.portfolio_member_count >= 2 -%}
+    <br><span class="note" title="Combined floor area across all {{ b.portfolio_member_count }} buildings in this portfolio group -- see the Basis column.">{{ '{:,.0f}'.format(b.portfolio_combined_sqft) }} combined</span>
+    {%- endif -%}
+  </td>
   <td class="num nowrap">{{ b.year_built or '—' }}</td>
   {# NOT nowrap: "unknown — no permit on file" is longer than the fixed
      column width, and forcing it onto one line (measured: this is what
@@ -248,6 +255,11 @@
       <br><a class="stamp {{ 'stamp-in' if (now() - b.last_sale_date).days <= 730 else 'stamp-quiet' }}"
              href="/assumptions#{{ assumption_slug('Retrofit ranking: ownership-change recency') }}"
              title="LA County Assessor's own RecordingDate -- a Prop 13 reassessment trigger, NOT confirmed proof of an arms-length sale (also fires on trust/family transfers and reassessment-triggering refinances), and carries no document type. Not a ranking term -- see /assumptions.">Sold {{ b.last_sale_date.strftime('%Y-%m-%d') }}</a>
+    {%- endif -%}
+    {%- if b.portfolio_member_count and b.portfolio_member_count >= 2 -%}
+      <br><a class="stamp stamp-quiet" href="/assumptions#{{ assumption_slug('Portfolio-transaction detection') }}"
+             title="Recorded within {{ 14 }} days and {{ '%.2f'|format(0.25) }}mi of each other -- likely one buyer, not confirmed. See /assumptions for the detection method and its known limitation (large clusters sharing one exact date are excluded as probable mass recording events, not portfolios).">Portfolio: {{ b.portfolio_member_count }} buildings</a>
+      <span class="note">also: {% for m in b.portfolio_members %}<a href="/retrofit/building/{{ m.id }}">{{ m.address or m.apn }}</a> ({{ '{:,.0f}'.format(m.sqft) if m.sqft else '?' }} sqft, sold {{ m.last_sale_date }}){% if not loop.last %}; {% endif %}{% endfor %}</span>
     {%- endif -%}
   </td>
 </tr>

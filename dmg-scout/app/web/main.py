@@ -430,6 +430,21 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
         select(func.count()).select_from(
             base_q.where(RetrofitBuilding.last_sale_date >= sold_24mo_cutoff).subquery())
     ).one()
+    # The Assessor's RecordingDate feed itself lags real time -- confirmed
+    # 2026-08-16 by querying every recording date on file: the newest one in
+    # the ENTIRE 59,525-row source table is from 2025-03-13, not "recently".
+    # "Sold in last 24 months" is bounded by whenever this feed was last
+    # refreshed, not by today -- shown here so a cluster of hits all landing
+    # in one stale quarter reads as a data property, not a ranking artifact.
+    max_recording_date_q = select(func.max(RetrofitBuilding.last_sale_date)).where(
+        RetrofitBuilding.population == population,
+        RetrofitBuilding.address.is_not(None), RetrofitBuilding.address != "")
+    if county:
+        max_recording_date_q = max_recording_date_q.where(RetrofitBuilding.county == county)
+    if min_status and min_status in STATUS_ORDER:
+        max_recording_date_q = max_recording_date_q.where(RetrofitBuilding.service_life_status.in_(
+            STATUS_ORDER[:STATUS_ORDER.index(min_status) + 1]))
+    max_recording_date = session.exec(max_recording_date_q).one()
 
     ranked_q = base_q
     if has_ebewe:
@@ -453,7 +468,24 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
         # subset only, never board-wide -- see app/assumptions.py's
         # "Retrofit ranking: ownership-change recency" entry.
         order.append(RetrofitBuilding.last_sale_date.desc().nulls_last())
-    buildings = session.exec(ranked_q.order_by(*order).limit(limit)).all()
+    # Portfolio siblings (app/portfolios.py) collapse to their single
+    # highest-ranked member -- "a single lead with multiple properties, not
+    # separate rows" per instruction. Queried with headroom (portfolio
+    # groups cap at PORTFOLIO_MAX_GROUP_SIZE members) since collapsing
+    # happens AFTER the query, so `limit` rows alone could under-fill the
+    # page by however many were absorbed into an earlier anchor.
+    from app.portfolios import PORTFOLIO_MAX_GROUP_SIZE
+    raw = session.exec(ranked_q.order_by(*order).limit(limit + limit * PORTFOLIO_MAX_GROUP_SIZE // 10)).all()
+    buildings = []
+    seen_groups: set[str] = set()
+    for b in raw:
+        if b.portfolio_group_id:
+            if b.portfolio_group_id in seen_groups:
+                continue  # already shown via an earlier (higher-ranked) anchor
+            seen_groups.add(b.portfolio_group_id)
+        buildings.append(b)
+        if len(buildings) >= limit:
+            break
 
     # Column-only, not select(RetrofitBuilding) -- this used to load all 53,252
     # full ORM rows (every column, including long basis-text fields) just to
@@ -477,6 +509,7 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
         "sold_24mo_covered": sold_24mo_covered,
         "sold_24mo_covered_of": unfiltered_total,
         "sold_24mo_covered_pct": round(100 * sold_24mo_covered / unfiltered_total, 1) if unfiltered_total else 0.0,
+        "max_recording_date": max_recording_date,
     }
     return templates.TemplateResponse(request, "retrofit_board.html", {
         "buildings": buildings, "summary": summary, "counties": counties,
@@ -1519,17 +1552,21 @@ def assumptions_register(request: Request, session: Session = Depends(get_sessio
     from app.pipeline.retrofit import service_calls_coverage as get_service_calls_coverage
     from app.pipeline.resolve import delivery_method_coverage as get_delivery_method_coverage
     from app.pipeline.ownership import ownership_recency_coverage as get_ownership_recency_coverage
+    from app.portfolios import portfolio_coverage as get_portfolio_coverage
     cfg = load_config()
     coverage = get_service_calls_coverage(session)
     delivery_coverage = get_delivery_method_coverage(session)
     ownership_coverage = get_ownership_recency_coverage(session)
+    portfolio_cov = get_portfolio_coverage(session)
     assumptions = load_assumptions(cfg, service_calls_coverage=coverage,
                                    delivery_method_coverage=delivery_coverage,
-                                   ownership_recency_coverage=ownership_coverage)
+                                   ownership_recency_coverage=ownership_coverage,
+                                   portfolio_coverage=portfolio_cov)
     return templates.TemplateResponse(request, "assumptions.html", {
         "grouped": assumptions_by_group(cfg, service_calls_coverage=coverage,
                                         delivery_method_coverage=delivery_coverage,
-                                        ownership_recency_coverage=ownership_coverage),
+                                        ownership_recency_coverage=ownership_coverage,
+                                        portfolio_coverage=portfolio_cov),
         "tally": source_tally(assumptions),
         "total": len(assumptions),
         "tb": _title_block(session), "active": "assumptions",
