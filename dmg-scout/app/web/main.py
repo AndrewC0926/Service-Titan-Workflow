@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials, HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlmodel import Session, func, or_, select
+from sqlmodel import Session, and_, case, func, or_, select
 
 from app.accounts import (
     ACCOUNT_TYPES,
@@ -479,51 +479,61 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
     # disclosed below (no_address_total) the same way never-matched
     # contractors are on /contractors, never silently dropped from
     # existence.
-    no_address_total = session.exec(select(func.count()).select_from(
-        base_q.where(or_(RetrofitBuilding.address.is_(None), RetrofitBuilding.address == "")).subquery()
-    )).one()
-    base_q = base_q.where(RetrofitBuilding.address.is_not(None), RetrofitBuilding.address != "")
-
-    # Coverage is measured against base_q BEFORE has_ebewe is applied -- the
-    # honest denominator is "this view, before you asked to see only the
-    # covered subset". Measuring against the has_ebewe-filtered query instead
-    # would always read 100%. total/summary.n (below) DOES reflect has_ebewe,
-    # same as it already reflects county/min_status -- "showing top N of
-    # TOTAL" should describe the population actually being paged through.
-    unfiltered_total = session.exec(select(func.count()).select_from(base_q.subquery())).one()
-    ebewe_covered = session.exec(
-        select(func.count()).select_from(base_q.where(RetrofitBuilding.ebewe_matched.is_(True)).subquery())
-    ).one()
-    # Same sparse-coverage discipline as EBEWE -- see app/assumptions.py's
-    # "Retrofit ranking: ownership-change recency" entry for why this is a
-    # filter, not a rank_buildings() term.
-    sold_24mo_cutoff = utcnow() - timedelta(days=730)
-    sold_24mo_covered = session.exec(
-        select(func.count()).select_from(
-            base_q.where(RetrofitBuilding.last_sale_date >= sold_24mo_cutoff).subquery())
-    ).one()
-    # The Assessor's RecordingDate feed itself lags real time -- confirmed
+    #
+    # Coverage is measured against this population BEFORE has_ebewe is
+    # applied -- the honest denominator is "this view, before you asked to
+    # see only the covered subset". Measuring against the has_ebewe-filtered
+    # query instead would always read 100%. total/summary.n (below) DOES
+    # reflect has_ebewe/sold_last_24mo, same as it already reflects
+    # county/min_status -- "showing top N of TOTAL" should describe the
+    # population actually being paged through.
+    #
+    # These six figures used to be six separate COUNT/MAX queries. Each one
+    # is a full round trip to the (remote, Render-hosted) database plus its
+    # own table scan -- measured 2026-08-17 at 4.4s combined for a single
+    # county-filtered request, the largest piece of a 12s page load. One
+    # conditional-aggregation query computes all six in a single scan and a
+    # single round trip instead (measured: ~2.2s). Same sparse-coverage
+    # discipline as EBEWE for sold_24mo_covered -- see app/assumptions.py's
+    # "Retrofit ranking: ownership-change recency" entry for why that's a
+    # filter, not a rank_buildings() term. max_recording_date exists because
+    # the Assessor's RecordingDate feed itself lags real time -- confirmed
     # 2026-08-16 by querying every recording date on file: the newest one in
     # the ENTIRE 59,525-row source table is from 2025-03-13, not "recently".
     # "Sold in last 24 months" is bounded by whenever this feed was last
     # refreshed, not by today -- shown here so a cluster of hits all landing
     # in one stale quarter reads as a data property, not a ranking artifact.
-    max_recording_date_q = select(func.max(RetrofitBuilding.last_sale_date)).where(
-        RetrofitBuilding.population == population,
-        RetrofitBuilding.address.is_not(None), RetrofitBuilding.address != "")
-    if county:
-        max_recording_date_q = max_recording_date_q.where(RetrofitBuilding.county == county)
-    if min_status and min_status in STATUS_ORDER:
-        max_recording_date_q = max_recording_date_q.where(RetrofitBuilding.service_life_status.in_(
-            STATUS_ORDER[:STATUS_ORDER.index(min_status) + 1]))
-    max_recording_date = session.exec(max_recording_date_q).one()
+    valid_address = and_(RetrofitBuilding.address.is_not(None), RetrofitBuilding.address != "")
+    sold_24mo_cutoff = utcnow() - timedelta(days=730)
+    total_conditions = [valid_address]
+    if has_ebewe:
+        total_conditions.append(RetrofitBuilding.ebewe_matched.is_(True))
+    if sold_last_24mo:
+        total_conditions.append(RetrofitBuilding.last_sale_date >= sold_24mo_cutoff)
+    total_when = and_(*total_conditions) if len(total_conditions) > 1 else total_conditions[0]
 
+    no_address_total, unfiltered_total, ebewe_covered, sold_24mo_covered, max_recording_date, total = session.execute(
+        base_q.with_only_columns(
+            func.sum(case((~valid_address, 1), else_=0)),
+            func.sum(case((valid_address, 1), else_=0)),
+            func.sum(case((and_(valid_address, RetrofitBuilding.ebewe_matched.is_(True)), 1), else_=0)),
+            func.sum(case((and_(valid_address, RetrofitBuilding.last_sale_date >= sold_24mo_cutoff), 1), else_=0)),
+            func.max(case((valid_address, RetrofitBuilding.last_sale_date))),
+            func.sum(case((total_when, 1), else_=0)),
+        )
+    ).one()
+    no_address_total = no_address_total or 0
+    unfiltered_total = unfiltered_total or 0
+    ebewe_covered = ebewe_covered or 0
+    sold_24mo_covered = sold_24mo_covered or 0
+    total = total or 0
+
+    base_q = base_q.where(valid_address)
     ranked_q = base_q
     if has_ebewe:
         ranked_q = ranked_q.where(RetrofitBuilding.ebewe_matched.is_(True))
     if sold_last_24mo:
         ranked_q = ranked_q.where(RetrofitBuilding.last_sale_date >= sold_24mo_cutoff)
-    total = session.exec(select(func.count()).select_from(ranked_q.subquery())).one()
     order = [RetrofitBuilding.rank_score.desc().nulls_last()]
     if has_ebewe:
         # Energy performance is a TIE-BREAKER within this covered subset only
@@ -567,6 +577,13 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
     # release between them, is what was OOM-killing the 512MB web instance.
     counties = sorted(session.exec(
         select(RetrofitBuilding.county).where(RetrofitBuilding.population == population).distinct()).all())
+    # Mobile card view's tel: link (app/web/templates/retrofit_board.html) --
+    # one nearest-mechanical-contractor lookup for the whole page, not one
+    # per row. See app.contractors.nearest_mechanical_contractor_bulk's own
+    # docstring for the measured cost this was built to fit inside.
+    from app.contractors import default_radius_miles, nearest_mechanical_contractor_bulk
+    nearest_contractor = nearest_mechanical_contractor_bulk(
+        session, buildings, radius_miles=default_radius_miles(load_config()))
     summary = {
         "n": total, "shown": len(buildings),
         "overdue": sum(1 for b in buildings if b.service_life_status == "overdue"),
@@ -588,6 +605,7 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
         "county": county, "min_status": min_status, "population": population, "limit": limit,
         "has_ebewe": has_ebewe, "sold_last_24mo": sold_last_24mo,
         "score_max": max([b.rank_score for b in buildings if b.rank_score] or [1.0]),
+        "nearest_contractor": nearest_contractor,
         "tb": _title_block(session), "active": "retrofit",
     })
 

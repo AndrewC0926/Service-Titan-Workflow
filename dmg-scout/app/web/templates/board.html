@@ -94,7 +94,69 @@
 </div>
 {% endif %}
 
-<table class="tbl">
+{# ── Mobile card view (<640px, see .card-list/.tbl in app.css) — a
+     different layout, not a squeezed table. Every field a rep needs to
+     decide whether to call survives here: who to call as a tel: link
+     first, then enough context (project, developer/county, stage, window)
+     to know WHY. Tonnage and score are deliberately NOT on the card — they
+     don't change whether to call, only how to pitch once you're on the
+     phone, so they're a tap through to the project page like everything
+     else that doesn't fit. Same `projects` loop as the table below, so
+     the two can never show a different row set. #}
+<div class="card-list">
+{% for p in projects %}
+{% set c = contacts.get(p.id) %}
+{% set w = p.window.value %}
+{% set window_titles = {
+      'PRE_BOD': 'Nothing about the mechanical basis of design has been decided yet — full influence window, the best time to get specified.',
+      'IN_BOD': 'The basis of design is being set right now — actively influenceable, and time-sensitive.',
+      'POST_BOD': 'The basis of design is already locked — influence is limited to substitution or value engineering, not spec-writing.',
+      'OPERATING': 'Already built and operating — no basis-of-design decision left to influence; relevant only to replacement or retrofit work.',
+    } -%}
+<div class="row-card">
+  <div class="row-card-head">
+    <span class="idx">#{{ loop.index }}</span>
+    <a href="/project/{{ p.id }}" class="row-card-title">{{ p.name }}</a>
+  </div>
+  <div class="row-card-sub">{{ p.developer or 'Developer unnamed' }} · {{ p.county or '?' }}{{ ', ' + p.state if p.state }}</div>
+
+  <div class="row-card-call">
+    {%- if c and c.phone -%}
+      <a class="row-card-tel" href="tel:{{ c.phone }}">{{ icon('phone') }} {{ c.phone }}</a>
+      <span class="note">{{ c.name }}{% if c.title %}, {{ c.title }}{% endif %}</span>
+      {%- if c.contact_source in ('apollo', 'lusha') %} <span class="note">via {{ c.contact_source|capitalize }}</span>{% endif -%}
+    {%- elif c and c.email -%}
+      <a class="row-card-tel" href="mailto:{{ c.email }}">{{ icon('mail') }} {{ c.email }}</a>
+      <span class="note">{{ c.name }}{% if c.title %}, {{ c.title }}{% endif %}</span>
+    {%- elif contact_statuses.get(p.id) == 'name_only' -%}
+      {%- set rn = research_names.get(p.id) -%}
+      <span class="stamp stamp-quiet">{% if rn %}Research: {{ rn.name }} — no phone/email yet{% else %}Research — no name found{% endif %}</span>
+    {%- else -%}
+      <span class="stamp stamp-quiet">No one named — every contact rung came up empty</span>
+    {%- endif -%}
+  </div>
+
+  <details class="row-card-window">
+    <summary>
+      <span class="stamp {{ 'stamp-pre' if w=='PRE_BOD' else 'stamp-in' if w=='IN_BOD' else 'stamp-post' }}">{{ w.replace('_','-') }}</span>
+      <span class="row-card-stage">{{ p.stage.value }}</span>
+      {%- if window_progress.get(p.id) is not none %}{{ window_bar(window_progress[p.id]) }} <span class="note">{{ window_progress[p.id] }}% to bid</span>{% endif -%}
+    </summary>
+    <p class="note">{{ window_titles.get(w, '') }}</p>
+  </details>
+</div>
+{% else %}
+<div class="empty">
+  {{ icon('file-text') }}
+  <p>{% if is_watchlist %}No out-of-territory projects on file — everything currently tracked is
+    in territory.{% else %}No projects yet. This is where every early-signal opportunity in the
+    territory would rank once <span class="mono">scout pipeline</span> has run.{% endif %}</p>
+  {% if not is_watchlist %}<a class="chip" href="/health">Check source health</a>{% endif %}
+</div>
+{% endfor %}
+</div>
+
+<table class="tbl tbl-has-cards">
 {# Widths declared once. See .tbl in app.css for why this is not left to auto. #}
 {# 12 columns declared below, one <col> per <th> in the row beneath --
    keep these two counts equal. table-layout:fixed (see .tbl in app.css)

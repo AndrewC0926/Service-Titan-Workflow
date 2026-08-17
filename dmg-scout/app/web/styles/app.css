@@ -384,6 +384,49 @@
   .empty p { max-width: 30rem; margin: 0; font-size: var(--text-sm); }
   .empty a.chip, .empty button { margin-top: 0.25rem; }
 
+  /* ---- mobile card view (<640px) ------------------------------------------
+     Board and Retrofit's table becomes a card-per-row list under 640px --
+     a different layout, not a squeezed table (2026-08-20). Hidden on
+     desktop by default; .tbl-has-cards (only the two tables with a card
+     counterpart -- other tables in the app still just scroll) hides back
+     the other way under the same breakpoint. Same hairline-separated-list
+     idiom the IA pass already established for Today's call cards, not a
+     bordered box per row. */
+  .card-list { display: none; }
+  @media (max-width: 40rem) {
+    .card-list { display: block; }
+    .tbl-has-cards { display: none; }
+  }
+  .row-card { padding: 0.9rem 0; border-bottom: 1px solid var(--color-rule); }
+  .row-card:last-child { border-bottom: 0; }
+  .row-card-head { display: flex; align-items: baseline; gap: 0.5rem; }
+  .row-card-head .idx { font-family: var(--font-mono); color: var(--color-ink-dim); font-size: var(--text-xs); }
+  .row-card-title { font-size: var(--text-md); font-weight: 600; }
+  .row-card-sub { color: var(--color-ink-dim); font-size: var(--text-xs); margin-top: 0.15rem; }
+  .row-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }
+  .row-card-call { margin-top: 0.6rem; }
+  /* The tel:/mailto: link is the one action a card exists to enable --
+     same oversized-tap-target discipline Today's .call-reach already
+     established, not a same-size-as-everything-else inline link. */
+  .row-card-tel {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    font-family: var(--font-mono); font-size: var(--text-md); font-weight: 600;
+    padding: 0.3rem 0;
+  }
+  .row-card-badges { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.6rem; }
+  /* Window/service-life meaning as a tap-to-expand disclosure -- hover
+     doesn't exist on touch, so the desktop-only title="..." tooltip these
+     stamps carry needs a real interaction here, not just a lost attribute.
+     Same <details> "How this is built" idiom as the IA pass, reused for a
+     different reason (a modeled tooltip surviving the transition, not
+     methodology prose). */
+  .row-card-window summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .row-card-window summary::-webkit-details-marker { display: none; }
+  .row-card-window summary::after { content: "?"; color: var(--color-ink-dim); font-family: var(--font-mono); font-size: var(--text-xs); border: 1px solid var(--color-rule-hard); border-radius: 50%; width: 1rem; height: 1rem; display: inline-flex; align-items: center; justify-content: center; }
+  .row-card-window[open] summary::after { content: "×"; }
+  .row-card-window p { margin: 0.4rem 0 0; max-width: 26rem; }
+  .row-card-stage { color: var(--color-ink-mid); font-size: var(--text-sm); }
+
   /* ---- stamps -----------------------------------------------------------
      A QA stamp on a drawing: outlined, uppercase, no fill. Used for the buying
      window, which is the single most decision-relevant field on the row. */

@@ -172,7 +172,78 @@
   {% endif %}
 </div>
 
-<table class="tbl">
+{# ── Mobile card view (<640px, see .card-list/.tbl in app.css) — a
+     different layout, not a squeezed table. Address, how overdue, size, and
+     the nearest mechanical contractor as a tel: link are what decide
+     whether to call; EBEWE/A/RCx/portfolio/recent-sale badges are the
+     reason TO call, so they stay. Equipment type, the raw Basis column
+     detail, and the rank score are a tap through to the building page.
+     Same `buildings` loop as the table below. #}
+<div class="card-list">
+{% for b in buildings %}
+<div class="row-card">
+  <div class="row-card-head">
+    <span class="idx">#{{ loop.index }}</span>
+    <a href="/retrofit/building/{{ b.id }}" class="row-card-title">{{ b.address or 'APN ' + b.apn }}</a>
+  </div>
+  <div class="row-card-sub">APN {{ b.apn }} · {{ b.county }}, {{ b.state }}{% if b.use_desc %} · {{ b.use_desc }}{% endif %}</div>
+
+  <div class="row-card-meta">
+    {%- if b.service_life_status -%}
+    <details class="row-card-window">
+      <summary>
+        <span class="stamp {{ 'stamp-post' if b.service_life_status in ('overdue','due') else 'stamp-in' if b.service_life_status == 'approaching' else 'stamp-pre' }}">{% if b.population == 'replacement_candidate' %}~{% endif %}{{ b.service_life_status.replace('_',' ') }}{% if b.service_life_years_past is not none %} {{ '%+.0f'|format(b.service_life_years_past) }}yr{% endif %} ({{ b.equipment_age_years|int if b.equipment_age_years else '?' }}yr)</span>
+      </summary>
+      <p class="note">{{ b.service_life_basis }}</p>
+    </details>
+    {%- elif b.service_life_basis -%}
+      <span class="note" title="{{ b.service_life_basis }}">observation gap — abstained</span>
+    {%- elif b.population == 'replacement_candidate' -%}
+      <span class="note">no year built on file</span>
+    {%- else -%}
+      <span class="note">unknown equipment type</span>
+    {%- endif -%}
+    {%- if b.estimated_tons_low -%}
+    <span class="note">~{{ b.estimated_tons_low|int }}–{{ b.estimated_tons_high|int }}t est.</span>
+    {%- endif -%}
+  </div>
+
+  <div class="row-card-call">
+    {%- set nc = nearest_contractor.get(b.id) -%}
+    {%- if nc and nc.contractor_phone -%}
+      <a class="row-card-tel" href="tel:{{ nc.contractor_phone }}">{{ icon('phone') }} {{ nc.contractor_phone }}</a>
+      <span class="note">{{ nc.contractor_name }} · {{ nc.distance_miles }}mi away</span>
+    {%- elif nc -%}
+      <span class="note">{{ nc.contractor_name }} ({{ nc.distance_miles }}mi) — no phone on file for this license</span>
+    {%- else -%}
+      <span class="stamp stamp-quiet">No mechanical contractor geocoded nearby</span>
+    {%- endif -%}
+  </div>
+
+  {%- if b.ebewe_matched or b.ebewe_arcx_due_this_year or (b.portfolio_member_count and b.portfolio_member_count >= 2) or b.last_sale_date -%}
+  <div class="row-card-badges">
+    {%- if b.ebewe_matched -%}<span class="stamp stamp-in" title="LADBS Building ID {{ b.ebewe_building_id }}, {{ b.ebewe_program_year }} filing. Real measured energy performance, not just in-scope-for-the-ordinance.">EBEWE {{ b.ebewe_program_year }}</span>{%- endif -%}
+    {%- if b.ebewe_arcx_due_this_year -%}<span class="stamp stamp-post" title="LAMC Table 9708.2: audit/retro-commissioning compliance due this year.">A/RCx due this year</span>{%- endif -%}
+    {%- if b.portfolio_member_count and b.portfolio_member_count >= 2 -%}<span class="stamp stamp-quiet" title="Recorded within 14 days and 0.25mi of {{ b.portfolio_member_count - 1 }} other building{{ 's' if b.portfolio_member_count > 2 }} -- likely one buyer, not confirmed.">Portfolio: {{ b.portfolio_member_count }} buildings</span>{%- endif -%}
+    {%- if b.last_sale_date -%}<span class="stamp {{ 'stamp-in' if (now() - b.last_sale_date).days <= 730 else 'stamp-quiet' }}" title="LA County Assessor's own RecordingDate -- a Prop 13 reassessment trigger, not confirmed proof of an arms-length sale.">Sold {{ b.last_sale_date.strftime('%Y-%m-%d') }}</span>{%- endif -%}
+  </div>
+  {%- endif -%}
+</div>
+{% else %}
+<div class="empty">
+  {{ icon('file-text') }}
+  <p>No retrofit buildings yet. This is where every replacement candidate and recently-active
+    building in the territory would be ranked, once the assessor/permit pipeline has run:
+    <span class="mono">scout fetch-permits --window all</span> →
+    <span class="mono">scout fetch-assessor-candidates</span> →
+    <span class="mono">scout fetch-ebewe-benchmarks</span> →
+    <span class="mono">scout build-retrofit-buildings</span> / <span class="mono">scout find-replacement-candidates</span>.</p>
+  <a class="chip" href="/health">Check source health</a>
+</div>
+{% endfor %}
+</div>
+
+<table class="tbl tbl-has-cards">
 {# 9 columns, one <col> per <th> below -- keep the two counts equal. See
    tests/test_table_layout.py, which checks this statically, and its
    docstring for why an under-declared colgroup silently overlaps columns

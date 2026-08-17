@@ -265,6 +265,12 @@ def match_contractors(session: Session, cfg: Config, *, radius_miles: float | No
     return _match_contractors_sql(session, radius_miles, now, batch_size=batch_size)
 
 
+def _is_mechanical_classification(classifications: str | None) -> bool:
+    raw = (classifications or "").upper()
+    tokens = {t.replace("-", "") for t in raw.replace(",", " ").split()}
+    return bool(tokens & MECHANICAL_CLASSIFICATIONS)
+
+
 def nearest_mechanical_contractors(session: Session, building: RetrofitBuilding, *,
                                    radius_miles: float, limit: int = 10) -> list[dict]:
     """Nearest C-20/C-38 (mechanical) contractors to this building, within
@@ -283,17 +289,61 @@ def nearest_mechanical_contractors(session: Session, building: RetrofitBuilding,
         )
     ).all()
 
-    def _is_mechanical(c: Contractor) -> bool:
-        raw = (c.classifications or "").upper()
-        tokens = {t.replace("-", "") for t in raw.replace(",", " ").split()}
-        return bool(tokens & MECHANICAL_CLASSIFICATIONS)
-
     results = []
     for c in boxed:
-        if not _is_mechanical(c):
+        if not _is_mechanical_classification(c.classifications):
             continue
         dist = haversine_miles(building.latitude, building.longitude, c.latitude, c.longitude)
         if dist <= radius_miles:
             results.append({"contractor": c, "distance_miles": round(dist, 1)})
     results.sort(key=lambda r: r["distance_miles"])
     return results[:limit]
+
+
+def nearest_mechanical_contractor_bulk(session: Session, buildings: list[RetrofitBuilding], *,
+                                       radius_miles: float) -> dict[int, dict]:
+    """The single nearest mechanical contractor per building -- for the
+    retrofit board's mobile card view (app/web/templates/retrofit_board.html),
+    where every rendered row needs a tel: link, not the detail page's top-10
+    list. Calling nearest_mechanical_contractors() once per row would be up
+    to `limit` (200) separate bounding-box queries; this does ONE query
+    instead, over a bounding box covering every building's location at once,
+    column-only (measured 2026-08-20: fetching full Contractor ORM rows over
+    a 200-building/~28k-contractor worst case took ~3s; column-only cut that
+    to ~0.85s -- see app.web.main:retrofit_board for the full-page budget
+    this needs to fit inside). Returns {building_id: {contractor_name,
+    contractor_phone, distance_miles}}; a building with no match (none
+    within radius, or the building itself isn't geocoded) is simply absent
+    from the dict, not a null-valued entry."""
+    geocoded = [b for b in buildings if b.latitude is not None and b.longitude is not None]
+    if not geocoded:
+        return {}
+    lats = [b.latitude for b in geocoded]
+    lons = [b.longitude for b in geocoded]
+    lat_pad = radius_miles / MILES_PER_DEGREE_LAT
+    lon_pad = radius_miles / (MILES_PER_DEGREE_LAT * max(math.cos(math.radians(sum(lats) / len(lats))), 0.01))
+    lat_min, lat_max = min(lats) - lat_pad, max(lats) + lat_pad
+    lon_min, lon_max = min(lons) - lon_pad, max(lons) + lon_pad
+
+    candidates = session.exec(
+        select(Contractor.business_name, Contractor.business_phone, Contractor.latitude,
+              Contractor.longitude, Contractor.classifications)
+        .where(
+            Contractor.latitude.is_not(None),
+            Contractor.latitude.between(lat_min, lat_max),
+            Contractor.longitude.between(lon_min, lon_max),
+        )
+    ).all()
+    mechanical = [c for c in candidates if _is_mechanical_classification(c.classifications)]
+
+    out: dict[int, dict] = {}
+    for b in geocoded:
+        best_name, best_phone, best_dist = None, None, None
+        for name, phone, clat, clon, _cls in mechanical:
+            d = haversine_miles(b.latitude, b.longitude, clat, clon)
+            if d <= radius_miles and (best_dist is None or d < best_dist):
+                best_name, best_phone, best_dist = name, phone, d
+        if best_name is not None:
+            out[b.id] = {"contractor_name": best_name, "contractor_phone": best_phone,
+                        "distance_miles": round(best_dist, 1)}
+    return out
