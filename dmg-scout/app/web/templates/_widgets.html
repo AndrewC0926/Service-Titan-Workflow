@@ -1,0 +1,66 @@
+{# Server-rendered inline SVG widgets -- no charting library, same discipline
+   as /reference's hand-drawn equipment diagrams (plain <svg>, sized by
+   viewBox, coloured via currentColor/CSS classes in app.css's "widgets"
+   block). Each macro takes plain numbers already computed in the route
+   (app/web/main.py's _board_extras / app/assumptions.py) -- no date math or
+   business logic lives in Jinja here, only geometry. #}
+
+{# Sparkline: weekly signal counts for one project, oldest to newest.
+   counts: list[int], any length -- sized to fit whatever's passed.
+   The most recent bar (this week) is drawn in the accent colour so "is
+   there anything THIS week" reads at a glance; older bars are muted. #}
+{% macro sparkline(counts) %}
+{%- if counts and counts|sum > 0 -%}
+{%- set w = 46 -%}{%- set h = 14 -%}{%- set n = counts|length -%}
+{%- set bar_w = (w / n) * 0.62 -%}{%- set gap = (w / n) -%}
+{%- set peak = counts|max -%}
+<svg class="widget-svg spark" viewBox="0 0 {{ w }} {{ h }}" width="{{ w }}" height="{{ h }}" role="img"
+     aria-label="Signal activity, last {{ n }} weeks: {{ counts|join(', ') }}">
+  {%- for c in counts -%}
+  {%- set bh = (h * 0.85) * (c / peak) if peak else 0 -%}
+  <rect class="{{ 'spark-recent' if loop.last else '' }}"
+        x="{{ (loop.index0 * gap) | round(1) }}" y="{{ (h - bh) | round(1) }}"
+        width="{{ bar_w | round(1) }}" height="{{ (bh if bh > 0 else 0.6) | round(1) }}"></rect>
+  {%- endfor -%}
+</svg>
+{%- else -%}
+<span class="note">no signals</span>
+{%- endif -%}
+{% endmacro %}
+
+{# Window-remaining bar: how far a project sits inside its estimated bid
+   window. pct is 0-100, already clamped, computed from
+   (today - Project.created_at) / (days_to_estimated_bid_high -
+   days_to_estimated_bid_low)-wide window anchored at created_at -- see
+   app/web/main.py:_board_extras's window_progress computation and its own
+   comment for why created_at is the honest anchor, not a fabricated start
+   date. Only called where a real low/high CI exists (entitlement stage
+   today) -- every other stage has no measured interval to draw. #}
+{% macro window_bar(pct) %}
+{%- set w = 44 -%}{%- set h = 8 -%}{%- set y = h / 2 -%}
+<svg class="widget-svg" viewBox="0 0 {{ w }} {{ h }}" width="{{ w }}" height="{{ h }}" role="img"
+     aria-label="{{ pct }}% of the estimated bid window elapsed">
+  <line class="winbar-track" x1="1" y1="{{ y }}" x2="{{ w - 1 }}" y2="{{ y }}" stroke-linecap="round"></line>
+  <line class="winbar-elapsed" x1="1" y1="{{ y }}" x2="{{ (1 + (w - 2) * (pct / 100)) | round(1) }}" y2="{{ y }}" stroke-linecap="round"></line>
+  <circle class="winbar-today" cx="{{ (1 + (w - 2) * (pct / 100)) | round(1) }}" cy="{{ y }}" r="1.6"></circle>
+</svg>
+{% endmacro %}
+
+{# Distribution strip: where a constant's current value sits within its
+   documented plausible range. Only rendered for assumptions with a REAL
+   published/measured range (see app/assumptions.py's numeric_value/
+   plausible_low/plausible_high fields) -- most entries have none and show
+   no strip at all, never a fabricated one. proxy=true draws the tick
+   dashed, for the one entry (recency half-life) whose own text says its
+   range is an unvalidated proxy, not a confirmed bound. #}
+{% macro dist_strip(value, low, high, proxy=False) %}
+{%- set w = 64 -%}{%- set h = 10 -%}{%- set y = h / 2 -%}
+{%- set clamped = ([low, [value, high]|min]|max) -%}
+{%- set pct = ((clamped - low) / (high - low) * 100) if high != low else 50 -%}
+<svg class="widget-svg" viewBox="0 0 {{ w }} {{ h }}" width="{{ w }}" height="{{ h }}" role="img"
+     aria-label="{{ value }}, within plausible range {{ low }}-{{ high }}">
+  <line class="diststrip-track" x1="2" y1="{{ y }}" x2="{{ w - 2 }}" y2="{{ y }}" stroke-linecap="round"></line>
+  <line class="diststrip-tick{{ ' proxy' if proxy }}" x1="{{ (2 + (w - 4) * (pct / 100)) | round(1) }}" y1="1"
+        x2="{{ (2 + (w - 4) * (pct / 100)) | round(1) }}" y2="{{ h - 1 }}"></line>
+</svg>
+{% endmacro %}

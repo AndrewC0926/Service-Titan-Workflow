@@ -57,9 +57,13 @@ def seed(db_path: Path) -> None:
         s.commit()
 
     with db_mod.session_scope() as s:
+        # Distinct county from Meridian DC's -- same county triggers resolve's
+        # blocking+fuzzy matcher to queue this as an uncertain MatchCandidate
+        # against Meridian instead of creating its own project (use_llm=False
+        # here never resolves that queue automatically).
         add_manual_signal(s, "ceqa_nop", "NOP filed for Ontario Ranch Campus",
                           project_name="Ontario Ranch Campus", developer="QTS Realty",
-                          county="San Bernardino", state="CA", mw_it=90, stage="entitlement")
+                          county="Kern", state="CA", mw_it=90, stage="entitlement")
         add_manual_signal(s, "land_transfer", "Grading permit for Norco facility",
                           project_name="Norco Industrial", developer="Prologis",
                           county="Riverside", state="CA", mw_it=40, stage="construction")
@@ -68,6 +72,21 @@ def seed(db_path: Path) -> None:
     cfg = load_config()
     with db_mod.session_scope() as s:
         run_resolve(s, cfg, use_llm=False)
+
+    # Backdate the entitlement-stage project's created_at so the window-
+    # remaining bar (anchored at created_at, see
+    # app.web.main._window_progress) has something nonzero to show instead
+    # of a bar pinned at 0% -- run_resolve() must have already turned the
+    # ceqa_nop signal above into a Project row before this can find it.
+    with db_mod.session_scope() as s:
+        from sqlmodel import select as sm_select
+        from app.models import Project
+        ontario = s.exec(sm_select(Project).where(Project.name == "Ontario Ranch Campus")).first()
+        if ontario:
+            ontario.created_at = utcnow() - timedelta(days=90)
+            s.add(ontario)
+            s.commit()
+
     with db_mod.session_scope() as s:
         run_size_score(s, cfg)
 

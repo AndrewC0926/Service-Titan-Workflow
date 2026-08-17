@@ -344,6 +344,9 @@ def _board_extras(session: Session, projects: list[Project]) -> dict:
     n = len(scores)
     score_median = scores[n // 2] if n % 2 else (scores[n // 2 - 1] + scores[n // 2]) / 2 if n else None
 
+    signal_sparkline = _signal_sparklines(session, [p.id for p in projects])
+    window_progress = _window_progress(projects)
+
     return {
         "contacts": contacts,
         "contact_statuses": statuses,
@@ -351,6 +354,8 @@ def _board_extras(session: Session, projects: list[Project]) -> dict:
         "stage_ages": ages,
         "stale": stale,
         "stale_months": threshold,
+        "signal_sparkline": signal_sparkline,
+        "window_progress": window_progress,
         # TO BID column tooltip: names the fixed per-stage constant behind
         # p.days_to_estimated_bid, so it never reads as a measured figure.
         "days_to_bid_by_stage": cfg.get("scoring.days_to_bid_by_stage", {}),
@@ -372,6 +377,62 @@ def _board_extras(session: Session, projects: list[Project]) -> dict:
             "delivery_method_known": sum(1 for p in projects if p.delivery_method),
         },
     }
+
+
+SPARKLINE_WEEKS = 12
+
+
+def _signal_sparklines(session: Session, project_ids: list[int]) -> dict[int, list[int]]:
+    """Weekly signal-activity counts per project, oldest to newest, for the
+    board's sparkline widget (app/web/templates/_widgets.html:sparkline).
+    ONE query over every id on the current page, bucketed in Python -- not a
+    per-row query, same discipline days_since/contacts/ages above already
+    follow. Bucketing in Python rather than SQL because the bucket boundary
+    math (week-aligned, relative to "now") would otherwise need a dialect-
+    specific date-trunc, and this app runs on both sqlite (tests) and
+    Postgres (production)."""
+    if not project_ids:
+        return {}
+    now = utcnow()
+    window_start = now - timedelta(weeks=SPARKLINE_WEEKS)
+    rows = session.exec(
+        select(ProjectSignal.project_id, ProjectSignal.linked_at)
+        .where(ProjectSignal.project_id.in_(project_ids), ProjectSignal.linked_at >= window_start)
+    ).all()
+    buckets: dict[int, list[int]] = {pid: [0] * SPARKLINE_WEEKS for pid in project_ids}
+    for project_id, linked_at in rows:
+        age_weeks = (now - linked_at).days // 7
+        idx = SPARKLINE_WEEKS - 1 - age_weeks
+        if 0 <= idx < SPARKLINE_WEEKS:
+            buckets[project_id][idx] += 1
+    return buckets
+
+
+def _window_progress(projects: list[Project]) -> dict[int, int]:
+    """How far a project sits inside its estimated bid window, 0-100, for
+    the board's window-remaining bar (app/web/templates/_widgets.html:
+    window_bar). Only computed for rows with a REAL measured low/high CI
+    (days_to_estimated_bid_range) -- every other stage is a fixed point
+    constant with no interval, and drawing a bar against a fabricated range
+    would claim precision that number doesn't have.
+
+    The window is anchored at Project.created_at (when this project was
+    first tracked) through created_at + days_to_estimated_bid_high -- the
+    only start date this system actually has. That is a stated judgment
+    call, not a literal stored bid-window date: see the "Window-remaining
+    bar" entry in app/assumptions.py for the full disclosure."""
+    from app.pipeline.scoring import days_to_estimated_bid_range
+    cfg = load_config()
+    out: dict[int, int] = {}
+    now = utcnow()
+    for p in projects:
+        low, high = days_to_estimated_bid_range(cfg, p.stage)
+        if low is None or high is None or high <= 0:
+            continue
+        elapsed_days = (now - p.created_at).days
+        pct = round(100 * elapsed_days / high)
+        out[p.id] = max(0, min(100, pct))
+    return out
 
 
 @app.get("/retrofit", response_class=HTMLResponse)

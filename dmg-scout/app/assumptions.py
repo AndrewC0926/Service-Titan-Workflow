@@ -76,6 +76,18 @@ class Assumption:
     source_detail: str               # the honest account — quote the config comment where one exists
     verified: bool | None = None     # None: no verified/unverified concept applies to this entry
     last_reviewed: str | None = None  # an actual date/basis if one exists; None => not recorded, say so
+    # Distribution-strip widget (app/web/templates/_widgets.html:dist_strip) --
+    # ALL THREE or none. Only set for the handful of entries with a genuinely
+    # documented plausible range already sitting in source_detail above (a
+    # published rule-of-thumb range, a measured CI, a sensitivity sweep) --
+    # every other entry (the majority) renders no strip at all rather than a
+    # fabricated one. range_is_proxy=True draws the strip's tick dashed, for
+    # the one entry whose own source_detail already says its range is an
+    # unvalidated proxy, not a confirmed bound.
+    numeric_value: float | None = None
+    plausible_low: float | None = None
+    plausible_high: float | None = None
+    range_is_proxy: bool = False
 
     @property
     def slug(self) -> str:
@@ -159,6 +171,7 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "isn't necessarily one whose SCORE should have halved by day 180, and this proxy can't "
                       "tell the two apart. Does not prove 180 is correct, or measure the actual thing this "
                       "constant claims (how fast a REP's confidence a project is still live should erode).",
+        numeric_value=rh, plausible_low=53, plausible_high=319, range_is_proxy=True,
     ))
 
     sfc = cfg.get("scoring.size_factor", {})
@@ -221,6 +234,8 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                           "correspondingly wide interval, reported honestly rather than narrowed by a bigger "
                           "assumed n. Date range: earliest NOP 2024-08-08, latest NOD 2026-06-19. Replaces a "
                           "flat, invented 540 (\"midpoint of lead-time windows\").",
+            numeric_value=dtb_entitlement.get("mid"), plausible_low=dtb_entitlement.get("low"),
+            plausible_high=dtb_entitlement.get("high"),
         ))
     else:
         # Not yet fit (config reverted, or this environment never ran the
@@ -310,6 +325,7 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "within that range is a judgment call, not itself measured. Feeds every EST. TONS "
                       "figure derived from a stated or inferred MW figure (not the floor-area rule-of-thumb "
                       "path, which uses the sqft/ton tables below instead).",
+        numeric_value=tpm, plausible_low=300, plausible_high=400,
     ))
 
     bbb = cfg.get("sizing.band_by_basis", {})
@@ -653,6 +669,7 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "tested) -- a judgment call about that tradeoff, not a further-optimized or "
                       "statistically derived value, so this stays a placeholder despite being informed by "
                       "real measurement.",
+        numeric_value=ranking_radius_miles(cfg), plausible_low=1, plausible_high=5,
     ))
     out.append(Assumption(
         group="Contractor ranking", name="Urgency weighting formula",

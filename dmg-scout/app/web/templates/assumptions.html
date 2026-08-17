@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_icon.html" import icon %}
+{% from "_widgets.html" import dist_strip %}
 {% block title %}Assumptions{% endblock %}
 {% block sheet_no %}S-11{% endblock %}
 {% block content %}
@@ -55,7 +56,11 @@ tbody tr[id]{scroll-margin-top:2.5rem}</style>
 {% for a in rows %}
 <tr id="{{ a.slug }}">
   <td>{{ a.name }}</td>
-  <td class="mono">{{ a.value }}</td>
+  <td class="mono">{{ a.value }}
+    {%- if a.numeric_value is not none -%}
+    <br><span title="{{ a.numeric_value }}, within its plausible range {{ a.plausible_low }}–{{ a.plausible_high }}{{ ' (an unvalidated proxy range, not a confirmed bound -- see the sourcing note)' if a.range_is_proxy else '' }}.">{{ dist_strip(a.numeric_value, a.plausible_low, a.plausible_high, a.range_is_proxy) }}</span>
+    {%- endif -%}
+  </td>
   <td class="mono note" style="word-break:break-all">{{ a.config_path or 'hardcoded in Python' }}</td>
   <td class="nowrap">
     <span class="stamp {{ 'stamp-pre' if a.source_type in ('measured','physics_or_arithmetic') else 'stamp-in' if a.source_type == 'stated_by_a_named_person' else 'stamp-quiet' if a.source_type == 'industry_rule_of_thumb' else 'stamp-post' }}"

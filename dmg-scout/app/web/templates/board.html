@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_icon.html" import icon %}
+{% from "_widgets.html" import sparkline, window_bar %}
 {% block title %}{% if is_watchlist %}Watch list{% else %}Board{% endif %}{% endblock %}
 {% block sheet_no %}{% if is_watchlist %}S-02{% else %}S-01{% endif %}{% endblock %}
 {% block content %}
@@ -206,12 +207,18 @@
     {%- elif p.days_to_estimated_bid_low is not none -%}
       <a href="/assumptions#{{ assumption_slug('Days to estimated bid: entitlement (NOP to NOD)') }}"
          title="Measured: mean of {{ p.days_to_estimated_bid }} days from CEQAnet NOP→NOD spreads for this territory, 95% CI {{ p.days_to_estimated_bid_low }}–{{ p.days_to_estimated_bid_high }} days (small sample — see /assumptions for size and date range).">{{ p.days_to_estimated_bid }}<span class="note">&nbsp;({{ p.days_to_estimated_bid_low }}–{{ p.days_to_estimated_bid_high }})</span></a>
+      {%- if window_progress.get(p.id) is not none -%}
+      <br><span title="{{ window_progress[p.id] }}% of the estimated bid window elapsed, counted from when this project was first tracked ({{ p.created_at.strftime('%Y-%m-%d') }}) through the high end of the CI above — see /assumptions for why that start point, not a filed bid date, is the honest anchor.">{{ window_bar(window_progress[p.id]) }}</span>
+      {%- endif -%}
     {%- else -%}
       <a href="/assumptions#{{ assumption_slug('Days to estimated bid: other stages') }}"
          title="Fixed constant for the {{ p.stage.value }} stage ({{ days_to_bid_by_stage.get(p.stage.value, '?') }} days per scoring.days_to_bid_by_stage) — not measured or project-specific.">{{ p.days_to_estimated_bid }}</a>
     {%- endif -%}
   </td>
-  <td class="num" title="Days since the most recent signal of any kind on this project — distinct from Stage age, which counts only confirmations of the CURRENT stage.">{% if days_since[p.id] is not none %}{{ days_since[p.id] }}d{% else %}—{% endif %}</td>
+  <td class="num" title="Days since the most recent signal of any kind on this project — distinct from Stage age, which counts only confirmations of the CURRENT stage.">
+    {% if days_since[p.id] is not none %}{{ days_since[p.id] }}d{% else %}—{% endif %}
+    <br><span title="Signal activity, last {{ signal_sparkline.get(p.id, [])|length }} weeks, oldest to newest — the highlighted bar is this week.">{{ sparkline(signal_sparkline.get(p.id, [])) }}</span>
+  </td>
   {# The column the charter exists for. A name with no phone and no email is a
      research task, not a call, and it is labelled as one rather than counted as
      coverage. contact_source distinguishes a name extracted from a public
