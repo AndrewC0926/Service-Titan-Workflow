@@ -20,60 +20,95 @@
 </head>
 <body>
 {% from "_icon.html" import icon %}
+{# Every page destination in one place -- the overflow menu and the Cmd-K
+   palette both render from this SAME list (the palette via the JSON blob
+   below) so the two can't drift out of sync. 5 primary tabs, 14 behind the
+   overflow disclosure -- see /home/andrewcrane/.claude/plans/
+   parallel-crunching-clover.md for why this split and not some other one. #}
+{% set nav_items = [
+  {'href': '/', 'label': 'Today', 'key': 'today', 'primary': true},
+  {'href': '/board', 'label': 'Board', 'key': 'board', 'primary': true},
+  {'href': '/retrofit', 'label': 'Retrofit', 'key': 'retrofit', 'primary': true},
+  {'href': '/contractors', 'label': 'Contractors', 'key': 'contractors', 'primary': true},
+  {'href': '/accounts', 'label': 'Accounts', 'key': 'accounts', 'primary': true},
+  {'href': '/watchlist', 'label': 'Watch list', 'key': 'watchlist', 'primary': false},
+  {'href': '/review', 'label': 'Review queue', 'key': 'review', 'primary': false},
+  {'href': '/ask', 'label': 'Ask', 'key': 'ask', 'primary': false},
+  {'href': '/searches', 'label': 'Saved searches', 'key': 'searches', 'primary': false},
+  {'href': '/outreach', 'label': 'Outreach', 'key': 'outreach', 'primary': false},
+  {'href': '/captures', 'label': 'Captures', 'key': 'captures', 'primary': false},
+  {'href': '/lines', 'label': 'Line card', 'key': 'lines', 'primary': false},
+  {'href': '/reference', 'label': 'Reference', 'key': 'reference', 'primary': false},
+  {'href': '/firms', 'label': 'Firms', 'key': 'firms', 'primary': false},
+  {'href': '/contacts', 'label': 'Contacts', 'key': 'contacts', 'primary': false},
+  {'href': '/map', 'label': 'Map', 'key': 'map', 'primary': false},
+  {'href': '/health', 'label': 'Source health', 'key': 'health', 'primary': false},
+  {'href': '/assumptions', 'label': 'Assumptions', 'key': 'assumptions', 'primary': false},
+  {'href': '/add-signal', 'label': 'Add signal', 'key': 'add', 'primary': false},
+] %}
 <div class="p-2.5">
-  {# TITLE BLOCK — what this is, when it was true, how much of it there is.
-     First on the sheet because "data as of" is the question to ask before acting
-     on any row below it. #}
-  <div class="sheet titleblock">
-    <div class="tb-brand">
+  {# MASTHEAD — one line. What this is, and whether the data under it is
+     current; that is the only question worth asking before acting on
+     anything below. Everything else that used to live here (Projects/
+     Signals/Documents) is in the footer; Sheet/Printed are gone. #}
+  <div class="masthead">
+    <div class="mh-brand">
       DMG&nbsp;SCOUT
       <span class="note tracking-normal normal-case">Mechanical opportunity register</span>
     </div>
-    <div class="tb-cell">
-      <div class="tb-lbl">Data as of</div>
-      <div class="tb-val">{{ (tb.data_as_of.strftime('%Y-%m-%d %H:%M') + 'Z') if tb.data_as_of else '—' }}</div>
+    <div class="mh-freshness">
+      <span class="note tracking-normal normal-case">Data as of</span>
+      <span class="mono">{{ (tb.data_as_of.strftime('%Y-%m-%d %H:%M') + 'Z') if tb.data_as_of else '—' }}</span>
     </div>
-    <div class="tb-cell tb-cell-detail"><div class="tb-lbl">Projects</div><div class="tb-val">{{ '{:,}'.format(tb.record_count) }}</div></div>
-    <div class="tb-cell tb-cell-detail"><div class="tb-lbl">Signals</div><div class="tb-val">{{ '{:,}'.format(tb.signal_count) }}</div></div>
-    <div class="tb-cell tb-cell-detail"><div class="tb-lbl">Documents</div><div class="tb-val">{{ '{:,}'.format(tb.doc_count) }}</div></div>
-    <div class="tb-cell tb-cell-detail"><div class="tb-lbl">Sheet</div><div class="tb-val">{% block sheet_no %}—{% endblock %}</div></div>
-    <div class="tb-cell tb-cell-detail"><div class="tb-lbl">Printed</div><div class="tb-val">{{ now().strftime('%Y-%m-%d %H:%M') }}Z</div></div>
-    <div class="tb-cell ml-auto border-r-0">
-      <div class="tb-lbl">Sheet tone</div>
-      <button type="button" onclick="toggleTheme()"
-              class="tb-val cursor-pointer bg-transparent border-0 p-0 text-[color:var(--color-blueprint)]"
-              id="theme-btn">
+    <div class="mh-actions">
+      <button type="button" class="icon-btn" onclick="openPalette()" aria-label="Search everywhere (Cmd/Ctrl+K)" title="Search everywhere (Cmd/Ctrl+K)">{{ icon('search') }}</button>
+      <button type="button" class="icon-btn" onclick="toggleTheme()" id="theme-btn" aria-label="Toggle dark mode">
         <span class="theme-icon-light">{{ icon('sun') }}</span>
         <span class="theme-icon-dark">{{ icon('moon') }}</span>
-        <span id="theme-label">—</span>
       </button>
     </div>
   </div>
 
-  {# SHEET TABS #}
-  <nav class="tabs mt-2.5" aria-label="Sheets">
-    <a href="/" class="tab" {% if active=='today' %}aria-current="page"{% endif %}>Today</a>
-    <a href="/board" class="tab" {% if active=='board' %}aria-current="page"{% endif %}>Board</a>
-    <a href="/retrofit" class="tab" {% if active=='retrofit' %}aria-current="page"{% endif %}>Retrofit</a>
-    <a href="/contractors" class="tab" {% if active=='contractors' %}aria-current="page"{% endif %}>Contractors</a>
-    <a href="/watchlist" class="tab" {% if active=='watchlist' %}aria-current="page"{% endif %}>Watch list{% if watch_count %} <span class="tab-badge">{{ watch_count }}</span>{% endif %}</a>
-    <a href="/review" class="tab" {% if active=='review' %}aria-current="page"{% endif %}>Review queue{% if review_count %} <span class="tab-badge">{{ review_count }}</span>{% endif %}</a>
-    <a href="/ask" class="tab" {% if active=='ask' %}aria-current="page"{% endif %}>Ask</a>
-    <a href="/searches" class="tab" {% if active=='searches' %}aria-current="page"{% endif %}>Saved searches</a>
-    <a href="/outreach" class="tab" {% if active=="outreach" %}aria-current="page"{% endif %}>Outreach</a>
-    <a href="/captures" class="tab" {% if active=='captures' %}aria-current="page"{% endif %}>Captures{% if pending_capture_count %} <span class="tab-badge">{{ pending_capture_count }}</span>{% endif %}</a>
-    <a href="/accounts" class="tab" {% if active=='accounts' %}aria-current="page"{% endif %}>Accounts</a>
-    <a href="/lines" class="tab" {% if active=='lines' %}aria-current="page"{% endif %}>Line card</a>
-    <a href="/reference" class="tab" {% if active=='reference' %}aria-current="page"{% endif %}>Reference</a>
-    <a href="/firms" class="tab" {% if active=='firms' %}aria-current="page"{% endif %}>Firms</a>
-    <a href="/contacts" class="tab" {% if active=='contacts' %}aria-current="page"{% endif %}>Contacts</a>
-    <a href="/map" class="tab" {% if active=='map' %}aria-current="page"{% endif %}>Map</a>
-    <a href="/health" class="tab" {% if active=='health' %}aria-current="page"{% endif %}>Source health</a>
-    <a href="/assumptions" class="tab" {% if active=='assumptions' %}aria-current="page"{% endif %}>Assumptions</a>
-    <a href="/add-signal" class="tab" {% if active=='add' %}aria-current="page"{% endif %}>+ Signal</a>
+  {# PRIMARY NAV + OVERFLOW #}
+  <nav class="tabs mt-2.5" aria-label="Sections">
+    {% for item in nav_items if item.primary %}
+    <a href="{{ item.href }}" class="tab" {% if active==item.key %}aria-current="page"{% endif %}>{{ item.label }}</a>
+    {% endfor %}
+    <details class="navmore" id="navmore">
+      <summary class="tab navmore-trigger" aria-label="More sections">{{ icon('ellipsis') }}</summary>
+      <div class="navmore-panel">
+        {% for item in nav_items if not item.primary %}
+        <a href="{{ item.href }}" {% if active==item.key %}aria-current="page"{% endif %}>{{ item.label }}</a>
+        {% endfor %}
+      </div>
+    </details>
   </nav>
 
-  <main class="sheet border-t-2 p-3 overflow-x-auto">{% block content %}{% endblock %}</main>
+  <main class="p-3 overflow-x-auto">{% block content %}{% endblock %}</main>
+
+  {# FOOTER — counts nobody acts on every load, kept one scroll away rather
+     than deleted outright. #}
+  <footer class="pagefoot">
+    <span>{{ '{:,}'.format(tb.record_count) }} projects</span>
+    <span>{{ '{:,}'.format(tb.signal_count) }} signals</span>
+    <span>{{ '{:,}'.format(tb.doc_count) }} documents</span>
+  </footer>
+</div>
+
+{# COMMAND PALETTE — Cmd/Ctrl+K from anywhere, or the search icon above
+   (Cmd-K alone isn't discoverable at 390px: no physical Cmd key). Filters
+   the SAME 19-item list the nav above renders from, so nothing reachable
+   from the overflow menu is ever unreachable here, and the 5 primary tabs
+   are searchable too, not just the overflow 14. #}
+<script type="application/json" id="nav-items">{{ nav_items | tojson }}</script>
+<div class="palette-overlay" id="palette-overlay" onclick="if(event.target===this) closePalette()">
+  <div class="palette" role="dialog" aria-modal="true" aria-label="Search everywhere">
+    <div class="palette-input-row">
+      {{ icon('search') }}
+      <input type="text" id="palette-input" placeholder="Go to…" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="palette-results" id="palette-results"></div>
+  </div>
 </div>
 
 <script>
@@ -82,13 +117,89 @@ function toggleTheme() {
   var next = root.dataset.theme === 'dark' ? 'light' : 'dark';
   root.dataset.theme = next;
   localStorage.setItem('scout-theme', next);
-  paintThemeBtn();
 }
-function paintThemeBtn() {
-  var l = document.getElementById('theme-label');
-  if (l) l.textContent = document.documentElement.dataset.theme === 'dark' ? 'DARK' : 'BOND';
+
+// Close the overflow disclosure on an outside click -- <details> gives open/
+// close and keyboard handling for free, but not this, so it's the one bit
+// of JS the overflow menu needs.
+document.addEventListener('click', function (e) {
+  var nm = document.getElementById('navmore');
+  if (nm && nm.open && !nm.contains(e.target)) nm.open = false;
+});
+
+// ---- Command palette ------------------------------------------------------
+var NAV_ITEMS = JSON.parse(document.getElementById('nav-items').textContent);
+var paletteActive = 0, paletteMatches = [];
+
+function openPalette() {
+  document.getElementById('navmore').open = false;
+  document.getElementById('palette-overlay').classList.add('open');
+  var input = document.getElementById('palette-input');
+  input.value = '';
+  renderPaletteResults('');
+  input.focus();
 }
-paintThemeBtn();
+function closePalette() {
+  document.getElementById('palette-overlay').classList.remove('open');
+}
+function renderPaletteResults(query) {
+  var q = query.trim().toLowerCase();
+  paletteMatches = NAV_ITEMS.filter(function (it) { return it.label.toLowerCase().indexOf(q) !== -1; });
+  paletteActive = 0;
+  var list = document.getElementById('palette-results');
+  list.innerHTML = '';
+  if (!paletteMatches.length) {
+    var empty = document.createElement('div');
+    empty.className = 'palette-empty note';
+    empty.textContent = 'No matches';
+    list.appendChild(empty);
+    return;
+  }
+  paletteMatches.forEach(function (it, i) {
+    var row = document.createElement('a');
+    row.href = it.href;
+    row.className = 'palette-row' + (i === 0 ? ' active' : '');
+    row.textContent = it.label;
+    if (!it.primary) {
+      var tag = document.createElement('span');
+      tag.className = 'note';
+      tag.textContent = 'more';
+      row.appendChild(tag);
+    }
+    list.appendChild(row);
+  });
+}
+function movePaletteActive(delta) {
+  if (!paletteMatches.length) return;
+  var rows = document.querySelectorAll('.palette-row');
+  rows[paletteActive].classList.remove('active');
+  paletteActive = (paletteActive + delta + rows.length) % rows.length;
+  rows[paletteActive].classList.add('active');
+  rows[paletteActive].scrollIntoView({block: 'nearest'});
+}
+
+document.getElementById('palette-input').addEventListener('input', function (e) {
+  renderPaletteResults(e.target.value);
+});
+document.getElementById('palette-input').addEventListener('keydown', function (e) {
+  if (e.key === 'ArrowDown') { e.preventDefault(); movePaletteActive(1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); movePaletteActive(-1); }
+  else if (e.key === 'Enter') {
+    e.preventDefault();
+    var rows = document.querySelectorAll('.palette-row');
+    if (rows[paletteActive]) window.location = rows[paletteActive].href;
+  } else if (e.key === 'Escape') { closePalette(); }
+});
+document.addEventListener('keydown', function (e) {
+  var isK = e.key === 'k' || e.key === 'K';
+  if (isK && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    var overlay = document.getElementById('palette-overlay');
+    overlay.classList.contains('open') ? closePalette() : openPalette();
+  } else if (e.key === 'Escape') {
+    closePalette();
+  }
+});
 </script>
 </body>
 </html>

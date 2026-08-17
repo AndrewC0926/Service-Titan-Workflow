@@ -33,6 +33,15 @@
   </span>
 </div>
 {% endif %}
+{% if watch_count or review_count %}
+{# Watch list and Review queue moved off the nav tab bar 2026-08-18 (5
+   primary tabs now, both live behind the overflow menu) -- their counts
+   move here instead, since Today is what loads first. #}
+<div class="mb-3 flex flex-wrap items-center gap-1.5">
+  {% if review_count %}<a class="chip" href="/review">Review queue<span class="ct">{{ review_count }}</span></a>{% endif %}
+  {% if watch_count %}<a class="chip" href="/watchlist">Watch list<span class="ct">{{ watch_count }}</span></a>{% endif %}
+</div>
+{% endif %}
 <div class="today">
 
   <section class="today-section">

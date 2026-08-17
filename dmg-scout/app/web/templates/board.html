@@ -46,34 +46,30 @@
   <a class="note" href="/export/board.csv?{% if is_watchlist %}watchlist=true{% else %}category={{ category or 'data_center' }}{% endif %}">{{ icon('download') }} Export CSV</a>
 </div>
 
-{# ── Summary strip. The two numbers that decide whether this is a product or a
-     reading list: how many rows exist, and how many of them a rep can dial. #}
-<div class="kv mb-3">
-  <div><div class="k">Projects</div><div class="v">{{ '{:,}'.format(summary.n) }}</div></div>
+{# ── Summary strip. Two numbers change what a rep does next: how many rows
+     are dialable right now, and how many are still in the window where the
+     mechanical spec can be influenced. Everything else here is context, not
+     a decision driver -- demoted to one small line rather than competing
+     with those two for the first glance (2026-08-18 IA pass). #}
+<div class="kv-hero">
   <div>
     <div class="k">Callable today</div>
-    <div class="v">{{ summary.callable }}
-      <span class="note">/ {{ summary.n }}{% if summary.n %} · {{ (100 * summary.callable / summary.n)|round|int }}%{% endif %}</span>
-    </div>
+    <div class="v">{{ summary.callable }}<span class="of">/ {{ summary.n }}{% if summary.n %} · {{ (100 * summary.callable / summary.n)|round|int }}%{% endif %}</span></div>
   </div>
-  <div><div class="k">Name only</div><div class="v">{{ summary.name_only }}</div></div>
-  <div><div class="k">Nobody named</div><div class="v">{{ summary.no_one }}</div></div>
-  <div><div class="k">Median score</div><div class="v">{% if score_median is not none %}{{ '%.2f'|format(score_median) }}{% else %}—{% endif %}</div></div>
   <div>
-    <div class="k">Sized tonnage</div>
-    <div class="v">{{ '{:,.0f}'.format(summary.tons_low) }}–{{ '{:,.0f}'.format(summary.tons_high) }}
-      <span class="note">across {{ summary.sized }} sized</span>
-    </div>
+    <div class="k">In BOD</div>
+    <div class="v">{{ summary.windows.get('IN_BOD', 0) }}<span class="of">of {{ summary.n }}</span></div>
   </div>
-  {% for w, label in [('PRE_BOD','Pre-BOD'), ('IN_BOD','In BOD'), ('POST_BOD','Post-BOD')] %}
-  <div><div class="k">{{ label }}</div><div class="v">{{ summary.windows.get(w, 0) }}</div></div>
-  {% endfor %}
-  <div>
-    <div class="k" title="A filing stated a project delivery method (design-bid-build, design-build, design-assist, CM at risk, or progressive design-build) -- most filings never say, so expect this low. See /assumptions for the definitions.">Delivery method known</div>
-    <div class="v">{{ summary.delivery_method_known }}
-      <span class="note">/ {{ summary.n }}{% if summary.n %} · {{ (100 * summary.delivery_method_known / summary.n)|round|int }}%{% endif %}</span>
-    </div>
-  </div>
+</div>
+<div class="kv-rest mb-3">
+  <span><span class="k">Projects</span><span class="v">{{ '{:,}'.format(summary.n) }}</span></span>
+  <span><span class="k">Name only</span><span class="v">{{ summary.name_only }}</span></span>
+  <span><span class="k">Nobody named</span><span class="v">{{ summary.no_one }}</span></span>
+  <span><span class="k">Median score</span><span class="v">{% if score_median is not none %}{{ '%.2f'|format(score_median) }}{% else %}—{% endif %}</span></span>
+  <span><span class="k">Sized tonnage</span><span class="v">{{ '{:,.0f}'.format(summary.tons_low) }}–{{ '{:,.0f}'.format(summary.tons_high) }} <span class="note">across {{ summary.sized }} sized</span></span></span>
+  <span><span class="k">Pre-BOD</span><span class="v">{{ summary.windows.get('PRE_BOD', 0) }}</span></span>
+  <span><span class="k">Post-BOD</span><span class="v">{{ summary.windows.get('POST_BOD', 0) }}</span></span>
+  <span><span class="k" title="A filing stated a project delivery method (design-bid-build, design-build, design-assist, CM at risk, or progressive design-build) -- most filings never say, so expect this low. See /assumptions for the definitions.">Delivery method known</span><span class="v">{{ summary.delivery_method_known }} / {{ summary.n }}{% if summary.n %} · {{ (100 * summary.delivery_method_known / summary.n)|round|int }}%{% endif %}</span></span>
 </div>
 
 {% if not is_watchlist and cat_counts is defined %}

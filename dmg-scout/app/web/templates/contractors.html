@@ -4,42 +4,57 @@
 {% block sheet_no %}S-15{% endblock %}
 {% block content %}
 
-<div class="callout callout-warn">
-  <strong>CSLB's own public license data, verbatim — nothing inferred</strong>
-  <span class="body">Sourced from CSLB's own free public "License Master" bulk file
-    (cslb.ca.gov/onlineservices/dataportal/) — C-20, C-38, and B classifications, LA, Orange,
-    Riverside, San Bernardino, Ventura, San Diego, and Imperial counties. Every field is exactly
-    what CSLB states; this page makes no claim about a contractor's size, quality, or relationship
-    to DMG. Ranked by aggregate service-life urgency of geocoded replacement-candidate buildings
-    within {{ ranking_radius }} miles (estimated tonnage as tie-breaker only — see the note above
-    the table; a tighter radius than a single building's own "nearest contractors" list uses, by
-    design — see app.contractors.ranking_radius_miles), precomputed by
-    <span class="mono">scout match-contractors</span> — not live, not exhaustive of every possible
-    job in the area.</span>
-</div>
+<details class="callout callout-warn">
+  <summary>How this is built</summary>
+  <div class="callout-content">
+    <span>
+    <strong>CSLB's own public license data, verbatim — nothing inferred</strong>
+    <span class="body">Sourced from CSLB's own free public "License Master" bulk file
+      (cslb.ca.gov/onlineservices/dataportal/) — C-20, C-38, and B classifications, LA, Orange,
+      Riverside, San Bernardino, Ventura, San Diego, and Imperial counties. Every field is exactly
+      what CSLB states; this page makes no claim about a contractor's size, quality, or relationship
+      to DMG. Ranked by aggregate service-life urgency of geocoded replacement-candidate buildings
+      within {{ ranking_radius }} miles (estimated tonnage as tie-breaker only — see the note above
+      the table; a tighter radius than a single building's own "nearest contractors" list uses, by
+      design — see app.contractors.ranking_radius_miles), precomputed by
+      <span class="mono">scout match-contractors</span> — not live, not exhaustive of every possible
+      job in the area.</span>
+    </span>
+  </div>
+</details>
 
 {% if never_matched %}
-<div class="callout callout-warn">
-  <strong>{{ '{:,}'.format(never_matched) }} contractor{{ 's' if never_matched != 1 }} not yet matched</strong>
-  <span class="body">Never geocoded or never run through <span class="mono">scout match-contractors</span> —
-    shown last, not counted as zero nearby candidates.</span>
-</div>
+<details class="callout callout-warn">
+  <summary>How this is built</summary>
+  <div class="callout-content">
+    <span>
+    <strong>{{ '{:,}'.format(never_matched) }} contractor{{ 's' if never_matched != 1 }} not yet matched</strong>
+    <span class="body">Never geocoded or never run through <span class="mono">scout match-contractors</span> —
+      shown last, not counted as zero nearby candidates.</span>
+    </span>
+  </div>
+</details>
 {% endif %}
 
-<div class="callout callout-warn">
-  <strong>UA Local 250 signatory status — matched, not exhaustive</strong>
-  <span class="body">{{ '{:,}'.format(signatory_total) }} contractor{{ 's' if signatory_total != 1 }} matched
-    to UA Local 250's own public signatory/service-agreement list
-    (socalhvacr.info/contractors) by name and city — see
-    <a href="/assumptions#{{ assumption_slug('UA Local 250 signatory join method and match rate') }}">/assumptions</a>
-    for the measured match rate (roughly 44% of Local 250's ~108 listed contractors, spot-checked
-    against unmatched names — genuinely more names look like real matches than the threshold
-    currently allows, so treat this as a floor, not the true rate). False means "not matched to
-    Local 250's current list," not "confirmed non-signatory" — the contractor could be signatory to
-    a different local, or the match missed on a name variant. An attribute shown here and nowhere
-    else — never folded into the urgency ranking.{% if signatory_checked_at %} Last checked
-    {{ signatory_checked_at.strftime('%Y-%m-%d') }}.{% endif %}</span>
-</div>
+<details class="callout callout-warn">
+  <summary>How this is built</summary>
+  <div class="callout-content">
+    <span>
+    <strong>UA Local 250 signatory status — matched, not exhaustive</strong>
+    <span class="body">{{ '{:,}'.format(signatory_total) }} contractor{{ 's' if signatory_total != 1 }} matched
+      to UA Local 250's own public signatory/service-agreement list
+      (socalhvacr.info/contractors) by name and city — see
+      <a href="/assumptions#{{ assumption_slug('UA Local 250 signatory join method and match rate') }}">/assumptions</a>
+      for the measured match rate (roughly 44% of Local 250's ~108 listed contractors, spot-checked
+      against unmatched names — genuinely more names look like real matches than the threshold
+      currently allows, so treat this as a floor, not the true rate). False means "not matched to
+      Local 250's current list," not "confirmed non-signatory" — the contractor could be signatory to
+      a different local, or the match missed on a name variant. An attribute shown here and nowhere
+      else — never folded into the urgency ranking.{% if signatory_checked_at %} Last checked
+      {{ signatory_checked_at.strftime('%Y-%m-%d') }}.{% endif %}</span>
+    </span>
+  </div>
+</details>
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
   <a href="/contractors?classification=mechanical{% if county %}&county={{ county }}{% endif %}{% if signatory %}&signatory={{ signatory }}{% endif %}" class="chip" aria-pressed="{{ 'true' if classification == 'mechanical' else 'false' }}">Mechanical (C-20/C-38)</a>

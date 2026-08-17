@@ -26,14 +26,19 @@
   {% set mep_n = (type_breakdown | selectattr('0','equalto','mep') | map(attribute=1) | first) or 0 %}
   {% set mc_n = (type_breakdown | selectattr('0','equalto','mech_contractor') | map(attribute=1) | first) or 0 %}
   {% if (mep_n + mc_n) < 20 %}
-  <div class="callout callout-warn mt-3">
-    <strong>The real coverage gap</strong>
-    <span class="body">{{ mep_n }} MEP firm{{ 's' if mep_n != 1 }} and {{ mc_n }} mechanical
-      contractor{{ 's' if mc_n != 1 }} against {{ total_linked - mep_n - mc_n }} everything
-      else (developers, consultants, GCs). Those are the firms who write the
-      acceptable-manufacturers list — this is single/low-double digits against
-      hundreds of rows that don't decide basis of design.</span>
-  </div>
+  <details class="callout callout-warn mt-3">
+    <summary>How this is built</summary>
+    <div class="callout-content">
+      <span>
+      <strong>The real coverage gap</strong>
+      <span class="body">{{ mep_n }} MEP firm{{ 's' if mep_n != 1 }} and {{ mc_n }} mechanical
+        contractor{{ 's' if mc_n != 1 }} against {{ total_linked - mep_n - mc_n }} everything
+        else (developers, consultants, GCs). Those are the firms who write the
+        acceptable-manufacturers list — this is single/low-double digits against
+        hundreds of rows that don't decide basis of design.</span>
+      </span>
+    </div>
+  </details>
   {% endif %}
 </div>
 

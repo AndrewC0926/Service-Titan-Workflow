@@ -10,24 +10,34 @@
 </div>
 
 {% if best_guess_lines %}
-<div class="callout callout-warn">
-  <strong>{{ best_guess_total }} of {{ total_all }} lines still carry a best-guess category from the original seed</strong>
-  <span class="body">Confirm these with whoever actually reps them, correct the category in config.yaml, then
-    re-run <span class="mono">scout seed-lines</span>:
-    {% for line in best_guess_lines %}<a href="/line/{{ line.id }}">{{ line.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.
-  </span>
-</div>
+<details class="callout callout-warn">
+  <summary>How this is built</summary>
+  <div class="callout-content">
+    <span>
+    <strong>{{ best_guess_total }} of {{ total_all }} lines still carry a best-guess category from the original seed</strong>
+    <span class="body">Confirm these with whoever actually reps them, correct the category in config.yaml, then
+      re-run <span class="mono">scout seed-lines</span>:
+      {% for line in best_guess_lines %}<a href="/line/{{ line.id }}">{{ line.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.
+    </span>
+    </span>
+  </div>
+</details>
 {% endif %}
 
 {% if legacy_market_lines %}
-<div class="callout callout-warn">
-  <strong>{{ legacy_market_total }} of {{ total_all }} lines show markets served from an unverified legacy guess, not sourced research</strong>
-  <span class="body">Marked with a <span class="caveat">?</span> in the table below. Research these into
-    config.yaml's <span class="mono">markets:</span> key (manufacturer literature, one citation per line), then
-    re-run <span class="mono">scout seed-lines</span> — the sourced result replaces the guess automatically:
-    {% for line in legacy_market_lines %}<a href="/line/{{ line.id }}">{{ line.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.
-  </span>
-</div>
+<details class="callout callout-warn">
+  <summary>How this is built</summary>
+  <div class="callout-content">
+    <span>
+    <strong>{{ legacy_market_total }} of {{ total_all }} lines show markets served from an unverified legacy guess, not sourced research</strong>
+    <span class="body">Marked with a <span class="caveat">?</span> in the table below. Research these into
+      config.yaml's <span class="mono">markets:</span> key (manufacturer literature, one citation per line), then
+      re-run <span class="mono">scout seed-lines</span> — the sourced result replaces the guess automatically:
+      {% for line in legacy_market_lines %}<a href="/line/{{ line.id }}">{{ line.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.
+    </span>
+    </span>
+  </div>
+</details>
 {% endif %}
 
 <form class="grid" style="max-width:1000px;margin-bottom:12px">

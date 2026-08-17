@@ -303,23 +303,22 @@ def test_retrofit_board_sold_last_24mo_filter_and_badge(client, db_session, cfg)
     assert "Sold in last 24 months" in filtered.text
 
 
-def test_titleblock_data_as_of_and_printed_use_the_same_timezone_convention(client, db_session, cfg):
-    """Both are UTC (tb.data_as_of = max(RawDocument.fetched_at); Printed =
-    app.models.utcnow, the Jinja `now` global) -- they must render with the
-    same convention. Regression for a real bug: only "Printed" carried a
-    trailing Z, so the two sat side by side looking like different
-    timezones when they were always the same one."""
+def test_masthead_data_as_of_is_utc(client, db_session, cfg):
+    """The masthead's one remaining timestamp is UTC (tb.data_as_of =
+    max(RawDocument.fetched_at)) -- carries a trailing Z. Supersedes the old
+    two-field "Data as of vs. Printed carry the same convention" regression
+    test: the 2026-08-18 IA pass cut Printed entirely (it duplicated Data as
+    of and existed only to serve the bordered-sheet masthead this pass also
+    removed), so there is no longer a second field to compare against."""
     db_session.add(RawDocument(source="rss", source_uid="x1", url="https://x", title="t",
                                content_hash="h1", raw_text="body"))
     db_session.commit()
     r = client.get("/board", headers=AUTH)
     assert r.status_code == 200
 
-    data_as_of = re.search(r'Data as of</div>\s*<div class="tb-val">([^<]+)</div>', r.text)
-    printed = re.search(r'Printed</div>\s*<div class="tb-val">([^<]+)</div>', r.text)
-    assert data_as_of and printed, "title block markup changed shape"
+    data_as_of = re.search(r'Data as of</span>\s*<span class="mono">([^<]+)</span>', r.text)
+    assert data_as_of, "masthead markup changed shape"
     assert data_as_of.group(1).endswith("Z")
-    assert printed.group(1).endswith("Z")
 
 
 def test_board_shows_whether_there_is_anyone_to_call(client, db_session, cfg):
@@ -525,7 +524,7 @@ def test_stylesheet_link_resolves_behind_the_render_proxy(client, db_session, cf
 
     css = proxied.get(href)
     assert css.status_code == 200
-    assert ".titleblock" in css.text  # the real built stylesheet, not a 404 page
+    assert ".masthead" in css.text  # the real built stylesheet, not a 404 page
 
 
 def test_retrofit_counties_correct_and_does_not_load_every_full_row(client, db_session):

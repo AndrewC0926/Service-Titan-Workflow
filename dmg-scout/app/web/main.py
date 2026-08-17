@@ -220,8 +220,19 @@ def today(request: Request, session: Session = Depends(get_session), _: str = De
     except Exception:  # noqa: BLE001
         staleness = {"stale": False, "hours_stale": None, "last_success_at": None, "alert_sent": False,
                      "retrofit": {}, "memory": {"warn": False}}
+    # Watch list / review queue counts moved here from the nav tab bar
+    # (2026-08-18 IA pass: nav collapsed to 5 primary tabs, both of those
+    # moved behind the overflow menu) -- Today is the new landing page, so
+    # a count that matters shows up here instead of only appearing while
+    # already looking at whichever page it was badging.
+    watch_count = session.exec(
+        select(func.count(Project.id)).where(Project.status.in_(ACTIVE_STATUSES),
+                                             Project.in_territory == False)).one()
+    review_count = session.exec(
+        select(func.count(MatchCandidate.id)).where(MatchCandidate.status == "pending")).one()
     return templates.TemplateResponse(request, "today.html", {
         **brief, "staleness": staleness, "tb": _title_block(session), "active": "today",
+        "watch_count": watch_count, "review_count": review_count,
     })
 
 

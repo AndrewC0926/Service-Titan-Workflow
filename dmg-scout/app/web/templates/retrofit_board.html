@@ -4,14 +4,19 @@
 {% block sheet_no %}S-03{% endblock %}
 {% block content %}
 
-<div class="callout callout-warn">
-  <strong>A separate population from the project board</strong>
-  <span class="body">These are EXISTING buildings identified from mechanical permit history and
-    assessor parcel records — not new-construction filings. No owner name or mailing address:
-    verified no free, bulk-queryable source of that data exists for LA County. Situs address and
-    APN are the entity key; a rep still looks the phone number up, same as any "pending" contact
-    elsewhere in this system.</span>
-</div>
+<details class="callout callout-warn">
+  <summary>How this is built</summary>
+  <div class="callout-content">
+    <span>
+    <strong>A separate population from the project board</strong>
+    <span class="body">These are EXISTING buildings identified from mechanical permit history and
+      assessor parcel records — not new-construction filings. No owner name or mailing address:
+      verified no free, bulk-queryable source of that data exists for LA County. Situs address and
+      APN are the entity key; a rep still looks the phone number up, same as any "pending" contact
+      elsewhere in this system.</span>
+    </span>
+  </div>
+</details>
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
   <a href="/retrofit?population=replacement_candidate{% if county %}&county={{ county }}{% endif %}"
@@ -21,41 +26,56 @@
 </div>
 
 {% if summary.no_address_total %}
-<div class="callout callout-warn">
-  <strong>{{ '{:,}'.format(summary.no_address_total) }} building{{ 's' if summary.no_address_total != 1 }} excluded — no address on file</strong>
-  <span class="body">A call list should not contain a row that can't be called. Excluded from this
-    ranked view and its total entirely (not just sorted last) — one previously sat at #9 in the top 10.
-    Still real rows in the underlying data, just not actionable from here.</span>
-</div>
+<details class="callout callout-warn">
+  <summary>How this is built</summary>
+  <div class="callout-content">
+    <span>
+    <strong>{{ '{:,}'.format(summary.no_address_total) }} building{{ 's' if summary.no_address_total != 1 }} excluded — no address on file</strong>
+    <span class="body">A call list should not contain a row that can't be called. Excluded from this
+      ranked view and its total entirely (not just sorted last) — one previously sat at #9 in the top 10.
+      Still real rows in the underlying data, just not actionable from here.</span>
+    </span>
+  </div>
+</details>
 {% endif %}
 
-<div class="callout callout-warn">
-  <strong>EBEWE benchmark data covers {{ '{:,}'.format(summary.ebewe_covered) }} of
-    {{ '{:,}'.format(summary.ebewe_covered_of) }} buildings in this view ({{ summary.ebewe_covered_pct }}%)</strong>
-  <span class="body">Real measured energy performance (weather-normalized site EUI, ENERGY STAR score),
-    address-joined from LA's own EBEWE filings — not the sqft-threshold "EBEWE candidate" scope proxy shown
-    below, which just says a building is IN SCOPE for the ordinance, not how it performs. Coverage is this
-    low because EBEWE itself only has ~11,500 buildings that have ever filed against an ordinance with real
-    non-compliance, not primarily a join defect — see <a href="/assumptions#{{ assumption_slug('Benchmark-to-building join method and coverage') }}">the join method and full measurement</a>.
-    Because coverage is this sparse, energy performance is used as a tie-breaker ONLY within the covered
-    subset below, never blended into the board-wide score.</span>
-</div>
+<details class="callout callout-warn">
+  <summary>How this is built</summary>
+  <div class="callout-content">
+    <span>
+    <strong>EBEWE benchmark data covers {{ '{:,}'.format(summary.ebewe_covered) }} of
+      {{ '{:,}'.format(summary.ebewe_covered_of) }} buildings in this view ({{ summary.ebewe_covered_pct }}%)</strong>
+    <span class="body">Real measured energy performance (weather-normalized site EUI, ENERGY STAR score),
+      address-joined from LA's own EBEWE filings — not the sqft-threshold "EBEWE candidate" scope proxy shown
+      below, which just says a building is IN SCOPE for the ordinance, not how it performs. Coverage is this
+      low because EBEWE itself only has ~11,500 buildings that have ever filed against an ordinance with real
+      non-compliance, not primarily a join defect — see <a href="/assumptions#{{ assumption_slug('Benchmark-to-building join method and coverage') }}">the join method and full measurement</a>.
+      Because coverage is this sparse, energy performance is used as a tie-breaker ONLY within the covered
+      subset below, never blended into the board-wide score.</span>
+    </span>
+  </div>
+</details>
 
-<div class="callout callout-warn">
-  <strong>Change-of-ownership recency covers {{ '{:,}'.format(summary.sold_24mo_covered) }} of
-    {{ '{:,}'.format(summary.sold_24mo_covered_of) }} buildings in this view ({{ summary.sold_24mo_covered_pct }}%)</strong>
-  <span class="body">A recorded sale within the last 24 months, per LA County Assessor's own RecordingDate
-    field (not the Recorder's deed index — no bulk/API access exists there, see
-    <a href="/assumptions#{{ assumption_slug('Retrofit ranking: ownership-change recency') }}">the full sourcing note</a>).
-    Coverage is this low because a recent sale is genuinely rare across the whole board, not a join
-    defect — 98.9% of buildings have SOME recording date on file, just usually an old one. Because
-    coverage is this sparse, AND because RecordingDate fires on trust/family transfers and
-    reassessment-triggering refinances as well as arms-length sales, this is a filter and a badge
-    only — never a board-wide ranking term.{% if summary.max_recording_date %} The feed itself lags:
-    the newest recording date on file in this view is {{ summary.max_recording_date.strftime('%Y-%m-%d') }} —
-    so "last 24 months" is bounded by whenever the Assessor's feed was last refreshed, not by today.
-    A cluster of hits concentrated in one quarter reflects that lag, not the ranking.{% endif %}</span>
-</div>
+<details class="callout callout-warn">
+  <summary>How this is built</summary>
+  <div class="callout-content">
+    <span>
+    <strong>Change-of-ownership recency covers {{ '{:,}'.format(summary.sold_24mo_covered) }} of
+      {{ '{:,}'.format(summary.sold_24mo_covered_of) }} buildings in this view ({{ summary.sold_24mo_covered_pct }}%)</strong>
+    <span class="body">A recorded sale within the last 24 months, per LA County Assessor's own RecordingDate
+      field (not the Recorder's deed index — no bulk/API access exists there, see
+      <a href="/assumptions#{{ assumption_slug('Retrofit ranking: ownership-change recency') }}">the full sourcing note</a>).
+      Coverage is this low because a recent sale is genuinely rare across the whole board, not a join
+      defect — 98.9% of buildings have SOME recording date on file, just usually an old one. Because
+      coverage is this sparse, AND because RecordingDate fires on trust/family transfers and
+      reassessment-triggering refinances as well as arms-length sales, this is a filter and a badge
+      only — never a board-wide ranking term.{% if summary.max_recording_date %} The feed itself lags:
+      the newest recording date on file in this view is {{ summary.max_recording_date.strftime('%Y-%m-%d') }} —
+      so "last 24 months" is bounded by whenever the Assessor's feed was last refreshed, not by today.
+      A cluster of hits concentrated in one quarter reflects that lag, not the ranking.{% endif %}</span>
+    </span>
+  </div>
+</details>
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
   <a href="/retrofit?population={{ population }}{% if county %}&county={{ county }}{% endif %}{% if min_status %}&min_status={{ min_status }}{% endif %}&has_ebewe=true{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}"
@@ -106,21 +126,35 @@
 {% endif %}
 
 {% if summary.n > summary.shown %}
-<div class="callout callout-warn">
-  <strong>Showing top {{ '{:,}'.format(summary.shown) }} of {{ '{:,}'.format(summary.n) }}</strong>
-  <span class="body">Ranked highest first — the true population size is not hidden, just not all
-    rendered in one page. <a href="?population={{ population }}{% if county %}&county={{ county }}{% endif %}&limit={{ limit * 5 }}">Show top {{ '{:,}'.format(limit * 5) }} instead</a>,
-    or use <span class="mono">/retrofit/report</span> for a printable, size-limited list.</span>
-</div>
+<details class="callout callout-warn">
+  <summary>How this is built</summary>
+  <div class="callout-content">
+    <span>
+    <strong>Showing top {{ '{:,}'.format(summary.shown) }} of {{ '{:,}'.format(summary.n) }}</strong>
+    <span class="body">Ranked highest first — the true population size is not hidden, just not all
+      rendered in one page. <a href="?population={{ population }}{% if county %}&county={{ county }}{% endif %}&limit={{ limit * 5 }}">Show top {{ '{:,}'.format(limit * 5) }} instead</a>,
+      or use <span class="mono">/retrofit/report</span> for a printable, size-limited list.</span>
+    </span>
+  </div>
+</details>
 {% endif %}
 
-<div class="kv mb-3">
-  <div><div class="k">Buildings{% if summary.n > summary.shown %} (total){% endif %}</div><div class="v">{{ '{:,}'.format(summary.n) }}</div></div>
-  <div><div class="k">Overdue</div><div class="v">{{ summary.overdue }}</div></div>
-  <div><div class="k">Due</div><div class="v">{{ summary.due }}</div></div>
-  <div><div class="k">SB 1206</div><div class="v">{{ summary.sb1206 if population == 'recently_active' else 'n/a — pre-2010' }}</div></div>
-  <div><div class="k">CARB candidate</div><div class="v">{{ summary.carb }}</div></div>
-  <div><div class="k">EBEWE candidate</div><div class="v">{{ summary.ebewe }}</div></div>
+{# Overdue is why this board exists -- a due/approaching/not-due building
+   isn't the call-today list, so it's the one number that gets weight;
+   "of N total" stays paired beside it since that relationship (how much of
+   the population is actually urgent) is the one worth keeping visual.
+   Everything else demotes to one small line (2026-08-18 IA pass). #}
+<div class="kv-hero">
+  <div>
+    <div class="k">Overdue</div>
+    <div class="v">{{ summary.overdue }}<span class="of">of {{ '{:,}'.format(summary.n) }}{% if summary.n > summary.shown %} total{% endif %}</span></div>
+  </div>
+</div>
+<div class="kv-rest mb-3">
+  <span><span class="k">Due</span><span class="v">{{ summary.due }}</span></span>
+  <span><span class="k">SB 1206</span><span class="v">{{ summary.sb1206 if population == 'recently_active' else 'n/a — pre-2010' }}</span></span>
+  <span><span class="k">CARB candidate</span><span class="v">{{ summary.carb }}</span></span>
+  <span><span class="k">EBEWE candidate</span><span class="v">{{ summary.ebewe }}</span></span>
 </div>
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">

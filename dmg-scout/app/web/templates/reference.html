@@ -120,15 +120,20 @@
   <span><i class="swatch" style="background:var(--color-stamp-ok)"></i> conditioned air — 55&deg;F supply</span>
 </div>
 
-<div class="callout callout-warn" style="margin-top:1.5rem">
-  <strong>The one sentence version</strong>
-  <span class="body">Heat moves outward in stages. Room air gives its heat to chilled water at the air
-    handler's coil. Chilled water gives its heat to refrigerant inside the chiller. Refrigerant gives
-    its heat to condenser water. Condenser water gives it to the sky at the cooling tower.<br><br>
-    A packaged rooftop unit does all four of those steps inside one cabinet, using outdoor air instead
-    of a tower. That is the whole difference, and it is why a rooftop is cheaper and a chilled-water
-    plant scales better.</span>
-</div>
+<details class="callout callout-warn" style="margin-top:1.5rem">
+  <summary>How this is built</summary>
+  <div class="callout-content">
+    <span>
+    <strong>The one sentence version</strong>
+    <span class="body">Heat moves outward in stages. Room air gives its heat to chilled water at the air
+      handler's coil. Chilled water gives its heat to refrigerant inside the chiller. Refrigerant gives
+      its heat to condenser water. Condenser water gives it to the sky at the cooling tower.<br><br>
+      A packaged rooftop unit does all four of those steps inside one cabinet, using outdoor air instead
+      of a tower. That is the whole difference, and it is why a rooftop is cheaper and a chilled-water
+      plant scales better.</span>
+    </span>
+  </div>
+</details>
 
 {% elif active_tab == 'equipment' %}
 <p class="note mb-2" style="max-width:62rem">Drawn the way a drawing legend draws them. Blue indicates
@@ -492,14 +497,19 @@
   </div>
 </div>
 
-<div class="callout callout-warn" style="margin-top:1.5rem">
-  <strong>Ranges, not values</strong>
-  <span class="body">A number like 400 CFM per ton is a starting assumption, not an answer. Real
-    values move with climate, occupancy, ceiling height and code. Quote them as approximations, name
-    them as rules of thumb, and let the engineer supply the real figure — being the rep who says
-    "roughly, and your calc will tell us" is worth more than being the one who sounded certain and
-    was wrong.</span>
-</div>
+<details class="callout callout-warn" style="margin-top:1.5rem">
+  <summary>How this is built</summary>
+  <div class="callout-content">
+    <span>
+    <strong>Ranges, not values</strong>
+    <span class="body">A number like 400 CFM per ton is a starting assumption, not an answer. Real
+      values move with climate, occupancy, ceiling height and code. Quote them as approximations, name
+      them as rules of thumb, and let the engineer supply the real figure — being the rep who says
+      "roughly, and your calc will tell us" is worth more than being the one who sounded certain and
+      was wrong.</span>
+    </span>
+  </div>
+</details>
 
 {% elif active_tab == 'abbreviations' %}
 <p class="note mb-2" style="max-width:62rem">These appear on drawings and in conversation without
@@ -547,14 +557,19 @@
 </tbody>
 </table>
 
-<div class="callout callout-warn" style="margin-top:1.5rem">
-  <strong>The question behind every one of those</strong>
-  <span class="body">An engineer asking a spec question is testing whether you can be relied on to
-    bring back a real answer. You are not expected to know the selection off the top of your head —
-    you are expected to know which factory to call and to come back when you said you would.<br><br>
-    The fastest way to lose a spec is to answer confidently and be wrong. The fastest way to win one
-    is to be the person whose numbers hold up.</span>
-</div>
+<details class="callout callout-warn" style="margin-top:1.5rem">
+  <summary>How this is built</summary>
+  <div class="callout-content">
+    <span>
+    <strong>The question behind every one of those</strong>
+    <span class="body">An engineer asking a spec question is testing whether you can be relied on to
+      bring back a real answer. You are not expected to know the selection off the top of your head —
+      you are expected to know which factory to call and to come back when you said you would.<br><br>
+      The fastest way to lose a spec is to answer confidently and be wrong. The fastest way to win one
+      is to be the person whose numbers hold up.</span>
+    </span>
+  </div>
+</details>
 {% endif %}
 
 <footer class="note" style="margin-top:2.5rem;border-top:1px solid var(--color-rule-hard);padding-top:0.85rem;line-height:1.65;max-width:70rem">
