@@ -94,11 +94,11 @@
   <td>{{ c.county }}</td>
   {% if c.nearby_computed_at is not none %}
   <td class="num nowrap">
-    <a href="/assumptions#{{ assumption_slug('Urgency weighting formula') }}"
+    <a class="cite" href="/assumptions#{{ assumption_slug('Urgency weighting formula') }}"
        title="Σ clip(service_life_years_past, 0, 100yr) over buildings within {{ c.nearby_radius_miles }}mi — not a count. Hover the column header, or see /assumptions for the full formula and why raw proximity count didn't discriminate.">{{ '%.0f'|format(c.nearby_urgency_score) }}</a>
   </td>
   <td class="num nowrap">
-    <a href="/assumptions#{{ assumption_slug('Urgency weighting formula') }}"
+    <a class="cite" href="/assumptions#{{ assumption_slug('Urgency weighting formula') }}"
        title="Σ estimated-tonnage-band midpoint over the same nearby buildings — tie-breaker only, never allowed to outrank urgency.">{{ '%.0f'|format(c.nearby_estimated_tons) }}</a>
   </td>
   <td class="num nowrap">{{ c.nearby_replacement_candidates }}

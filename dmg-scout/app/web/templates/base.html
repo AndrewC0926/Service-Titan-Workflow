@@ -52,13 +52,15 @@
      anything below. Everything else that used to live here (Projects/
      Signals/Documents) is in the footer; Sheet/Printed are gone. #}
   <div class="masthead">
-    <div class="mh-brand">
-      DMG&nbsp;SCOUT
-      <span class="note tracking-normal normal-case">Mechanical opportunity register</span>
-    </div>
-    <div class="mh-freshness">
-      <span class="note tracking-normal normal-case">Data as of</span>
-      <span class="mono">{{ (tb.data_as_of.strftime('%Y-%m-%d %H:%M') + 'Z') if tb.data_as_of else '—' }}</span>
+    <div class="mh-identity">
+      <div class="mh-brand">
+        DMG&nbsp;SCOUT
+        <span class="note tracking-normal normal-case">Mechanical opportunity register</span>
+      </div>
+      <div class="mh-freshness">
+        <span class="tracking-normal normal-case">Data as of</span>
+        <span class="mono">{{ (tb.data_as_of.strftime('%Y-%m-%d %H:%M') + 'Z') if tb.data_as_of else '—' }}</span>
+      </div>
     </div>
     <div class="mh-actions">
       <button type="button" class="icon-btn" onclick="openPalette()" aria-label="Search everywhere (Cmd/Ctrl+K)" title="Search everywhere (Cmd/Ctrl+K)">{{ icon('search') }}</button>
@@ -75,7 +77,7 @@
     <a href="{{ item.href }}" class="tab" {% if active==item.key %}aria-current="page"{% endif %}>{{ item.label }}</a>
     {% endfor %}
     <details class="navmore" id="navmore">
-      <summary class="tab navmore-trigger" aria-label="More sections">{{ icon('ellipsis') }}</summary>
+      <summary class="navmore-trigger" aria-label="More sections">More {{ icon('chevron-down') }}</summary>
       <div class="navmore-panel">
         {% for item in nav_items if not item.primary %}
         <a href="{{ item.href }}" {% if active==item.key %}aria-current="page"{% endif %}>{{ item.label }}</a>

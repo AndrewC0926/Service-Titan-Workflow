@@ -152,6 +152,14 @@
 
   a { color: var(--color-blueprint); text-decoration: none; }
   a:hover { text-decoration: underline; text-underline-offset: 2px; }
+  /* "Cite" links: a data value (tonnage, urgency, a bid-date estimate) that
+     happens to jump to its own sourcing note in /assumptions -- not real
+     navigation to a different place, so it reads as data first (2026-08-19
+     bugfix: every such number rendered in the interactive blue same as an
+     actual navigation link, contradicting "blue means interactive
+     navigation"). A dotted underline is the only "there's more here" cue. */
+  .cite { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--color-ink-dim); }
+  .cite:hover { color: var(--color-ink); border-bottom-color: var(--color-ink); text-decoration: none; }
 
   /* ---- focus-visible: one rule, every interactive element. Keyboard-only
      (:focus-visible, not :focus) so a mouse click stays quiet. An outline,
@@ -187,25 +195,33 @@
   }
 
   /* ---- masthead -----------------------------------------------------------
-     One line: what this is, and whether the data under it is current — the
-     only question worth asking before acting on anything below it. Everything
+     What this is, and whether the data under it is current — the only
+     question worth asking before acting on anything below it. Everything
      that used to sit here (Projects/Signals/Documents/Sheet/Printed) either
      moved to .pagefoot or was cut outright; see 2026-08-18's IA pass. A single
-     bottom hairline, not a bordered box — .tabs below sits directly under it. */
+     bottom hairline, not a bordered box — .tabs below sits directly under it.
+     The wordmark carries the masthead's visual weight (2026-08-19 bugfix --
+     it read as just another line of metadata at 1rem/700, the same weight
+     class as everything demoted around it); "Data as of" sits underneath it,
+     small and quiet, exactly as before but no longer competing for size. */
   .masthead {
-    display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem 1.25rem;
-    padding: 0.6rem 0.2rem; border-bottom: 1px solid var(--color-rule-hard);
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    padding: 0.7rem 0.2rem; border-bottom: 1px solid var(--color-rule-hard);
   }
-  .mh-brand { font-weight: 700; letter-spacing: 0.14em; font-size: 1rem; }
-  .mh-freshness { display: flex; align-items: baseline; gap: 0.4rem; font-size: var(--text-sm); }
-  .mh-actions { display: flex; align-items: center; gap: 0.35rem; margin-left: auto; }
+  .mh-identity { display: flex; flex-direction: column; gap: 0.15rem; }
+  .mh-brand { font-weight: 800; letter-spacing: 0.06em; font-size: 1.375rem; line-height: 1.2; }
+  .mh-freshness { display: flex; align-items: baseline; gap: 0.4rem; font-size: var(--text-2xs); color: var(--color-ink-dim); }
+  .mh-actions { display: flex; align-items: center; gap: 0.35rem; }
+  /* Ghost buttons -- muted at rest with a faint border, never the brightest
+     thing on the page (2026-08-19 bugfix); hover is where the border (and a
+     fill) actually commit, not before. */
   .icon-btn {
     display: inline-flex; align-items: center; justify-content: center;
     width: 1.9rem; height: 1.9rem; padding: 0;
-    background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm);
-    color: var(--color-ink-mid); cursor: pointer;
+    background: transparent; border: 1px solid var(--color-rule); border-radius: var(--radius-sm);
+    color: var(--color-ink-dim); cursor: pointer;
   }
-  .icon-btn:hover { color: var(--color-ink); border-color: var(--color-rule-hard); }
+  .icon-btn:hover { color: var(--color-ink); border-color: var(--color-rule-hard); background: var(--color-panel-alt); }
   .icon-btn .icon { width: 1.05rem; height: 1.05rem; }
 
   /* ---- generic label/value pair, reused across several standalone panels
@@ -247,14 +263,24 @@
 
   /* ---- overflow menu -------------------------------------------------------
      Native <details>: open/close, keyboard, and click-to-toggle come free;
-     the only JS involved (base.html) is closing it on an outside click. */
-  .navmore { position: relative; margin-left: auto; }
+     the only JS involved (base.html) is closing it on an outside click. A
+     real bordered button (2026-08-19 bugfix -- an icon-only "..." with no
+     border read as a stray decoration, not a control hiding 14 destinations)
+     labeled and chevroned like a dropdown, not styled as a plain .tab since
+     it opens a menu rather than navigating anywhere itself. */
+  .navmore { position: relative; margin-left: auto; align-self: center; }
   .navmore-trigger {
-    list-style: none; cursor: pointer; display: flex; align-items: center;
-    padding: 0.5rem 0.3rem;
+    list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.35rem 0.7rem;
+    border: 1px solid var(--color-rule-hard); border-radius: var(--radius-sm);
+    background: var(--color-panel); color: var(--color-ink-mid);
+    font-size: var(--text-xs); letter-spacing: 0.11em; text-transform: uppercase;
   }
   .navmore-trigger::-webkit-details-marker { display: none; }
-  .navmore[open] .navmore-trigger { color: var(--color-ink); border-bottom-color: var(--color-rule-hard); }
+  .navmore-trigger .icon { width: 0.8rem; height: 0.8rem; transition: transform 0.15s; }
+  .navmore-trigger:hover { color: var(--color-ink); border-color: var(--color-ink-mid); }
+  .navmore[open] .navmore-trigger { color: var(--color-ink); background: var(--color-panel-alt); }
+  .navmore[open] .navmore-trigger .icon { transform: rotate(180deg); }
   .navmore-panel {
     position: absolute; top: 100%; right: 0; z-index: 20; margin-top: 0.4rem;
     display: flex; flex-direction: column; min-width: 12rem;
@@ -392,7 +418,9 @@
     background: color-mix(in oklch, var(--color-rule) 55%, transparent);
     border: 1px solid var(--color-rule);
   }
-  .score .bar > i { display: block; height: 100%; background: var(--color-blueprint); }
+  /* Rank bar fill: a neutral tone, not the interactive blue (2026-08-19
+     bugfix -- this is a data visualization, not a link/button/active-tab). */
+  .score .bar > i { display: block; height: 100%; background: var(--color-ink-mid); }
 
   /* A caveat on a number, not an alarm. LOW CONF is the NORM for industrial rows
      (sized from floor area, no IT load), so setting it in warning red put a red
@@ -557,7 +585,11 @@
   /* 2026-08-18: was a bordered box per section (border + boxed h2 header);
      now whitespace between sections and a single hairline under each
      heading do the same grouping without nesting a box inside the page. */
-  .today { display: flex; flex-direction: column; gap: 1.75rem; max-width: 30rem; }
+  /* Centered, not stranded at the left edge with dead space to the right
+     (2026-08-19 bugfix) -- still the single mobile-first column this page is
+     built for (see the section docstring above), just given a sensible
+     column width instead of floating unclaimed at ~40% of a wide viewport. */
+  .today { display: flex; flex-direction: column; gap: 1.75rem; max-width: 34rem; margin: 0 auto; }
   .today-section > h2 {
     font-size: var(--text-xs); letter-spacing: 0.16em; text-transform: uppercase;
     color: var(--color-ink-mid); font-weight: 600;
@@ -583,13 +615,15 @@
   .today-list li { padding: 0.4rem 0; border-bottom: 1px solid var(--color-rule); }
   .today-list li:last-child { border-bottom: 0; }
   .today-empty { color: var(--color-ink-dim); }
-  .today-onething { border-left: 3px solid var(--color-blueprint); padding-left: 0.85rem; }
+  .today-onething { border-left: 3px solid var(--color-ink-mid); padding-left: 0.85rem; }
   .today-onething p { margin: 0; }
 
   @media (max-width: 30rem) {
-    /* The masthead is already one line at every width now, so the only
-       phone-specific adjustment left is letting the tab row scroll
-       horizontally instead of wrapping into a second row. */
+    /* The tagline next to the (now larger, 2026-08-19) wordmark doesn't fit
+       beside it at 390px -- drop it to its own line instead of letting it
+       wrap mid-phrase. The only other phone-specific adjustment is letting
+       the tab row scroll horizontally instead of wrapping into a second row. */
+    .mh-brand .note { display: block; margin-top: 0.1rem; }
     .tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
     .tab { flex: 0 0 auto; }
     .navmore { flex: 0 0 auto; margin-left: 0.5rem; }
@@ -619,7 +653,7 @@
 
   .calcs { display: grid; gap: 0.7rem; margin-top: 1rem; }
   @media (min-width: 42rem) { .calcs { grid-template-columns: repeat(2, 1fr); } }
-  .calc { border-left: 3px solid var(--color-blueprint); background: var(--color-panel-alt); padding: 0.7rem 0.9rem; }
+  .calc { border-left: 3px solid var(--color-ink-mid); background: var(--color-panel-alt); padding: 0.7rem 0.9rem; }
   .calc.hot { border-left-color: var(--color-stamp-warn); }
   .calc.air { border-left-color: var(--color-stamp-ok); }
   .calc h4 { font-size: var(--text-xs); letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-ink-mid); margin: 0 0 0.4rem; font-weight: 600; }
@@ -660,8 +694,18 @@
     color: var(--color-ink-dim);
   }
   .kv-hero .v { font-size: 1.75rem; font-weight: 700; line-height: 1.15; }
-  .kv-hero .v .of { font-size: var(--text-sm); font-weight: 400; color: var(--color-ink-dim); margin-left: 0.3rem; }
-  .kv-rest { display: flex; flex-wrap: wrap; gap: 0 1.4rem; color: var(--color-ink-dim); font-size: var(--text-xs); }
-  .kv-rest .k { text-transform: uppercase; letter-spacing: 0.08em; margin-right: 0.3rem; }
+  /* .of's separating space is a real character in the template now (2026-08-19
+     bugfix -- a CSS-only margin rendered fine on screen but copied/extracted
+     as "12/ 25 · 48%" with nothing between the number and the slash), this
+     margin is just extra breathing room on top of that. */
+  .kv-hero .v .of { font-size: var(--text-sm); font-weight: 400; color: var(--color-ink-dim); margin-left: 0.2rem; }
+  /* Each stat is its own inline-flex box (label gap via `gap`, a real space
+     in the template too) so k/v never depend on a subtle margin alone; a
+     "·" before every stat but the first is a real visible boundary between
+     stats, not just whitespace a reader has to infer. */
+  .kv-rest { display: flex; flex-wrap: wrap; align-items: baseline; row-gap: 0.35rem; color: var(--color-ink-dim); font-size: var(--text-xs); }
+  .kv-rest > span { display: inline-flex; align-items: baseline; gap: 0.35rem; }
+  .kv-rest > span:not(:first-child)::before { content: "·"; margin: 0 0.85rem; color: var(--color-rule-hard); }
+  .kv-rest .k { text-transform: uppercase; letter-spacing: 0.08em; }
   .kv-rest .v { font-family: var(--font-mono); color: var(--color-ink-mid); }
 }

@@ -147,14 +147,14 @@
 <div class="kv-hero">
   <div>
     <div class="k">Overdue</div>
-    <div class="v">{{ summary.overdue }}<span class="of">of {{ '{:,}'.format(summary.n) }}{% if summary.n > summary.shown %} total{% endif %}</span></div>
+    <div class="v">{{ summary.overdue }} <span class="of">of {{ '{:,}'.format(summary.n) }}{% if summary.n > summary.shown %} total{% endif %}</span></div>
   </div>
 </div>
 <div class="kv-rest mb-3">
-  <span><span class="k">Due</span><span class="v">{{ summary.due }}</span></span>
-  <span><span class="k">SB 1206</span><span class="v">{{ summary.sb1206 if population == 'recently_active' else 'n/a — pre-2010' }}</span></span>
-  <span><span class="k">CARB candidate</span><span class="v">{{ summary.carb }}</span></span>
-  <span><span class="k">EBEWE candidate</span><span class="v">{{ summary.ebewe }}</span></span>
+  <span><span class="k">Due</span> <span class="v">{{ summary.due }}</span></span>
+  <span><span class="k">SB 1206</span> <span class="v">{{ summary.sb1206 if population == 'recently_active' else 'n/a — pre-2010' }}</span></span>
+  <span><span class="k">CARB candidate</span> <span class="v">{{ summary.carb }}</span></span>
+  <span><span class="k">EBEWE candidate</span> <span class="v">{{ summary.ebewe }}</span></span>
 </div>
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
