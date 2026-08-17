@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icon.html" import icon %}
 {% block title %}{{ p.firm.name }}{% endblock %}
 {% block sheet_no %}S-10{% endblock %}
 {% block content %}
@@ -9,8 +10,8 @@
     <div class="note">{{ p.firm.firm_type.replace('_',' ') }}{% if p.firm.aliases %} · also {{ p.firm.aliases | join(', ') }}{% endif %}</div>
   </div>
   <span>
-    <a class="chip" href="/firm/{{ p.firm.id }}/brief">🖨 Printable brief ↗</a>
-    <a class="note ml-1" href="/firms">← All firms</a>
+    <a class="chip" href="/firm/{{ p.firm.id }}/brief">{{ icon('printer') }} Printable brief</a>
+    <a class="note ml-1" href="/firms">{{ icon('arrow-left') }} All firms</a>
   </span>
 </div>
 

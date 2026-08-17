@@ -1,70 +1,133 @@
 /* DMG Scout — "Submittal" design system.
  *
  * The brief is that this reads like an engineering submittal package, not like a
- * dashboard. That is a real constraint with real consequences, so it is written
- * down rather than left to taste:
+ * generic SaaS dashboard. That is a real constraint with real consequences, so it
+ * is written down rather than left to taste:
  *
  *   - A submittal is PAPER. The sheet has a border, a title block that says what
  *     you are looking at and when it was true, and a revision. You can hand it to
- *     someone. That is why the default theme is bond-paper light and why the
- *     layout is a bordered sheet rather than floating cards on a gradient.
+ *     someone. That is why the layout is a bordered sheet rather than floating
+ *     cards on a gradient, in either theme.
  *   - Numbers are DATA, not decoration. Every figure is monospace with tabular
  *     figures so columns of tons and scores align on the digit. No number is ever
  *     set in the prose face.
  *   - Rules, not shadows. Depth on a drawing comes from line weight — hairline
  *     for row separators, 1px for panel edges, 2px for the sheet border. There
- *     are no drop shadows and no rounded cards anywhere in this file.
+ *     are no drop shadows, no gradients, no glass, and no oversized radii
+ *     anywhere in this file — a couple of px on a button or chip, never on a
+ *     panel or a table.
  *   - Labels are drafting labels: uppercase, letter-spaced, small, quiet.
  *
- * There is no component library here on purpose. The whole system is the handful
- * of classes below, and it should stay small enough to read in one sitting.
+ * 2026-08-17 visual pass: dark is no longer "the paper turned down" — it is a
+ * genuinely separate palette (real elevation via lighter surfaces, not shadows;
+ * accents re-picked for a dark ground instead of the light theme's colours
+ * dimmed) built in OKLCH so both themes live in the same perceptual space and
+ * `light-dark()` can pick between them per-token. The system is still small
+ * enough to read in one sitting; it is just no longer monochrome-with-a-tint.
  */
 @import "tailwindcss";
 
 @source "../templates/**/*.html";
 
-@theme {
-  /* Paper and ink. The greens and reds are drafting-marker colours, deliberately
-     desaturated — a board where everything shouts reads as though nothing is
-     urgent. */
-  --color-sheet:      #f7f6f1;   /* bond paper */
-  --color-panel:      #ffffff;
-  --color-panel-alt:  #f2f1ea;   /* banded table rows, title block cells */
-  --color-rule:       #cbc9bd;   /* hairline */
-  --color-rule-hard:  #8f8d82;   /* panel edge, sheet border */
-  --color-ink:        #191b18;
-  --color-ink-mid:    #4d5250;
-  --color-ink-dim:    #797d78;
-  --color-blueprint:  #1b4c8c;   /* the one accent: drafting blue */
-  --color-stamp-ok:   #1b6b41;
-  --color-stamp-warn: #8a5a06;
-  --color-stamp-bad:  #9d2720;
-
-  --font-sans: ui-sans-serif, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
-
-  --text-micro: 0.625rem;   /* drafting labels */
-  --text-tiny:  0.6875rem;
+/* ---- self-hosted fonts --------------------------------------------------
+ * No Google Fonts link, no CDN — same "no Node, no hotlink" discipline the
+ * Makefile already applies to Tailwind's own binary. Files fetched once
+ * (pinned versions, see their -OFL.txt licenses alongside them) into
+ * app/web/static/fonts/ and served from /static like any other asset.
+ * Geist ships as a single variable file (weight axis) so one @font-face
+ * covers the whole UI face; JetBrains Mono ships static per weight, so it
+ * gets one @font-face per weight actually used (400/500/600/700 — the same
+ * four weights the previous system font stack was already asked for). */
+@font-face {
+  font-family: "Geist";
+  src: url("/static/fonts/Geist-Variable.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/static/fonts/JetBrainsMono-Regular.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/static/fonts/JetBrainsMono-Medium.woff2") format("woff2");
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/static/fonts/JetBrainsMono-SemiBold.woff2") format("woff2");
+  font-weight: 600; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/static/fonts/JetBrainsMono-Bold.woff2") format("woff2");
+  font-weight: 700; font-style: normal; font-display: swap;
 }
 
-/* Dark is a lighting condition, not a different design: same rules, same weights,
-   same everything, with the paper turned down. Only the surface tokens move. */
-@layer base {
-  :root[data-theme="dark"] {
-    --color-sheet:     #10131a;
-    --color-panel:     #171b24;
-    --color-panel-alt: #1c212c;
-    --color-rule:      #2b3240;
-    --color-rule-hard: #46506180;
-    --color-ink:       #dfe4ea;
-    --color-ink-mid:   #9aa4b0;
-    --color-ink-dim:   #6e7885;
-    --color-blueprint: #6ea8ff;
-    --color-stamp-ok:  #4cbd7c;
-    --color-stamp-warn:#d9a441;
-    --color-stamp-bad: #ff6b62;
-  }
+@theme {
+  /* ---- color: OKLCH, both themes resolved through light-dark() -----------
+     Every token is defined once, here, as light-dark(<light>, <dark>) — the
+     `data-theme` toggle in base.html sets `color-scheme` on :root (unchanged
+     by this pass), which is what light-dark() reads, so no JS changes were
+     needed to make this switch.
 
+     Light keeps its bond-paper substance (this pass is about making dark
+     genuinely good, not redesigning light) — every value below is just the
+     previous hex re-expressed in OKLCH so both halves of light-dark() share a
+     colour space. Dark is a real redesign: ground is oklch(16.7% 0.006 248)
+     (≈ #0D0F11, not pure black); elevation is three rising-lightness steps
+     at the same low chroma/hue rather than a shadow; ink is oklch(93% 0.0045
+     248) (≈ #E6E9EB, not pure white); the four accents are picked directly
+     for a dark ground — lighter and lower-chroma than their light-theme
+     counterparts, not those colours dimmed. (Contrast checked: every ink
+     tone clears WCAG AA against every surface it's used on; every accent
+     clears 8.5:1+ against the dark ground.) */
+  --color-sheet:      light-dark(oklch(97.25% 0.0067 97.4),  oklch(16.7% 0.006 248));
+  --color-panel:      light-dark(oklch(100%    0      0),    oklch(20.5% 0.007 248));
+  --color-panel-alt:  light-dark(oklch(95.7%  0.0093 100.0), oklch(24.5% 0.008 248));
+  --color-rule:       light-dark(oklch(83.41% 0.0166 99.0),  oklch(31.5% 0.010 248));
+  --color-rule-hard:  light-dark(oklch(64.19% 0.0162 98.4),  oklch(44.0% 0.012 248));
+  --color-ink:        light-dark(oklch(21.88% 0.0065 135.0), oklch(93.0% 0.0045 248));
+  --color-ink-mid:    light-dark(oklch(43.34% 0.0072 170.1), oklch(70.0% 0.013 248));
+  --color-ink-dim:    light-dark(oklch(58.47% 0.0089 139.4), oklch(53.5% 0.015 248));
+  --color-blueprint:  light-dark(oklch(42.01% 0.1185 256.6), oklch(78.0% 0.085 256.6));
+  --color-stamp-ok:   light-dark(oklch(46.92% 0.102  155.5), oklch(78.0% 0.095 155.5));
+  --color-stamp-warn: light-dark(oklch(50.8%  0.1063  72.6), oklch(80.0% 0.105  72.6));
+  --color-stamp-bad:  light-dark(oklch(46.19% 0.1554  28.3), oklch(76.0% 0.110  28.3));
+  /* On-accent text: buttons/chips fill with --color-blueprint, and white text
+     stops being legible against the light theme's darker fill and dark
+     theme's much lighter one at the same time — solved for both here rather
+     than hardcoded #fff at each call site (see button, .chip[aria-pressed]). */
+  --color-on-accent:  light-dark(oklch(100% 0 0), oklch(16.7% 0.006 248));
+
+  --font-sans: "Geist", ui-sans-serif, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+
+  /* ---- type scale: named steps, ~1.14 ratio, replacing the two ad-hoc
+     sizes (--text-micro/--text-tiny) and the inline magic numbers
+     (0.8125rem/0.875rem/0.9375rem/1.0625rem) previously copy-pasted at each
+     call site. Same visual density as before — this renames and centralizes,
+     it does not re-tune. */
+  --text-2xs: 0.625rem;    /* 10px — drafting labels, table micro-badges */
+  --text-xs:  0.6875rem;   /* 11px — chips, tabs, callout titles */
+  --text-sm:  0.8125rem;   /* 13px — table body, callout body, dense prose */
+  --text-base:0.875rem;    /* 14px — page body default */
+  --text-md:  0.9375rem;   /* 15px — title-block values, kv values */
+  --text-lg:  1.0625rem;   /* 17px — Today call-card name */
+
+  --radius-sm: 0.1875rem;  /* 3px — the only radius in the system: buttons,
+                               chips, tabs, focus rings. Panels, the sheet
+                               border, and table rules stay sharp — those are
+                               the drawing; radius only ever softens something
+                               you click. */
+}
+
+/* Dark is a real second palette now (see the @theme block above) but the
+   mechanism is unchanged: data-theme drives color-scheme, which light-dark()
+   reads for every token. */
+@layer base {
   html { color-scheme: light; }
   :root[data-theme="dark"] { color-scheme: dark; }
 
@@ -72,23 +135,51 @@
     background: var(--color-sheet);
     color: var(--color-ink);
     font-family: var(--font-sans);
-    font-size: 0.875rem;
+    font-size: var(--text-base);
     line-height: 1.45;
   }
 
   /* Tabular figures everywhere a number can appear, set once rather than
      remembered per-template. A column of tonnages that does not align on the
-     digit is unreadable at 289 rows. */
-  .mono, td.num, th.num, .num, input, select, textarea {
+     digit is unreadable at 289 rows. Explicit font-variant-numeric (not just
+     "the mono font's default figure width") so it holds even where a number
+     briefly renders in the sans face. */
+  .mono, td.num, th.num, .num, .kv .v, .stamp, .score .val, .tb-val,
+  input, select, textarea {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
 
   a { color: var(--color-blueprint); text-decoration: none; }
   a:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+  /* ---- focus-visible: one rule, every interactive element. Keyboard-only
+     (:focus-visible, not :focus) so a mouse click stays quiet. An outline,
+     not a box-shadow — a glow is a soft-UI shadow with a different name, and
+     this file doesn't use those. */
+  a:focus-visible, button:focus-visible, .tab:focus-visible, .chip:focus-visible,
+  input:focus-visible, select:focus-visible, textarea:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--color-blueprint);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
 }
 
 @layer components {
+  /* ---- icons --------------------------------------------------------------
+     Lucide, vendored (ISC, pinned 1.31.0 — see tools/icons_src/LICENSE),
+     inlined via app/web/templates/_icon.html rather than hotlinked. Sized as
+     text (1em) so an icon drops into a line of prose or a button label at
+     whatever size that context already sets, and coloured via currentColor
+     so it never needs its own colour rule — same pattern the /reference
+     equipment diagrams (.eqcard svg) already established. */
+  .icon {
+    width: 1em; height: 1em;
+    display: inline-block; vertical-align: -0.125em;
+    flex: none;
+  }
+
   /* ---- sheet ------------------------------------------------------------ */
   .sheet {
     border: 2px solid var(--color-rule-hard);
@@ -113,13 +204,20 @@
   }
   .tb-cell:last-child { border-right: 0; }
   .tb-lbl {
-    font-size: var(--text-micro); letter-spacing: 0.14em; text-transform: uppercase;
+    font-size: var(--text-2xs); letter-spacing: 0.14em; text-transform: uppercase;
     color: var(--color-ink-dim); white-space: nowrap;
   }
   .tb-val {
-    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-    font-size: 0.9375rem; white-space: nowrap;
+    font-size: var(--text-md); white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 0.3rem;
   }
+  /* Theme toggle: both icons render server-side, CSS shows only the one that
+     names the OTHER theme (a sun says "switch to light", so it shows while
+     dark is active) — driven by the same [data-theme] the toggle already
+     sets, no extra JS needed for the icon swap itself. */
+  .theme-icon-dark { display: none; }
+  :root[data-theme="dark"] .theme-icon-light { display: none; }
+  :root[data-theme="dark"] .theme-icon-dark { display: inline-flex; }
 
   /* ---- sheet tabs ------------------------------------------------------- */
   .tabs { display: flex; flex-wrap: wrap; gap: 2px; }
@@ -128,7 +226,8 @@
     border: 1px solid var(--color-rule-hard); border-bottom: 0;
     background: var(--color-panel-alt);
     color: var(--color-ink-mid);
-    font-size: var(--text-tiny); letter-spacing: 0.11em; text-transform: uppercase;
+    font-size: var(--text-xs); letter-spacing: 0.11em; text-transform: uppercase;
+    border-top-left-radius: var(--radius-sm); border-top-right-radius: var(--radius-sm);
   }
   .tab:hover { color: var(--color-ink); text-decoration: none; }
   .tab[aria-current="page"] {
@@ -138,8 +237,8 @@
   }
   .tab-badge {
     display: inline-block; margin-left: 0.35rem; padding: 0 0.35rem;
-    background: var(--color-stamp-bad); color: #fff;
-    font-size: var(--text-micro); font-family: var(--font-mono);
+    background: var(--color-stamp-bad); color: var(--color-on-accent);
+    font-size: var(--text-2xs); font-family: var(--font-mono);
   }
 
   /* ---- section heading -------------------------------------------------- */
@@ -149,19 +248,21 @@
     padding-bottom: 0.4rem; margin-bottom: 0.6rem;
   }
   .sec-title {
-    font-size: var(--text-tiny); letter-spacing: 0.16em; text-transform: uppercase;
+    font-size: var(--text-xs); letter-spacing: 0.16em; text-transform: uppercase;
     color: var(--color-ink-mid); font-weight: 600;
   }
 
   /* ---- data table -------------------------------------------------------
      Dense on purpose. A submittal schedule fits the whole schedule on the sheet;
-     it does not paginate at twenty rows and it does not pad each row to 56px. */
+     it does not paginate at twenty rows and it does not pad each row to 56px.
+     Row height is one number (padding below), not remembered per-template, so
+     a rep's eye tracks a fixed rhythm down any table in the app. */
   /* Fixed layout with an explicit colgroup. Auto layout let the widest developer
      string dictate the whole table, which starved the project column down to
      ~9rem and wrapped names to five and six lines — a 289-row schedule that
      scrolls like prose is not a schedule. Widths are declared once, in the
      template's colgroup, and every long cell clips rather than reflows. */
-  .tbl { width: 100%; border-collapse: collapse; font-size: 0.8125rem; table-layout: fixed; }
+  .tbl { width: 100%; border-collapse: collapse; font-size: var(--text-sm); table-layout: fixed; }
   .clamp2 {
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
     overflow: hidden;
@@ -169,24 +270,37 @@
   .tbl th {
     position: sticky; top: 0; z-index: 1;
     background: var(--color-panel-alt);
-    font-size: var(--text-micro); letter-spacing: 0.1em; text-transform: uppercase;
+    font-size: var(--text-2xs); letter-spacing: 0.1em; text-transform: uppercase;
     color: var(--color-ink-mid); font-weight: 600;
-    text-align: left; padding: 0.45rem 0.6rem; white-space: nowrap;
+    text-align: left; padding: 0.5rem 0.6rem; white-space: nowrap;
     border-bottom: 2px solid var(--color-rule-hard);
   }
   .tbl td {
-    padding: 0.35rem 0.6rem;
+    padding: 0.4rem 0.6rem;
     border-bottom: 1px solid var(--color-rule);
     vertical-align: top;
   }
   .tbl td.num, .tbl th.num { text-align: right; white-space: nowrap; }
-  .tbl tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--color-panel-alt) 55%, transparent); }
+  .tbl tbody tr:nth-child(even) td { background: color-mix(in oklch, var(--color-panel-alt) 55%, transparent); }
   /* Coverage status, at a glance across ~70 rows — a rep scanning the account
      page for "what's left to ask about" reads the tint, not the select text. */
-  .tbl tbody tr.cov-bought td { background: color-mix(in srgb, var(--color-stamp-ok) 10%, transparent); }
-  .tbl tbody tr.cov-quoted_not_won td { background: color-mix(in srgb, var(--color-stamp-warn) 9%, transparent); }
-  .tbl tbody tr:hover td { background: color-mix(in srgb, var(--color-blueprint) 9%, transparent); }
+  .tbl tbody tr.cov-bought td { background: color-mix(in oklch, var(--color-stamp-ok) 10%, transparent); }
+  .tbl tbody tr.cov-quoted_not_won td { background: color-mix(in oklch, var(--color-stamp-warn) 9%, transparent); }
+  .tbl tbody tr:hover td { background: color-mix(in oklch, var(--color-blueprint) 9%, transparent); }
   .tbl .idx { color: var(--color-ink-dim); font-family: var(--font-mono); }
+
+  /* ---- empty states -------------------------------------------------------
+     A missing-data row earns the same real estate as a data row, not a single
+     apologetic line — it says what view this would be, names the exact
+     command/link that fills it, and puts that action within a click, not just
+     a `scout ...` snippet the rep has to go run themselves. */
+  .empty {
+    display: flex; flex-direction: column; align-items: center; gap: 0.5rem;
+    padding: 2.25rem 1rem; text-align: center; color: var(--color-ink-dim);
+  }
+  .empty .icon { width: 1.75rem; height: 1.75rem; color: var(--color-ink-dim); }
+  .empty p { max-width: 30rem; margin: 0; font-size: var(--text-sm); }
+  .empty a.chip, .empty button { margin-top: 0.25rem; }
 
   /* ---- stamps -----------------------------------------------------------
      A QA stamp on a drawing: outlined, uppercase, no fill. Used for the buying
@@ -194,7 +308,7 @@
   .stamp {
     display: inline-block; padding: 0.05rem 0.4rem;
     border: 1px solid currentColor;
-    font-family: var(--font-mono); font-size: var(--text-micro);
+    font-size: var(--text-2xs);
     letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap;
   }
   .stamp-pre  { color: var(--color-stamp-ok); }
@@ -217,10 +331,9 @@
      needs no colour semantics at all. It also survives a theme flip and a
      greyscale print, which a hue ramp does not. */
   .score { display: flex; align-items: center; justify-content: flex-end; gap: 0.45rem; }
-  .score .val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   .score .bar {
     display: block; width: 3.25rem; height: 0.5rem;
-    background: color-mix(in srgb, var(--color-rule) 55%, transparent);
+    background: color-mix(in oklch, var(--color-rule) 55%, transparent);
     border: 1px solid var(--color-rule);
   }
   .score .bar > i { display: block; height: 100%; background: var(--color-blueprint); }
@@ -229,7 +342,7 @@
      (sized from floor area, no IT load), so setting it in warning red put a red
      mark on most of the board and taught the eye to ignore red. */
   .caveat {
-    font-family: var(--font-mono); font-size: var(--text-micro);
+    font-family: var(--font-mono); font-size: var(--text-2xs);
     color: var(--color-ink-dim); letter-spacing: 0.04em;
     border-bottom: 1px dotted var(--color-ink-dim); cursor: help;
   }
@@ -245,27 +358,31 @@
      marketing, not for tips. If one of these is on screen, something below it is
      not safe to act on. */
   .callout {
+    display: flex; gap: 0.65rem; align-items: flex-start;
     border-left: 3px solid currentColor;
     border-top: 1px solid var(--color-rule);
     border-right: 1px solid var(--color-rule);
     border-bottom: 1px solid var(--color-rule);
-    padding: 0.55rem 0.85rem; margin-bottom: 0.75rem; font-size: 0.8125rem;
+    padding: 0.55rem 0.85rem; margin-bottom: 0.75rem; font-size: var(--text-sm);
   }
+  .callout .icon { flex: none; margin-top: 0.15rem; width: 1rem; height: 1rem; }
   .callout-warn { color: var(--color-stamp-warn); }
   .callout-bad  { color: var(--color-stamp-bad); }
-  .callout strong { letter-spacing: 0.06em; text-transform: uppercase; font-size: var(--text-tiny); }
+  .callout strong { letter-spacing: 0.06em; text-transform: uppercase; font-size: var(--text-xs); }
   .callout .body { color: var(--color-ink); display: block; margin-top: 0.15rem; }
 
   /* ---- filter chips ----------------------------------------------------- */
   .chip {
-    display: inline-block; padding: 0.2rem 0.6rem;
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.2rem 0.6rem;
     border: 1px solid var(--color-rule-hard); background: var(--color-panel);
     color: var(--color-ink-mid);
-    font-size: var(--text-tiny); letter-spacing: 0.06em; text-transform: uppercase;
+    font-size: var(--text-xs); letter-spacing: 0.06em; text-transform: uppercase;
+    border-radius: var(--radius-sm);
   }
   .chip:hover { color: var(--color-ink); text-decoration: none; }
   .chip[aria-pressed="true"] {
-    background: var(--color-blueprint); border-color: var(--color-blueprint); color: #fff;
+    background: var(--color-blueprint); border-color: var(--color-blueprint); color: var(--color-on-accent);
   }
   .chip .ct { font-family: var(--font-mono); opacity: 0.75; margin-left: 0.3rem; }
 
@@ -273,12 +390,12 @@
   .kv { display: flex; flex-wrap: wrap; gap: 0 1.6rem; }
   .kv > div { padding: 0.15rem 0; }
   .kv .k {
-    font-size: var(--text-micro); letter-spacing: 0.12em; text-transform: uppercase;
+    font-size: var(--text-2xs); letter-spacing: 0.12em; text-transform: uppercase;
     color: var(--color-ink-dim);
   }
-  .kv .v { font-family: var(--font-mono); font-size: 0.9375rem; }
+  .kv .v { font-size: var(--text-md); }
 
-  .note { color: var(--color-ink-dim); font-size: var(--text-tiny); }
+  .note { color: var(--color-ink-dim); font-size: var(--text-xs); }
 
   /* ---- MIGRATION SHIM ---------------------------------------------------
    *
@@ -294,20 +411,20 @@
    * means renaming its classes, not inventing anything. DELETE A RULE when the
    * last sheet using it is rebuilt; `docs/UI-SPEC.md` tracks which are left.
    */
-  main table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+  main table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
   main table th {
     background: var(--color-panel-alt);
-    font-size: var(--text-micro); letter-spacing: 0.1em; text-transform: uppercase;
+    font-size: var(--text-2xs); letter-spacing: 0.1em; text-transform: uppercase;
     color: var(--color-ink-mid); font-weight: 600;
-    text-align: left; padding: 0.45rem 0.6rem; white-space: nowrap;
+    text-align: left; padding: 0.5rem 0.6rem; white-space: nowrap;
     border-bottom: 2px solid var(--color-rule-hard);
   }
-  main table td { padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--color-rule); vertical-align: top; }
+  main table td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--color-rule); vertical-align: top; }
   main table td.num, main table th.num { text-align: right; white-space: nowrap; }
-  main table tbody tr:hover td { background: color-mix(in srgb, var(--color-blueprint) 9%, transparent); }
+  main table tbody tr:hover td { background: color-mix(in oklch, var(--color-blueprint) 9%, transparent); }
 
   main h2 {
-    font-size: var(--text-tiny); letter-spacing: 0.16em; text-transform: uppercase;
+    font-size: var(--text-xs); letter-spacing: 0.16em; text-transform: uppercase;
     color: var(--color-ink-mid); font-weight: 600;
     border-bottom: 2px solid var(--color-rule-hard);
     padding-bottom: 0.4rem; margin: 0 0 0.7rem;
@@ -320,7 +437,7 @@
   .resolved { color: var(--color-stamp-ok); font-weight: 700; }
   .tag {                                           /* -> .stamp */
     display: inline-block; padding: 0.05rem 0.4rem; border: 1px solid currentColor;
-    font-family: var(--font-mono); font-size: var(--text-micro);
+    font-family: var(--font-mono); font-size: var(--text-2xs);
     letter-spacing: 0.08em; color: var(--color-ink-dim); white-space: nowrap;
   }
   .tag.PRE_BOD { color: var(--color-stamp-ok); }
@@ -338,13 +455,16 @@
     background: var(--color-panel); color: var(--color-ink);
     border: 1px solid var(--color-rule-hard); padding: 0.35rem 0.5rem;
     font: inherit; width: 100%;
+    border-radius: var(--radius-sm);
   }
   input[type="checkbox"] { width: auto; }
   textarea { min-height: 5rem; }
   button {
-    background: var(--color-blueprint); color: #fff; border: 1px solid var(--color-blueprint);
-    padding: 0.35rem 0.9rem; font-size: var(--text-tiny); letter-spacing: 0.08em;
+    display: inline-flex; align-items: center; gap: 0.4rem; justify-content: center;
+    background: var(--color-blueprint); color: var(--color-on-accent); border: 1px solid var(--color-blueprint);
+    padding: 0.35rem 0.9rem; font-size: var(--text-xs); letter-spacing: 0.08em;
     text-transform: uppercase; font-weight: 600; cursor: pointer;
+    border-radius: var(--radius-sm);
   }
   button:hover { filter: brightness(1.1); }
   button.warn { background: var(--color-stamp-bad); border-color: var(--color-stamp-bad); }
@@ -360,26 +480,27 @@
   .today { display: flex; flex-direction: column; gap: 1.1rem; max-width: 30rem; }
   .today-section { border: 1px solid var(--color-rule-hard); background: var(--color-panel); }
   .today-section > h2 {
-    font-size: var(--text-tiny); letter-spacing: 0.16em; text-transform: uppercase;
+    font-size: var(--text-xs); letter-spacing: 0.16em; text-transform: uppercase;
     color: var(--color-ink-mid); font-weight: 600;
     border-bottom: 2px solid var(--color-rule-hard);
     padding: 0.6rem 0.9rem; margin: 0;
+    display: flex; align-items: center; gap: 0.45rem;
   }
   .call-card { padding: 0.9rem; border-bottom: 1px solid var(--color-rule); }
   .call-card:last-child { border-bottom: 0; }
-  .call-name { font-size: 1.0625rem; font-weight: 700; }
+  .call-name { font-size: var(--text-lg); font-weight: 700; }
   .call-reach {
     font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-    font-size: 0.9375rem; margin-top: 0.2rem;
+    font-size: var(--text-md); margin-top: 0.2rem;
   }
   /* tel:/mailto: links are the actual one-handed action here, so they get a
      tap target well past the text's own line height. */
-  .call-reach a { display: inline-block; padding: 0.2rem 0; }
+  .call-reach a { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.2rem 0; }
   .call-project { margin-top: 0.4rem; }
   .call-project a { color: var(--color-ink); font-weight: 600; }
-  .call-why { color: var(--color-ink-dim); font-size: var(--text-tiny); margin-top: 0.25rem; }
+  .call-why { color: var(--color-ink-dim); font-size: var(--text-xs); margin-top: 0.25rem; }
   .call-action { margin-top: 0.7rem; }
-  .call-action button { width: 100%; padding: 0.8rem; font-size: 0.8125rem; }
+  .call-action button { width: 100%; padding: 0.8rem; font-size: var(--text-sm); }
   .today-list { padding: 0.9rem; }
   .today-list li { padding: 0.4rem 0; border-bottom: 1px solid var(--color-rule); }
   .today-list li:last-child { border-bottom: 0; }
@@ -409,13 +530,13 @@
   .eqcard figure { margin: 0; padding: 0.8rem 0.8rem 0.3rem; border-bottom: 1px solid var(--color-rule); }
   .eqcard svg { display: block; width: 100%; height: auto; color: var(--color-ink); }
   .eqcard .body { padding: 0.7rem 0.85rem 0.9rem; }
-  .eqcard .body h3 { font-size: 0.9375rem; font-weight: 600; color: var(--color-ink); margin: 0.3rem 0 0.5rem; }
-  .eqcard .body p { margin: 0 0 0.55rem; font-size: 0.8125rem; }
+  .eqcard .body h3 { font-size: var(--text-md); font-weight: 600; color: var(--color-ink); margin: 0.3rem 0 0.5rem; }
+  .eqcard .body p { margin: 0 0 0.55rem; font-size: var(--text-sm); }
   .eqcard .body p:last-child { margin-bottom: 0; }
 
   .plant { border: 1px solid var(--color-rule-hard); background: var(--color-panel); padding: 1rem 0.85rem; margin-top: 1rem; overflow-x: auto; }
   .plant svg { display: block; min-width: 42rem; width: 100%; height: auto; margin: 0 auto; color: var(--color-ink); }
-  .legend { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.85rem; font-family: var(--font-mono); font-size: var(--text-tiny); color: var(--color-ink-dim); }
+  .legend { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.85rem; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-ink-dim); }
   .legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
   .swatch { display: inline-block; width: 1.1rem; height: 3px; }
 
@@ -424,7 +545,21 @@
   .calc { border-left: 3px solid var(--color-blueprint); background: var(--color-panel-alt); padding: 0.7rem 0.9rem; }
   .calc.hot { border-left-color: var(--color-stamp-warn); }
   .calc.air { border-left-color: var(--color-stamp-ok); }
-  .calc h4 { font-size: var(--text-tiny); letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-ink-mid); margin: 0 0 0.4rem; font-weight: 600; }
-  .calc .eq { display: block; font-family: var(--font-mono); font-size: 0.875rem; color: var(--color-ink); background: var(--color-panel); border: 1px solid var(--color-rule); padding: 0.4rem 0.6rem; margin: 0 0 0.45rem; overflow-x: auto; }
-  .calc p { margin: 0; font-size: 0.8125rem; color: var(--color-ink-dim); }
+  .calc h4 { font-size: var(--text-xs); letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-ink-mid); margin: 0 0 0.4rem; font-weight: 600; }
+  .calc .eq { display: block; font-family: var(--font-mono); font-size: var(--text-base); color: var(--color-ink); background: var(--color-panel); border: 1px solid var(--color-rule); padding: 0.4rem 0.6rem; margin: 0 0 0.45rem; overflow-x: auto; }
+  .calc p { margin: 0; font-size: var(--text-sm); color: var(--color-ink-dim); }
+
+  /* ---- server-rendered SVG widgets (sparkline / window bar / distribution
+     strip) — no charting library, plain inline <svg> sized by viewBox and
+     coloured by currentColor, same discipline as /reference's diagrams. */
+  .widget-svg { display: block; overflow: visible; }
+  .spark { color: var(--color-ink-dim); }
+  .spark rect { fill: currentColor; }
+  .spark rect.spark-recent { fill: var(--color-blueprint); }
+  .winbar-track { stroke: var(--color-rule); stroke-width: 3; }
+  .winbar-elapsed { stroke: var(--color-blueprint); stroke-width: 3; }
+  .winbar-today { fill: var(--color-ink); }
+  .diststrip-track { stroke: var(--color-rule); stroke-width: 2; }
+  .diststrip-tick { stroke: var(--color-blueprint); stroke-width: 2; }
+  .diststrip-tick.proxy { stroke-dasharray: 2 2; }
 }

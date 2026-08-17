@@ -13,3 +13,8 @@ output/
 # Tailwind binary is 111MB. Neither belongs in the repo.
 tools/tailwindcss
 app/web/static/app.css
+
+# tools/screenshot_visual_pass.py output -- verification artefacts, regenerate
+# on demand, don't belong in the repo (app/web/static/fonts/*.woff2 DOES belong
+# in the repo -- those are the actual self-hosted app assets, not a byproduct).
+tools/screenshots/

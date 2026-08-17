@@ -1,9 +1,12 @@
 {% extends "base.html" %}
+{% from "_icon.html" import icon %}
 {% block title %}Today{% endblock %}
 {% block sheet_no %}S-00{% endblock %}
 {% block content %}
 {% if staleness and staleness.stale %}
 <div class="callout callout-bad mb-3">
+  {{ icon('triangle-alert') }}
+  <span>
   <strong>Pipeline data is stale</strong>
   <span class="body">
     {%- if staleness.hours_stale is none -%}
@@ -27,12 +30,13 @@
     {%- endif %}
     Run <code>scout check-freshness</code> or <code>scout doctor</code> to dig in.
   </span>
+  </span>
 </div>
 {% endif %}
 <div class="today">
 
   <section class="today-section">
-    <h2>Three to call</h2>
+    <h2>{{ icon('phone') }} Three to call</h2>
     {% if calls %}
       {% for c in calls %}
       {% set p = c.project %}
@@ -40,9 +44,9 @@
       <div class="call-card" id="call-{{ p.id }}">
         <div class="call-name">{{ contact.name }}{% if contact.title %} <span class="dim">— {{ contact.title }}</span>{% endif %}</div>
         <div class="call-reach">
-          {%- if contact.phone %}<a href="tel:{{ contact.phone }}">{{ contact.phone }}</a>{% endif -%}
+          {%- if contact.phone %}<a href="tel:{{ contact.phone }}">{{ icon('phone') }} {{ contact.phone }}</a>{% endif -%}
           {%- if contact.phone and contact.email %} &middot; {% endif -%}
-          {%- if contact.email %}<a href="mailto:{{ contact.email }}">{{ contact.email }}</a>{% endif -%}
+          {%- if contact.email %}<a href="mailto:{{ contact.email }}">{{ icon('mail') }} {{ contact.email }}</a>{% endif -%}
         </div>
         <div class="call-project">
           <a href="/project/{{ p.id }}">{{ p.name }}</a>
@@ -54,12 +58,17 @@
         <form class="call-action" hx-post="/project/{{ p.id }}/outreach" hx-target="this" hx-swap="outerHTML">
           <input type="hidden" name="channel" value="call">
           <input type="hidden" name="notes" value="Called {{ contact.name }}{% if contact.phone %} ({{ contact.phone }}){% endif %}">
-          <button type="submit">✓ Called them</button>
+          <button type="submit">{{ icon('check') }} Called them</button>
         </form>
       </div>
       {% endfor %}
     {% else %}
-      <p class="today-empty">Nobody contactable on the board right now.</p>
+      <div class="empty">
+        {{ icon('phone') }}
+        <p>Nobody contactable on the board right now. This section fills once a project has a named
+          contact with a phone or email — check <a href="/board">the board</a> for name-only rows worth
+          researching.</p>
+      </div>
     {% endif %}
   </section>
 
@@ -70,13 +79,17 @@
         {% for line in changes %}<li>{{ line }}</li>{% endfor %}
       </ul>
     {% else %}
-      <p class="today-empty">Nothing changed since yesterday.</p>
+      <div class="empty">
+        {{ icon('file-text') }}
+        <p>Nothing changed since yesterday. New projects, stage moves, and score swings since the
+          last digest would show up here.</p>
+      </div>
     {% endif %}
   </section>
 
   {% if overdue %}
   <section class="today-section">
-    <h2>Due</h2>
+    <h2>{{ icon('triangle-alert') }} Due</h2>
     <ul class="today-list">
       {% for line in overdue %}<li>{{ line }}</li>{% endfor %}
     </ul>

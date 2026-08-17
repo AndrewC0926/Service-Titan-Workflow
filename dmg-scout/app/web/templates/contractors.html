@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icon.html" import icon %}
 {% block title %}Contractors{% endblock %}
 {% block sheet_no %}S-15{% endblock %}
 {% block content %}
@@ -97,8 +98,16 @@
   <td class="num nowrap">{{ c.expiration_date.strftime('%Y-%m-%d') if c.expiration_date else '—' }}</td>
 </tr>
 {% else %}
-<tr><td colspan="10" class="note">No contractors imported yet. Run <span class="mono">scout cslb</span> →
-  <span class="mono">scout geocode-retrofit</span> → <span class="mono">scout match-contractors</span>.</td></tr>
+<tr><td colspan="10">
+  <div class="empty">
+    {{ icon('file-text') }}
+    <p>No contractors imported yet. This is where CSLB-licensed mechanical contractors would rank
+      by proximity to overdue retrofit buildings, once
+      <span class="mono">scout cslb</span> → <span class="mono">scout geocode-retrofit</span> →
+      <span class="mono">scout match-contractors</span> has run.</p>
+    <a class="chip" href="/health">Check source health</a>
+  </div>
+</td></tr>
 {% endfor %}
 </tbody>
 </table>

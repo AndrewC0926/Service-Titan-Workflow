@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icon.html" import icon %}
 {% block title %}{% if is_watchlist %}Watch list{% else %}Board{% endif %}{% endblock %}
 {% block sheet_no %}{% if is_watchlist %}S-02{% else %}S-01{% endif %}{% endblock %}
 {% block content %}
@@ -7,6 +8,8 @@
      in a callout. If one is on screen, something under it is not safe to act on. #}
 {% if completeness is defined and completeness and not completeness.complete %}
 <div class="callout callout-warn">
+  {{ icon('triangle-alert') }}
+  <span>
   <strong>Board is incomplete — this is not the full market</strong>
   <span class="body">
     {% if completeness.pending_triage %}{{ completeness.pending_triage }} documents awaiting triage.{% endif %}
@@ -17,15 +20,19 @@
     {% endfor %}
     Run <span class="mono">scout triage</span> → <span class="mono">scout extract</span> → <span class="mono">scout resolve</span>.
   </span>
+  </span>
 </div>
 {% endif %}
 
 {% if projects and not has_pre_bod and not is_watchlist %}
 <div class="callout callout-bad">
+  {{ icon('triangle-alert') }}
+  <span>
   <strong>Zero pre-BOD projects</strong>
   <span class="body">Everything here is already in or past basis of design, so the early-signal
-    pipeline is not surfacing winnable work. Check Source health and whether the CEQAnet NOP
-    and GOED fetches are running.</span>
+    pipeline is not surfacing winnable work. Check <a href="/health">Source health</a> and whether the
+    CEQAnet NOP and GOED fetches are running.</span>
+  </span>
 </div>
 {% endif %}
 
@@ -35,7 +42,7 @@
       {% if is_watchlist %}Watch list — outside territory{% else %}Opportunity register — ranked by winnability{% endif %}
     </div>
   </div>
-  <a class="note" href="/export/board.csv?{% if is_watchlist %}watchlist=true{% else %}category={{ category or 'data_center' }}{% endif %}">Export CSV ↓</a>
+  <a class="note" href="/export/board.csv?{% if is_watchlist %}watchlist=true{% else %}category={{ category or 'data_center' }}{% endif %}">{{ icon('download') }} Export CSV</a>
 </div>
 
 {# ── Summary strip. The two numbers that decide whether this is a product or a
@@ -230,7 +237,15 @@
   </td>
 </tr>
 {% else %}
-<tr><td colspan="12" class="note">No projects yet. Run <span class="mono">scout pipeline</span>.</td></tr>
+<tr><td colspan="12">
+  <div class="empty">
+    {{ icon('file-text') }}
+    <p>{% if is_watchlist %}No out-of-territory projects on file — everything currently tracked is
+      in territory.{% else %}No projects yet. This is where every early-signal opportunity in the
+      territory would rank once <span class="mono">scout pipeline</span> has run.{% endif %}</p>
+    {% if not is_watchlist %}<a class="chip" href="/health">Check source health</a>{% endif %}
+  </div>
+</td></tr>
 {% endfor %}
 </tbody>
 </table>

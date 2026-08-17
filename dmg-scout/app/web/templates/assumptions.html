@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icon.html" import icon %}
 {% block title %}Assumptions{% endblock %}
 {% block sheet_no %}S-11{% endblock %}
 {% block content %}
@@ -28,11 +29,14 @@ tbody tr[id]{scroll-margin-top:2.5rem}</style>
   {% set placeholder_n = tally | selectattr('0', 'equalto', 'invented_placeholder') | map(attribute=2) | first or 0 %}
   {% if placeholder_n > total / 2 %}
   <div class="callout callout-warn mt-3">
+    {{ icon('triangle-alert') }}
+    <span>
     <strong>Most of this system's weights are judgment calls, not measurements</strong>
     <span class="body">{{ placeholder_n }} of {{ total }} tracked constants ({{ (100 * placeholder_n / total)|round|int }}%)
       are invented placeholders — a reasoned first pass, not a measured or stated figure. That's not a defect to
       hide; it's the reason a score or a ranked gap list is a prioritization aid, not a number to defend line by
       line in front of a customer.</span>
+    </span>
   </div>
   {% endif %}
 </div>
@@ -61,7 +65,7 @@ tbody tr[id]{scroll-margin-top:2.5rem}</style>
   </td>
   <td class="nowrap">
     {%- if a.verified is none -%}<span class="note">n/a</span>
-    {%- elif a.verified -%}<span class="ok">✓ verified</span>
+    {%- elif a.verified -%}<span class="ok">{{ icon('check') }} verified</span>
     {%- else -%}<span class="bad">unverified</span>{%- endif -%}
   </td>
   <td class="note">{{ a.last_reviewed or 'not recorded' }}</td>

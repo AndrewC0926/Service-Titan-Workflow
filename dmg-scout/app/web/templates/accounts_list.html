@@ -1,11 +1,12 @@
 {% extends "base.html" %}
+{% from "_icon.html" import icon %}
 {% block title %}Accounts{% endblock %}
 {% block sheet_no %}S-12{% endblock %}
 {% block content %}
 <div class="sec-head">
   <div class="sec-title">Accounts — line-card coverage</div>
-  <a href="/accounts/new" style="float:right">+ New account</a>
-  <a href="/accounts/import" style="float:right;margin-right:14px">⇪ Import CSV</a>
+  <a href="/accounts/new" style="float:right">{{ icon('plus') }} New account</a>
+  <a href="/accounts/import" style="float:right;margin-right:14px">{{ icon('upload') }} Import CSV</a>
   <span class="note">What they have, what they should have, what is forcing them to buy.
     Click an account to mark coverage.</span>
 </div>
@@ -42,7 +43,17 @@
   <td class="num">{{ a.last_order_date.strftime('%Y-%m-%d') if a.last_order_date else '—' }}</td>
 </tr>
 {% else %}
-<tr><td colspan="6" class="note">No accounts yet. <a href="/accounts/new">Add the first one</a> or use the CSV importer.</td></tr>
+<tr><td colspan="6">
+  <div class="empty">
+    {{ icon('file-text') }}
+    <p>No accounts yet. This is where line-card coverage — what each account has bought, what
+      they should have, and what's forcing them to buy — would track per account.</p>
+    <span class="flex gap-1.5">
+      <a class="chip" href="/accounts/new">{{ icon('plus') }} Add the first one</a>
+      <a class="chip" href="/accounts/import">{{ icon('upload') }} Import CSV</a>
+    </span>
+  </div>
+</td></tr>
 {% endfor %}
 </tbody>
 </table>

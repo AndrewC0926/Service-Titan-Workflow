@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icon.html" import icon %}
 {% block title %}Retrofit{% endblock %}
 {% block sheet_no %}S-03{% endblock %}
 {% block content %}
@@ -133,7 +134,7 @@
   <a href="/retrofit?population={{ population }}&{% if county %}county={{ county }}&{% endif %}min_status={{ key }}{% if has_ebewe %}&has_ebewe=true{% endif %}{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}" class="chip" aria-pressed="{{ 'true' if min_status == key else 'false' }}">{{ label }}</a>
   {% endfor %}
   {% if county %}
-  <a href="/retrofit/report?population={{ population }}&county={{ county }}" class="chip ml-1">🖨 Printable contractor report ↗</a>
+  <a href="/retrofit/report?population={{ population }}&county={{ county }}" class="chip ml-1">{{ icon('printer') }} Printable contractor report</a>
   {% endif %}
 </div>
 
@@ -169,7 +170,7 @@
   <td>
     <a href="/retrofit/building/{{ b.id }}" class="clamp2" title="{{ b.address or 'address unknown' }}">{{ b.address or 'APN ' + b.apn }}</a>
     <div class="note">APN {{ b.apn }} · {{ b.county }}, {{ b.state }}{% if b.use_desc %} · {{ b.use_desc }}{% endif %}
-      · <a href="https://portal.assessor.lacounty.gov/" target="_blank" rel="noopener">look up on Assessor portal ↗</a></div>
+      · <a href="https://portal.assessor.lacounty.gov/" target="_blank" rel="noopener">look up on Assessor portal {{ icon('external-link') }}</a></div>
   </td>
   <td class="num nowrap">{{ '{:,.0f}'.format(b.sqft) if b.sqft else '—' }}
     {%- if b.portfolio_member_count and b.portfolio_member_count >= 2 -%}
@@ -214,7 +215,13 @@
       <span class="note">no year built on file</span>
     {%- else -%}<span class="note">unknown equipment type</span>{%- endif -%}
   </td>
-  <td class="nowrap">
+  {# Not nowrap on the td itself: the SB1206/CARB/EBEWE stamps are short and
+     already nowrap via .stamp's own CSS, but the "none (SB 1206 n/a...)"
+     fallback text is long enough that forcing it onto one line (measured:
+     this is what was overflowing into the EBEWE Benchmark column instead of
+     wrapping) is worse than letting it wrap -- same reasoning the Equipment
+     column above already documents for its own fallback text. #}
+  <td>
     {%- if b.sb1206_trigger_status -%}
       <span class="stamp stamp-post" title="{{ b.sb1206_detail }}">SB 1206 {{ b.sb1206_trigger_status }}</span><br>
     {%- endif -%}
@@ -227,7 +234,7 @@
       <a class="stamp stamp-in" href="/assumptions#{{ assumption_slug('Benchmark-to-building join method and coverage') }}"
          title="LADBS Building ID {{ b.ebewe_building_id }}, {{ b.ebewe_program_year }} filing · {{ b.ebewe_property_type or 'property type unknown' }}. Site EUI {{ b.ebewe_site_eui if b.ebewe_site_eui is not none else '—' }} kBtu/ft². Address-text join, ain_last3-checksum-confirmed — see the join method and measured coverage.">EBEWE {{ b.ebewe_program_year }}</a><br>
       <span class="note">{{ '%.0f'|format(b.ebewe_weather_normalized_site_eui) if b.ebewe_weather_normalized_site_eui is not none else '—' }} EUI (wx-norm)
-        · ★{{ b.ebewe_energy_star_score if b.ebewe_energy_star_score is not none else '—' }}</span><br>
+        · {{ icon('star') }} {{ b.ebewe_energy_star_score if b.ebewe_energy_star_score is not none else '—' }}</span><br>
       {%- if b.ebewe_arcx_due_this_year -%}
       <a class="stamp stamp-post" href="https://dbs.lacity.gov/services/green-building-sustainability/ebewe" target="_blank" rel="noopener"
          title="LAMC Table 9708.2: A/RCx (audit/retro-commissioning) compliance due once every 5 years, keyed to the last digit of the LADBS Building ID. This building's cycle is due by {{ b.ebewe_arcx_next_compliance_date.strftime('%b %-d, %Y') if b.ebewe_arcx_next_compliance_date else 'this year' }}.">A/RCx due this year</a>
@@ -264,10 +271,18 @@
   </td>
 </tr>
 {% else %}
-<tr><td colspan="10" class="note">No retrofit buildings yet. Run <span class="mono">scout fetch-permits --window all</span> →
-  <span class="mono">scout fetch-assessor-candidates</span> →
-  <span class="mono">scout fetch-ebewe-benchmarks</span> →
-  <span class="mono">scout build-retrofit-buildings</span> / <span class="mono">scout find-replacement-candidates</span>.</td></tr>
+<tr><td colspan="10">
+  <div class="empty">
+    {{ icon('file-text') }}
+    <p>No retrofit buildings yet. This is where every replacement candidate and recently-active
+      building in the territory would be ranked, once the assessor/permit pipeline has run:
+      <span class="mono">scout fetch-permits --window all</span> →
+      <span class="mono">scout fetch-assessor-candidates</span> →
+      <span class="mono">scout fetch-ebewe-benchmarks</span> →
+      <span class="mono">scout build-retrofit-buildings</span> / <span class="mono">scout find-replacement-candidates</span>.</p>
+    <a class="chip" href="/health">Check source health</a>
+  </div>
+</td></tr>
 {% endfor %}
 </tbody>
 </table>

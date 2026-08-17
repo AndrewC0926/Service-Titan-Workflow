@@ -1,10 +1,11 @@
 {% extends "base.html" %}
+{% from "_icon.html" import icon %}
 {% block title %}{{ p.name }}{% endblock %}
 {% block content %}
 <h2>{{ p.name }} <span class="tag {{ p.window.value }}">{{ p.window.value }}</span>
   <span class="scorechip" style="background:{{ score_color(p.score) }}">{{ '%.2f'|format(p.score) }}</span>
   <span class="tag">{{ p.status }}</span>
-  <a href="/project/{{ p.id }}/brief" style="float:right;font-size:12px">📄 One-page brief</a></h2>
+  <a href="/project/{{ p.id }}/brief" style="float:right;font-size:12px">{{ icon('file-text') }} One-page brief</a></h2>
 
 <table style="max-width:900px">
 <tr><th>Developer</th><td>{{ p.developer or '—' }}</td>
@@ -19,7 +20,7 @@
 <tr><th>MW (IT / total)</th><td class="num">{{ p.mw_it or '—' }} / {{ p.mw_total or '—' }}</td>
     <th>APN</th><td class="mono">{{ p.apn_parcel or '—' }}</td></tr>
 <tr><th>Est. tonnage</th>
-    <td class="num">{% if p.tons_estimate_low %}{{ '{:,.0f}'.format(p.tons_estimate_low) }}–{{ '{:,.0f}'.format(p.tons_estimate_high) }} tons{% if p.estimate_low_confidence %} <span class="bad">⚠ LOW CONFIDENCE</span>{% endif %}{% else %}—{% endif %}</td>
+    <td class="num">{% if p.tons_estimate_low %}{{ '{:,.0f}'.format(p.tons_estimate_low) }}–{{ '{:,.0f}'.format(p.tons_estimate_high) }} tons{% if p.estimate_low_confidence %} <span class="bad">{{ icon('triangle-alert') }} LOW CONFIDENCE</span>{% endif %}{% else %}—{% endif %}</td>
     <th>Basis</th><td>{{ p.estimate_basis or 'no size input yet' }}</td></tr>
 {%- if p.spillover_basis %}
 <tr><th>Spillover</th><td colspan="3">{{ p.spillover_basis }}</td></tr>
@@ -39,7 +40,7 @@
   {%- else -%}<span class="dim">source not stated</span>{%- endif %}
   {%- if p.water_use_efficiency_stated %} · {{ p.water_use_efficiency_stated }}{% endif -%}
   {%- if p.water_risk_flag == 'elevated' %}
-    <br><span class="bad" title="{{ p.water_risk_basis }}">⚠ WATER RISK — confidence caveat only, not a ranking signal</span>
+    <br><span class="bad" title="{{ p.water_risk_basis }}">{{ icon('triangle-alert') }} WATER RISK — confidence caveat only, not a ranking signal</span>
   {%- endif -%}
 </td></tr>
 {%- endif %}
@@ -87,7 +88,7 @@
   <td>{{ t.signal.summary_one_line or t.doc.title if t.doc else t.signal.summary_one_line }}</td>
   <td class="num">{{ '%.2f'|format(t.signal.confidence) }}</td>
   <td class="dim">{{ t.link.match_method }} @ {{ '%.2f'|format(t.link.match_confidence) }}</td>
-  <td>{% if t.doc %}<a href="{{ t.doc.url }}" target="_blank" rel="noopener">{{ t.doc.source }} ↗</a>{% else %}—{% endif %}</td>
+  <td>{% if t.doc %}<a href="{{ t.doc.url }}" target="_blank" rel="noopener">{{ t.doc.source }} {{ icon('external-link') }}</a>{% else %}—{% endif %}</td>
 </tr>
 {% endfor %}
 </tbody>
@@ -103,7 +104,7 @@
   <td><b>{{ r.name }}</b>{% if r.kind == 'firm' %} <span class="dim">(firm-level)</span>{% endif %}</td>
   <td>{{ r.title or '' }}</td><td>{{ r.company or '' }}</td>
   <td class="dim">{{ r.rung_label }}</td>
-  <td>{% if r.source_url %}<a href="{{ r.source_url }}" target="_blank" rel="noopener">filing ↗</a>{% else %}roster{% endif %}</td>
+  <td>{% if r.source_url %}<a href="{{ r.source_url }}" target="_blank" rel="noopener">filing {{ icon('external-link') }}</a>{% else %}roster{% endif %}</td>
 </tr>
 {% else %}
 <tr><td colspan="6" class="bad">NO CONTACT AT ANY RUNG — this project is reading, not a call.</td></tr>
@@ -124,7 +125,7 @@
 <tbody>
 {% for f in resolved_firms %}
 <tr><td>{{ f.name }}</td><td><span class="tag">{{ f.role }}</span></td><td>{{ f.type }}</td>
-    <td>{% if f.from_roster %}<span class="ok">✓ roster</span>{% else %}<span class="dim">from extraction</span>{% endif %}</td></tr>
+    <td>{% if f.from_roster %}<span class="ok">{{ icon('check') }} roster</span>{% else %}<span class="dim">from extraction</span>{% endif %}</td></tr>
 {% else %}
 <tr><td colspan="4" class="dim">No firms linked yet.</td></tr>
 {% endfor %}
@@ -147,7 +148,7 @@
 {% if ro.relevant %}
 <tr>
   <td>{{ ro.label }}</td>
-  <td>{% if ro.gap %}<span class="bad">GAP — no line on the card</span>{% else %}<span class="ok">✓ covered</span>{% endif %}</td>
+  <td>{% if ro.gap %}<span class="bad">GAP — no line on the card</span>{% else %}<span class="ok">{{ icon('check') }} covered</span>{% endif %}</td>
   <td>{% for line in ro.lines %}<a href="/line/{{ line.id }}">{{ line.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</td>
   <td class="note">
     {%- set competing = competing_by_role.get(ro.role, []) -%}

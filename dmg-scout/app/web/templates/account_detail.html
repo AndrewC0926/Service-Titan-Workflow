@@ -1,10 +1,11 @@
 {% extends "base.html" %}
+{% from "_icon.html" import icon %}
 {% block title %}{{ account.name }}{% endblock %}
 {% block content %}
 <h2>{{ account.name }} <span class="tag">{{ account.account_type.replace('_', ' ') }}</span>
   <span class="tag">{{ account.ownership_type.replace('_', ' ') }}</span>
-  <a href="/accounts/{{ account.id }}/brief" style="float:right;font-size:12px">📄 One-page brief</a>
-  <a href="/accounts/{{ account.id }}/edit" style="float:right;font-size:12px;margin-right:14px">✎ Edit</a></h2>
+  <a href="/accounts/{{ account.id }}/brief" style="float:right;font-size:12px">{{ icon('file-text') }} One-page brief</a>
+  <a href="/accounts/{{ account.id }}/edit" style="float:right;font-size:12px;margin-right:14px">{{ icon('pencil') }} Edit</a></h2>
 
 <table style="max-width:900px">
 <tr><th>Parent</th><td>{% if parent %}<a href="/accounts/{{ parent.id }}">{{ parent.name }}</a>{% else %}—{% endif %}</td>

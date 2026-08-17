@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icon.html" import icon %}
 {% block title %}Source Health{% endblock %}
 {% block sheet_no %}S-07{% endblock %}
 {% block content %}
@@ -128,7 +129,7 @@
   <td class="num">${{ '%.2f'|format(budget.daily_budget_usd) }}</td>
   <td class="num">${{ '%.2f'|format(budget.month_usd) }}</td>
   <td>{% if budget.exhausted %}<span class="bad">EXHAUSTED — LLM stopped</span>
-      {% elif budget.warn %}<span class="bad">⚠ over {{ '%.0f'|format(80) }}% of daily budget</span>
+      {% elif budget.warn %}<span class="bad">{{ icon('triangle-alert') }} over {{ '%.0f'|format(80) }}% of daily budget</span>
       {% else %}<span class="ok">within budget</span>{% endif %}</td>
 </tr>
 </table>

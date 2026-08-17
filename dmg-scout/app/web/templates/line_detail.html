@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icon.html" import icon %}
 {% block title %}{{ line.name }}{% endblock %}
 {% block content %}
 <h2>{{ line.name }} <span class="tag">{{ line.firm }}</span> <span class="tag">{{ ROLE_LABELS[line.building_role] }}</span>
@@ -19,7 +20,7 @@
 
 <h2>Selection tool</h2>
 {% if selection_tool and selection_tool.verification_status == 'confirmed' %}
-<p><span class="ok" title="{{ selection_tool.verified_by }}, {{ selection_tool.verified_date.strftime('%Y-%m-%d') if selection_tool.verified_date else '' }}">✓ confirmed</span>
+<p><span class="ok" title="{{ selection_tool.verified_by }}, {{ selection_tool.verified_date.strftime('%Y-%m-%d') if selection_tool.verified_date else '' }}">{{ icon('check') }} confirmed</span>
   — <strong>{{ selection_tool.tool_name }}</strong>
   {% if selection_tool.vendor_url %}(<a href="https://{{ selection_tool.vendor_url }}" target="_blank" rel="noopener">{{ selection_tool.vendor_url }}</a>){% endif %}</p>
 {% if selection_tool.access_level %}<p>Access: {{ access_labels.get(selection_tool.access_level, selection_tool.access_level) }}</p>
@@ -27,7 +28,7 @@
 {% if selection_tool.produces_submittal_docs is not none %}<p>Produces submittal docs: {{ 'yes' if selection_tool.produces_submittal_docs else 'no' }}</p>{% endif %}
 {% if selection_tool.what_it_outputs %}<p class="note" style="max-width:56rem">{{ selection_tool.what_it_outputs }}</p>{% endif %}
 {% elif selection_tool and selection_tool.verification_status == 'search_verified' %}
-<p><span class="warn" title="Found via web research — a vendor's own page, not confirmed directly with the manufacturer and not a live-directory hit. Same discipline as an AHRI SEARCH_VERIFIED entry.">⚠ search-verified</span>
+<p><span class="warn" title="Found via web research — a vendor's own page, not confirmed directly with the manufacturer and not a live-directory hit. Same discipline as an AHRI SEARCH_VERIFIED entry.">{{ icon('triangle-alert') }} search-verified</span>
   — <strong>{{ selection_tool.tool_name }}</strong>
   {% if selection_tool.vendor_url %}(<a href="https://{{ selection_tool.vendor_url }}" target="_blank" rel="noopener">{{ selection_tool.vendor_url }}</a>){% endif %}</p>
 {% if selection_tool.access_level %}<p>Access: {{ access_labels.get(selection_tool.access_level, selection_tool.access_level) }}</p>
@@ -36,7 +37,7 @@
 {% if selection_tool.what_it_outputs %}<p class="note" style="max-width:56rem">{{ selection_tool.what_it_outputs }}</p>{% endif %}
 <p class="note">Verified by {{ selection_tool.verified_by }}, {{ selection_tool.verified_date.strftime('%Y-%m-%d') if selection_tool.verified_date else 'date unrecorded' }}.</p>
 {% elif selection_tool and selection_tool.access_level == 'none_exists' %}
-<p><span class="warn" title="Checked, and confirmed the manufacturer has no selection tool — a finding, not an absence of research.">⚠ confirmed: no tool exists</span></p>
+<p><span class="warn" title="Checked, and confirmed the manufacturer has no selection tool — a finding, not an absence of research.">{{ icon('triangle-alert') }} confirmed: no tool exists</span></p>
 {% if selection_tool.what_it_outputs %}<p class="note" style="max-width:56rem">{{ selection_tool.what_it_outputs }}</p>{% endif %}
 {% else %}
 <p class="note">Not yet researched — "unchecked" is not "no tool exists". Add it to <code>accounts.selection_tools</code> in config.yaml and re-run <code>scout seed-selection-tools</code> once someone looks.</p>
@@ -46,16 +47,16 @@
 {% if line.markets_served_source == 'researched' %}
   {% if line.markets_served %}
   <p>{% for m in line.markets_served %}<span class="tag">{{ MARKET_LABELS.get(m, m) }}</span> {% endfor %}
-    <span class="ok" title="Sourced from the manufacturer's own literature — see basis below.">✓ researched</span></p>
+    <span class="ok" title="Sourced from the manufacturer's own literature — see basis below.">{{ icon('check') }} researched</span></p>
   <p class="note">{{ line.markets_served_basis or 'no basis recorded' }}</p>
   {% else %}
-  <p class="note"><span class="ok">✓ researched</span> — no market named clearly enough in the manufacturer's own
+  <p class="note"><span class="ok">{{ icon('check') }} researched</span> — no market named clearly enough in the manufacturer's own
     literature to record. This is a confirmed empty result, not "not yet looked at".
     {{ line.markets_served_basis or '' }}</p>
   {% endif %}
 {% elif line.markets_served_source == 'legacy_guess' %}
 <p>{% for m in line.markets_served %}<span class="tag">{{ MARKET_LABELS.get(m, m) }}</span> {% endfor %}
-  <span class="caveat" title="Legacy best-guess from an unsourced fallback table (MARKETS_BY_LINE), predating this line's markets research — not confirmed against manufacturer literature. Treat the same as an unconfirmed OSHPD OSP.">⚠ unverified — legacy guess</span></p>
+  <span class="caveat" title="Legacy best-guess from an unsourced fallback table (MARKETS_BY_LINE), predating this line's markets research — not confirmed against manufacturer literature. Treat the same as an unconfirmed OSHPD OSP.">{{ icon('triangle-alert') }} unverified — legacy guess</span></p>
 {% else %}
 <p class="note">Not yet mapped — this line hasn't been researched or guessed at yet.
   Empty means "not yet mapped", not "sells nowhere".</p>
@@ -120,15 +121,15 @@
 <tbody>
 <tr><td>OSHPD/HCAI OSP <span class="note">(CA healthcare pre-approval)</span></td>
   <td>{% if line.oshpd_osp is none %}<span class="note">unconfirmed</span>
-      {% elif line.oshpd_osp %}<span class="ok">✓ yes</span>{% else %}<span class="bad">no</span>{% endif %}</td>
+      {% elif line.oshpd_osp %}<span class="ok">{{ icon('check') }} yes</span>{% else %}<span class="bad">no</span>{% endif %}</td>
   <td class="note">{{ line.oshpd_osp_basis or '—' }}</td></tr>
 <tr><td>UFC 4-010-06 <span class="note">(federal antiterrorism standoff)</span></td>
   <td>{% if line.ufc_4_010_06 is none %}<span class="note">unconfirmed</span>
-      {% elif line.ufc_4_010_06 %}<span class="ok">✓ yes</span>{% else %}<span class="bad">no</span>{% endif %}</td>
+      {% elif line.ufc_4_010_06 %}<span class="ok">{{ icon('check') }} yes</span>{% else %}<span class="bad">no</span>{% endif %}</td>
   <td class="note">{{ line.ufc_4_010_06_basis or '—' }}</td></tr>
 <tr><td>AHRI certified</td>
   <td>{% if line.ahri_certified is none %}<span class="note">unconfirmed</span>
-      {% elif line.ahri_certified %}<span class="ok">✓ yes</span>{% else %}<span class="bad">no</span>{% endif %}</td>
+      {% elif line.ahri_certified %}<span class="ok">{{ icon('check') }} yes</span>{% else %}<span class="bad">no</span>{% endif %}</td>
   <td class="note">{{ line.ahri_certified_basis or '—' }}</td></tr>
 <tr><td>Country of manufacture</td>
   <td>{{ line.country_of_manufacture or '—' }}</td>

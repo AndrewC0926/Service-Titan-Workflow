@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DMG SCOUT — {% block title %}{% endblock %}</title>
 <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+<link rel="preload" href="{{ url_for('static', path='fonts/Geist-Variable.woff2') }}" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="{{ url_for('static', path='fonts/JetBrainsMono-Regular.woff2') }}" as="font" type="font/woff2" crossorigin>
 <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
 <script>
 // Theme resolves before first paint so the sheet never flashes white then dark.
@@ -17,7 +19,7 @@
 </script>
 </head>
 <body>
-
+{% from "_icon.html" import icon %}
 <div class="p-2.5">
   {# TITLE BLOCK — what this is, when it was true, how much of it there is.
      First on the sheet because "data as of" is the question to ask before acting
@@ -40,7 +42,11 @@
       <div class="tb-lbl">Sheet tone</div>
       <button type="button" onclick="toggleTheme()"
               class="tb-val cursor-pointer bg-transparent border-0 p-0 text-[color:var(--color-blueprint)]"
-              id="theme-btn">—</button>
+              id="theme-btn">
+        <span class="theme-icon-light">{{ icon('sun') }}</span>
+        <span class="theme-icon-dark">{{ icon('moon') }}</span>
+        <span id="theme-label">—</span>
+      </button>
     </div>
   </div>
 
@@ -79,8 +85,8 @@ function toggleTheme() {
   paintThemeBtn();
 }
 function paintThemeBtn() {
-  var b = document.getElementById('theme-btn');
-  if (b) b.textContent = document.documentElement.dataset.theme === 'dark' ? 'DARK' : 'BOND';
+  var l = document.getElementById('theme-label');
+  if (l) l.textContent = document.documentElement.dataset.theme === 'dark' ? 'DARK' : 'BOND';
 }
 paintThemeBtn();
 </script>

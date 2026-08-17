@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icon.html" import icon %}
 {% block title %}Retrofit report — {{ county }}{% endblock %}
 {% block content %}
 <style>
@@ -12,7 +13,7 @@
   .tag { border: 1px solid #000; background: none !important; color: #000 !important; }
 }
 </style>
-<p class="noprint"><button onclick="window.print()">🖨 Print / save PDF</button>
+<p class="noprint"><button onclick="window.print()">{{ icon('printer') }} Print / save PDF</button>
   <a href="/retrofit?population={{ population }}{% if county != 'All counties' %}&county={{ county }}{% endif %}" style="margin-left:12px">← back to retrofit board</a></p>
 
 <h2 style="font-size:18px">{% if population == 'replacement_candidate' %}Replacement candidates{% else %}Recently active buildings{% endif %} — {{ county }}</h2>
