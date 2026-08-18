@@ -972,28 +972,57 @@ def matching_projects_for_line(session: Session, line: ProductLine, limit: int =
     return matched[:limit]
 
 
+# Categories on Scout's early-signal board (Project.category) that put a
+# building under HCAI/OSHPD jurisdiction -- i.e. where "a line exists in
+# this role" and "a line is legally allowed into this building" are
+# different facts, the distinction app.pipeline.hcai.hospital_capability_
+# gaps exists to enforce for the hospital board. Empty today: Scout's
+# early-signal categories are data_center/industrial/esco new-construction
+# only (see ROLE_PROJECT_RELEVANCE's own scoping comment) -- Scout does
+# not track healthcare projects, so no Project is ever HCAI-governed.
+# HospitalBuilding is the only model that is, and it's checked separately.
+# Kept as a real, computed set rather than skipped entirely so a category
+# that DOES cross into HCAI scope in the future (e.g. an esco contract
+# awarded by a public hospital district) is a one-line addition here, not
+# a silent gap in a gap-checker.
+CATEGORIES_REQUIRING_HCAI_OSP: frozenset[str] = frozenset()
+
+
 @dataclass
 class RoleOffering:
     role: str
     label: str
     relevant: bool          # is this role even plausibly called for on this building type
     lines: list[ProductLine]
-    gap: bool = False       # relevant AND zero lines on the card for it
+    osp_required: bool = False  # this building is HCAI-governed -- "covered" means OSP, not just present
+    gap: bool = False       # relevant AND (zero lines on the card, OR none hold a current OSP if required)
 
 
 def line_offering_by_role(session: Session, category: Category, facility_type: FacilityType) -> list[RoleOffering]:
     """The reverse of matching_projects_for_line, for a project's own page:
     given THIS building's category/facility type, what does the line card
-    offer, grouped by role, and where does it offer nothing at all. Every
-    role currently has at least one line (see CATEGORY_TO_ROLE — 70 lines
-    span all 13), so `gap` should never fire today; it stays a real,
-    computed flag rather than an assumption so a future line-card edit that
-    empties a role is caught here instead of silently disappearing.
+    offer, grouped by role, and where does it offer nothing at all -- or,
+    for an HCAI-governed building (CATEGORIES_REQUIRING_HCAI_OSP), nothing
+    it can actually put into this building. "A line exists in this role"
+    and "a line is legally preapproved for this building" are different
+    facts -- see app.pipeline.hcai.hospital_capability_gaps, which enforces
+    exactly this distinction for the hospital board, where it matters on
+    every row instead of never.
+
+    Every role currently has at least one line at all (see CATEGORY_TO_ROLE
+    — 70 lines span all 13), so for a non-HCAI building `gap` should never
+    fire on that basis alone; it stays a real, computed flag rather than an
+    assumption so a future line-card edit that empties a role is caught
+    here instead of silently disappearing. For an HCAI-governed building,
+    `gap` fires the moment a role's lines don't include a confirmed current
+    OSP -- which the 2026-08-19 hospital-board research showed is true for
+    9 of 13 roles today, so this bar is not automatically cleared.
     """
     lines_by_role: dict[str, list[ProductLine]] = {}
     for line in session.exec(select(ProductLine).order_by(ProductLine.value_tier, ProductLine.name)).all():
         lines_by_role.setdefault(line.building_role, []).append(line)
 
+    osp_required = category.value in CATEGORIES_REQUIRING_HCAI_OSP
     out = []
     for role in ROLE_ORDER:
         rule = ROLE_PROJECT_RELEVANCE.get(role, {})
@@ -1002,8 +1031,12 @@ def line_offering_by_role(session: Session, category: Category, facility_type: F
             and (rule.get("facility_types") is None or facility_type.value in rule["facility_types"])
         )
         lines = lines_by_role.get(role, [])
+        if osp_required:
+            covered = any(line.oshpd_osp is True for line in lines)
+        else:
+            covered = bool(lines)
         out.append(RoleOffering(
             role=role, label=ROLE_LABELS[role], relevant=relevant, lines=lines,
-            gap=relevant and not lines,
+            osp_required=osp_required, gap=relevant and not covered,
         ))
     return out

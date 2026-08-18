@@ -25,6 +25,16 @@ genuinely unrelated sales can coincidentally land within the same window and
 radius, especially in dense industrial corridors. Every group is shown with
 its member addresses so a rep can sanity-check it, not asserted as
 confirmed common ownership.
+
+Spot-checked 2026-08-19 against a random sample of 20 real groups (see
+app/assumptions.py's "Portfolio-transaction detection" entry for the full
+finding): 17 of 20 read as one PHYSICAL PROPERTY split across assessor
+parcels, not one buyer acquiring several distinct buildings. A detected
+group is still real, useful evidence of one co-recorded transaction --
+it's just usually evidence of one site's parcel map, not a multi-property
+acquisition. The UI reflects this (retrofit_board.html: "Co-recorded: N
+parcels", not "Portfolio: N buildings") -- keep that framing if this
+module's output is surfaced anywhere else.
 """
 from __future__ import annotations
 

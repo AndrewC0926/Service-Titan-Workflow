@@ -347,11 +347,28 @@ def import_hcai_seismic_ratings(session, path_or_text: str, *, source_url: str, 
 # ---- DMG's own OSP capability gap, live -----------------------------------
 
 def hospital_capability_gaps(session) -> dict:
-    """Which HVAC building-systems roles DMG can currently field a hospital-
-    grade (HCAI OSP-preapproved) package for, computed LIVE from
-    ProductLine.oshpd_osp -- never hardcoded, so this self-corrects the
-    moment a line wins a new OSP instead of silently going stale on a
-    hospital board people read to decide whether to call.
+    """Which of DMG's 13 building-systems roles (app.accounts.ROLE_ORDER)
+    can currently field a hospital-grade (HCAI OSP-preapproved) package,
+    computed LIVE from ProductLine.oshpd_osp -- never hardcoded, so this
+    self-corrects the moment a line wins a new OSP instead of silently
+    going stale on a hospital board people read to decide whether to call.
+
+    A role is "covered" here ONLY if at least one of its lines holds a
+    CONFIRMED current OSP (oshpd_osp is True) -- not merely if the role has
+    lines on the card at all. That distinction is the entire point of this
+    function: app.accounts.line_offering_by_role's own RoleOffering.gap
+    (the general-purpose "does a project's line card have a gap" flag used
+    for early-signal Projects) only asks "does a line exist in this role,"
+    which is a materially different, weaker question -- fine for a
+    data_center/industrial/esco project, since Scout doesn't track
+    healthcare projects at all and nothing there is ever HCAI-governed
+    (see ROLE_PROJECT_RELEVANCE's own scoping comment), but exactly the gap
+    that would mislead someone reading THIS board, where every building is
+    HCAI-governed by definition. "A line exists" and "a line is legally
+    preapproved to go into a hospital" are not the same fact, confirmed by
+    the chillers/fans research below: DMG carries 4 chiller lines and ~14
+    fan lines -- "role has lines" is True for both -- and zero of either
+    hold a confirmed current OSP.
 
     Chillers are checked by CATEGORY ("chillers_cooling"), deliberately NOT
     by the broader "cooling_generation" building_role: that role also
@@ -361,31 +378,61 @@ def hospital_capability_gaps(session) -> dict:
     be exactly the false-precision this system exists to avoid. Fans use
     app.accounts.resolve_building_role's own category+override logic
     (fans_exhaust/process_exhaust/residential_light_commercial categories
-    plus the MacroAir/Berner role overrides), since there's no equivalent
-    role-conflation risk on that side.
+    plus the MacroAir/Berner role overrides) rather than the stored
+    ProductLine.building_role, so a role override applies here even if a
+    row's own stored value hasn't been re-seeded since -- see
+    test_hospital_capability_gaps_fans_use_role_resolution. The other 11
+    roles use ProductLine.building_role directly; if one of them turns out
+    to share cooling_generation's or fans_ventilation's need for a
+    recompute, special-case it here the same way, not by widening this
+    comment's claim without evidence.
 
-    Measured 2026-08-17: zero of DMG's 4 true-chiller lines (DB, ClimaCool,
-    Geoclima, Hecoclima) and zero of DMG's ~14 fan lines hold a CONFIRMED
-    current OSP -- ClimaCool and TCF/Twin City Fan are confirmed EXPIRED,
-    the rest unresearched (oshpd_osp=None: absence of evidence, not
-    confirmed absence). Air handling, air distribution/terminal, and
-    humidification each have at least one confirmed current OSP. See
-    config.yaml's per-line oshpd_osp_basis entries for the individual
-    research trail behind every figure here."""
-    from app.accounts import resolve_building_role
+    Measured 2026-08-17 (chillers/fans) and 2026-08-19 (all 13 roles):
+    9 of 13 roles have ZERO lines with a confirmed current OSP -- only
+    air_handling, air_distribution_terminal, controls_valves, and
+    humidification clear the bar. Most of the other 9 are unresearched
+    (oshpd_osp=None: absence of evidence, not confirmed absence), not
+    confirmed-absent outright -- role_gaps below carries checked/
+    confirmed_expired so that distinction stays visible, the same
+    discipline chillers/fans already applied. See config.yaml's per-line
+    oshpd_osp_basis entries for the individual research trail behind every
+    figure here."""
+    from app.accounts import ROLE_LABELS, ROLE_ORDER, resolve_building_role
     from app.models import ProductLine
 
     lines = session.exec(select(ProductLine)).all()
-    chillers = [l for l in lines if l.category == "chillers_cooling"]
-    fans = [l for l in lines if resolve_building_role(l.name, l.category) == "fans_ventilation"]
+    by_role: dict[str, list] = {}
+    for l in lines:
+        by_role.setdefault(l.building_role, []).append(l)
+
+    role_gaps = []
+    for role in ROLE_ORDER:
+        if role == "cooling_generation":
+            role_lines = [l for l in lines if l.category == "chillers_cooling"]
+        elif role == "fans_ventilation":
+            role_lines = [l for l in lines if resolve_building_role(l.name, l.category) == "fans_ventilation"]
+        else:
+            role_lines = by_role.get(role, [])
+        covered = any(l.oshpd_osp is True for l in role_lines)
+        role_gaps.append({
+            "role": role, "label": ROLE_LABELS[role],
+            "covered": covered, "gap": not covered,
+            "checked": len(role_lines),
+            "confirmed_expired": sum(1 for l in role_lines if l.oshpd_osp is False),
+            "unresearched": sum(1 for l in role_lines if l.oshpd_osp is None),
+        })
+    by_role_key = {rg["role"]: rg for rg in role_gaps}
 
     return {
-        "chillers_covered": any(l.oshpd_osp is True for l in chillers),
-        "chillers_checked": len(chillers),
-        "chillers_confirmed_expired": sum(1 for l in chillers if l.oshpd_osp is False),
-        "fans_covered": any(l.oshpd_osp is True for l in fans),
-        "fans_checked": len(fans),
-        "fans_confirmed_expired": sum(1 for l in fans if l.oshpd_osp is False),
+        "role_gaps": role_gaps,
+        "roles_with_gap": sum(1 for rg in role_gaps if rg["gap"]),
+        "roles_checked": len(role_gaps),
+        "chillers_covered": by_role_key["cooling_generation"]["covered"],
+        "chillers_checked": by_role_key["cooling_generation"]["checked"],
+        "chillers_confirmed_expired": by_role_key["cooling_generation"]["confirmed_expired"],
+        "fans_covered": by_role_key["fans_ventilation"]["covered"],
+        "fans_checked": by_role_key["fans_ventilation"]["checked"],
+        "fans_confirmed_expired": by_role_key["fans_ventilation"]["confirmed_expired"],
     }
 
 

@@ -191,6 +191,36 @@ def test_hospital_capability_gaps_fans_use_role_resolution(db_session):
     assert gaps["fans_covered"] is True
 
 
+def test_hospital_capability_gaps_covers_all_13_roles_not_just_chillers_and_fans(db_session):
+    """The bug this generalization fixes: a role with lines but none holding
+    a confirmed current OSP must show as gapped, the same distinction
+    already enforced for chillers/fans -- now for every one of the 13
+    roles, not just those two."""
+    from app.accounts import ROLE_ORDER
+
+    db_session.add(ProductLine(name="Controls Co", name_norm="controls co", firm="X",
+                               category="controls", building_role="controls_valves",
+                               oshpd_osp=True))
+    db_session.add(ProductLine(name="Damper Co", name_norm="damper co", firm="Y",
+                               category="dampers", building_role="dampers_life_safety",
+                               oshpd_osp=False))
+    db_session.commit()
+
+    gaps = hcai.hospital_capability_gaps(db_session)
+    assert {rg["role"] for rg in gaps["role_gaps"]} == set(ROLE_ORDER)
+    by_role = {rg["role"]: rg for rg in gaps["role_gaps"]}
+    assert by_role["controls_valves"]["covered"] is True
+    assert by_role["controls_valves"]["gap"] is False
+    assert by_role["dampers_life_safety"]["covered"] is False
+    assert by_role["dampers_life_safety"]["gap"] is True
+    assert by_role["dampers_life_safety"]["confirmed_expired"] == 1
+    # a role nothing was seeded for is unresearched, not confirmed-absent -- still a gap
+    assert by_role["water_treatment"]["checked"] == 0
+    assert by_role["water_treatment"]["gap"] is True
+    assert gaps["roles_checked"] == 13
+    assert gaps["roles_with_gap"] == 12  # every role except controls_valves
+
+
 # ---- coverage ------------------------------------------------------------
 
 def test_hospital_seismic_coverage_filters_by_territory(db_session, cfg):

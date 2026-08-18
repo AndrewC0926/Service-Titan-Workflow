@@ -26,9 +26,35 @@
       {% endif %}
       A hospital's own specifier or AHJ can reject any product without a current OSP on file for
       its category outright — know this before you pitch a full package, not after.
-      See <a href="/assumptions#{{ assumption_slug("DMG's HCAI OSP capability gap (chillers, fans)") }}">/assumptions</a>
+      See <a href="/assumptions#{{ assumption_slug("DMG's HCAI OSP capability gap (all 13 roles)") }}">/assumptions</a>
       for the live figure and every line's own research trail.</span>
     </span>
+  </div>
+</details>
+
+<details class="callout callout-warn">
+  <summary>All 13 roles, not just chillers/fans — {{ capability_gaps.roles_with_gap }} of {{ capability_gaps.roles_checked }} gapped</summary>
+  <div class="callout-content">
+    <span>
+    <strong>"A line exists in this role" and "a line is legally preapproved for this hospital"
+      are different facts</strong>
+    <span class="body">Covered below means at least one DMG line in that role holds a CONFIRMED
+      current HCAI OSP — not merely that the role has lines on the card at all, which every role
+      does. "Unresearched" is absence of evidence, not confirmed absence — see each line's own
+      oshpd_osp_basis in config.yaml.</span>
+    </span>
+    <table class="tbl" style="width:100%;margin-top:.5rem">
+    <thead><tr><th>Role</th><th>Lines</th><th>Confirmed current</th><th>Confirmed expired</th><th>Unresearched</th><th>Status</th></tr></thead>
+    <tbody>
+    {% for rg in capability_gaps.role_gaps %}
+    <tr><td>{{ rg.label }}</td><td class="num">{{ rg.checked }}</td>
+        <td class="num">{{ rg.checked - rg.confirmed_expired - rg.unresearched }}</td>
+        <td class="num">{{ rg.confirmed_expired }}</td>
+        <td class="num">{{ rg.unresearched }}</td>
+        <td>{% if rg.covered %}<span class="tag">covered</span>{% else %}<span class="warn">gap</span>{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+    </table>
   </div>
 </details>
 

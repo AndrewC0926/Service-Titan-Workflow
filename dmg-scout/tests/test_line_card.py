@@ -307,6 +307,62 @@ def test_line_offering_by_role_marks_irrelevant_roles(db_session, cfg):
     assert by_role["heating_specialty"].relevant is False
 
 
+def test_line_offering_by_role_no_current_category_requires_hcai_osp():
+    """Scout's early-signal categories are data_center/industrial/esco
+    new-construction only -- Scout does not track healthcare projects at
+    all (see ROLE_PROJECT_RELEVANCE's own scoping comment), so no category
+    should trip the eligibility-aware OSP check today. If this ever
+    changes, CATEGORIES_REQUIRING_HCAI_OSP is where to add it."""
+    from app.accounts import CATEGORIES_REQUIRING_HCAI_OSP
+
+    assert CATEGORIES_REQUIRING_HCAI_OSP == frozenset()
+    for c in Category:
+        assert c.value not in CATEGORIES_REQUIRING_HCAI_OSP
+
+
+def test_line_offering_by_role_osp_required_gaps_a_role_with_lines_but_no_current_osp(db_session, monkeypatch):
+    """When osp_required is True (a category in CATEGORIES_REQUIRING_HCAI_OSP),
+    a role with lines but none holding a confirmed current OSP must gap --
+    "a line exists" is not enough, the same distinction
+    app.pipeline.hcai.hospital_capability_gaps enforces for the hospital
+    board."""
+    import app.accounts as accounts_mod
+
+    monkeypatch.setattr(accounts_mod, "CATEGORIES_REQUIRING_HCAI_OSP", frozenset({"data_center"}))
+    db_session.add(ProductLine(name="No OSP Air Handler", name_norm="no osp air handler", firm="X",
+                               category="ahu", building_role="air_handling", oshpd_osp=None))
+    db_session.commit()
+
+    offerings = accounts_mod.line_offering_by_role(db_session, Category.data_center, FacilityType.cleanroom)
+    by_role = {o.role: o for o in offerings}
+    assert by_role["air_handling"].osp_required is True
+    assert by_role["air_handling"].lines  # a line exists...
+    assert by_role["air_handling"].gap is True  # ...but it's not enough
+
+
+def test_line_offering_by_role_osp_required_covered_when_a_line_holds_current_osp(db_session, monkeypatch):
+    import app.accounts as accounts_mod
+
+    monkeypatch.setattr(accounts_mod, "CATEGORIES_REQUIRING_HCAI_OSP", frozenset({"data_center"}))
+    db_session.add(ProductLine(name="OSP Air Handler", name_norm="osp air handler", firm="X",
+                               category="ahu", building_role="air_handling", oshpd_osp=True))
+    db_session.commit()
+
+    offerings = accounts_mod.line_offering_by_role(db_session, Category.data_center, FacilityType.cleanroom)
+    by_role = {o.role: o for o in offerings}
+    assert by_role["air_handling"].gap is False
+
+
+def test_line_offering_by_role_osp_not_required_still_uses_plain_existence(db_session, cfg):
+    """Unchanged default behavior for every real category today: covered
+    means a line exists, full stop -- osp_required is False."""
+    seed(db_session, cfg)
+    offerings = line_offering_by_role(db_session, Category.data_center, FacilityType.cleanroom)
+    by_role = {o.role: o for o in offerings}
+    assert by_role["air_handling"].osp_required is False
+    assert all(not o.gap for o in offerings)
+
+
 # ---- web routes --------------------------------------------------------
 
 @pytest.fixture()
