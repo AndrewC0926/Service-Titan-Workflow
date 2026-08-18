@@ -729,6 +729,37 @@ def import_hcai_cmd(
         typer.echo(f"  skipped (unparseable county): {', '.join(stats['skipped'][:10])}")
 
 
+@app.command("import-hcai-seismic")
+def import_hcai_seismic_cmd(
+    path: str = typer.Argument(..., help="Path to the downloaded CHHS 'Seismic Ratings and "
+                                          "Collapse Probabilities of California Hospitals' CSV"),
+    extensions_path: str = typer.Option(
+        None, "--extensions", help="Path to the downloaded companion 'Seismic Deadline "
+                                   "Extensions Granted for California Hospitals' CSV -- "
+                                   "optional, sets has_filed_extension only (a coarse yes/no, "
+                                   "never a computed extended deadline; see HospitalBuilding)"),
+    source_url: str = typer.Option(
+        "https://data.chhs.ca.gov/dataset/seismic-ratings-and-collapse-probabilities-of-california-hospitals",
+        help="Public data.chhs.ca.gov dataset page this file came from"),
+) -> None:
+    """Manual import of HCAI's per-building SB 1953 seismic ratings (SPC/NPC,
+    HAZUS collapse probability) -- see app/pipeline/hcai.py for the deadline
+    derivation and the CHHS Terms of Use findings (assumptions register).
+    Download the CSV by hand first: a plain automated fetch is not clearly
+    sanctioned by CHHS's own terms, same reasoning `scout import-iepr` and
+    `scout import-hcai` already follow. Each import replaces every prior
+    row and records its own SourceRun for source_health."""
+    from app.pipeline.hcai import import_hcai_seismic_ratings
+    with session_scope() as session:
+        stats = import_hcai_seismic_ratings(session, path, source_url=source_url,
+                                            extensions_path=extensions_path)
+    typer.echo(f"snapshot {stats['snapshot_date']}: "
+               f"{stats['rows_stored']}/{stats['rows_in_file']} rows stored, "
+               f"{stats['skipped']} skipped (missing county/facility/building key)")
+    if extensions_path:
+        typer.echo(f"  {stats['extensions_matched']} buildings matched a filed extension")
+
+
 @app.command("fetch-permits")
 def fetch_permits_cmd(
     since: str = typer.Option(None, help="ISO date; only permits issued on/after this (2020_present window only)"),

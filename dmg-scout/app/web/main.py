@@ -52,6 +52,8 @@ from app.models import (
     ProjectSignal,
     RawDocument,
     ReviewQueue,
+    HcaiCountyActivity,
+    HospitalBuilding,
     RetrofitBuilding,
     SavedSearch,
     Signal,
@@ -652,6 +654,100 @@ def retrofit_building_detail(building_id: int, request: Request,
     return templates.TemplateResponse(request, "retrofit_building_detail.html", {
         "building": building, "nearest_contractors": nearest, "radius_miles": radius,
         "tb": _title_block(session), "active": "retrofit",
+    })
+
+
+# ---- hospitals (HCAI / SB 1953) -------------------------------------------
+#
+# A SEPARATE population from the project board and from retrofit -- a
+# hospital facilities/capital team retrofitting or replacing a building
+# under a statutory seismic deadline is a different sale, to a different
+# buyer, than either. See app.models.HospitalBuilding's own docstring and
+# app/pipeline/hcai.py for the source, the CHHS Terms of Use findings, and
+# the SPC/NPC deadline derivation.
+
+@app.get("/hospitals", response_class=HTMLResponse)
+def hospitals_board(request: Request, county: str = None, deadline: str = None, all_ca: bool = False,
+                    session: Session = Depends(get_session), _: str = Depends(auth)):
+    """deadline: "2020" | "2030" | "extension" | None (all). See
+    app/pipeline/hcai.py's SPC1_DEADLINE_YEAR/SPC2_DEADLINE_YEAR.
+
+    Scoped to Scout's territory counties by default (all_ca=0) -- HCAI's own
+    dataset is genuinely statewide (58 counties), and this is a sales board
+    for a 7-county territory, not a browse-all-California tool. all_ca=1
+    lifts the scope for the rare case someone wants to see the rest."""
+    from app.pipeline.hcai import (
+        NPC5_DEADLINE_YEAR,
+        SPC1_DEADLINE_YEAR,
+        SPC2_DEADLINE_YEAR,
+        hospital_capability_gaps,
+        hospital_seismic_coverage,
+    )
+    cfg = load_config()
+    territory_counties = set(cfg.get("territories.california.counties", []))
+
+    q = select(HospitalBuilding)
+    if county:
+        q = q.where(HospitalBuilding.county == county)
+    elif not all_ca:
+        q = q.where(HospitalBuilding.county.in_(territory_counties))
+    if deadline == "2020":
+        q = q.where(HospitalBuilding.spc_deadline_year == SPC1_DEADLINE_YEAR)
+    elif deadline == "2030":
+        q = q.where(HospitalBuilding.spc_deadline_year == SPC2_DEADLINE_YEAR)
+    elif deadline == "extension":
+        q = q.where(HospitalBuilding.has_filed_extension == True)  # SQLAlchemy needs literal == True, not `is True`
+
+    buildings = session.exec(
+        q.order_by(HospitalBuilding.spc_deadline_year.asc().nulls_last(),
+                  HospitalBuilding.county, HospitalBuilding.facility_name)
+        .limit(500)
+    ).all()
+    total = session.exec(select(func.count()).select_from(q.subquery())).one()
+
+    counties = sorted(territory_counties) if not all_ca else sorted(
+        session.exec(select(HospitalBuilding.county).distinct()).all())
+    # County-level construction-activity context (already-imported aggregate
+    # layer, app.pipeline.hcai's OTHER dataset) -- shown as context, not
+    # re-imported and not merged row-by-row (different grain: one row per
+    # county+status here, one row per building above).
+    county_activity: dict[str, list[HcaiCountyActivity]] = {}
+    if county:
+        rows = session.exec(
+            select(HcaiCountyActivity).where(HcaiCountyActivity.county == county)).all()
+        if rows:
+            county_activity[county] = rows
+
+    return templates.TemplateResponse(request, "hospitals.html", {
+        "buildings": buildings, "total": total, "counties": counties,
+        "county": county, "deadline": deadline, "all_ca": all_ca, "county_activity": county_activity,
+        "coverage": hospital_seismic_coverage(session, cfg),
+        "capability_gaps": hospital_capability_gaps(session),
+        "spc1_year": SPC1_DEADLINE_YEAR, "spc2_year": SPC2_DEADLINE_YEAR, "npc5_year": NPC5_DEADLINE_YEAR,
+        "territory_counties": territory_counties,
+        "tb": _title_block(session), "active": "hospitals",
+    })
+
+
+@app.get("/hospitals/building/{building_id}", response_class=HTMLResponse)
+def hospital_building_detail(building_id: int, request: Request,
+                             session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.pipeline.hcai import hospital_capability_gaps
+
+    building = session.get(HospitalBuilding, building_id)
+    if building is None:
+        raise HTTPException(404)
+    siblings = session.exec(
+        select(HospitalBuilding).where(HospitalBuilding.perm_id == building.perm_id,
+                                       HospitalBuilding.id != building.id)
+        .order_by(HospitalBuilding.building_name)
+    ).all()
+    county_activity = session.exec(
+        select(HcaiCountyActivity).where(HcaiCountyActivity.county == building.county)).all()
+    return templates.TemplateResponse(request, "hospital_building_detail.html", {
+        "b": building, "siblings": siblings, "county_activity": county_activity,
+        "capability_gaps": hospital_capability_gaps(session),
+        "tb": _title_block(session), "active": "hospitals",
     })
 
 
@@ -1716,20 +1812,28 @@ def assumptions_register(request: Request, session: Session = Depends(get_sessio
     from app.pipeline.resolve import delivery_method_coverage as get_delivery_method_coverage
     from app.pipeline.ownership import ownership_recency_coverage as get_ownership_recency_coverage
     from app.portfolios import portfolio_coverage as get_portfolio_coverage
+    from app.pipeline.hcai import hospital_capability_gaps as get_hospital_capability_gaps
+    from app.pipeline.hcai import hospital_seismic_coverage as get_hospital_coverage
     cfg = load_config()
     coverage = get_service_calls_coverage(session)
     delivery_coverage = get_delivery_method_coverage(session)
     ownership_coverage = get_ownership_recency_coverage(session)
     portfolio_cov = get_portfolio_coverage(session)
+    hospital_cov = get_hospital_coverage(session, cfg)
+    hospital_gaps = get_hospital_capability_gaps(session)
     assumptions = load_assumptions(cfg, service_calls_coverage=coverage,
                                    delivery_method_coverage=delivery_coverage,
                                    ownership_recency_coverage=ownership_coverage,
-                                   portfolio_coverage=portfolio_cov)
+                                   portfolio_coverage=portfolio_cov,
+                                   hospital_coverage=hospital_cov,
+                                   hospital_capability_gaps=hospital_gaps)
     return templates.TemplateResponse(request, "assumptions.html", {
         "grouped": assumptions_by_group(cfg, service_calls_coverage=coverage,
                                         delivery_method_coverage=delivery_coverage,
                                         ownership_recency_coverage=ownership_coverage,
-                                        portfolio_coverage=portfolio_cov),
+                                        portfolio_coverage=portfolio_cov,
+                                        hospital_coverage=hospital_cov,
+                                        hospital_capability_gaps=hospital_gaps),
         "tally": source_tally(assumptions),
         "total": len(assumptions),
         "tb": _title_block(session), "active": "assumptions",

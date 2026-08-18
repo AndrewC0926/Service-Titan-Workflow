@@ -530,6 +530,26 @@ sources:
     enabled: true
     dataset_id: "9yda-i4ya"
     portal_url: "https://data.lacity.org/City-Infrastructure-Service-Requests/Existing-Buildings-Energy-Water-Efficiency-EBEWE-P/9yda-i4ya"
+  # Same "direct import, not a Signal source" treatment as la_ebewe_benchmarking
+  # above -- listed here specifically so scout doctor/source_health enumerates
+  # it. See app/pipeline/hcai.py for why this is a MANUAL import (`scout
+  # import-hcai-seismic <path>`, downloaded by hand from CHHS, never an
+  # automated fetch) and app/assumptions.py's "Hospital seismic compliance"
+  # group for the CHHS Terms of Use findings that decided that.
+  #
+  # stale_hours: 2160 (90 days) -- a judgment call, not a measured cadence.
+  # CHHS's own dataset page shows this file updates irregularly (not on a
+  # fixed schedule the way the biweekly construction-cost CSV does), and this
+  # is a MANUAL import besides -- a person has to notice, download, and run
+  # the command. 36 hours (every other source's default) would flag this
+  # stale within two days of anyone's actual re-import cadence. 90 days is
+  # long enough not to nag on a dataset that itself doesn't move fast, short
+  # enough to still catch "nobody has touched this in a long while."
+  hcai_seismic_ratings:
+    enabled: true
+    stale_hours: 2160
+    portal_url: "https://data.chhs.ca.gov/dataset/seismic-ratings-and-collapse-probabilities-of-california-hospitals"
+    extensions_url: "https://data.chhs.ca.gov/dataset/e961df15-50b8-4217-9628-b696ea121ee0"
   # UA Local 250's own public signatory contractor list -- see
   # app/pipeline/local250.py for the compliance check, fetch, and CSLB join.
   # Weekly, same day as the retrofit steps: a public union roster doesn't

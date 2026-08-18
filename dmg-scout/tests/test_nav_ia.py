@@ -24,7 +24,7 @@ AUTH = {"Authorization": "Basic " + base64.b64encode(b"andrew:testpw").decode()}
 PRIMARY_TABS = {"Today", "Board", "Retrofit", "Contractors", "Accounts"}
 OVERFLOW_LABELS = {
     "Watch list", "Review queue", "Ask", "Saved searches", "Outreach", "Captures",
-    "Line card", "Reference", "Firms", "Contacts", "Map", "Source health",
+    "Hospitals", "Line card", "Reference", "Firms", "Contacts", "Map", "Source health",
     "Assumptions", "Add signal",
 }
 
@@ -74,13 +74,13 @@ def test_overflow_menu_contains_every_non_primary_destination(client, db_session
         assert label not in panel, f"{label!r} should not be in the overflow menu"
 
 
-def test_command_palette_json_has_all_nineteen_destinations(client, db_session, cfg):
+def test_command_palette_json_has_all_twenty_destinations(client, db_session, cfg):
     import json
     r = client.get("/board", headers=AUTH)
     start = r.text.index('id="nav-items">') + len('id="nav-items">')
     end = r.text.index("</script>", start)
     items = json.loads(r.text[start:end])
-    assert len(items) == 19
+    assert len(items) == 20
     labels = {it["label"] for it in items}
     assert labels == PRIMARY_TABS | OVERFLOW_LABELS
     assert sum(1 for it in items if it["primary"]) == 5

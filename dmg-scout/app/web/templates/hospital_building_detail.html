@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% from "_icon.html" import icon %}
+{% block title %}{{ b.facility_name }} — {{ b.building_name or b.building_nbr }}{% endblock %}
+{% block sheet_no %}S-19{% endblock %}
+{% block content %}
+<h2>{{ b.facility_name }}
+  <a href="/hospitals" style="float:right;font-size:12px">← back to hospitals</a>
+</h2>
+<p class="note">{{ b.building_name or 'Building ' + b.building_nbr }} (HCAI Building Nbr {{ b.building_nbr }})
+  · Perm ID {{ b.perm_id }} · {{ b.city or '?' }}, {{ b.county }} County, {{ b.state }}
+  {% if b.latitude %} · <a href="https://www.google.com/maps?q={{ b.latitude }},{{ b.longitude }}" target="_blank" rel="noopener">map ↗</a>{% endif %}</p>
+
+<details class="callout callout-warn" open>
+  <summary>Read this before you call</summary>
+  <div class="callout-content">
+    <span>
+    <strong>DMG cannot currently field a full mechanical package on a California hospital</strong>
+    <span class="body">
+      {% if not capability_gaps.chillers_covered %}Chillers: 0 of {{ capability_gaps.chillers_checked }}
+      DMG lines hold a confirmed current HCAI OSP. {% endif %}
+      {% if not capability_gaps.fans_covered %}Fans: 0 of {{ capability_gaps.fans_checked }} DMG lines
+      hold one. {% endif %}
+      Air handling, air distribution &amp; terminal, and humidification are covered.
+      See <a href="/assumptions#{{ assumption_slug("DMG's HCAI OSP capability gap (chillers, fans)") }}">/assumptions</a>.</span>
+    </span>
+  </div>
+</details>
+
+<table style="max-width:900px">
+<tr><th>SPC rating</th>
+    <td class="mono">{{ b.spc_rating or '—' }}
+      {%- if b.spc_deadline_year %} <span class="stamp {{ 'stamp-post' if b.spc_deadline_year == 2020 else 'stamp-in' }}">deadline {{ b.spc_deadline_year }}</span>{% endif -%}</td>
+    <th>NPC rating</th>
+    <td class="mono">{{ b.npc_rating or '—' }}
+      {%- if b.npc_deadline_year %} <span class="stamp stamp-in">due {{ b.npc_deadline_year }}</span>{% endif -%}</td></tr>
+<tr><th>Meets 2030 standard</th>
+    <td>{% if b.meets_2030_standard is none %}<span class="note">unknown — unrated</span>{% elif b.meets_2030_standard %}<span class="ok">{{ icon('check') }} yes</span>{% else %}<span class="warn">no</span>{% endif %}</td>
+    <th>Extension on file</th>
+    <td>{% if b.has_filed_extension %}<span class="stamp stamp-quiet">yes — read HCAI's own record, real deadline may be later</span>{% else %}no{% endif %}</td></tr>
+<tr><th>Building status</th><td colspan="3">{{ b.building_status or '—' }}</td></tr>
+<tr><th>2010 HAZUS collapse probability</th><td colspan="3" class="num">{{ '%.2f'|format(b.hazus_2010_pct) + '%' if b.hazus_2010_pct is not none else '—' }}</td></tr>
+{% if b.ab1882_notice %}<tr><th>AB 1882 notice</th><td colspan="3">{{ b.ab1882_notice }}</td></tr>{% endif %}
+</table>
+
+{% if siblings %}
+<h2>Other buildings on this campus</h2>
+<table class="tbl">
+<thead><tr><th>Building</th><th>SPC</th><th>NPC</th><th>Status</th></tr></thead>
+<tbody>
+{% for s in siblings %}
+<tr><td><a href="/hospitals/building/{{ s.id }}">{{ s.building_name or 'Building ' + s.building_nbr }}</a></td>
+    <td class="mono">{{ s.spc_rating or '—' }}</td><td class="mono">{{ s.npc_rating or '—' }}</td>
+    <td class="note">{{ s.building_status or '—' }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endif %}
+
+{% if county_activity %}
+<h2>HCAI construction activity — {{ b.county }} County <span class="note">(county-level aggregate, separate dataset)</span></h2>
+<table class="tbl">
+<thead><tr><th>Status</th><th class="num">Projects</th><th class="num">Total cost</th><th>As of</th></tr></thead>
+<tbody>
+{% for row in county_activity %}
+<tr><td>{{ row.status }}</td><td class="num">{{ row.project_count or '—' }}</td>
+    <td class="num">{% if row.total_cost %}${{ '{:,.0f}'.format(row.total_cost) }}{% else %}—{% endif %}</td>
+    <td class="note">{{ row.snapshot_date.strftime('%Y-%m-%d') }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endif %}
+
+<p class="note">Source: HCAI's public "Seismic Ratings and Collapse Probabilities of California
+  Hospitals" (CHHS Open Data Portal), imported {{ b.imported_at.strftime('%Y-%m-%d') }}.
+  spc_deadline_year/npc_deadline_year are Scout's own derived reading of the base SB 1953
+  schedule, not an HCAI-published field — see
+  <a href="/assumptions#{{ assumption_slug('SB 1953 SPC/NPC deadline schedule') }}">/assumptions</a>.</p>
+{% endblock %}

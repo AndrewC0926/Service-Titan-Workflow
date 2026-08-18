@@ -587,6 +587,78 @@ def test_retrofit_counties_correct_and_does_not_load_every_full_row(client, db_s
         )
 
 
+def test_hospitals_board_renders_and_is_territory_scoped_by_default(client, db_session, cfg):
+    from app.models import HospitalBuilding, utcnow
+    db_session.add(HospitalBuilding(perm_id="1", building_nbr="B1", facility_name="LA Test Hospital",
+                                    county="Los Angeles", spc_rating="1", npc_rating="2",
+                                    spc_deadline_year=2020, npc_deadline_year=2030,
+                                    snapshot_date=utcnow(), source_url="https://example.com"))
+    db_session.add(HospitalBuilding(perm_id="2", building_nbr="B1", facility_name="Out Of Territory Hospital",
+                                    county="Alameda", spc_rating="5", npc_rating="5",
+                                    meets_2030_standard=True,
+                                    snapshot_date=utcnow(), source_url="https://example.com"))
+    db_session.commit()
+
+    r = client.get("/hospitals", headers=AUTH)
+    assert r.status_code == 200
+    assert "LA Test Hospital" in r.text
+    assert "Out Of Territory Hospital" not in r.text  # territory-scoped by default
+
+    r_all = client.get("/hospitals?all_ca=1", headers=AUTH)
+    assert "Out Of Territory Hospital" in r_all.text  # reachable with all_ca=1
+
+
+def test_hospitals_board_shows_capability_gap_warning(client, db_session, cfg):
+    r = client.get("/hospitals", headers=AUTH)
+    assert "cannot currently field a full mechanical package" in r.text.lower()
+
+
+def test_hospitals_board_deadline_filter(client, db_session, cfg):
+    from app.models import HospitalBuilding, utcnow
+    db_session.add(HospitalBuilding(perm_id="1", building_nbr="B1", facility_name="Overdue Hospital",
+                                    county="Los Angeles", spc_rating="1", spc_deadline_year=2020,
+                                    snapshot_date=utcnow(), source_url="https://example.com"))
+    db_session.add(HospitalBuilding(perm_id="2", building_nbr="B1", facility_name="2030 Hospital",
+                                    county="Los Angeles", spc_rating="2", spc_deadline_year=2030,
+                                    snapshot_date=utcnow(), source_url="https://example.com"))
+    db_session.commit()
+
+    r = client.get("/hospitals?deadline=2020", headers=AUTH)
+    assert "Overdue Hospital" in r.text
+    assert "2030 Hospital" not in r.text
+
+
+def test_hospital_building_detail_renders(client, db_session, cfg):
+    from app.models import HospitalBuilding, utcnow
+    b = HospitalBuilding(perm_id="1", building_nbr="B1", facility_name="Detail Test Hospital",
+                         building_name="Main Tower", county="Los Angeles", spc_rating="3",
+                         npc_rating="5", snapshot_date=utcnow(), source_url="https://example.com")
+    db_session.add(b)
+    db_session.commit()
+    db_session.refresh(b)
+
+    r = client.get(f"/hospitals/building/{b.id}", headers=AUTH)
+    assert r.status_code == 200
+    assert "Detail Test Hospital" in r.text
+    assert "Main Tower" in r.text
+
+
+def test_hospital_building_detail_404_for_unknown_id(client, db_session, cfg):
+    assert client.get("/hospitals/building/999999", headers=AUTH).status_code == 404
+
+
+def test_hospitals_board_not_mixed_into_project_board(client, db_session, cfg):
+    """A different sale, a different buyer -- hospital rows must never
+    appear on /board."""
+    from app.models import HospitalBuilding, utcnow
+    seed(db_session, cfg)
+    db_session.add(HospitalBuilding(perm_id="1", building_nbr="B1", facility_name="Should Not Leak Hospital",
+                                    county="Los Angeles", snapshot_date=utcnow(),
+                                    source_url="https://example.com"))
+    db_session.commit()
+    assert "Should Not Leak Hospital" not in client.get("/board", headers=AUTH).text
+
+
 def test_esco_board_is_reachable_and_separate(client, db_session, cfg):
     """esco rows are kept and counted, but do not join a ranking of new
     construction they are not competing in."""

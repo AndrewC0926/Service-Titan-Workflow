@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import shutil
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import httpx
 from sqlmodel import select
@@ -113,7 +113,20 @@ def doctor() -> list[tuple[str, bool, str]]:
     checks.append(("disk", free_gb > 1.0, f"{free_gb:.1f} GB free"))
 
     cfg = load_config()
-    stale_cutoff = utcnow() - timedelta(hours=36)
+    now = utcnow()
+    DEFAULT_STALE_HOURS = 36
+
+    def _stale_cutoff(name: str) -> datetime:
+        # A source's own config entry may set `stale_hours` to override the
+        # 36-hour default -- added for manually-triggered sources (e.g.
+        # hcai_seismic_ratings) that update on a human's cadence, not a
+        # scheduler's, where 36 hours would flag every single import as
+        # stale within two days of the person who ran it going on vacation.
+        # Every source that doesn't set this keeps the exact prior 36-hour
+        # behavior.
+        hours = cfg.get(f"sources.{name}.stale_hours", DEFAULT_STALE_HOURS)
+        return now - timedelta(hours=hours)
+
     with session_scope() as session:
         # One pass over the table, grouped by the source a run name belongs to, so
         # a backfill run counts as a run of its source. Matching `source == name`
@@ -133,7 +146,7 @@ def doctor() -> list[tuple[str, bool, str]]:
             if oks:
                 last_ok = oks[-1]
                 mode = run_name_mode(last_ok.source) or "fetch"
-                checks.append((f"source:{name}", last_ok.started_at >= stale_cutoff,
+                checks.append((f"source:{name}", last_ok.started_at >= _stale_cutoff(name),
                                f"last success {last_ok.started_at:%Y-%m-%d %H:%M}Z ({mode})"))
             elif runs:
                 # Ran and failed is a different diagnosis from never ran, and the

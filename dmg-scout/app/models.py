@@ -952,11 +952,20 @@ class HcaiCountyActivity(SQLModel, table=True):
     """County-level AGGREGATE healthcare construction activity from HCAI's
     (formerly OSHPD) public CHHS Open Data CSV — see app/pipeline/hcai.py.
     Same shape as IeprForwardLoad: no facility names, no addresses, nothing a
-    lead could be built from, because HCAI's only genuinely public data is
-    aggregated by county+status. The per-project detail (facility names,
-    plan-review stage before construction) lives behind HCAI's login-gated
-    eServices portal — confirmed not publicly reachable — so this can never
-    be more than a county-level trend layer.
+    lead could be built from, because THIS PARTICULAR CHHS dataset ("Total
+    Construction Cost of Healthcare Projects") is aggregated by county+status
+    only. Correction, 2026-08-17: this docstring previously claimed HCAI's
+    per-project detail (facility names, addresses) "lives behind HCAI's
+    login-gated eServices portal — confirmed not publicly reachable" and can
+    "never be more than a county-level trend layer" — that is TRUE of the
+    plan-review/permit-stage workflow tracking specifically (still eServices-
+    only, still not publicly reachable), but it is not true of HCAI's own
+    seismic-rating data: "Seismic Ratings and Collapse Probabilities of
+    California Hospitals" is a SEPARATE, genuinely per-building CHHS dataset
+    with facility name, building name/number, and lat/lon — see
+    HospitalBuilding below. The two datasets answer different questions
+    (construction financials/status vs. seismic compliance) and only the
+    latter turned out to be facility-identified.
 
     Imported by hand from a downloaded CHHS CSV, same reason as IEPR: the
     dataset's own download URL embeds a generation date that changes with
@@ -975,6 +984,75 @@ class HcaiCountyActivity(SQLModel, table=True):
     status: str = Field(index=True)  # In Review | Pending Construction | In Construction | In Closure
     total_cost: float | None = None
     project_count: int | None = None
+    snapshot_date: datetime = Field(index=True)
+    source_url: str
+    imported_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class HospitalBuilding(SQLModel, table=True):
+    """One row per seismically-separate California hospital building, from
+    HCAI's public CHHS Open Data CSV "Seismic Ratings and Collapse
+    Probabilities of California Hospitals" — see app/pipeline/hcai.py for
+    the import, the SPC/NPC-to-deadline derivation, and the CHHS Terms of
+    Use findings (assumptions register, group "Hospital seismic
+    compliance").
+
+    A DIFFERENT population from Project and from RetrofitBuilding, on
+    purpose — this is a different sale (a hospital's facilities/capital
+    team retrofitting or replacing an existing building under a statutory
+    seismic deadline) to a different buyer, with a different regulatory
+    driver (SB 1953, not a data-center lease or an assessor-derived
+    replacement-candidate proxy). Never merged into the project board.
+
+    spc_rating / npc_rating are HCAI's own raw codes, kept verbatim
+    (including the trailing "s" HCAI uses for an unverified/self-reported
+    rating, and "N/A"/"NYA" placeholders) — never coerced to a bare int,
+    so a reader can see exactly what HCAI itself published. spc_deadline_year
+    and npc_deadline_year are THIS APPLICATION'S derived interpretation of
+    the base SB 1953 statutory schedule (SPC-1 -> 2020, SPC-2 -> 2030;
+    "meets the 2030 standard" requires SPC >= 3 AND NPC = 5) — not an HCAI-
+    published field, and per CHHS's own Terms of Use ("you may not claim the
+    data is 'official government data'... must clearly indicate the data
+    has been modified"), every place this renders must show it as Scout's
+    own derived read, alongside the raw HCAI codes it was derived from, not
+    in place of them. has_filed_extension is a coarse yes/no only (ANY
+    non-blank value across HCAI's several extension-bill columns in the
+    companion "Seismic Deadline Extensions Granted" dataset) — deliberately
+    NOT a computed extended deadline date: those columns use inconsistent
+    date formats across six different extension bills (SB 306, AB 523,
+    SB 1661/AB 2557/AB 81, SB 499, SB 90, AB2190) each with different scope
+    and history, and guessing at which one governs a given building's
+    ACTUAL current deadline is exactly the false-precision this system
+    abstains from elsewhere. A building flagged here needs a human to read
+    HCAI's own extension record, not a number this system invented.
+    """
+    __tablename__ = "hospital_buildings"
+    __table_args__ = (UniqueConstraint("perm_id", "building_nbr", name="uq_hospital_building"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    perm_id: str = Field(index=True)          # HCAI Facility Identification Number
+    building_nbr: str = Field(index=True)     # HCAI's per-building number within a facility
+    facility_name: str = Field(index=True)
+    building_name: str | None = None
+    building_status: str | None = None        # e.g. "OSHPD 1-In Service", "OSHPD 1-Under Construction"
+    city: str | None = None
+    county: str = Field(index=True)
+    state: str = Field(default="CA", index=True)
+
+    spc_rating: str | None = Field(default=None, index=True)   # HCAI's raw code: "1".."5", "1s".."5s", "4D", "N/A", "NYA"
+    npc_rating: str | None = Field(default=None, index=True)   # HCAI's raw code: "1".."5", "3R", "4D-L1", "4D-L2", "N/A", "NYA"
+    hazus_2010_pct: float | None = None       # 2010 HAZUS collapse-probability score, percent
+    ab1882_notice: str | None = None          # HCAI's own plain-language risk note, verbatim when present
+
+    latitude: float | None = None
+    longitude: float | None = None
+
+    # Derived -- see class docstring's "spc_rating / npc_rating" paragraph.
+    spc_deadline_year: int | None = None
+    npc_deadline_year: int | None = None
+    meets_2030_standard: bool | None = None   # SPC in {3,3s,4,4s,4D,5,5s} AND NPC == "5"
+    has_filed_extension: bool = Field(default=False, index=True)
+
     snapshot_date: datetime = Field(index=True)
     source_url: str
     imported_at: datetime = Field(default_factory=utcnow, index=True)

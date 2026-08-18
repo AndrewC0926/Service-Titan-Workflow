@@ -103,7 +103,9 @@ def _fmt_table(d: dict, fmt: str = "{:.2f}") -> str:
 def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                      delivery_method_coverage: dict | None = None,
                      ownership_recency_coverage: dict | None = None,
-                     portfolio_coverage: dict | None = None) -> list[Assumption]:
+                     portfolio_coverage: dict | None = None,
+                     hospital_coverage: dict | None = None,
+                     hospital_capability_gaps: dict | None = None) -> list[Assumption]:
     """Everything below is read from cfg at call time — never hand-copied —
     so the VALUE column can't drift from what's actually running even if
     this function's prose goes stale.
@@ -918,18 +920,172 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "not made here.",
     ))
 
+    # ---- Hospital seismic compliance --------------------------------------
+
+    from app.pipeline.hcai import NPC5_DEADLINE_YEAR, SPC1_DEADLINE_YEAR, SPC2_DEADLINE_YEAR
+    out.append(Assumption(
+        group="Hospital seismic compliance", name="SB 1953 SPC/NPC deadline schedule",
+        config_path=None,
+        value=f"SPC-1 -> {SPC1_DEADLINE_YEAR}, SPC-2 -> {SPC2_DEADLINE_YEAR}, "
+             f"'meets 2030 standard' = SPC>=3 AND NPC=5 (by {NPC5_DEADLINE_YEAR})",
+        source_type=STATED,
+        source_detail=(
+            "Health & Safety Code section 130000 et seq. (the Alfred E. Alquist Hospital "
+            "Facilities Seismic Safety Act), read directly from HCAI's own published pages "
+            "2026-08-17 (hcai.ca.gov/facilities/building-safety/seismic-compliance-and-safety/ "
+            "and its program-overview and seismic-performance-ratings subpages): 'State law "
+            "requires all SPC 1 buildings to be removed from providing general acute care "
+            "services by January 1, 2020, unless an approved extension has been granted, and "
+            "all SPC 2 buildings to be removed from providing general acute care services by "
+            "January 1, 2030... A hospital facility meets the January 1, 2030 seismic safety "
+            "standards if all the general acute care buildings on campus are SPC 3, 4, 4D, or "
+            "5 and NPC 5.' These are the BASE statutory dates only. HCAI separately publishes "
+            "a 'Seismic Deadline Extensions Granted for California Hospitals' dataset (six "
+            "extension bills: SB 306, AB 523, SB 1661/AB 2557/AB 81, SB 499, SB 90, AB2190, "
+            "each with its own scope and inconsistent per-column date formats) -- "
+            "app.models.HospitalBuilding.has_filed_extension flags whether ANY such record "
+            "exists for a building (1,625 of 4,666 buildings do, measured 2026-08-17) but "
+            "deliberately does NOT compute an extended deadline date from those columns: "
+            "picking the governing bill and parsing its date correctly for every building is "
+            "exactly the false-precision this system abstains from elsewhere (see the "
+            "masked-APN permit exclusion and EBEWE's ain_last3 checksum for the same "
+            "discipline applied to other sources). A building's spc_deadline_year/"
+            "npc_deadline_year shown on the hospital board is therefore the BASE schedule, "
+            "and has_filed_extension is the signal that the real deadline may be later -- read "
+            "HCAI's own extension record before treating either date as final."
+        ),
+        verified=True,
+        last_reviewed="2026-08-17, read directly from hcai.ca.gov.",
+    ))
+
+    hc = hospital_coverage or {}
+    hc_total = hc.get("total_buildings")
+    hc_territory = hc.get("in_territory")
+    hc_2020 = hc.get("spc_2020_deadline")
+    hc_2030 = hc.get("spc_2030_deadline")
+    out.append(Assumption(
+        group="Hospital seismic compliance", name="HCAI seismic-ratings coverage",
+        config_path=None,
+        value=(f"{hc_territory:,} of {hc_total:,} buildings in Scout's territory counties "
+              f"({100*hc_territory/hc_total:.1f}%); {hc_2020:,} carry the (likely already "
+              f"overdue) SPC-1/2020 deadline, {hc_2030:,} carry the SPC-2/2030 deadline"
+              if hc_total else "not available on this page load"),
+        source_type=MEASURED,
+        source_detail="Live count from HospitalBuilding as of the last `scout import-hcai-seismic` "
+                      "run -- see source_health for when that was. 'In territory' means the "
+                      "building's county is one of the CA counties in config.yaml's territories "
+                      "block (Los Angeles, Orange, San Bernardino, Riverside, San Diego, Imperial, "
+                      "Kern); HCAI's dataset itself covers all 58 CA counties statewide, most of "
+                      "which are out of Scout's scope.",
+    ))
+
+    cg = hospital_capability_gaps or {}
+    cg_chillers_n = cg.get("chillers_checked")
+    cg_fans_n = cg.get("fans_checked")
+    out.append(Assumption(
+        group="Hospital seismic compliance", name="DMG's HCAI OSP capability gap (chillers, fans)",
+        config_path=None,
+        value=(f"chillers: 0 of {cg_chillers_n} DMG lines hold a confirmed current OSP "
+              f"({cg.get('chillers_confirmed_expired', 0)} confirmed expired, rest "
+              f"unresearched); fans: 0 of {cg_fans_n} lines hold one "
+              f"({cg.get('fans_confirmed_expired', 0)} confirmed expired, rest unresearched)"
+              if cg_chillers_n is not None else "not available on this page load"),
+        source_type=MEASURED,
+        source_detail=(
+            "Computed LIVE from ProductLine.oshpd_osp every time this loads (app.pipeline.hcai."
+            "hospital_capability_gaps), never hardcoded -- so this self-corrects the moment a "
+            "line wins a new OSP instead of silently going stale on a board people read to "
+            "decide whether to call. Chillers are DMG's category='chillers_cooling' lines "
+            "specifically (DB, ClimaCool, Geoclima, Hecoclima) -- deliberately NOT the broader "
+            "'cooling_generation' building_role, which also contains category='vrf_split' "
+            "(fan-coil/PTAC/VRF terminal equipment; Nailor's 'Engineered Comfort' brand sits "
+            "here and DOES hold a current OSP for its fan coil units, OSP-0772) -- rolling "
+            "that up as 'chillers covered' would be exactly the false-precision this register "
+            "exists to flag. Every individual line's own research trail (HCAI directory/PDF "
+            "citations, retrieval date) is in this same config.yaml file as that line's "
+            "oshpd_osp_basis field -- this entry is the aggregate read across all of them, not "
+            "a new independent finding. 'Unresearched' (oshpd_osp=None) is absence of "
+            "evidence, not confirmed absence -- a line marked unresearched could still hold an "
+            "OSP nobody has checked for yet. Air handling, air distribution/terminal, and "
+            "humidification each have at least one confirmed current OSP and are not part of "
+            "this gap."
+        ),
+        verified=True,
+        last_reviewed="Live count as of this page load.",
+    ))
+
+    out.append(Assumption(
+        group="Hospital seismic compliance", name="CHHS Open Data Portal — terms of use",
+        config_path=None,
+        value="Manual download required; automated fetch not clearly sanctioned",
+        source_type=STATED,
+        source_detail=(
+            "data.chhs.ca.gov/pages/terms, read directly 2026-08-17 (last modified per the page "
+            "itself: January 27, 2023). Two separate findings: "
+            "(1) AUTOMATED ACCESS -- the 'Public Participation' section states 'You must not "
+            "create accounts with the CalHHS Open Data Portal or access the site through "
+            "unauthorized means, including but not limited to, by using an automated device, "
+            "script, bot, spider, crawler or scraper.' That sentence is textually scoped to the "
+            "portal's participatory features (accounts, comment forums, uploads) — its own "
+            "section header is 'Public Participation' — not plainly to an unauthenticated file "
+            "download, so this is genuinely ambiguous rather than a flat ban on downloading the "
+            "CSV. robots.txt separately disallows only /api/ and /datastore/* (confirmed by direct "
+            "fetch), not the plain resource-download URL a browser uses. Scout does not rely on "
+            "either ambiguous reading either way: `scout import-hcai-seismic` requires a file "
+            "already downloaded by hand, matching the precedent app.pipeline.iepr.py already set "
+            "for a different reason (a TN filing number is not a stable feed endpoint). "
+            "(2) REDISTRIBUTION/USE -- the 'Intellectual Property' section: the State grants a "
+            "'non-exclusive, non-transferable, revocable license to use and distribute the "
+            "Content... in a manner consistent with the Terms of Use'; HCAI's own datasets are "
+            "State-owned content, so the separate sublicense-from-a-third-party clause on that "
+            "same page does not apply. Reuse/redistribution 'requires attribution of credit to "
+            "the CalHHS department or office providing such Content and a citation to the "
+            "webpage and date of publication of the material cited' -- Scout's own hospital "
+            "board and detail pages carry this attribution + a link to the source dataset page. "
+            "Separately: 'If you modify the Content for your own purposes in any way, you may "
+            "not claim the data is \"official government data\" and must clearly indicate that "
+            "the data... has been modified' -- this is why spc_deadline_year/npc_deadline_year/ "
+            "meets_2030_standard (Scout's own derived reading of HCAI's raw SPC/NPC codes) are "
+            "always shown alongside, never in place of, the raw HCAI-published codes. This "
+            "finding governs deployment beyond a single user: if this tool is ever run by "
+            "someone else, both the manual-download requirement and the attribution/labeling "
+            "obligations above travel with it, not just with this session."
+        ),
+        verified=True,
+        last_reviewed="2026-08-17, read directly from data.chhs.ca.gov/pages/terms.",
+    ))
+
+    out.append(Assumption(
+        group="Hospital seismic compliance", name="Manual-import staleness threshold",
+        config_path="sources.hcai_seismic_ratings.stale_hours",
+        value=f"{cfg.get('sources.hcai_seismic_ratings.stale_hours', 2160):.0f} hours "
+             f"({cfg.get('sources.hcai_seismic_ratings.stale_hours', 2160)/24:.0f} days)",
+        source_type=PLACEHOLDER,
+        source_detail="A judgment call, not a measured cadence -- CHHS's own dataset page shows "
+                      "irregular (not fixed-schedule) updates, and this is a MANUAL import besides "
+                      "(a person has to notice, download, and run `scout import-hcai-seismic`). "
+                      "Every other source in config.yaml's sources: block defaults to a 36-hour "
+                      "staleness window (app.ops.doctor), which would flag this stale within two "
+                      "days of any realistic manual re-import cadence -- see "
+                      "app.ops.doctor's per-source stale_hours override, added for this source.",
+    ))
+
     return out
 
 
 def assumptions_by_group(cfg: Config, service_calls_coverage: dict | None = None,
                          delivery_method_coverage: dict | None = None,
                          ownership_recency_coverage: dict | None = None,
-                         portfolio_coverage: dict | None = None) -> dict[str, list[Assumption]]:
+                         portfolio_coverage: dict | None = None,
+                         hospital_coverage: dict | None = None,
+                         hospital_capability_gaps: dict | None = None) -> dict[str, list[Assumption]]:
     grouped: dict[str, list[Assumption]] = {}
     for a in load_assumptions(cfg, service_calls_coverage=service_calls_coverage,
                               delivery_method_coverage=delivery_method_coverage,
                               ownership_recency_coverage=ownership_recency_coverage,
-                              portfolio_coverage=portfolio_coverage):
+                              portfolio_coverage=portfolio_coverage,
+                              hospital_coverage=hospital_coverage,
+                              hospital_capability_gaps=hospital_capability_gaps):
         grouped.setdefault(a.group, []).append(a)
     return grouped
 
