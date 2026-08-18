@@ -408,3 +408,188 @@ def hospital_seismic_coverage(session, cfg) -> dict:
         "meets_2030_standard": sum(1 for b in in_territory if b.meets_2030_standard is True),
         "has_filed_extension": sum(1 for b in in_territory if b.has_filed_extension),
     }
+
+
+def hospital_contractor_reachability(session, cfg) -> dict:
+    """Of the in-territory HospitalBuilding rows with a live NPC-2030
+    deadline, how many sit within radius_miles of AT LEAST ONE CSLB
+    mechanical (C-20/C-38) contractor, and separately of at least one UA
+    Local 250 signatory contractor. Existence checks only -- this is NOT
+    nearest_mechanical_contractor_bulk (app/contractors.py), which finds
+    the single nearest contractor per building for a tel: link; this just
+    answers "is anyone plausibly reachable at all", the input this brief
+    needs.
+
+    radius_miles defaults to app.contractors.default_radius_miles (15mi) --
+    reused deliberately, not a new number invented for this report: it is
+    the SAME radius the app already treats as "realistically reachable"
+    for a contractor dispatch list (app.contractors.nearest_mechanical_contractors,
+    the retrofit building detail page). Neither count is evidence of actual
+    hospital/OSHPD experience -- CSLB licensing and UA Local 250 signatory
+    status are both proxies (general mechanical licensure, and a prevailing-
+    wage/institutional-labor signal respectively), not a claim that a given
+    contractor has ever worked on a hospital."""
+    import math
+
+    from app.contractors import (
+        MILES_PER_DEGREE_LAT,
+        _is_mechanical_classification,
+        default_radius_miles,
+        haversine_miles,
+    )
+    from app.models import Contractor
+
+    radius_miles = default_radius_miles(cfg)
+    territory_counties = set(cfg.get("territories.california.counties", []))
+
+    buildings = session.exec(
+        select(HospitalBuilding).where(
+            HospitalBuilding.npc_deadline_year == NPC5_DEADLINE_YEAR,
+            HospitalBuilding.county.in_(territory_counties),
+        )
+    ).all()
+    geocoded = [b for b in buildings if b.latitude is not None and b.longitude is not None]
+
+    if not geocoded:
+        return {"radius_miles": radius_miles, "npc_2030_total": len(buildings),
+                "npc_2030_geocoded": 0, "near_mechanical_contractor": 0,
+                "near_mechanical_contractor_pct": 0.0,
+                "near_ua_local_250_signatory": 0, "near_ua_local_250_signatory_pct": 0.0}
+
+    # One bounding box covering every target building at once (same
+    # discipline as app.contractors.nearest_mechanical_contractor_bulk) --
+    # a per-building query would be 1,790 separate round trips.
+    lats = [b.latitude for b in geocoded]
+    lons = [b.longitude for b in geocoded]
+    lat_pad = radius_miles / MILES_PER_DEGREE_LAT
+    lon_pad = radius_miles / (MILES_PER_DEGREE_LAT * max(math.cos(math.radians(sum(lats) / len(lats))), 0.01))
+    lat_min, lat_max = min(lats) - lat_pad, max(lats) + lat_pad
+    lon_min, lon_max = min(lons) - lon_pad, max(lons) + lon_pad
+
+    candidates = session.exec(
+        select(Contractor.latitude, Contractor.longitude, Contractor.classifications,
+              Contractor.ua_local_250_signatory)
+        .where(Contractor.latitude.is_not(None),
+              Contractor.latitude.between(lat_min, lat_max),
+              Contractor.longitude.between(lon_min, lon_max))
+    ).all()
+    mechanical = [(lat, lon) for lat, lon, cls, _sig in candidates if _is_mechanical_classification(cls)]
+    signatory = [(lat, lon) for lat, lon, _cls, sig in candidates if sig]
+
+    near_mechanical = near_signatory = 0
+    for b in geocoded:
+        if any(haversine_miles(b.latitude, b.longitude, lat, lon) <= radius_miles for lat, lon in mechanical):
+            near_mechanical += 1
+        if any(haversine_miles(b.latitude, b.longitude, lat, lon) <= radius_miles for lat, lon in signatory):
+            near_signatory += 1
+
+    total = len(geocoded)
+    return {
+        "radius_miles": radius_miles,
+        "npc_2030_total": len(buildings),
+        "npc_2030_geocoded": total,
+        "near_mechanical_contractor": near_mechanical,
+        "near_mechanical_contractor_pct": round(100 * near_mechanical / total, 1) if total else 0.0,
+        "near_ua_local_250_signatory": near_signatory,
+        "near_ua_local_250_signatory_pct": round(100 * near_signatory / total, 1) if total else 0.0,
+    }
+
+
+# ---- OSP number/expiration for the hospital brief (/hospitals/brief) -----
+#
+# HAND-TRANSCRIBED from each line's own oshpd_osp_basis text in config.yaml
+# (read directly, 2026-08-18), not parsed/regexed from it -- the basis text
+# itself is prose written for a human to read, and pattern-matching a date
+# out of free text is exactly the kind of silent-misextraction risk this
+# system abstains from elsewhere (see HospitalBuilding's own
+# has_filed_extension for the same discipline applied to a different
+# source). If a line's oshpd_osp/oshpd_osp_basis is updated with new
+# research, this entry must be updated by hand too -- a known coupling, not
+# an automatic one. osp_number/expires are None where HCAI's own listing
+# does not state one (shown on the brief as "unknown", never computed).
+#
+# Scope: every line in category='chillers_cooling' (4) and every line
+# resolving to building_role='fans_ventilation' (~14) -- ALL of them,
+# covered or not -- plus only the CONFIRMED-CURRENT (oshpd_osp=True) lines
+# in air_handling, air_distribution_terminal, and humidification, since
+# those roles are reported on the brief only as "what's covered", not
+# exhaustively.
+HOSPITAL_BRIEF_OSP_FACTS = {
+    # ---- chillers (category=chillers_cooling) -- GAP, 0 of 4 confirmed current
+    "DB": {"osp_number": None, "expires": None,
+          "note": "No HCAI record found under Dunham-Bush in either chiller category. Absence of evidence, not a denial."},
+    "ClimaCool": {"osp_number": "OSP-0048", "expires": "expired after 2019-12-31",
+                 "note": "Chillers - Water Cooled. HCAI's own listing shows no valid-through date beyond the expiry -- unlike active peer entries, which show a specific future date. No renewal on file."},
+    "Geoclima": {"osp_number": None, "expires": None,
+                "note": "No HCAI record found under Geoclima in either chiller category. Absence of evidence, not a denial."},
+    "Hecoclima": {"osp_number": None, "expires": None,
+                 "note": "No HCAI record found under Hecoclima in either chiller category. Absence of evidence, not a denial."},
+    # ---- fans (building_role=fans_ventilation) -- GAP, 0 of 14 confirmed current
+    "TCF/Twin City Fan": {"osp_number": "OSP-0195, -0271, -0355, -0395", "expires": "expired 2022-12-31",
+                          "note": "All four filings (Exhaust/Smoke Control Fans + Air Handling Units>Fans) expired the same date. No renewal on file."},
+    "Strobic Air": {"osp_number": None, "expires": None,
+                    "note": "Searched HCAI's Exhaust/Smoke Control Fans category directly -- not listed. Absence of evidence, not a denial."},
+    "Howden": {"osp_number": None, "expires": None,
+              "note": "Searched HCAI's Exhaust/Smoke Control Fans category directly -- not listed. Absence of evidence, not a denial."},
+    "Penn Barry": {"osp_number": None, "expires": None,
+                  "note": "Searched HCAI's Exhaust/Smoke Control Fans category directly -- not listed. Absence of evidence, not a denial."},
+    "Soler & Palau": {"osp_number": None, "expires": None,
+                      "note": "Searched HCAI's Exhaust/Smoke Control Fans and Inline Fans/Terminal categories directly -- not listed. Absence of evidence, not a denial."},
+    "Berner": {"osp_number": None, "expires": None, "note": "Not yet researched against HCAI's directory."},
+    "Canarm": {"osp_number": None, "expires": None, "note": "Not yet researched against HCAI's directory."},
+    "FanAm": {"osp_number": None, "expires": None, "note": "Not yet researched against HCAI's directory."},
+    "MacroAir": {"osp_number": None, "expires": None, "note": "Not yet researched against HCAI's directory."},
+    "Panasonic": {"osp_number": None, "expires": None, "note": "Not yet researched against HCAI's directory."},
+    "Delta Breez": {"osp_number": None, "expires": None, "note": "Not yet researched against HCAI's directory."},
+    "Broan NuTone": {"osp_number": None, "expires": None, "note": "Not yet researched against HCAI's directory."},
+    "Systemair": {"osp_number": None, "expires": None, "note": "Not yet researched against HCAI's directory."},
+    "Monoxivent": {"osp_number": None, "expires": None, "note": "Not yet researched against HCAI's directory."},
+    # ---- covered (confirmed current only)
+    "ClimateCraft": {"osp_number": "OSP-0272", "expires": "2029-07-18",
+                     "note": "Air Handling Units (FanMatrix fan-tower assembly specifically -- not a blanket AHU preapproval)."},
+    "AAON": {"osp_number": "OSP-0180", "expires": "2030-03-20",
+            "note": "Air Conditioning Units - Packaged (RQ, RN-A/B/C). A second number, OSP-0181 (Chillers - Condensers), is also listed active but its own expiry was not independently confirmed."},
+    "Energy Labs": {"osp_number": "OSP-0069", "expires": None,
+                    "note": "Air Conditioning Units - Custom. HCAI's own listing shows no expired/cancelled flag but also states no specific future expiration date."},
+    "Titus": {"osp_number": "OSP-0352", "expires": "2032-01-06",
+             "note": "Air Conditioning Units - Inline Fan and Terminal (VAV/fan-powered terminal units only, not grilles/diffusers/registers)."},
+    "Nailor": {"osp_number": "OSP-0561", "expires": "2029-04-17",
+              "note": "Single/Dual Duct and Fan Powered Terminal Units."},
+    "Carel": {"osp_number": "OSP-0705", "expires": "2028-08-11",
+             "note": "Humidification Systems (HeaterSteam boilers, UltimateSAM distribution grids). Nearest of every confirmed-current OSP on this brief to its own expiration."},
+}
+
+
+def hospital_osp_breakdown(session) -> dict:
+    """Line-by-line OSP status for /hospitals/brief -- chillers and fans in
+    full (every line, covered or not), air handling/distribution/terminal/
+    humidification limited to the confirmed-current ones (what's covered).
+    oshpd_osp itself is read LIVE from ProductLine; osp_number/expires/note
+    come from HOSPITAL_BRIEF_OSP_FACTS (hand-transcribed, see that dict's
+    own docstring) -- a line with no entry there falls back to a generic
+    unknown/not-yet-transcribed row rather than raising, so a future new
+    line added to one of these categories doesn't break the brief, it just
+    shows up honestly incomplete."""
+    from app.accounts import resolve_building_role
+    from app.models import ProductLine
+
+    def _fact(name: str) -> dict:
+        return HOSPITAL_BRIEF_OSP_FACTS.get(name, {"osp_number": None, "expires": None,
+                                                    "note": "not yet transcribed onto this brief"})
+
+    def _row(line) -> dict:
+        f = _fact(line.name)
+        return {"name": line.name, "firm": line.firm, "current": line.oshpd_osp is True,
+               "confirmed_expired": line.oshpd_osp is False,
+               "osp_number": f["osp_number"], "expires": f["expires"], "note": f["note"]}
+
+    lines = session.exec(select(ProductLine)).all()
+    chillers = sorted((_row(l) for l in lines if l.category == "chillers_cooling"), key=lambda r: r["name"])
+    fans = sorted((_row(l) for l in lines if resolve_building_role(l.name, l.category) == "fans_ventilation"),
+                 key=lambda r: r["name"])
+
+    covered_names = {"ClimateCraft", "AAON", "Energy Labs", "Titus", "Nailor", "Carel"}
+    covered = sorted((_row(l) for l in lines if l.name in covered_names and l.oshpd_osp is True),
+                     key=lambda r: r["name"])
+
+    return {"chillers": chillers, "fans": fans, "covered": covered}

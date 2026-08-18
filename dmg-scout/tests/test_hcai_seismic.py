@@ -209,3 +209,97 @@ def test_hospital_seismic_coverage_filters_by_territory(db_session, cfg):
     assert cov["in_territory"] == 1
     assert cov["spc_2020_deadline"] == 1
     assert cov["spc_2030_deadline"] == 0  # the SPC-2 building is Alameda, out of territory
+
+
+# ---- contractor reachability -------------------------------------------
+
+def test_hospital_contractor_reachability_counts_within_radius(db_session, cfg):
+    from app.models import Contractor
+
+    # A building needing NPC work by 2030, in territory, geocoded in LA.
+    db_session.add(HospitalBuilding(perm_id="1", building_nbr="B1", facility_name="Reach Test Hospital",
+                                    county="Los Angeles", npc_deadline_year=2030,
+                                    latitude=34.05, longitude=-118.25,
+                                    snapshot_date=utcnow(), source_url="https://example.com"))
+    # A mechanical contractor ~0.9mi away -- within any reasonable radius.
+    db_session.add(Contractor(license_no="1", business_name="Nearby Mechanical", classifications="C20",
+                              primary_status="CLEAR", latitude=34.06, longitude=-118.26))
+    # A UA Local 250 signatory, also nearby.
+    db_session.add(Contractor(license_no="2", business_name="Signatory Co", classifications="C20",
+                              primary_status="CLEAR", latitude=34.06, longitude=-118.24,
+                              ua_local_250_signatory=True))
+    # A mechanical contractor 200mi away -- outside any reasonable radius.
+    db_session.add(Contractor(license_no="3", business_name="Far Away HVAC", classifications="C38",
+                              primary_status="CLEAR", latitude=36.5, longitude=-120.5))
+    db_session.commit()
+
+    result = hcai.hospital_contractor_reachability(db_session, cfg)
+    assert result["npc_2030_total"] == 1
+    assert result["near_mechanical_contractor"] == 1
+    assert result["near_ua_local_250_signatory"] == 1
+    assert result["near_mechanical_contractor_pct"] == 100.0
+    assert result["near_ua_local_250_signatory_pct"] == 100.0
+
+
+def test_hospital_contractor_reachability_zero_when_nothing_nearby(db_session, cfg):
+    from app.models import Contractor
+    db_session.add(HospitalBuilding(perm_id="1", building_nbr="B1", facility_name="Isolated Hospital",
+                                    county="Los Angeles", npc_deadline_year=2030,
+                                    latitude=34.05, longitude=-118.25,
+                                    snapshot_date=utcnow(), source_url="https://example.com"))
+    db_session.add(Contractor(license_no="1", business_name="Far Away HVAC", classifications="C20",
+                              primary_status="CLEAR", latitude=36.5, longitude=-120.5))
+    db_session.commit()
+
+    result = hcai.hospital_contractor_reachability(db_session, cfg)
+    assert result["near_mechanical_contractor"] == 0
+    assert result["near_ua_local_250_signatory"] == 0
+
+
+def test_hospital_contractor_reachability_no_buildings(db_session, cfg):
+    """Guards the zero-division bug caught by test_hospitals_brief_renders_
+    no_dollar_estimate: with no NPC-2030 buildings, the pct fields must be
+    0.0, not a ZeroDivisionError."""
+    result = hcai.hospital_contractor_reachability(db_session, cfg)
+    assert result["npc_2030_total"] == 0
+    assert result["near_mechanical_contractor"] == 0
+    assert result["near_mechanical_contractor_pct"] == 0.0
+    assert result["near_ua_local_250_signatory_pct"] == 0.0
+
+
+# ---- OSP breakdown -------------------------------------------------
+
+def test_hospital_osp_breakdown_covers_all_four_chillers_and_fourteen_fans(db_session):
+    """The brief must report on every chiller/fan line, not a subset."""
+    from app.accounts import seed_product_lines
+    from app.config import load_config
+    seed_product_lines(db_session, load_config())
+    breakdown = hcai.hospital_osp_breakdown(db_session)
+    assert len(breakdown["chillers"]) == 4
+    assert len(breakdown["fans"]) == 14
+
+
+def test_hospital_osp_breakdown_climacool_shows_confirmed_expired(db_session):
+    from app.accounts import seed_product_lines
+    from app.config import load_config
+    seed_product_lines(db_session, load_config())
+    breakdown = hcai.hospital_osp_breakdown(db_session)
+    climacool = next(l for l in breakdown["chillers"] if l["name"] == "ClimaCool")
+    assert climacool["confirmed_expired"] is True
+    assert climacool["current"] is False
+    assert climacool["osp_number"] == "OSP-0048"
+
+
+def test_hospital_osp_breakdown_unknown_line_falls_back_gracefully(db_session):
+    """A line not in HOSPITAL_BRIEF_OSP_FACTS (e.g. added to the card after
+    this brief's facts were transcribed) must not crash the page -- it
+    should show up honestly incomplete instead."""
+    from app.models import ProductLine
+    db_session.add(ProductLine(name="Brand New Chiller Co", name_norm="brand new chiller co", firm="X",
+                               category="chillers_cooling", building_role="cooling_generation",
+                               oshpd_osp=None))
+    db_session.commit()
+    breakdown = hcai.hospital_osp_breakdown(db_session)
+    row = next(l for l in breakdown["chillers"] if l["name"] == "Brand New Chiller Co")
+    assert row["osp_number"] is None
+    assert "not yet transcribed" in row["note"]

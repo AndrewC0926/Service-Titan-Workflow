@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% from "_icon.html" import icon %}
+{% block title %}Hospital seismic compliance brief{% endblock %}
+{% block content %}
+<style>
+@media print {
+  body { background: #fff; color: #000; font-size: 10.5pt; }
+  .masthead, nav, .noprint { display: none !important; }
+  main { border: none; background: #fff; margin: 0; padding: 0; }
+  a { color: #000; }
+  th, td { border-color: #999 !important; }
+  h2 { color: #000; }
+  .tag, .stamp { border: 1px solid #000; background: none !important; color: #000 !important; }
+}
+</style>
+<p class="noprint"><button onclick="window.print()">{{ icon('printer') }} Print / save PDF</button>
+  <a href="/hospitals" style="margin-left:12px">← back to hospitals board</a></p>
+
+<h2 style="font-size:18px">Hospital seismic compliance — SB 1953</h2>
+<p class="dim">DMG Scout — generated {{ generated_at.strftime('%Y-%m-%d %H:%M') }}Z. Source: HCAI's public
+  "Seismic Ratings and Collapse Probabilities of California Hospitals" (CHHS Open Data Portal),
+  imported by hand, not a live feed — see /assumptions, group "Hospital seismic compliance", for the
+  CHHS Terms of Use finding this rests on. Every figure below traces to a public HCAI record or to
+  Scout's own line-card research; no dollar estimate appears anywhere on this page — no basis exists
+  for one yet.</p>
+
+<h2>Territory coverage</h2>
+<p>{{ '{:,}'.format(coverage.in_territory) }} of {{ '{:,}'.format(coverage.total_buildings) }} hospital
+  buildings statewide fall in Scout's 7 territory counties (Los Angeles, Orange, San Bernardino,
+  Riverside, San Diego, Imperial, Kern). Of those in territory:</p>
+<table style="max-width:820px">
+<tr><th>SPC-1 — must already be out of general acute care service (deadline 2020-01-01, passed)</th>
+    <td class="num">{{ coverage.spc_2020_deadline }}</td></tr>
+<tr><th>SPC-2 — must be out of general acute care service by 2030-01-01</th>
+    <td class="num">{{ coverage.spc_2030_deadline }}</td></tr>
+<tr><th>NPC below 5 — nonstructural systems must reach NPC-5 by 2030-01-01</th>
+    <td class="num">{{ coverage.npc_2030_deadline }}</td></tr>
+<tr><th>Already meet the full 2030 standard (SPC≥3 and NPC 5)</th>
+    <td class="num">{{ coverage.meets_2030_standard }}</td></tr>
+<tr><th>Have at least one HCAI-filed extension on record (real deadline may be later than shown)</th>
+    <td class="num">{{ coverage.has_filed_extension }}</td></tr>
+</table>
+<p class="note">SPC-1/SPC-2/NPC-5 deadlines are Health &amp; Safety Code §130000 et seq. (the Alfred E.
+  Alquist Hospital Facilities Seismic Safety Act), confirmed directly against HCAI's own published
+  pages, retrieved 2026-08-17 — see /assumptions for the exact quoted language. These are the BASE
+  statutory dates; a building with a filed extension may have a later actual deadline than shown —
+  read HCAI's own extension record before treating either date as final.</p>
+
+<h2>What NPC-5 requires, in HCAI's own words</h2>
+<p style="max-width:720px">"Seismic ratings for anchorage and bracing of the building's <strong>architectural,
+  mechanical, electrical systems, components and equipment</strong> are expressed as a Nonstructural
+  Performance Category; NPC ratings range from 1 to 5 with NPC 1 assigned to buildings where the safe
+  and orderly evacuation following a strong earthquake cannot be assured and <strong>NPC 5 assigned to
+  buildings capable of continued operation for 72 hours without any power, water and sewer services
+  following a strong ground motion</strong>."</p>
+<p class="note">Quoted verbatim from HCAI's own Data Dictionary for this dataset (CHHS Open Data
+  Portal, "Data Dictionary - Seismic Ratings and Collapse Probabilities of California Hospitals",
+  retrieved 2026-08-17) — not paraphrased. The same dictionary entry names what counts as nonstructural:
+  "cladding, partitions, ceilings, equipment, pipes, conduits, ducting, furnishings, contents,
+  elevators, stairs, as well as water, sewage, medical gases, and other mechanical and electrical
+  systems."</p>
+
+<h2>What DMG can field — covered lines</h2>
+<table class="tbl" style="width:100%">
+<thead><tr><th>Line</th><th>Firm</th><th>OSP number</th><th>Expires</th><th>Scope</th></tr></thead>
+<tbody>
+{% for l in osp.covered %}
+<tr><td>{{ l.name }}</td><td>{{ l.firm }}</td><td class="mono">{{ l.osp_number }}</td>
+    <td class="nowrap">{{ l.expires or 'unknown — not stated in HCAI\'s own listing' }}</td>
+    <td class="note">{{ l.note }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+<p class="note">Air handling, air distribution &amp; terminal, and humidification each have at least
+  one confirmed current OSP; the lines above are those confirmed lines specifically, not every line
+  DMG carries in those roles. Nearest to its own expiration: Carel's humidification OSP-0705, 2028-08-11
+  (~2 years out as of this brief). Nothing else confirmed current is within the next 12 months of
+  expiring. Source: HCAI-hosted OSP application PDFs (hcai.ca.gov), cross-checked against HCAI's own
+  "OSP by Category" directory, retrieved 2026-08-09.</p>
+
+<h2>What DMG cannot field — the gap</h2>
+<p><strong>Chillers: {{ osp.chillers|selectattr('current')|list|length }} of {{ osp.chillers|length }}
+  lines hold a confirmed current OSP.</strong></p>
+<table class="tbl" style="width:100%">
+<thead><tr><th>Line</th><th>OSP number</th><th>Status</th><th>Note</th></tr></thead>
+<tbody>
+{% for l in osp.chillers %}
+<tr><td>{{ l.name }}</td><td class="mono">{{ l.osp_number or '—' }}</td>
+    <td>{% if l.current %}<span class="ok">current</span>{% elif l.confirmed_expired %}<span class="warn">confirmed expired{% if l.expires %}, {{ l.expires }}{% endif %}</span>{% else %}<span class="note">unknown — no HCAI record found</span>{% endif %}</td>
+    <td class="note">{{ l.note }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+<p><strong>Fans: {{ osp.fans|selectattr('current')|list|length }} of {{ osp.fans|length }}
+  lines hold a confirmed current OSP.</strong></p>
+<table class="tbl" style="width:100%">
+<thead><tr><th>Line</th><th>OSP number</th><th>Status</th><th>Note</th></tr></thead>
+<tbody>
+{% for l in osp.fans %}
+<tr><td>{{ l.name }}</td><td class="mono">{{ l.osp_number or '—' }}</td>
+    <td>{% if l.current %}<span class="ok">current</span>{% elif l.confirmed_expired %}<span class="warn">confirmed expired{% if l.expires %}, {{ l.expires }}{% endif %}</span>{% else %}<span class="note">unknown — no HCAI record found</span>{% endif %}</td>
+    <td class="note">{{ l.note }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+<p class="note">"Unknown" means no HCAI record was found under that name in HCAI's own OSP directory —
+  absence of evidence, not a denial; a real preapproval could exist under a different corporate/brand
+  name not yet checked. Source: HCAI's "OSP by Category" directory and individual application PDFs
+  (hcai.ca.gov), cross-checked against a third-party mirror, retrieved 2026-08-09. Full research trail
+  for every line: each ProductLine's own oshpd_osp_basis field in config.yaml.</p>
+
+<h2>Contractor reachability — a proxy, not evidence of hospital experience</h2>
+<p>Of the {{ '{:,}'.format(reach.npc_2030_total) }} in-territory buildings that still need NPC work by
+  2030 ({{ '{:,}'.format(reach.npc_2030_geocoded) }} geocoded and evaluable):</p>
+<table style="max-width:820px">
+<tr><th>Within {{ reach.radius_miles }} miles of at least one CSLB mechanical (C-20/C-38) contractor</th>
+    <td class="num">{{ '{:,}'.format(reach.near_mechanical_contractor) }} of {{ '{:,}'.format(reach.npc_2030_geocoded) }}
+    ({{ reach.near_mechanical_contractor_pct }}%)</td></tr>
+<tr><th>Within {{ reach.radius_miles }} miles of at least one UA Local 250 signatory contractor</th>
+    <td class="num">{{ '{:,}'.format(reach.near_ua_local_250_signatory) }} of {{ '{:,}'.format(reach.npc_2030_geocoded) }}
+    ({{ reach.near_ua_local_250_signatory_pct }}%)</td></tr>
+</table>
+<p class="note"><strong>Neither count is evidence of actual hospital or OSHPD experience.</strong> CSLB
+  mechanical licensure and UA Local 250 signatory status are the closest available proxies for general
+  mechanical capability and institutional/prevailing-wage labor capability, respectively — not a claim
+  that any specific contractor counted here has ever worked on a hospital. {{ reach.radius_miles }} miles
+  is the same radius Scout already treats as "realistically reachable" for a contractor dispatch list
+  elsewhere in this system (app.contractors.default_radius_miles), reused here rather than a new number
+  invented for this brief.</p>
+{% endblock %}

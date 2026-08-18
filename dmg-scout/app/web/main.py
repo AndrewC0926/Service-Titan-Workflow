@@ -666,6 +666,26 @@ def retrofit_building_detail(building_id: int, request: Request,
 # app/pipeline/hcai.py for the source, the CHHS Terms of Use findings, and
 # the SPC/NPC deadline derivation.
 
+@app.get("/hospitals/brief", response_class=HTMLResponse)
+def hospitals_brief(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Printable one-page brief -- territory coverage, what NPC-5 requires
+    (quoted from HCAI, not paraphrased), the covered-vs-gap OSP line
+    breakdown with numbers and expiration dates, and contractor
+    reachability. No dollar estimate -- see app/pipeline/hcai.py's
+    HOSPITAL_BRIEF_OSP_FACTS docstring and app/assumptions.py for why."""
+    from app.pipeline.hcai import (
+        hospital_contractor_reachability, hospital_osp_breakdown, hospital_seismic_coverage,
+    )
+    cfg = load_config()
+    return templates.TemplateResponse(request, "hospitals_brief.html", {
+        "coverage": hospital_seismic_coverage(session, cfg),
+        "reach": hospital_contractor_reachability(session, cfg),
+        "osp": hospital_osp_breakdown(session),
+        "generated_at": utcnow(),
+        "tb": _title_block(session), "active": "hospitals",
+    })
+
+
 @app.get("/hospitals", response_class=HTMLResponse)
 def hospitals_board(request: Request, county: str = None, deadline: str = None, all_ca: bool = False,
                     session: Session = Depends(get_session), _: str = Depends(auth)):

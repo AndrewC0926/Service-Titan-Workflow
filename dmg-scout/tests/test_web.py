@@ -659,6 +659,28 @@ def test_hospitals_board_not_mixed_into_project_board(client, db_session, cfg):
     assert "Should Not Leak Hospital" not in client.get("/board", headers=AUTH).text
 
 
+def test_hospitals_brief_renders_no_dollar_estimate(client, db_session, cfg):
+    from app.accounts import seed_product_lines
+    seed_product_lines(db_session, cfg)
+    r = client.get("/hospitals/brief", headers=AUTH)
+    assert r.status_code == 200
+    # The template line-wraps this sentence for source readability; the
+    # rendered HTML preserves those newlines literally (browsers collapse
+    # them, r.text does not), so check the pieces rather than one long
+    # exact substring.
+    assert "NPC 5 assigned to" in r.text
+    assert "72 hours" in r.text
+    assert "$" not in r.text.split('<h2 style="font-size:18px">')[1]  # no dollar figure in the brief body
+
+
+def test_hospitals_brief_shows_climacool_and_twin_city_fan_expired(client, db_session, cfg):
+    from app.accounts import seed_product_lines
+    seed_product_lines(db_session, cfg)
+    r = client.get("/hospitals/brief", headers=AUTH)
+    assert "ClimaCool" in r.text and "confirmed expired" in r.text
+    assert "TCF/Twin City Fan" in r.text
+
+
 def test_esco_board_is_reachable_and_separate(client, db_session, cfg):
     """esco rows are kept and counted, but do not join a ranking of new
     construction they are not competing in."""
