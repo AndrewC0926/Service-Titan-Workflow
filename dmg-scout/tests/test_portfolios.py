@@ -135,6 +135,35 @@ def test_standalone_building_never_appears_in_the_result():
     assert "SOLO" not in groups
 
 
+# --- detect_portfolios: same_block APN-prefix discriminator --------------------
+
+def test_same_block_true_when_every_member_shares_the_apn_prefix():
+    # Same book/page (3110007), different parcel -- one physical property
+    # recorded as multiple assessor parcels.
+    buildings = [_b("3110007011", 0), _b("3110007021", 3)]
+    groups = detect_portfolios(buildings)
+    assert groups["3110007011"]["same_block"] is True
+    assert groups["3110007021"]["same_block"] is True
+
+
+def test_same_block_false_when_members_span_different_blocks():
+    # Different book/page entirely -- a candidate genuine multi-property
+    # transaction, the case the Azusa Ave calibration example is.
+    buildings = [_b("3110007011", 0), _b("5170026012", 3)]
+    groups = detect_portfolios(buildings)
+    assert groups["3110007011"]["same_block"] is False
+    assert groups["5170026012"]["same_block"] is False
+
+
+def test_same_block_false_when_only_some_members_share_a_block():
+    buildings = [_b("3110007011", 0), _b("3110007021", 1), _b("5170026012", 2)]
+    groups = detect_portfolios(buildings)
+    assert groups["3110007011"]["member_count"] == 3
+    assert groups["3110007011"]["same_block"] is False
+    assert groups["3110007021"]["same_block"] is False
+    assert groups["5170026012"]["same_block"] is False
+
+
 # --- apply_portfolio_grouping: DB write, full-refresh discipline ---------------
 
 def test_apply_writes_grouping_fields_for_a_real_pair(db_session):
@@ -155,6 +184,41 @@ def test_apply_writes_grouping_fields_for_a_real_pair(db_session):
     assert rows["1600"].portfolio_group_id == rows["1620"].portfolio_group_id
     assert rows["1600"].portfolio_combined_sqft == 90000
     assert rows["1620"].portfolio_members[0]["apn"] == "1600"
+    # same_block isn't asserted here -- these 4-digit test APNs aren't real
+    # 10-digit APNs, so the book/page slice isn't meaningful; see the
+    # dedicated same_block tests above and below for that.
+
+
+def test_apply_writes_same_block_field(db_session):
+    now = datetime(2024, 9, 1)
+    db_session.add(RetrofitBuilding(apn="3110007011", population="replacement_candidate",
+                                    latitude=AZUSA_LAT, longitude=AZUSA_LON, last_sale_date=now))
+    db_session.add(RetrofitBuilding(apn="3110007021", population="replacement_candidate",
+                                    latitude=AZUSA_LAT, longitude=AZUSA_LON, last_sale_date=now + timedelta(days=1)))
+    db_session.add(RetrofitBuilding(apn="5170026012", population="replacement_candidate",
+                                    latitude=AZUSA_LAT, longitude=AZUSA_LON, last_sale_date=now + timedelta(days=2)))
+    db_session.commit()
+
+    apply_portfolio_grouping(db_session, "replacement_candidate")
+
+    rows = {r.apn: r for r in db_session.exec(
+        select(RetrofitBuilding).where(RetrofitBuilding.population == "replacement_candidate")).all()}
+    assert rows["3110007011"].portfolio_same_block is False
+    assert rows["5170026012"].portfolio_same_block is False
+
+
+def test_apply_resets_same_block_to_none_when_no_longer_grouped(db_session):
+    now = datetime(2024, 9, 1)
+    b = RetrofitBuilding(apn="LONE2", population="replacement_candidate",
+                         latitude=AZUSA_LAT, longitude=AZUSA_LON, last_sale_date=now,
+                         portfolio_group_id="STALE", portfolio_same_block=True)
+    db_session.add(b)
+    db_session.commit()
+
+    apply_portfolio_grouping(db_session, "replacement_candidate")
+
+    refreshed = db_session.exec(select(RetrofitBuilding).where(RetrofitBuilding.apn == "LONE2")).one()
+    assert refreshed.portfolio_same_block is None
 
 
 def test_apply_only_touches_its_own_population(db_session):
@@ -225,10 +289,34 @@ def test_coverage_counts_grouped_buildings_and_distinct_groups(db_session):
     assert cov["distinct_groups"] == 1
 
 
+def test_coverage_splits_groups_by_same_block_vs_multi_block(db_session):
+    now = datetime(2024, 9, 1)
+    # one same-block group (parcel split)
+    db_session.add(RetrofitBuilding(apn="3110007011", population="replacement_candidate",
+                                    latitude=AZUSA_LAT, longitude=AZUSA_LON, last_sale_date=now))
+    db_session.add(RetrofitBuilding(apn="3110007021", population="replacement_candidate",
+                                    latitude=AZUSA_LAT, longitude=AZUSA_LON, last_sale_date=now + timedelta(days=1)))
+    # one multi-block group (candidate transaction) -- different location so it
+    # doesn't merge with the pair above
+    db_session.add(RetrofitBuilding(apn="5170026012", population="replacement_candidate",
+                                    latitude=34.5, longitude=-118.5, last_sale_date=now))
+    db_session.add(RetrofitBuilding(apn="8069003018", population="replacement_candidate",
+                                    latitude=34.5, longitude=-118.5, last_sale_date=now + timedelta(days=1)))
+    db_session.commit()
+    apply_portfolio_grouping(db_session, "replacement_candidate")
+
+    cov = portfolio_coverage(db_session)
+    assert cov["distinct_groups"] == 2
+    assert cov["groups_same_block"] == 1
+    assert cov["groups_multi_block"] == 1
+
+
 def test_coverage_is_zero_with_no_groups(db_session):
     cov = portfolio_coverage(db_session)
     assert cov["buildings_grouped"] == 0
     assert cov["distinct_groups"] == 0
+    assert cov["groups_same_block"] == 0
+    assert cov["groups_multi_block"] == 0
 
 
 def test_constants_are_sane():

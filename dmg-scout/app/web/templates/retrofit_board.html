@@ -224,7 +224,13 @@
   <div class="row-card-badges">
     {%- if b.ebewe_matched -%}<span class="stamp stamp-in" title="LADBS Building ID {{ b.ebewe_building_id }}, {{ b.ebewe_program_year }} filing. Real measured energy performance, not just in-scope-for-the-ordinance.">EBEWE {{ b.ebewe_program_year }}</span>{%- endif -%}
     {%- if b.ebewe_arcx_due_this_year -%}<span class="stamp stamp-post" title="LAMC Table 9708.2: audit/retro-commissioning compliance due this year.">A/RCx due this year</span>{%- endif -%}
-    {%- if b.portfolio_member_count and b.portfolio_member_count >= 2 -%}<span class="stamp stamp-quiet" title="Recorded within 14 days and 0.25mi of {{ b.portfolio_member_count - 1 }} other parcel{{ 's' if b.portfolio_member_count > 2 }}. Spot-checked 2026-08-19: most co-recorded groups are one property split across assessor parcels, not one buyer acquiring several distinct buildings -- see /assumptions.">Co-recorded: {{ b.portfolio_member_count }} parcels</span>{%- endif -%}
+    {%- if b.portfolio_member_count and b.portfolio_member_count >= 2 -%}
+      {%- if b.portfolio_same_block -%}
+      <span class="stamp stamp-quiet" title="Recorded within 14 days and 0.25mi of {{ b.portfolio_member_count - 1 }} other parcel{{ 's' if b.portfolio_member_count > 2 }}, all sharing the same APN book/page -- one physical property recorded as multiple assessor parcels, not a multi-property purchase. See /assumptions.">Co-recorded: {{ b.portfolio_member_count }} parcels</span>
+      {%- else -%}
+      <span class="stamp stamp-post" title="Recorded within 14 days and 0.25mi of {{ b.portfolio_member_count - 1 }} other building{{ 's' if b.portfolio_member_count > 2 }} in a DIFFERENT assessor block -- a candidate genuine multi-property transaction, still not confirmed. See /assumptions.">Portfolio candidate: {{ b.portfolio_member_count }} buildings</span>
+      {%- endif -%}
+    {%- endif -%}
     {%- if b.last_sale_date -%}<span class="stamp {{ 'stamp-in' if (now() - b.last_sale_date).days <= 730 else 'stamp-quiet' }}" title="LA County Assessor's own RecordingDate -- a Prop 13 reassessment trigger, not confirmed proof of an arms-length sale.">Sold {{ b.last_sale_date.strftime('%Y-%m-%d') }}</span>{%- endif -%}
   </div>
   {%- endif -%}
@@ -369,8 +375,13 @@
              title="LA County Assessor's own RecordingDate -- a Prop 13 reassessment trigger, NOT confirmed proof of an arms-length sale (also fires on trust/family transfers and reassessment-triggering refinances), and carries no document type. Not a ranking term -- see /assumptions.">Sold {{ b.last_sale_date.strftime('%Y-%m-%d') }}</a>
     {%- endif -%}
     {%- if b.portfolio_member_count and b.portfolio_member_count >= 2 -%}
+      {%- if b.portfolio_same_block -%}
       <br><a class="stamp stamp-quiet" href="/assumptions#{{ assumption_slug('Portfolio-transaction detection') }}"
-             title="Recorded within {{ 14 }} days and {{ '%.2f'|format(0.25) }}mi of each other. Spot-checked 2026-08-19: 17 of 20 sampled groups were one property split across assessor parcels, not one buyer acquiring several distinct buildings -- see /assumptions before reading this as a real multi-property purchase.">Co-recorded: {{ b.portfolio_member_count }} parcels</a>
+             title="Recorded within {{ 14 }} days and {{ '%.2f'|format(0.25) }}mi of each other, all sharing the same APN book/page -- one physical property recorded as multiple assessor parcels. See /assumptions.">Co-recorded: {{ b.portfolio_member_count }} parcels</a>
+      {%- else -%}
+      <br><a class="stamp stamp-post" href="/assumptions#{{ assumption_slug('Portfolio-transaction detection') }}"
+             title="Recorded within {{ 14 }} days and {{ '%.2f'|format(0.25) }}mi of each other, spanning more than one assessor block -- a candidate genuine multi-property transaction, still not confirmed. See /assumptions.">Portfolio candidate: {{ b.portfolio_member_count }} buildings</a>
+      {%- endif -%}
       <span class="note">also: {% for m in b.portfolio_members %}<a href="/retrofit/building/{{ m.id }}">{{ m.address or m.apn }}</a> ({{ '{:,.0f}'.format(m.sqft) if m.sqft else '?' }} sqft, sold {{ m.last_sale_date }}){% if not loop.last %}; {% endif %}{% endfor %}</span>
     {%- endif -%}
   </td>

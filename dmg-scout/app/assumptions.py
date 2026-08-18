@@ -612,12 +612,15 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
     pfc = portfolio_coverage or {}
     buildings_grouped = pfc.get("buildings_grouped")
     n_groups = pfc.get("distinct_groups")
+    n_same_block = pfc.get("groups_same_block")
+    n_multi_block = pfc.get("groups_multi_block")
     out.append(Assumption(
         group="Retrofit ranking", name="Portfolio-transaction detection",
         config_path=None,
         value=(f"window={PORTFOLIO_DATE_WINDOW_DAYS}d, radius={PORTFOLIO_RADIUS_MILES}mi, "
               f"max group size={PORTFOLIO_MAX_GROUP_SIZE} — {buildings_grouped:,} buildings in "
-              f"{n_groups:,} groups" if buildings_grouped is not None else
+              f"{n_groups:,} groups ({n_same_block:,} same-block/parcel-split, "
+              f"{n_multi_block:,} multi-block/candidate-transaction)" if buildings_grouped is not None else
               f"window={PORTFOLIO_DATE_WINDOW_DAYS}d, radius={PORTFOLIO_RADIUS_MILES}mi, "
               f"max group size={PORTFOLIO_MAX_GROUP_SIZE} (not available on this page load)"),
         source_type=PLACEHOLDER,
@@ -647,13 +650,21 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
             "sqft) -- plausibly just close enough in space and time to trip the detector by "
             "coincidence. The remaining 2 of 20 were the only ones consistent with a real small "
             "multi-property buy: same street, same date, but different assessor blocks. Net: the "
-            "\"Portfolio: N buildings\" framing shown to a rep overstates what this feature mostly "
-            "finds -- see retrofit_board.html's copy, relabeled 2026-08-19 to \"Co-recorded: N "
-            "parcels\" for exactly this reason. A detected group remains probabilistic evidence of "
-            "ONE co-recorded transaction; it is evidence of one buyer only in the minority of cases "
-            "this spot-check found, and is often better read as one site's parcel map, not proof of "
-            "either. Every group is still shown with its member addresses so a rep can judge it "
-            "directly rather than trust the label.\n\n"
+            "original \"Portfolio: N buildings\" framing shown to a rep overstated what this "
+            "feature mostly finds.\n\n"
+            "MADE AUTOMATIC 2026-08-19, not left as a one-time spot-check: RetrofitBuilding."
+            "portfolio_same_block (app/portfolios.py's APN_BLOCK_PREFIX_LEN=7, the same book/page "
+            "slice the spot-check used by hand) is now computed live for every group on every "
+            "rebuild -- True when every member shares an APN book/page (one property, multiple "
+            "parcels), False when a group spans more than one block (a candidate genuine "
+            "multi-property transaction). The board now shows two different labels accordingly: "
+            "\"Co-recorded: N parcels\" (same block) vs \"Portfolio candidate: N buildings\" "
+            "(multi-block) -- see retrofit_board.html. groups_same_block/groups_multi_block above "
+            "are the live, current split, not the 20-group sample; both are worth checking against "
+            "each other before trusting either in isolation. A detected group remains probabilistic "
+            "evidence of one co-recorded transaction either way -- same_block=False raises the odds "
+            "it is a real multi-property buy, it does not confirm one. Every group is still shown "
+            "with its member addresses so a rep can judge it directly rather than trust the label.\n\n"
             "Same underlying limitation as ownership-change recency itself (see the sibling entry "
             "above): the Assessor's RecordingDate is not proof of an arms-length sale. Only runs "
             "among buildings with both a recording date AND a geocode. Confirmed 2026-08-18: "

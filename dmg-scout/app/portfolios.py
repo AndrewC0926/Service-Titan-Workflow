@@ -62,6 +62,18 @@ PORTFOLIO_RADIUS_MILES = 0.25
 # would silently misstate which specific buildings are actually grouped.
 PORTFOLIO_MAX_GROUP_SIZE = 6
 
+# First 7 of LA County's 10-digit APN (book+page; the trailing 3 are the
+# individual parcel). Members sharing this prefix sit in the same assessor
+# block -- almost always one physical property recorded as multiple
+# parcels, not a genuine multi-property purchase. See detect_portfolios'
+# same_block computation and app/models.py's RetrofitBuilding.
+# portfolio_same_block docstring for the spot-check that established this.
+APN_BLOCK_PREFIX_LEN = 7
+
+
+def _apn_block(apn: str) -> str:
+    return apn[:APN_BLOCK_PREFIX_LEN]
+
 
 def detect_portfolios(buildings: list) -> dict[str, dict]:
     """buildings: any objects with .apn, .address, .sqft, .latitude,
@@ -71,11 +83,15 @@ def detect_portfolios(buildings: list) -> dict[str, dict]:
     app.pipeline.retrofit's geocode coverage for how much of the board that
     excludes).
 
-    Returns {apn: {group_id, member_count, combined_sqft, members}} for
-    every building that landed in a group of 2+ -- standalone buildings
-    (the overwhelming majority) simply don't appear in the returned dict.
-    members lists every OTHER building in the group (never includes the
-    key's own apn), each as {apn, address, sqft, last_sale_date}.
+    Returns {apn: {group_id, member_count, combined_sqft, members,
+    same_block}} for every building that landed in a group of 2+ --
+    standalone buildings (the overwhelming majority) simply don't appear in
+    the returned dict. members lists every OTHER building in the group
+    (never includes the key's own apn), each as {apn, address, sqft,
+    last_sale_date}. same_block is True when every member shares the same
+    APN book/page prefix (_apn_block) -- one physical property recorded as
+    multiple parcels, not a genuine multi-property transaction; see
+    APN_BLOCK_PREFIX_LEN's docstring.
     """
     candidates = [b for b in buildings if b.last_sale_date is not None
                  and b.latitude is not None and b.longitude is not None]
@@ -117,6 +133,7 @@ def detect_portfolios(buildings: list) -> dict[str, dict]:
             continue
         group_id = min(m.apn for m in members)
         combined_sqft = sum(m.sqft for m in members if m.sqft) or None
+        same_block = len({_apn_block(m.apn) for m in members}) == 1
         for m in members:
             # ISO string, not a raw datetime -- this list is stored in a JSON
             # column, which can't serialize a Python datetime object directly.
@@ -126,6 +143,7 @@ def detect_portfolios(buildings: list) -> dict[str, dict]:
             out[m.apn] = {
                 "group_id": group_id, "member_count": len(members),
                 "combined_sqft": combined_sqft, "members": others,
+                "same_block": same_block,
             }
     return out
 
@@ -168,6 +186,7 @@ def apply_portfolio_grouping(session: Session, population: str) -> dict:
             row.portfolio_member_count = info["member_count"]
             row.portfolio_combined_sqft = info["combined_sqft"]
             row.portfolio_members = info["members"]
+            row.portfolio_same_block = info["same_block"]
             grouped += 1
             touched += 1
         elif row.portfolio_group_id is not None:
@@ -175,6 +194,7 @@ def apply_portfolio_grouping(session: Session, population: str) -> dict:
             row.portfolio_member_count = None
             row.portfolio_combined_sqft = None
             row.portfolio_members = []
+            row.portfolio_same_block = None
             touched += 1
         if touched and touched % 2000 == 0:
             session.commit()
@@ -199,4 +219,13 @@ def portfolio_coverage(session: Session) -> dict:
         select(sa_func.count(sa_func.distinct(RetrofitBuilding.portfolio_group_id)))
         .where(RetrofitBuilding.portfolio_group_id.is_not(None))
     ).one()
-    return {"buildings_grouped": grouped, "distinct_groups": distinct_groups}
+    groups_same_block = session.exec(
+        select(sa_func.count(sa_func.distinct(RetrofitBuilding.portfolio_group_id)))
+        .where(RetrofitBuilding.portfolio_group_id.is_not(None), RetrofitBuilding.portfolio_same_block.is_(True))
+    ).one()
+    groups_multi_block = session.exec(
+        select(sa_func.count(sa_func.distinct(RetrofitBuilding.portfolio_group_id)))
+        .where(RetrofitBuilding.portfolio_group_id.is_not(None), RetrofitBuilding.portfolio_same_block.is_(False))
+    ).one()
+    return {"buildings_grouped": grouped, "distinct_groups": distinct_groups,
+            "groups_same_block": groups_same_block, "groups_multi_block": groups_multi_block}

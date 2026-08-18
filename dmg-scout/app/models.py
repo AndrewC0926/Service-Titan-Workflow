@@ -1366,6 +1366,17 @@ class RetrofitBuilding(SQLModel, table=True):
     portfolio_combined_sqft: float | None = None
     portfolio_members: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
 
+    # True: every member shares the same APN book/page prefix (first 7 of
+    # the 10-digit APN, e.g. "3110007" of "3110007011") -- one physical
+    # property recorded as multiple assessor parcels. False: the group
+    # spans more than one book/page -- a candidate genuine multi-property
+    # transaction. Spot-checked 2026-08-19 against 20 real groups (see
+    # app/assumptions.py's "Portfolio-transaction detection" entry): the
+    # prefix match is exactly the discriminator that finding turned up --
+    # 17 of 20 sampled groups shared a prefix. Null only when standalone
+    # (portfolio_group_id is null) -- never null for an actual group.
+    portfolio_same_block: bool | None = None
+
     # Rejoined from RetrofitGeocode at build time, same pattern and same
     # reason as service_calls_per_year above -- this table's own DELETE-and-
     # reinsert rebuild would otherwise wipe it. Null until geocoded; see
