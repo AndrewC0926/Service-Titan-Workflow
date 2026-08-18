@@ -40,16 +40,20 @@
       are different facts</strong>
     <span class="body">Covered below means at least one DMG line in that role holds a CONFIRMED
       current HCAI OSP — not merely that the role has lines on the card at all, which every role
-      does. "Unresearched" is absence of evidence, not confirmed absence — see each line's own
-      oshpd_osp_basis in config.yaml.</span>
+      does. Every line in every gapped role has been checked directly against HCAI's directory
+      (2026-08-09/2026-08-19) — "Not listed" means checked and confirmed absent, a different finding
+      from "Unresearched" (never checked at all, which no longer applies to any gapped role's lines
+      as of this brief). See each line's own oshpd_osp_basis in config.yaml, or
+      app.pipeline.hcai.HOSPITAL_BRIEF_OSP_FACTS for lines not yet transcribed there.</span>
     </span>
     <table class="tbl" style="width:100%;margin-top:.5rem">
-    <thead><tr><th>Role</th><th>Lines</th><th>Confirmed current</th><th>Confirmed expired</th><th>Unresearched</th><th>Status</th></tr></thead>
+    <thead><tr><th>Role</th><th>Lines</th><th>Confirmed current</th><th>Confirmed expired</th><th>Not listed</th><th>Unresearched</th><th>Status</th></tr></thead>
     <tbody>
     {% for rg in capability_gaps.role_gaps %}
     <tr><td>{{ rg.label }}</td><td class="num">{{ rg.checked }}</td>
-        <td class="num">{{ rg.checked - rg.confirmed_expired - rg.unresearched }}</td>
+        <td class="num">{{ rg.current }}</td>
         <td class="num">{{ rg.confirmed_expired }}</td>
+        <td class="num">{{ rg.not_listed }}</td>
         <td class="num">{{ rg.unresearched }}</td>
         <td>{% if rg.covered %}<span class="tag">covered</span>{% else %}<span class="warn">gap</span>{% endif %}</td></tr>
     {% endfor %}

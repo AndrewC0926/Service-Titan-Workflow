@@ -83,27 +83,37 @@
 {% endfor %}
 </tbody>
 </table>
-<p class="note">Air handling, air distribution &amp; terminal, and humidification each have at least
-  one confirmed current OSP; the lines above are those confirmed lines specifically, not every line
-  DMG carries in those roles. Nearest to its own expiration: Carel's humidification OSP-0705, 2028-08-11
-  (~2 years out as of this brief). Nothing else confirmed current is within the next 12 months of
-  expiring. Source: HCAI-hosted OSP application PDFs (hcai.ca.gov), cross-checked against HCAI's own
-  "OSP by Category" directory, retrieved 2026-08-09.</p>
+<p class="note">Air handling, heat rejection, air distribution &amp; terminal, controls &amp; valves, and
+  humidification each have at least one confirmed current OSP; the lines above are those confirmed lines
+  specifically, not every line DMG carries in those roles. Nearest to its own expiration: Carel's
+  humidification OSP-0705, 2028-08-11 (~2 years out as of this brief). Nothing else confirmed current is
+  within the next 12 months of expiring — Marley's OSP-0171 (heat rejection), added to this table
+  2026-08-19, is a recent renewal expiring 2032-06-02. Source: HCAI-hosted OSP application PDFs
+  (hcai.ca.gov), cross-checked against HCAI's own "OSP by Category" directory, retrieved 2026-08-09 and
+  2026-08-19.</p>
 
 <h2>What DMG cannot field — the gap</h2>
-<p class="note">Two different findings below, kept as separate tables because they lead to different
-  asks. <strong>Expired</strong> means HCAI's own record shows a specific preapproval that lapsed — the
-  ask is a renewal of an existing filing. <strong>Not listed</strong> means no HCAI record was found
-  under any name/spelling checked, ever (current or historical) — the ask is a new application, or this
-  manufacturer has simply never pursued HCAI certification. Neither is proof no OSP could exist under an
-  unchecked name variant, but every line below — all 4 chillers, all 14 fans — has now been checked
-  directly, not assumed.</p>
+{% set all_gap_rows = osp.gapped_roles.values()|map(attribute='rows')|sum(start=[]) %}
+{% set all_expired = all_gap_rows|selectattr('status', 'equalto', 'expired')|list %}
+{% set all_not_listed = all_gap_rows|selectattr('status', 'equalto', 'not_listed')|list %}
+<p><strong>{{ osp.gapped_roles|length }} of 13 building-systems roles have zero lines with a confirmed
+  current OSP</strong> — {{ all_gap_rows|length }} lines checked across those roles: {{ all_expired|length }}
+  expired, {{ all_not_listed|length }} not listed, 0 current. Two different findings below, kept as
+  separate tables per role because they lead to different asks. <strong>Expired</strong> means HCAI's own
+  record shows a specific preapproval that lapsed — the ask is a renewal of an existing filing.
+  <strong>Not listed</strong> means no HCAI record was found under any name/spelling checked, ever
+  (current or historical) — the ask is a new application, or this manufacturer has simply never pursued
+  HCAI certification. Neither is proof no OSP could exist under an unchecked name variant, but every line
+  below, in every one of these {{ osp.gapped_roles|length }} roles, has now been checked directly, not
+  assumed. The real ask is {{ all_expired|length }} renewal{{ 's' if all_expired|length != 1 }} plus
+  {{ all_not_listed|length }} new-application-or-accept-the-gap lines across {{ osp.gapped_roles|length }}
+  roles — not a small, clean number.</p>
 
-{% for group_key, group_label in (('chillers', 'Chillers'), ('fans', 'Fans')) %}
-{% set rows = osp[group_key] %}
+{% for role_key, group in osp.gapped_roles.items() %}
+{% set rows = group.rows %}
 {% set expired = rows|selectattr('status', 'equalto', 'expired')|list %}
 {% set not_listed = rows|selectattr('status', 'equalto', 'not_listed')|list %}
-<p><strong>{{ group_label }}: {{ rows|selectattr('status','equalto','current')|list|length }} of
+<p><strong>{{ group.label }}: {{ rows|selectattr('status','equalto','current')|list|length }} of
   {{ rows|length }} lines hold a confirmed current OSP</strong> — {{ expired|length }} expired,
   {{ not_listed|length }} not listed.</p>
 
@@ -136,10 +146,13 @@
 
 <p class="note">Source: HCAI's live OSP directory (hcai.ca.gov/facilities/building-safety/
   preapproval-programs/osp/) and its "OSP by Category" historical listing
-  (hcai.ca.gov/document/osp-list-by-category/), both fetched and searched directly — the chillers and
-  five of the fan lines were checked 2026-08-09, the remaining nine fan lines 2026-08-19 — cross-checked
-  against a third-party mirror and individual web searches. Full research trail for every covered/
-  expired line: each ProductLine's own oshpd_osp_basis field in config.yaml.</p>
+  (hcai.ca.gov/document/osp-list-by-category/), both fetched and searched directly — chillers and five of
+  the fan lines were checked 2026-08-09, the remaining nine fan lines plus every line in heat rejection,
+  dampers &amp; life safety, indoor air quality, acoustics &amp; seismic, energy recovery, water
+  treatment, and heating &amp; specialty were checked 2026-08-19 — cross-checked against a third-party
+  mirror and individual web searches. Full research trail for every covered/expired/not-listed line: each
+  ProductLine's own oshpd_osp_basis field in config.yaml, or app.pipeline.hcai.HOSPITAL_BRIEF_OSP_FACTS
+  for lines not yet transcribed into config.yaml.</p>
 
 <h2>Contractor reachability — a proxy, not evidence of hospital experience</h2>
 <p>Of the {{ '{:,}'.format(reach.npc_2030_total) }} in-territory buildings that still need NPC work by

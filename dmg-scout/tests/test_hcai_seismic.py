@@ -217,6 +217,36 @@ def test_hospital_capability_gaps_covers_all_13_roles_not_just_chillers_and_fans
     # a role nothing was seeded for is unresearched, not confirmed-absent -- still a gap
     assert by_role["water_treatment"]["checked"] == 0
     assert by_role["water_treatment"]["gap"] is True
+
+
+def test_hospital_capability_gaps_prefers_hospital_brief_osp_facts_status(db_session):
+    """The bug this fixes: a line researched and confirmed not_listed (e.g.
+    the fan lines, or Marley/Recold) must not show as 'unresearched' just
+    because oshpd_osp itself can't represent that third state. A line's
+    real name from HOSPITAL_BRIEF_OSP_FACTS is used deliberately here so
+    this exercises the actual dict, not a synthetic stand-in."""
+    db_session.add(ProductLine(name="Recold", name_norm="recold", firm="DMG",
+                               category="cooling_towers", building_role="heat_rejection", oshpd_osp=None))
+    db_session.commit()
+    gaps = hcai.hospital_capability_gaps(db_session)
+    by_role = {rg["role"]: rg for rg in gaps["role_gaps"]}
+    assert by_role["heat_rejection"]["not_listed"] == 1
+    assert by_role["heat_rejection"]["unresearched"] == 0
+
+
+def test_hospital_capability_gaps_heat_rejection_covered_by_marley(db_session):
+    """Marley (OSP-0171) confirmed current 2026-08-19 -- heat_rejection
+    should now clear the bar, unlike its 2026-08-17 gapped state."""
+    db_session.add(ProductLine(name="Marley", name_norm="marley", firm="DMG",
+                               category="cooling_towers", building_role="heat_rejection", oshpd_osp=True))
+    db_session.add(ProductLine(name="Recold", name_norm="recold", firm="DMG",
+                               category="cooling_towers", building_role="heat_rejection", oshpd_osp=None))
+    db_session.commit()
+    gaps = hcai.hospital_capability_gaps(db_session)
+    by_role = {rg["role"]: rg for rg in gaps["role_gaps"]}
+    assert by_role["heat_rejection"]["covered"] is True
+    assert by_role["heat_rejection"]["gap"] is False
+    assert by_role["heat_rejection"]["current"] == 1
     assert gaps["roles_checked"] == 13
     assert gaps["roles_with_gap"] == 12  # every role except controls_valves
 
@@ -383,3 +413,31 @@ def test_hospital_osp_breakdown_live_db_wins_over_stale_fact(db_session):
     breakdown = hcai.hospital_osp_breakdown(db_session)
     climacool = next(l for l in breakdown["chillers"] if l["name"] == "ClimaCool")
     assert climacool["status"] == "current"
+
+
+def test_hospital_osp_breakdown_gapped_roles_covers_the_six_newly_researched_roles(db_session):
+    db_session.add(ProductLine(name="LFSystems", name_norm="lfsystems", firm="DMG",
+                               category="controls", building_role="dampers_life_safety", oshpd_osp=None))
+    db_session.add(ProductLine(name="Suburban", name_norm="suburban", firm="DMG",
+                               category="heaters", building_role="heating_specialty", oshpd_osp=None))
+    db_session.commit()
+    breakdown = hcai.hospital_osp_breakdown(db_session)
+    assert "dampers_life_safety" in breakdown["gapped_roles"]
+    assert breakdown["gapped_roles"]["dampers_life_safety"]["label"] == "Dampers & life safety"
+    names = {r["name"] for r in breakdown["gapped_roles"]["dampers_life_safety"]["rows"]}
+    assert "LFSystems" in names
+    assert "heating_specialty" in breakdown["gapped_roles"]
+
+
+def test_hospital_osp_breakdown_heat_rejection_drops_out_of_gapped_roles_once_covered(db_session):
+    """Marley confirmed current -- heat_rejection must NOT appear in
+    gapped_roles even though Recold (same role) is still not_listed."""
+    db_session.add(ProductLine(name="Marley", name_norm="marley", firm="DMG",
+                               category="cooling_towers", building_role="heat_rejection", oshpd_osp=True))
+    db_session.add(ProductLine(name="Recold", name_norm="recold", firm="DMG",
+                               category="cooling_towers", building_role="heat_rejection", oshpd_osp=None))
+    db_session.commit()
+    breakdown = hcai.hospital_osp_breakdown(db_session)
+    assert "heat_rejection" not in breakdown["gapped_roles"]
+    covered_names = {r["name"] for r in breakdown["covered"]}
+    assert "Marley" in covered_names

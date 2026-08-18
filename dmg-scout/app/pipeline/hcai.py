@@ -387,16 +387,24 @@ def hospital_capability_gaps(session) -> dict:
     recompute, special-case it here the same way, not by widening this
     comment's claim without evidence.
 
-    Measured 2026-08-17 (chillers/fans) and 2026-08-19 (all 13 roles):
-    9 of 13 roles have ZERO lines with a confirmed current OSP -- only
-    air_handling, air_distribution_terminal, controls_valves, and
-    humidification clear the bar. Most of the other 9 are unresearched
-    (oshpd_osp=None: absence of evidence, not confirmed absence), not
-    confirmed-absent outright -- role_gaps below carries checked/
-    confirmed_expired so that distinction stays visible, the same
-    discipline chillers/fans already applied. See config.yaml's per-line
-    oshpd_osp_basis entries for the individual research trail behind every
-    figure here."""
+    Measured 2026-08-17 (chillers/fans) and completed 2026-08-19 (every
+    line in every gapped role, against HCAI's directory the same way the
+    fan lines were): 8 of 13 roles have ZERO lines with a confirmed current
+    OSP -- air_handling, heat_rejection, air_distribution_terminal,
+    controls_valves, and humidification clear the bar; cooling_generation,
+    fans_ventilation, dampers_life_safety, indoor_air_quality,
+    acoustics_seismic, energy_recovery, water_treatment, and
+    heating_specialty do not. Every line in every one of those 8 roles is
+    now individually researched (HOSPITAL_BRIEF_OSP_FACTS) -- current,
+    expired (an existing filing that lapsed -- the ask is a renewal), or
+    not_listed (no HCAI record found -- the ask is a new application, or
+    this manufacturer has simply never pursued HCAI certification), never
+    left as an unresolved "unresearched" guess. role_gaps below carries all
+    four counts (current/confirmed_expired/not_listed/unresearched) so that
+    distinction stays visible on the board, not collapsed into one number.
+    See config.yaml's per-line oshpd_osp_basis entries and
+    HOSPITAL_BRIEF_OSP_FACTS' own module comment for the individual
+    research trail behind every figure here."""
     from app.accounts import ROLE_LABELS, ROLE_ORDER, resolve_building_role
     from app.models import ProductLine
 
@@ -404,6 +412,20 @@ def hospital_capability_gaps(session) -> dict:
     by_role: dict[str, list] = {}
     for l in lines:
         by_role.setdefault(l.building_role, []).append(l)
+
+    def _status(line) -> str:
+        # oshpd_osp=True always wins live, so a line that wins a new OSP
+        # self-corrects immediately without waiting on a HOSPITAL_BRIEF_OSP_
+        # FACTS edit. Otherwise prefer the hand-researched status -- it
+        # distinguishes "not_listed" (checked, confirmed absent) from
+        # "unresearched" (never checked), a distinction oshpd_osp's 3 raw
+        # states (True/False/None) cannot represent on their own.
+        if line.oshpd_osp is True:
+            return "current"
+        fact = HOSPITAL_BRIEF_OSP_FACTS.get(line.name)
+        if fact is not None:
+            return fact["status"]
+        return "expired" if line.oshpd_osp is False else "unresearched"
 
     role_gaps = []
     for role in ROLE_ORDER:
@@ -413,13 +435,16 @@ def hospital_capability_gaps(session) -> dict:
             role_lines = [l for l in lines if resolve_building_role(l.name, l.category) == "fans_ventilation"]
         else:
             role_lines = by_role.get(role, [])
-        covered = any(l.oshpd_osp is True for l in role_lines)
+        statuses = [_status(l) for l in role_lines]
+        covered = "current" in statuses
         role_gaps.append({
             "role": role, "label": ROLE_LABELS[role],
             "covered": covered, "gap": not covered,
             "checked": len(role_lines),
-            "confirmed_expired": sum(1 for l in role_lines if l.oshpd_osp is False),
-            "unresearched": sum(1 for l in role_lines if l.oshpd_osp is None),
+            "current": statuses.count("current"),
+            "confirmed_expired": statuses.count("expired"),
+            "not_listed": statuses.count("not_listed"),
+            "unresearched": statuses.count("unresearched"),
         })
     by_role_key = {rg["role"]: rg for rg in role_gaps}
 
@@ -587,12 +612,33 @@ def hospital_contractor_reachability(session, cfg) -> dict:
 # 2022-03 to now window would be visible to either check -- a real but
 # narrow gap, disclosed rather than hidden.
 #
-# Scope: every line in category='chillers_cooling' (4) and every line
-# resolving to building_role='fans_ventilation' (14) -- ALL of them, covered
-# or not -- plus only the CONFIRMED-CURRENT (oshpd_osp=True) lines in
-# air_handling, air_distribution_terminal, and humidification, since those
-# roles are reported on the brief only as "what's covered", not
-# exhaustively.
+# 2026-08-19 full-13-role research (Recold, Marley, LFSystems, Pottorff,
+# AtmosAir/Bioclimatic, UVDI, Cosatron, Vibro-Acoustics, Commercial
+# Acoustics, Heat Pipe Technology, Aldes, Ventacity, ChangeAir, Flow-Tech,
+# PEP Filters, Suburban, IEC, Markel, Cambridge -- every line in the 6
+# gapped roles that hadn't been checked yet: heat_rejection,
+# dampers_life_safety, indoor_air_quality, acoustics_seismic,
+# energy_recovery, heating_specialty). Same method as the fan research:
+# HCAI's live OSP directory, the same footer-dated-03/01/2022 25-category
+# historical PDF (confirmed still the current version served at that URL),
+# and individual web searches per name. One real find: Marley (SPX Cooling
+# Tech's Marley NC cooling tower, OSP-0171) is CONFIRMED CURRENT --
+# verified against its own HCAI application PDF, approved 2026-06-02,
+# expires 2032-06-02 -- closing heat_rejection as a gapped role. IEC
+# (International Environmental Corporation, fan coil units, OSP-0211) is
+# CONFIRMED EXPIRED after 12/31/2016, both in the live directory and the
+# historical listing -- no renewal on file. Every other name: zero matches
+# in either HCAI source.
+#
+# Scope: every line in category='chillers_cooling' (4), every line
+# resolving to building_role='fans_ventilation' (14), and every line in
+# heat_rejection (2), dampers_life_safety (2), indoor_air_quality (3),
+# acoustics_seismic (2), energy_recovery (4), water_treatment (2), and
+# heating_specialty (4) -- ALL of them, covered or not -- plus only the
+# CONFIRMED-CURRENT (oshpd_osp=True) lines in air_handling,
+# air_distribution_terminal, controls_valves, and humidification, since
+# those 4 roles are already covered and are reported on the brief only as
+# "what's covered", not exhaustively.
 HOSPITAL_BRIEF_OSP_FACTS = {
     # ---- chillers (category=chillers_cooling) -- GAP, 0 of 4 confirmed current
     "DB": {"status": "not_listed", "osp_number": None, "expires": None,
@@ -632,6 +678,51 @@ HOSPITAL_BRIEF_OSP_FACTS = {
                  "note": "Not in HCAI's live OSP directory or the full 25-category historical listing. Checked 2026-08-19."},
     "Monoxivent": {"status": "not_listed", "osp_number": None, "expires": None,
                   "note": "Not in HCAI's live OSP directory or the full 25-category historical listing. Industrial dust/fume collection is not an obvious fit for any existing HCAI category. Checked 2026-08-19."},
+    # ---- heat_rejection (cooling towers) -- COVERED 2026-08-19, 1 of 2 confirmed current
+    "Recold": {"status": "not_listed", "osp_number": None, "expires": None,
+              "note": "Not in HCAI's live OSP directory or the full 25-category historical listing under Cooling Towers or any other category. Checked 2026-08-19."},
+    "Marley": {"status": "current", "osp_number": "OSP-0171", "expires": "2032-06-02",
+              "note": "SPX Cooling Tech LLC's Marley NC Cooling Tower (models NC8401-NC8414, TQ8401-TQ8414), Cooling Towers category. Confirmed via HCAI's own OSP-0171 application PDF: approval dated 2026-06-02, 'Approval Expires on 06/02/2032' -- a recent renewal, not a stale filing. Checked 2026-08-19."},
+    # ---- dampers_life_safety -- GAP, 0 of 2, both not listed
+    "LFSystems": {"status": "not_listed", "osp_number": None, "expires": None,
+                 "note": "Not in HCAI's live OSP directory or the full 25-category historical listing under 'LFSystems', 'LF Systems', or any variant checked. Checked 2026-08-19."},
+    "Pottorff": {"status": "not_listed", "osp_number": None, "expires": None,
+                "note": "No HCAI record found -- see this line's own oshpd_osp_basis in config.yaml (checked 2026-08-09: HCAI's OSP taxonomy has no 'Dampers' category at all across all 25 categories/~733 listings). Independently reconfirmed against the live directory 2026-08-19."},
+    # ---- indoor_air_quality -- GAP, 0 of 3, all not listed
+    "AtmosAir/Bioclimatic": {"status": "not_listed", "osp_number": None, "expires": None,
+                             "note": "No HCAI record found under 'AtmosAir' or 'Bioclimatic' -- see this line's own oshpd_osp_basis in config.yaml (checked 2026-08-09, full-text search of the historical PDF plus the live directory's Air Filters category, where a direct bipolar-ionization competitor, Global Plasma Solutions OSP-0558, does hold one -- confirming the category isn't inapplicable, AtmosAir simply hasn't pursued it). Independently reconfirmed 2026-08-19."},
+    "UVDI": {"status": "not_listed", "osp_number": None, "expires": None,
+            "note": "No HCAI record found -- see this line's own oshpd_osp_basis in config.yaml (checked 2026-08-09). Independently reconfirmed 2026-08-19."},
+    "Cosatron": {"status": "not_listed", "osp_number": None, "expires": None,
+                "note": "No HCAI record found -- see this line's own oshpd_osp_basis in config.yaml (checked 2026-08-09). Independently reconfirmed 2026-08-19."},
+    # ---- acoustics_seismic -- GAP, 0 of 2, both not listed
+    "Vibro-Acoustics": {"status": "not_listed", "osp_number": None, "expires": None,
+                       "note": "Not in HCAI's live OSP directory or the full 25-category historical listing. Vibro-Acoustics' own VIRS (Vibration Isolation and Restraint Systems) product page markets seismic-restraint products but states no HCAI/OSHPD OSP number. Checked 2026-08-19."},
+    "Commercial Acoustics": {"status": "not_listed", "osp_number": None, "expires": None,
+                            "note": "Not in HCAI's live OSP directory or the full 25-category historical listing. Checked 2026-08-19."},
+    # ---- energy_recovery -- GAP, 0 of 4, all not listed
+    "Heat Pipe Technology": {"status": "not_listed", "osp_number": None, "expires": None,
+                             "note": "Not in HCAI's live OSP directory or the full 25-category historical listing. Checked 2026-08-19."},
+    "Aldes": {"status": "not_listed", "osp_number": None, "expires": None,
+             "note": "No HCAI record found -- see this line's own oshpd_osp_basis in config.yaml (checked 2026-08-09). Independently reconfirmed 2026-08-19."},
+    "Ventacity": {"status": "not_listed", "osp_number": None, "expires": None,
+                 "note": "No HCAI record found -- see this line's own oshpd_osp_basis in config.yaml (checked 2026-08-09). Independently reconfirmed 2026-08-19."},
+    "ChangeAir": {"status": "not_listed", "osp_number": None, "expires": None,
+                 "note": "No HCAI record found -- see this line's own oshpd_osp_basis in config.yaml (checked 2026-08-09). Independently reconfirmed 2026-08-19."},
+    # ---- water_treatment -- GAP, 0 of 2, both not listed
+    "Flow-Tech": {"status": "not_listed", "osp_number": None, "expires": None,
+                 "note": "Not in HCAI's live OSP directory or the full 25-category historical listing under 'Flow-Tech' or 'FlowTech'. Checked 2026-08-19."},
+    "PEP Filters": {"status": "not_listed", "osp_number": None, "expires": None,
+                   "note": "No HCAI record found -- see this line's own oshpd_osp_basis in config.yaml (checked 2026-08-09). Independently reconfirmed 2026-08-19."},
+    # ---- heating_specialty -- GAP, 0 of 4 confirmed current, 1 expired
+    "Suburban": {"status": "not_listed", "osp_number": None, "expires": None,
+                "note": "Not in HCAI's live OSP directory or the full 25-category historical listing. Checked 2026-08-19."},
+    "IEC": {"status": "not_listed", "osp_number": None, "expires": None,
+           "note": "No HCAI record found for indirect/direct evaporative cooling (DMG's IEC line's own category, per config.yaml). HCAI's directory does show 'OSP-0211: IEC (Expired after 12/31/2016)' under Fan Coil Units -- almost certainly International Environmental Corporation (Oklahoma City), whose own web presence is entirely fan-coil-unit products with no evidence of an indirect/direct evaporative cooling line -- a different product category from DMG's IEC line, and NOT counted as a match here, the same caution this brief already applies to Panasonic's compressor-subcomponent finding under fans. Checked 2026-08-19."},
+    "Markel": {"status": "not_listed", "osp_number": None, "expires": None,
+              "note": "Not in HCAI's live OSP directory or the full 25-category historical listing. Checked 2026-08-19."},
+    "Cambridge": {"status": "not_listed", "osp_number": None, "expires": None,
+                 "note": "Not in HCAI's live OSP directory or the full 25-category historical listing. Checked 2026-08-19."},
     # ---- covered (confirmed current only)
     "ClimateCraft": {"status": "current", "osp_number": "OSP-0272", "expires": "2029-07-18",
                      "note": "Air Handling Units (FanMatrix fan-tower assembly specifically -- not a blanket AHU preapproval)."},
@@ -649,16 +740,19 @@ HOSPITAL_BRIEF_OSP_FACTS = {
 
 
 def hospital_osp_breakdown(session) -> dict:
-    """Line-by-line OSP status for /hospitals/brief -- chillers and fans in
-    full (every line, covered or not), air handling/distribution/terminal/
-    humidification limited to the confirmed-current ones (what's covered).
-    oshpd_osp itself is read LIVE from ProductLine; osp_number/expires/note
-    come from HOSPITAL_BRIEF_OSP_FACTS (hand-transcribed, see that dict's
-    own docstring) -- a line with no entry there falls back to a generic
-    unknown/not-yet-transcribed row rather than raising, so a future new
-    line added to one of these categories doesn't break the brief, it just
-    shows up honestly incomplete."""
-    from app.accounts import resolve_building_role
+    """Line-by-line OSP status for /hospitals/brief. chillers/fans/
+    gapped_roles are exhaustive (every line, covered or not) -- as of
+    2026-08-19 that's every line in every one of the 8 currently-gapped
+    roles, not just chillers/fans. covered is limited to the confirmed-
+    current lines in the 5 roles that already clear the bar (what's
+    covered, not an exhaustive card of every line DMG carries in those
+    roles). oshpd_osp itself is read LIVE from ProductLine; osp_number/
+    expires/note come from HOSPITAL_BRIEF_OSP_FACTS (hand-transcribed, see
+    that dict's own docstring) -- a line with no entry there falls back to
+    a generic unknown/not-yet-transcribed row rather than raising, so a
+    future new line added to one of these categories doesn't break the
+    brief, it just shows up honestly incomplete."""
+    from app.accounts import ROLE_LABELS, ROLE_ORDER, resolve_building_role
     from app.models import ProductLine
 
     def _fact(name: str) -> dict:
@@ -679,12 +773,39 @@ def hospital_osp_breakdown(session) -> dict:
                "osp_number": f["osp_number"], "expires": f["expires"], "note": f["note"]}
 
     lines = session.exec(select(ProductLine)).all()
-    chillers = sorted((_row(l) for l in lines if l.category == "chillers_cooling"), key=lambda r: r["name"])
-    fans = sorted((_row(l) for l in lines if resolve_building_role(l.name, l.category) == "fans_ventilation"),
-                 key=lambda r: r["name"])
+    by_role: dict[str, list] = {}
+    for l in lines:
+        by_role.setdefault(l.building_role, []).append(l)
 
-    covered_names = {"ClimateCraft", "AAON", "Energy Labs", "Titus", "Nailor", "Carel"}
+    def _role_lines(role: str) -> list:
+        if role == "cooling_generation":
+            return [l for l in lines if l.category == "chillers_cooling"]
+        if role == "fans_ventilation":
+            return [l for l in lines if resolve_building_role(l.name, l.category) == "fans_ventilation"]
+        return by_role.get(role, [])
+
+    chillers = sorted((_row(l) for l in _role_lines("cooling_generation")), key=lambda r: r["name"])
+    fans = sorted((_row(l) for l in _role_lines("fans_ventilation")), key=lambda r: r["name"])
+
+    # Every gapped role's full line-by-line rows, keyed by role -- covers
+    # the 6 gapped roles beyond chillers/fans (dampers_life_safety,
+    # indoor_air_quality, acoustics_seismic, energy_recovery,
+    # water_treatment, heating_specialty) -- INCLUDING cooling_generation/
+    # fans_ventilation themselves, so the template has one unified
+    # structure to loop over instead of hand-special-casing chillers/fans;
+    # the flat chillers/fans keys below stay for existing callers/tests. A
+    # role only lands here if it has lines AND none of them are confirmed
+    # current -- a role that just cleared the bar (like heat_rejection,
+    # 2026-08-19) drops out on its own the moment a line's oshpd_osp/
+    # HOSPITAL_BRIEF_OSP_FACTS says so.
+    gapped_roles = {}
+    for role in ROLE_ORDER:
+        rows = sorted((_row(l) for l in _role_lines(role)), key=lambda r: r["name"])
+        if rows and not any(r["status"] == "current" for r in rows):
+            gapped_roles[role] = {"label": ROLE_LABELS[role], "rows": rows}
+
+    covered_names = {"ClimateCraft", "AAON", "Energy Labs", "Titus", "Nailor", "Carel", "Marley"}
     covered = sorted((_row(l) for l in lines if l.name in covered_names and l.oshpd_osp is True),
                      key=lambda r: r["name"])
 
-    return {"chillers": chillers, "fans": fans, "covered": covered}
+    return {"chillers": chillers, "fans": fans, "gapped_roles": gapped_roles, "covered": covered}
