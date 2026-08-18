@@ -300,6 +300,30 @@ def nearest_mechanical_contractors(session: Session, building: RetrofitBuilding,
     return results[:limit]
 
 
+# A SQL port of the double loop below (same bounding-box-plus-haversine
+# shape as _MATCH_CONTRACTORS_BATCH_SQL) was tried and abandoned
+# 2026-08-18. match_contractors' move to SQL wins because it eliminates
+# ~42k per-contractor ROUND TRIPS -- an I/O problem. This function already
+# issues exactly one round trip (the candidate fetch below); the double
+# loop that follows is pure in-process compute, so pushing it into SQL
+# only trades Python's O(1)-per-building running-best comparison for a
+# real per-building sort. At LA's density a 15mi box is only weakly
+# selective -- confirmed via EXPLAIN ANALYZE against a real 193-building/
+# 3,505-candidate production sample, each building's own box matches
+# ~900-1,100 of the 3,505 mechanical candidates, not a handful -- so three
+# SQL formulations were all substantially slower than the Python loop's
+# measured 0.535s: a window function over two unnest() arrays (~14.8s, no
+# index available over a literal array at all), the same window function
+# joined against the real, indexed `contractors` table instead (~10.1s,
+# now index-assisted but still materializing and sorting ~175k candidate
+# rows before picking rank 1), and a LATERAL join with ORDER BY/LIMIT 1
+# per building -- the correct "nearest per group" idiom, avoiding the big
+# sort -- still ~6.0s, dominated by evaluating the haversine expression
+# and an `id = ANY(3,505-element array)` filter across ~1,000 candidates
+# per building at Postgres's per-row executor overhead. None of that
+# overhead exists in Python's tight loop. A real spatial index (PostGIS
+# GiST/KNN) would change this calculus; this codebase deliberately doesn't
+# carry that dependency -- see haversine_miles' own module docstring.
 def nearest_mechanical_contractor_bulk(session: Session, buildings: list[RetrofitBuilding], *,
                                        radius_miles: float) -> dict[int, dict]:
     """The single nearest mechanical contractor per building -- for the

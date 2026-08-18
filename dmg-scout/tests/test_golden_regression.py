@@ -19,10 +19,13 @@ KEY_FIELDS = ["mw_it", "generator_count", "generator_hp_each", "building_sqft",
 
 golden = [e for e in load_golden() if e.get("verified")]
 
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("ANTHROPIC_API_KEY") or not golden,
-    reason="needs ANTHROPIC_API_KEY and a verified evals/golden.jsonl",
-)
+pytestmark = [
+    pytest.mark.live,
+    pytest.mark.skipif(
+        not os.environ.get("ANTHROPIC_API_KEY") or not golden,
+        reason="needs ANTHROPIC_API_KEY and a verified evals/golden.jsonl",
+    ),
+]
 
 
 @pytest.fixture(scope="module")

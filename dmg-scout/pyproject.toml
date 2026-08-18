@@ -54,6 +54,15 @@ include = ["app*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# Skipped by default -- a bare `pytest` run should never depend on network
+# access or burn real API spend. Full coverage (CI, a pre-release check)
+# runs `pytest -m ""` (or any -m expression, e.g. "live") to override this
+# addopts value -- pytest takes the last -m it sees, so a later -m always
+# wins over this default rather than adding to it.
+addopts = "-m 'not live'"
+markers = [
+    "live: hits a real external network endpoint (e.g. the Anthropic API) -- costs real money/time and needs real credentials, unlike everything else in this suite (mocked via respx/monkeypatch). See tests/test_golden_regression.py.",
+]
 
 [tool.ruff]
 line-length = 110
