@@ -85,7 +85,7 @@
 <tbody>
 {% for c in contractors %}
 <tr>
-  <td>{{ c.business_name }}
+  <td><a href="/contractor/{{ c.id }}">{{ c.business_name }}</a>
     {%- if c.ua_local_250_signatory %}&nbsp;<span class="stamp stamp-quiet" title="Matched UA Local 250's signatory list as {{ c.ua_local_250_matched_name }}, checked {{ c.ua_local_250_checked_at.strftime('%Y-%m-%d') if c.ua_local_250_checked_at else 'unknown' }}.">UA 250</span>{% endif -%}
     <div class="note">{{ c.business_address }}, {{ c.city }}, {{ c.state }} {{ c.zip_code }}{% if c.business_phone %} · {{ c.business_phone }}{% endif %}</div></td>
   <td class="mono">{{ c.license_no }}</td>

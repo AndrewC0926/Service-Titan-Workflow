@@ -5,7 +5,8 @@
 <h2>{{ p.name }} <span class="tag {{ p.window.value }}">{{ p.window.value }}</span>
   <span class="scorechip" style="background:{{ score_color(p.score) }}">{{ '%.2f'|format(p.score) }}</span>
   <span class="tag">{{ p.status }}</span>
-  <a href="/project/{{ p.id }}/brief" style="float:right;font-size:12px">{{ icon('file-text') }} One-page brief</a></h2>
+  <a href="/project/{{ p.id }}/brief" style="float:right;font-size:12px">{{ icon('file-text') }} One-page brief</a>
+  <a href="/project/{{ p.id }}/precall" style="float:right;font-size:12px;margin-right:16px">{{ icon('phone') }} Pre-call brief</a></h2>
 
 <table style="max-width:900px">
 <tr><th>Developer</th><td>{{ p.developer or '—' }}</td>

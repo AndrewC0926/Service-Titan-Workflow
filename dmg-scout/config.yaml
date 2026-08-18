@@ -18,6 +18,11 @@ llm:
   # this feature's own deadline does -- see app/assumptions.py's entry for
   # this constant and app/pipeline/voice_capture.py's cost-per-capture math.
   voice_capture_model: "claude-sonnet-5"
+  # Pre-call brief (app/precall.py): needs web_search tool support (Sonnet 5
+  # and Sonnet 4.6 both qualify) and is prose synthesis + judgment about what
+  # counts as corroborated, not a rigid extraction -- same tier reasoning
+  # this app already trusts for voice_capture_model above.
+  precall_model: "claude-sonnet-5"
   # Triage reads the WHOLE document up to this, then falls to a spanning sample.
   # Was 6000, which meant 144 of 204 documents were classified on their first few
   # pages and 86% of all stored text never reached triage at all — an 82,724-char
@@ -41,6 +46,12 @@ llm:
   prices:
     "claude-haiku-4-5-20251001": {in: 1.0, out: 5.0}
     "claude-sonnet-4-6": {in: 3.0, out: 15.0}
+    # Sticker price ($3/$15), not the introductory $2/$10-through-2026-08-31
+    # rate voice_capture_model's own comment flags -- this table is used for
+    # spend logging indefinitely, past that date, so pricing it at what it
+    # actually costs after the intro window is the honest number, not the
+    # optimistic one.
+    "claude-sonnet-5": {in: 3.0, out: 15.0}
   # Cost-estimate constants, all MEASURED rather than assumed. The estimator ran
   # ~39% low for a whole session on rules of thumb: 4.0 chars/token is an
   # English-prose figure and these are PDF-extracted government filings (dense

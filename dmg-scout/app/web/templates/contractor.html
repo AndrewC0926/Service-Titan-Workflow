@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "_icon.html" import icon %}
+{% block title %}{{ c.business_name }}{% endblock %}
+{% block sheet_no %}S-17{% endblock %}
+{% block content %}
+<h2>{{ c.business_name }}
+  {%- if c.ua_local_250_signatory %}&nbsp;<span class="stamp stamp-quiet" title="Matched UA Local 250's signatory list as {{ c.ua_local_250_matched_name }}, checked {{ c.ua_local_250_checked_at.strftime('%Y-%m-%d') if c.ua_local_250_checked_at else 'unknown' }}.">UA 250</span>{% endif -%}
+  <a href="/contractor/{{ c.id }}/precall" style="float:right;font-size:12px">{{ icon('phone') }} Pre-call brief</a>
+  <a href="/contractors?classification=mechanical" style="float:right;font-size:12px;margin-right:16px">← back to contractors</a>
+</h2>
+<p class="note">CSLB license {{ c.license_no }} · {{ c.business_address }}, {{ c.city }}, {{ c.state }} {{ c.zip_code }}
+  {%- if c.business_phone %} · <a class="cite" href="tel:{{ c.business_phone }}">{{ c.business_phone }}</a>{% endif %}</p>
+
+<table style="max-width:900px">
+<tr><th>Status</th><td>{% if c.primary_status == 'CLEAR' %}<span class="ok">{{ c.primary_status }}</span>{% else %}<span class="warn">{{ c.primary_status or 'unknown' }}</span>{% endif %}
+    {% if c.secondary_status %}<div class="note">{{ c.secondary_status }}</div>{% endif %}</td>
+    <th>Classifications</th><td>{{ c.classifications or '—' }}</td></tr>
+<tr><th>County</th><td>{{ c.county or '?' }}</td>
+    <th>Business type</th><td>{{ c.business_type or '—' }}</td></tr>
+<tr><th>License issued</th><td>{{ c.issue_date.strftime('%Y-%m-%d') if c.issue_date else '—' }}</td>
+    <th>License expires</th><td>{{ c.expiration_date.strftime('%Y-%m-%d') if c.expiration_date else '—' }}</td></tr>
+<tr><th>Workers' comp</th><td>{{ c.workers_comp_coverage_type or '—' }}</td>
+    <th>Bond</th><td>{{ c.bond_company or '—' }}{% if c.bond_amount %} (${{ '{:,.0f}'.format(c.bond_amount) }}){% endif %}</td></tr>
+</table>
+
+<h2>Nearby replacement-candidate buildings <span class="note">(service-life urgency, within {{ radius_miles }} miles)</span></h2>
+{% if c.latitude is none %}
+<p class="note">This contractor has not been geocoded yet, so nearby buildings can't be computed.</p>
+{% elif not nearby %}
+<p class="note">No replacement-candidate building with a geocoded address was found within {{ radius_miles }} miles.
+  Reflects import/geocoding coverage as of now, not an actual absence of aging buildings nearby.</p>
+{% else %}
+<p class="note">{{ nearby_total }} nearby, showing the {{ nearby|length }} most urgent by service-life years-past-due.</p>
+<table class="tbl">
+<thead><tr><th>Building</th><th>County</th><th>Service life</th><th>Est. tonnage</th><th>Triggers</th></tr></thead>
+<tbody>
+{% for b in nearby %}
+<tr>
+  <td><a href="/retrofit/building/{{ b.id }}">{{ b.address or 'APN ' + b.apn }}</a></td>
+  <td>{{ b.county }}, {{ b.state }}</td>
+  <td>{% if b.service_life_status %}<span class="stamp {{ 'stamp-post' if b.service_life_status in ('overdue','due') else 'stamp-in' if b.service_life_status == 'approaching' else 'stamp-pre' }}">{{ b.service_life_status.replace('_',' ') }}{% if b.service_life_years_past is not none %} {{ '%+.0f'|format(b.service_life_years_past) }}yr{% endif %}</span>{% else %}<span class="note">unknown</span>{% endif %}</td>
+  <td class="num">{% if b.estimated_tons_low %}~{{ b.estimated_tons_low|int }}–{{ b.estimated_tons_high|int }}t{% else %}—{% endif %}</td>
+  <td class="note">{% if b.ebewe_arcx_due_this_year %}A/RCx due{% endif %}{% if b.sb1206_trigger_status == 'in_effect' %}{{ ', ' if b.ebewe_arcx_due_this_year }}SB1206{% endif %}{% if b.carb_candidate %}{{ ', ' if b.ebewe_arcx_due_this_year or b.sb1206_trigger_status == 'in_effect' }}CARB{% endif %}{% if not (b.ebewe_arcx_due_this_year or b.sb1206_trigger_status == 'in_effect' or b.carb_candidate) %}—{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% endif %}
+{% endblock %}

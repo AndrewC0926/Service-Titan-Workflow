@@ -1,4 +1,4 @@
-"""The ten MCP tools. Imported by app/mcp_server.py, which owns the `mcp`
+"""The eleven MCP tools. Imported by app/mcp_server.py, which owns the `mcp`
 FastMCP instance these register against — import order matters (mcp must
 exist before this module's decorators run, and must not have called
 http_app() yet), so app/mcp_server.py imports this module, not the other way
@@ -16,10 +16,12 @@ it; nothing here restates a number without the caveat that came with it. A
 list caps at 20 rows and says how many were left out rather than silently
 truncating.
 
-log_outreach is the only write tool, and it only ever inserts an Outreach
-row — the same table and shape the dashboard's own outreach form writes to.
-Nothing here touches a pipeline table (Signal, Project's own pipeline-owned
-fields, ProjectSignal, ...).
+log_outreach is the only tool that writes to Postgres, and it only ever
+inserts an Outreach row — the same table and shape the dashboard's own
+outreach form writes to. Nothing here touches a pipeline table (Signal,
+Project's own pipeline-owned fields, ProjectSignal, ...). pre_call_brief
+caches its output too, but to a local JSON file, never a database row — see
+app.precall's module docstring for why.
 """
 from __future__ import annotations
 
@@ -493,6 +495,12 @@ def source_health() -> str:
     flag = " — EXHAUSTED" if st["exhausted"] else " — at warning threshold" if st["warn"] else ""
     lines += ["", f"LLM spend: ${st['today_usd']:.2f} today of ${st['daily_budget_usd']:.2f} "
              f"daily budget (${st['month_usd']:.2f} this month){flag}"]
+
+    from app.precall import precall_cost_report
+    pc = precall_cost_report()
+    lines += ["", f"Pre-call briefs: {pc['n_briefs']} cached, ${pc['total_cost_usd']:.4f} total "
+             f"(this instance's local disk only — see app.precall's module docstring for why "
+             f"that cache isn't in Postgres, and doesn't survive a deploy)."]
     return "\n".join(lines)
 
 
@@ -595,3 +603,42 @@ def get_selection_tool(line_name: str) -> str:
             when = tool.verified_date.strftime("%Y-%m-%d") if tool.verified_date else "date unrecorded"
             parts.append(f"\n  verified by {tool.verified_by}, {when}")
         return " ".join(parts)
+
+
+@mcp.tool
+def pre_call_brief(entity_type: str, entity_id: int, force_refresh: bool = False) -> str:
+    """Everything worth knowing before dialing a project or contractor, in one
+    page: Scout's own data (the contact ladder, firms, prior outreach, line
+    card fit, nearby regulatory triggers -- whichever apply to this entity)
+    plus fresh web research on the company and recent news, every web-sourced
+    fact cited inline with its URL and retrieval date. entity_type is
+    "project" or "contractor" (use search_projects/who_to_call or
+    /contractors to find an id first).
+
+    Cached per entity after the first call -- opening it again is free and
+    instant. Pass force_refresh=True to regenerate (the underlying data may
+    have moved since the cache was written). A cache miss costs real money
+    (a web-search-enabled Claude call, typically a few cents) -- see
+    source_health for the running total across every cached brief."""
+    from app.db import session_scope
+    from app.precall import PrecallUnavailable
+    from app.precall import pre_call_brief as _pre_call_brief
+    from app.spend import BudgetExceeded
+
+    if entity_type not in ("project", "contractor"):
+        return f"entity_type must be 'project' or 'contractor', got {entity_type!r}."
+
+    with session_scope() as session:
+        try:
+            entry = _pre_call_brief(session, entity_type, entity_id, force_refresh=force_refresh)
+        except ValueError:
+            return f"No {entity_type} #{entity_id}."
+        except PrecallUnavailable as exc:
+            return f"Pre-call brief unavailable: {exc}"
+        except BudgetExceeded as exc:
+            return f"Pre-call brief unavailable: {exc}"
+
+    status = "cached" if entry["from_cache"] else f"generated just now, cost ${entry['cost_usd']:.4f}"
+    header = f"Pre-call brief: {entry['name']} ({entity_type} #{entity_id}) — {status}"
+    generated = f"Generated {entry['generated_at_display']}"
+    return f"{header}\n{generated}\n\n{entry['text']}"

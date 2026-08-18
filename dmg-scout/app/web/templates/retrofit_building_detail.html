@@ -53,7 +53,7 @@
 {% for row in nearest_contractors %}
 {% set c = row.contractor %}
 <tr>
-  <td>{{ c.business_name }}<div class="note">{{ c.business_address }}, {{ c.city }}, {{ c.state }} {{ c.zip_code }}{% if c.business_phone %} · {{ c.business_phone }}{% endif %}</div></td>
+  <td><a href="/contractor/{{ c.id }}">{{ c.business_name }}</a><div class="note">{{ c.business_address }}, {{ c.city }}, {{ c.state }} {{ c.zip_code }}{% if c.business_phone %} · {{ c.business_phone }}{% endif %}</div></td>
   <td class="mono">{{ c.license_no }}</td>
   <td>{{ c.classifications }}</td>
   <td>{% if c.primary_status == 'CLEAR' %}<span class="ok">{{ c.primary_status }}</span>{% else %}<span class="warn">{{ c.primary_status or 'unknown' }}</span>{% endif %}

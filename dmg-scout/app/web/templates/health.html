@@ -133,6 +133,10 @@
       {% else %}<span class="ok">within budget</span>{% endif %}</td>
 </tr>
 </table>
+<p class="note">Pre-call briefs (app/precall.py): {{ '{:,}'.format(precall.n_briefs) }} cached,
+  ${{ '%.4f'|format(precall.total_cost_usd) }} total — this web instance's local disk only, not
+  Postgres, so this figure resets on every deploy and isn't shared across instances. See
+  app.precall's module docstring.</p>
 <h2>Source health — last run per adapter</h2>
 <table>
 <thead><tr><th>Source</th><th>Last run</th><th>Status</th><th class="num">Fetched</th><th class="num">New</th><th>Last success</th><th>Error</th></tr></thead>

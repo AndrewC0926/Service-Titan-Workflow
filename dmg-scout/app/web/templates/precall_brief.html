@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% from "_icon.html" import icon %}
+{% block title %}Pre-call brief: {{ title }}{% endblock %}
+{% block content %}
+<style>
+@media print {
+  body { background: #fff; color: #000; font-size: 11pt; }
+  .masthead, nav, .noprint { display: none !important; }
+  main { border: none; background: #fff; margin: 0; padding: 0; }
+  a { color: #000; }
+}
+.precall-section { margin: 0 0 1rem; }
+.precall-section h3 { font-size: 12px; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--color-ink-dim, #888); margin: 0 0 .35rem; }
+.precall-section p { margin: 0 0 .5rem; line-height: 1.5; max-width: 640px; }
+.precall-section ul { margin: 0 0 .5rem 1.1rem; padding: 0; }
+.precall-section li { margin: 0 0 .3rem; line-height: 1.45; max-width: 620px; }
+</style>
+
+<p class="noprint">
+  <a href="{{ back_url }}">← back</a>
+  {% if entry %}
+  <button onclick="window.print()" style="margin-left:12px">{{ icon('printer') }} Print / save PDF</button>
+  <a href="?refresh=1" style="margin-left:12px">{{ icon('phone') }} Regenerate</a>
+  {% endif %}
+</p>
+
+<h2 style="font-size:18px">{{ title }} — pre-call brief</h2>
+
+{% if error %}
+<details class="callout callout-warn" open>
+  <summary>Unavailable</summary>
+  <div class="callout-content"><span>
+    <strong>Could not generate this brief</strong>
+    <span class="body">{{ error }}</span>
+  </span></div>
+</details>
+{% elif entry %}
+<p class="dim">
+  {% if entry.from_cache %}Cached — generated {{ entry.generated_at_display }}, cost ${{ '%.4f'|format(entry.cost_usd) }}.
+    Opening this page again does not spend anything more; use Regenerate above if the underlying data has moved.
+  {% else %}Generated just now, {{ entry.generated_at_display }} — cost ${{ '%.4f'|format(entry.cost_usd) }}
+    ({{ entry.input_tokens }} in / {{ entry.output_tokens }} out tokens, {{ entry.model }}, {{ entry.web_searches }} web search{{ 'es' if entry.web_searches != 1 }}).
+  {% endif %}
+  Read-only: nothing on this page writes to Scout's database.
+</p>
+
+{% for section in sections %}
+<div class="precall-section">
+  {% if section.header %}<h3>{{ section.header }}</h3>{% endif %}
+  {% for piece in section.blocks %}
+    {% if piece.type == 'bullets' %}
+    <ul>{% for item in piece.lines %}<li>{{ item }}</li>{% endfor %}</ul>
+    {% else %}
+    <p>{{ piece.text }}</p>
+    {% endif %}
+  {% endfor %}
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

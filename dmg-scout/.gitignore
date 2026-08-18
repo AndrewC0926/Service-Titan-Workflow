@@ -18,3 +18,8 @@ app/web/static/app.css
 # on demand, don't belong in the repo (app/web/static/fonts/*.woff2 DOES belong
 # in the repo -- those are the actual self-hosted app assets, not a byproduct).
 tools/screenshots/
+
+# app/precall.py's local-disk cache -- deliberately never Postgres, see that
+# module's docstring. Regenerated on demand, doesn't survive a deploy anyway
+# (no persistent disk on the web service), so it has no business in the repo.
+data/precall_cache/

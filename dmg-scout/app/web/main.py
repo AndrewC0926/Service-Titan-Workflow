@@ -707,6 +707,51 @@ def contractors_list(request: Request, county: str = None, classification: str =
     })
 
 
+@app.get("/contractor/{contractor_id}", response_class=HTMLResponse)
+def contractor_detail(contractor_id: int, request: Request,
+                      session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.contractors import nearby_replacement_candidates, ranking_radius_miles
+    contractor = session.get(Contractor, contractor_id)
+    if not contractor:
+        raise HTTPException(404)
+    cfg = load_config()
+    radius = ranking_radius_miles(cfg)
+    nearby = (nearby_replacement_candidates(session, contractor, radius)
+             if contractor.latitude is not None else [])
+    return templates.TemplateResponse(request, "contractor.html", {
+        "c": contractor, "nearby": nearby[:10], "nearby_total": len(nearby), "radius_miles": radius,
+        "tb": _title_block(session), "active": "contractors",
+    })
+
+
+@app.get("/contractor/{contractor_id}/precall", response_class=HTMLResponse)
+def contractor_precall(contractor_id: int, request: Request, refresh: bool = False,
+                       session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Read-only pre-call brief -- see app/precall.py's module docstring for
+    the hard constraint this whole feature is built around (never writes to
+    Postgres, cache lives on local disk). refresh=1 bypasses the cache."""
+    from app.precall import PrecallUnavailable, brief_sections
+    from app.precall import pre_call_brief as _pre_call_brief
+    from app.spend import BudgetExceeded
+
+    contractor = session.get(Contractor, contractor_id)
+    if not contractor:
+        raise HTTPException(404)
+    try:
+        entry = _pre_call_brief(session, "contractor", contractor_id, force_refresh=refresh)
+    except (PrecallUnavailable, BudgetExceeded) as exc:
+        entry = None
+        error = str(exc)
+    else:
+        error = None
+    return templates.TemplateResponse(request, "precall_brief.html", {
+        "entry": entry, "sections": brief_sections(entry["text"]) if entry else None,
+        "error": error, "entity_type": "contractor", "entity_id": contractor_id,
+        "back_url": f"/contractor/{contractor_id}", "title": contractor.business_name,
+        "tb": _title_block(session), "active": "contractors",
+    })
+
+
 @app.get("/watchlist", response_class=HTMLResponse)
 def watchlist(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
     """Out-of-territory projects — checked deliberately, never crowding the board."""
@@ -839,6 +884,34 @@ def project_brief(project_id: int, request: Request,
         raise HTTPException(404)
     return templates.TemplateResponse(request, "brief.html", {
         "b": b, "p": b["project"], "tb": _title_block(session), "active": "board",
+    })
+
+
+@app.get("/project/{project_id}/precall", response_class=HTMLResponse)
+def project_precall(project_id: int, request: Request, refresh: bool = False,
+                    session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Read-only pre-call brief -- see app/precall.py's module docstring for
+    the hard constraint this whole feature is built around (never writes to
+    Postgres, cache lives on local disk). refresh=1 bypasses the cache."""
+    from app.precall import PrecallUnavailable, brief_sections
+    from app.precall import pre_call_brief as _pre_call_brief
+    from app.spend import BudgetExceeded
+
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404)
+    try:
+        entry = _pre_call_brief(session, "project", project_id, force_refresh=refresh)
+    except (PrecallUnavailable, BudgetExceeded) as exc:
+        entry = None
+        error = str(exc)
+    else:
+        error = None
+    return templates.TemplateResponse(request, "precall_brief.html", {
+        "entry": entry, "sections": brief_sections(entry["text"]) if entry else None,
+        "error": error, "entity_type": "project", "entity_id": project_id,
+        "back_url": f"/project/{project_id}", "title": project.name,
+        "tb": _title_block(session), "active": "board",
     })
 
 
@@ -1720,10 +1793,12 @@ def source_health(request: Request, session: Session = Depends(get_session), _: 
         "status": {k: grid[k] for k in sorted(grid)},
         "fetched": {k: fetched[k] for k in sorted(grid)},
     }
+    from app.precall import precall_cost_report
     return templates.TemplateResponse(request, "health.html", {
         "sources": sources, "recent_runs": runs[:50], "budget": budget_status(),
         "chart": chart, "tb": _title_block(session), "active": "health",
         "pipeline_runs": pipeline_runs, "memory": mem, "latest_stage_peaks": latest_stage_peaks,
+        "precall": precall_cost_report(),
     })
 
 
