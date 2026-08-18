@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 from sqlalchemy import create_engine, text
 from sqlmodel import Session, SQLModel
 
-from app.config import database_url
+from app.config import CONFIG_PATH_ENV, DEFAULT_CONFIG, database_url
 
 _engine = None
 
@@ -58,11 +58,24 @@ def refuse_remote_migration_without_override(url: str) -> None:
     )
 
 
+def _repo_root() -> Path:
+    """`pip install .` (no -e, see Dockerfile) copies app/ into site-packages
+    as a separate, permanent copy -- a path computed as Path(__file__).
+    resolve().parent.parent from THIS file resolves inside site-packages for
+    the installed `scout` console script, not the /srv/dmg-scout checkout
+    that actually holds alembic.ini and alembic/versions/ (the exact bug
+    the Dockerfile's SCOUT_CONFIG override already exists to fix for
+    config.yaml -- see app.config.DEFAULT_CONFIG's own comment). Anchoring
+    on SCOUT_CONFIG's already-correct, already-deployed directory avoids
+    recomputing our own broken __file__-relative guess."""
+    return Path(os.environ.get(CONFIG_PATH_ENV, DEFAULT_CONFIG)).resolve().parent
+
+
 def _known_alembic_revisions() -> set[str]:
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
-    repo_root = Path(__file__).resolve().parent.parent
+    repo_root = _repo_root()
     cfg = Config(str(repo_root / "alembic.ini"))
     cfg.set_main_option("script_location", str(repo_root / "alembic"))
     script = ScriptDirectory.from_config(cfg)
