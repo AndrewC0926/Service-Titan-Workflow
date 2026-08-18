@@ -25,5 +25,6 @@ set -euo pipefail
 # Fixed at the source via SCOUT_CONFIG in the Dockerfile (load_config()'s
 # own documented override), not here -- an explicit `cd` in this script
 # would have done nothing for a bug that was never about cwd.
+scout check-migrations
 alembic upgrade head
 scout pipeline

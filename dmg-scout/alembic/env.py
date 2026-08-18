@@ -6,6 +6,7 @@ from sqlmodel import SQLModel
 
 import app.models  # noqa: F401 — populate metadata
 from app.config import database_url
+from app.db import refuse_remote_migration_without_override
 
 config = context.config
 if config.config_file_name is not None:
@@ -27,6 +28,7 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    refuse_remote_migration_without_override(config.get_main_option("sqlalchemy.url"))
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

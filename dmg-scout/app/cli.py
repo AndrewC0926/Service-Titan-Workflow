@@ -8,7 +8,7 @@ import typer
 from sqlmodel import select
 
 from app.config import load_config
-from app.db import init_db, session_scope
+from app.db import check_migration_state, init_db, session_scope
 from app.ops import setup_logging
 
 setup_logging()
@@ -38,6 +38,15 @@ def initdb() -> None:
     """Create all tables (dev). Production: alembic upgrade head."""
     init_db()
     typer.echo("tables created")
+
+
+@app.command("check-migrations")
+def check_migrations_cmd() -> None:
+    """Fail loudly, by revision ID, if the DB is stamped ahead of this
+    deployment's own alembic/versions/ -- run before `alembic upgrade
+    head` in both the web and cron entry points. See app.db.check_migration_state."""
+    check_migration_state()
+    typer.echo("migration state OK")
 
 
 @app.command()

@@ -78,6 +78,31 @@ def test_cron_script_runs_migration_before_pipeline_and_fails_loud():
     assert migrate_at < pipeline_at, "migration must run before the pipeline, not after"
 
 
+def test_cron_script_checks_migration_state_before_running_alembic():
+    """2026-08-17: the cron job died 20 seconds into a scheduled run because
+    the database was already stamped with a revision this deployment's
+    `alembic upgrade head` had never heard of -- discovered mid-pipeline,
+    once a day, by job failure. `scout check-migrations` (app.db.
+    check_migration_state) checks the same fact explicitly, by revision ID,
+    before alembic even runs."""
+    lines = [
+        line for line in (REPO_ROOT / _cron_service()["dockerCommand"]).read_text().splitlines()
+        if not line.strip().startswith("#")
+    ]
+    executable = "\n".join(lines)
+    assert "scout check-migrations" in executable
+    check_at = executable.index("scout check-migrations")
+    migrate_at = executable.index("alembic upgrade head")
+    assert check_at < migrate_at, "migration state must be checked before alembic upgrade head runs"
+
+
+def test_web_dockerfile_checks_migration_state_before_running_alembic():
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text()
+    cmd_line = next(line for line in dockerfile.splitlines() if line.startswith("CMD"))
+    assert "scout check-migrations" in cmd_line
+    assert cmd_line.index("scout check-migrations") < cmd_line.index("alembic upgrade head")
+
+
 def test_dockerfile_sets_scout_config_for_the_installed_console_script():
     """Regression test for the second cron bug (2026-08-13, found by
     actually triggering the job via Render's API -- a local editable

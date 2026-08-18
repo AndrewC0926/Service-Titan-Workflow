@@ -72,4 +72,4 @@ EXPOSE 8000
 # server error, no build error, CSS serves fine on its own URL, page renders
 # naked. Render's edge is the only thing that can reach this container, so
 # trusting it here is safe.
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.web.main:app --host 0.0.0.0 --port ${PORT:-8000} --forwarded-allow-ips='*'"]
+CMD ["sh", "-c", "scout check-migrations && alembic upgrade head && uvicorn app.web.main:app --host 0.0.0.0 --port ${PORT:-8000} --forwarded-allow-ips='*'"]
