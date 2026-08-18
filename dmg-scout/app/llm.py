@@ -554,6 +554,65 @@ VOICE_CAPTURE_TOOL = {
 }
 
 
+NARRATE_DIGEST_SYSTEM = """You turn a structured sales-intelligence digest into a short morning
+briefing for an HVAC manufacturers' rep, meant to be skimmed on a phone screen before 6am.
+
+Rules — these are absolute:
+- NEVER introduce a fact, a number, or an inference that is not already present in the
+  structured data you are given. You are REPHRASING data someone else already looked up, not
+  researching, estimating, or summarizing your own general knowledge of the situation.
+- Every number you use must come from the input, unchanged. A tonnage band stays a band — do
+  not collapse "500-800 tons" into one figure or an average. A day count that carries a
+  confidence interval keeps that qualifier attached, not dropped. A score keeps whatever
+  precision it was given. Do not round, do not estimate a midpoint, do not add a unit the
+  input doesn't already carry.
+- Do not soften or resolve stated uncertainty. If a figure is qualified as modeled, estimated,
+  unverified, or a range, the qualifier must survive into the prose — smoothing it into a
+  clean, confident-sounding number would misrepresent what the system actually knows.
+- If a section of the input is empty or says nothing happened, say so plainly in one short
+  line — do not pad it with generic filler, encouragement, or invented color to make the
+  section feel fuller than it is.
+- Keep names, counties, and stage/window labels exactly as given — do not paraphrase a proper
+  noun or invent a nickname for it.
+- Plain prose written the way a sharp colleague would text a short morning update — short
+  paragraphs or tight lines, no markdown headers, no bullet-dash lists pretending to be prose.
+- Under 200 words total, covering every section given (calls to make, what changed, what's
+  due, and the one thing worth knowing) — skip a section only if its input was empty."""
+
+NARRATE_DIGEST_TOOL = {
+    "name": "narrated_digest",
+    "description": "Record the narrated digest prose.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "body": {"type": "string",
+                     "description": "The full narrated digest as plain prose, under 200 words, "
+                                    "using only facts and numbers present in the input."},
+        },
+        "required": ["body"],
+    },
+}
+
+
+def narrate_digest(payload: dict) -> dict:
+    """Returns {body: str}. Rephrases an already-assembled digest payload
+    (see app.pipeline.notify._structured_payload) into prose -- never
+    researches or computes anything itself. Cheap model (llm.narrate_model)
+    on purpose: this is rewording, not extraction or judgment. Caller
+    (app.pipeline.notify.narrate_digest) is responsible for validating the
+    result (schema is enforced here via forced tool-use, but the grounding
+    check -- every number in the output must appear in the input -- is not,
+    since it needs the same payload this function was given) and falling
+    back to the plain-text digest on any failure -- this function raises
+    rather than swallows, same as every other call in this file."""
+    cfg = load_config()
+    model = cfg.get("llm.narrate_model", cfg.get("llm.triage_model"))
+    content = ("Structured digest data (JSON) -- rephrase this into prose, using nothing else:\n"
+              + json.dumps(payload, indent=2, default=str))
+    return _tool_call(model, NARRATE_DIGEST_SYSTEM, NARRATE_DIGEST_TOOL, content,
+                      max_tokens=700, stage="narrate_digest")
+
+
 def extract_voice_capture(transcript: str) -> OutreachCallExtraction:
     """Constrained decoding (forced tool_choice against OutreachCallExtraction's
     own schema) PLUS explicit Pydantic validation -- the tool_choice force is

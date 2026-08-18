@@ -23,11 +23,24 @@ is meant to carry more of this detail, clickable, without becoming an email.
 
 DigestLog rows record what was already reported, same mechanism as before:
 an item reappears only when it is new or has materially changed.
+
+Narration (2026-08-19): the four sections above are still assembled exactly
+as before, fully grounded, and rendered to plain text FIRST. A cheap-model
+pass (see narrate_or_fallback, app.llm.narrate_digest) then gets that same
+data as JSON and rewords it into prose — never asked to look anything up or
+compute anything, only to rephrase. Every number in the result is checked
+against the input before it is trusted; any failure — the call itself, an
+unparseable response, or a number that doesn't trace back to the input —
+falls back to the plain-text digest that was already built, silently to
+the reader. See app/llm.py's NARRATE_DIGEST_SYSTEM for the exact
+constraints given to the model.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
 import smtplib
 from datetime import timedelta
 from email.mime.text import MIMEText
@@ -366,6 +379,117 @@ def _one_thing_worth_knowing(session: Session, cfg: Config, n_changes: int) -> s
     return None
 
 
+# ---- narration (optional prose pass over the same grounded data) -----------
+#
+# The plain digest above (_render_calls/_render_changes/_render_overdue/
+# ONE THING) is the ground truth: every number in it already traces back to
+# a query this module ran. Narration NEVER re-derives anything -- it is
+# handed exactly that same data as JSON and asked to reword it into prose a
+# person wants to read at 6am, nothing more. Two independent safeguards
+# keep it from drifting past that:
+#   1. The system prompt (app.llm.NARRATE_DIGEST_SYSTEM) instructs the model
+#      explicitly not to introduce a fact, number, or inference. A prompt is
+#      not a guarantee, so:
+#   2. _numbers_grounded checks it after the fact -- every numeric token in
+#      the narrated prose must already appear somewhere in the JSON payload
+#      it was given. Fails closed: any exception, any missing/non-string
+#      body, or any number not traceable to the input, and the caller falls
+#      back to the plain digest untouched. Nothing about the plain digest's
+#      own construction or DigestLog marking depends on narration succeeding.
+
+_NUMBER_RE = re.compile(r"\d[\d,]*\.?\d*")
+
+
+def _numbers_in(text: str) -> set[str]:
+    """Every distinct numeric token in text, thousands-separator commas
+    stripped so '1,234' and '1234' compare equal, but otherwise exact-string
+    matched on purpose -- '0.42' must not silently satisfy '0.4', since
+    accepting that would let a rounded/reformatted figure pass as
+    grounded when it is actually a different number than the input gave."""
+    return {tok.replace(",", "") for tok in _NUMBER_RE.findall(text)}
+
+
+def _numbers_grounded(narrated_body: str, payload: dict) -> bool:
+    input_numbers = _numbers_in(json.dumps(payload, default=str))
+    output_numbers = _numbers_in(narrated_body)
+    stray = output_numbers - input_numbers
+    if stray:
+        log.warning("digest narration introduced number(s) not present in the input: %s", sorted(stray))
+        return False
+    return True
+
+
+def _structured_payload(calls: list[dict], change_lines: list[str],
+                        overdue_lines: list[str], one_thing: str | None) -> dict:
+    """The narration model's ENTIRE world -- exactly what the plain digest
+    already shows, reshaped as JSON, nothing added. calls is re-derived
+    into plain fields here (mirroring _render_calls' own formatting, e.g.
+    tons banding) because the ORM Project/contact objects in `calls` aren't
+    JSON-serializable; change_lines/overdue_lines are already fully-
+    rendered, fact-final strings (see _detect_changes/_overdue_and_due), so
+    they pass through verbatim rather than being re-derived a second way,
+    which could drift from what the plain digest actually says."""
+    calls_payload = []
+    for c in calls:
+        p, contact = c["project"], c["contact"]
+        tons = (f"{p.tons_estimate_low:,.0f}-{p.tons_estimate_high:,.0f} tons"
+               if p.tons_estimate_low else None)
+        calls_payload.append({
+            "contact_name": contact["name"],
+            "phone": contact.get("phone"),
+            "email": contact.get("email"),
+            "project_name": p.name,
+            "county": p.county,
+            "tons_estimate": tons,
+            "why_this_call": c["reason"],
+        })
+    return {
+        "calls_to_make_today": calls_payload,
+        "changed_since_yesterday": change_lines or "nothing changed since yesterday",
+        "overdue_and_due_next_actions": overdue_lines or "nothing due or overdue",
+        "one_thing_worth_knowing": one_thing,
+    }
+
+
+def narrate_or_fallback(cfg: Config, calls: list[dict], change_lines: list[str],
+                        overdue_lines: list[str], one_thing: str | None,
+                        plain_body: str) -> tuple[str, dict]:
+    """Returns (body, stats). body is the narrated prose on success, or
+    plain_body unchanged on ANY failure -- a bad narration must never
+    become "send nothing" or "raise and abort the digest," since the plain
+    digest is already fully built and known-good by the time this runs.
+    stats records what happened for run_notify's return value and the
+    per-digest cost this was asked to be reported alongside app.spend's
+    existing tracking; cost_usd is 0.0 whenever narration didn't actually
+    call the model (disabled, or budget already exhausted before trying)."""
+    from app.spend import BudgetExceeded, run_budget
+
+    if not cfg.get("digest.narrate", True):
+        return plain_body, {"narrated": False, "reason": "disabled", "cost_usd": 0.0}
+
+    payload = _structured_payload(calls, change_lines, overdue_lines, one_thing)
+    try:
+        from app.llm import LLMUnavailable, last_call_cost_usd, narrate_digest
+        with run_budget("digest_narration", cap_usd=cfg.get("llm.digest_narration_budget_usd", 0.05)):
+            result = narrate_digest(payload)
+    except (LLMUnavailable, BudgetExceeded) as exc:
+        log.info("digest narration skipped (%s) — sending plain digest", exc)
+        return plain_body, {"narrated": False, "reason": str(exc), "cost_usd": 0.0}
+    except Exception as exc:  # noqa: BLE001 — narration is best-effort, never fatal to the send
+        log.warning("digest narration failed (%s) — sending plain digest", exc)
+        return plain_body, {"narrated": False, "reason": str(exc), "cost_usd": 0.0}
+
+    cost = last_call_cost_usd() or 0.0
+    body = result.get("body")
+    if not body or not isinstance(body, str):
+        log.warning("digest narration returned no usable body — sending plain digest")
+        return plain_body, {"narrated": False, "reason": "empty body", "cost_usd": cost}
+    if not _numbers_grounded(body, payload):
+        return plain_body, {"narrated": False, "reason": "ungrounded number", "cost_usd": cost}
+
+    return body.strip() + "\n", {"narrated": True, "cost_usd": cost}
+
+
 # ---- assembly ---------------------------------------------------------------
 
 def build_digest(session: Session, cfg: Config) -> tuple[str, dict] | None:
@@ -395,9 +519,11 @@ def build_digest(session: Session, cfg: Config) -> tuple[str, dict] | None:
     if one_thing:
         sections.append(f"ONE THING\n  {one_thing}")
 
-    body = f"DMG Scout — {utcnow():%a %b %d}\n\n" + "\n\n".join(sections) + "\n"
+    plain_body = f"DMG Scout — {utcnow():%a %b %d}\n\n" + "\n\n".join(sections) + "\n"
+    body, narration_stats = narrate_or_fallback(cfg, calls, change_lines, overdue_lines, one_thing, plain_body)
     stats = {
         "calls": len(calls), "changes": len(change_lines), "overdue": len(overdue_lines),
+        **narration_stats,
     }
     return body, stats
 

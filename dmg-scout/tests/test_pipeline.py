@@ -179,7 +179,13 @@ def test_nop_project_advances_to_in_bod_only_with_design_signal(db_session, cfg)
     assert db_session.exec(select(Project)).one().window == Window.IN_BOD
 
 
-def test_digest_only_reports_new(db_session, cfg):
+def test_digest_only_reports_new(db_session, cfg, monkeypatch):
+    # digest.narrate defaults to True in real config; force the existing
+    # SCOUT_LLM_DISABLED kill switch so build_digest's narration attempt
+    # falls back to the plain-text body this test asserts on, deterministically
+    # and without a real Anthropic call -- see test_notify_narration.py for
+    # narration's own dedicated tests.
+    monkeypatch.setenv("SCOUT_LLM_DISABLED", "1")
     _signal(db_session, project_name="Meridian DC", county="San Bernardino", state="CA",
             mw_it=100, stage=Stage.entitlement)
     run_resolve(db_session, cfg, use_llm=False)

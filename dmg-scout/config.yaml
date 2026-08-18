@@ -23,6 +23,18 @@ llm:
   # counts as corroborated, not a rigid extraction -- same tier reasoning
   # this app already trusts for voice_capture_model above.
   precall_model: "claude-sonnet-5"
+  # Digest narration (app/pipeline/notify.py): rephrasing an already-
+  # assembled, already-grounded payload into prose, not extraction or
+  # judgment -- same tier reasoning triage_model uses, and cheap enough
+  # that the per-run cap below is real headroom, not a tight squeeze.
+  narrate_model: "claude-haiku-4-5-20251001"
+  # Per-run cap for the digest narration step specifically (see
+  # app.spend.run_budget) -- separate from llm.run_budget_usd because this
+  # is ONE cheap call a day, not a whole fetch/triage/extract pass. Sized
+  # at roughly 15x the measured per-call cost (~$0.003, see
+  # app.pipeline.notify.narrate_or_fallback's own docstring) so a retry or
+  # two doesn't trip it, while still being nowhere near llm.daily_budget_usd.
+  digest_narration_budget_usd: 0.05
   # Triage reads the WHOLE document up to this, then falls to a spanning sample.
   # Was 6000, which meant 144 of 204 documents were classified on their first few
   # pages and 86% of all stored text never reached triage at all — an 82,724-char
@@ -1029,6 +1041,11 @@ digest:
   due_soon_days: 3
   smtp: {host: "", port: 587, username: "", password_env: "SMTP_PASSWORD"}
   resend: {api_key_env: "RESEND_API_KEY"}
+  # Prose pass over the same grounded digest data -- see app.pipeline.notify's
+  # narrate_or_fallback. false reverts to the plain-text digest unconditionally,
+  # no model call at all -- the kill switch if narration reads worse than what
+  # it replaced.
+  narrate: true
 
 dashboard:
   basic_auth_username: "andrew"

@@ -18,6 +18,19 @@ from app.models import Category, DigestLog, Project, Stage, Window
 from app.pipeline.notify import build_digest, run_notify
 
 
+@pytest.fixture(autouse=True)
+def _no_digest_narration(monkeypatch):
+    """digest.narrate defaults to True in real config, and build_digest would
+    otherwise attempt a real Anthropic call from every test here -- forced
+    off via the existing SCOUT_LLM_DISABLED kill switch (app.spend) so these
+    tests stay deterministic and free regardless of whether the environment
+    happens to carry ANTHROPIC_API_KEY. narrate_or_fallback already treats
+    this exactly like any other narration failure: silent fallback to the
+    plain-text body these tests assert on. See test_notify_narration.py for
+    narration's own tests, which mock app.llm.narrate_digest explicitly."""
+    monkeypatch.setenv("SCOUT_LLM_DISABLED", "1")
+
+
 @pytest.fixture()
 def board(db_session):
     for i in range(3):
