@@ -279,15 +279,49 @@ def test_hospital_osp_breakdown_covers_all_four_chillers_and_fourteen_fans(db_se
     assert len(breakdown["fans"]) == 14
 
 
-def test_hospital_osp_breakdown_climacool_shows_confirmed_expired(db_session):
+def test_hospital_osp_breakdown_climacool_shows_expired_status(db_session):
     from app.accounts import seed_product_lines
     from app.config import load_config
     seed_product_lines(db_session, load_config())
     breakdown = hcai.hospital_osp_breakdown(db_session)
     climacool = next(l for l in breakdown["chillers"] if l["name"] == "ClimaCool")
-    assert climacool["confirmed_expired"] is True
-    assert climacool["current"] is False
+    assert climacool["status"] == "expired"
     assert climacool["osp_number"] == "OSP-0048"
+
+
+def test_hospital_osp_breakdown_every_fan_line_has_a_definitive_status(db_session):
+    """All 14 fan lines have now been researched (2026-08-09 + 2026-08-19) --
+    none should be reporting the 'unresearched' fallback status any more."""
+    from app.accounts import seed_product_lines
+    from app.config import load_config
+    seed_product_lines(db_session, load_config())
+    breakdown = hcai.hospital_osp_breakdown(db_session)
+    statuses = {l["name"]: l["status"] for l in breakdown["fans"]}
+    assert statuses == {
+        "TCF/Twin City Fan": "expired",
+        "Berner": "not_listed", "Canarm": "not_listed", "FanAm": "not_listed",
+        "MacroAir": "not_listed", "Panasonic": "not_listed", "Delta Breez": "not_listed",
+        "Broan NuTone": "not_listed", "Systemair": "not_listed", "Monoxivent": "not_listed",
+        "Strobic Air": "not_listed", "Howden": "not_listed", "Penn Barry": "not_listed",
+        "Soler & Palau": "not_listed",
+    }
+
+
+def test_hospital_osp_breakdown_status_split_never_conflates_expired_and_not_listed(db_session):
+    """The whole point of the status field: 'expired' (renewal ask) and
+    'not_listed' (new-application ask) must be distinguishable, not lumped
+    into one gap bucket."""
+    from app.accounts import seed_product_lines
+    from app.config import load_config
+    seed_product_lines(db_session, load_config())
+    breakdown = hcai.hospital_osp_breakdown(db_session)
+    all_gap_rows = breakdown["chillers"] + breakdown["fans"]
+    expired = [l for l in all_gap_rows if l["status"] == "expired"]
+    not_listed = [l for l in all_gap_rows if l["status"] == "not_listed"]
+    assert {l["name"] for l in expired} == {"ClimaCool", "TCF/Twin City Fan"}
+    assert len(not_listed) == 16  # 3 chillers + 13 fans
+    assert all(l["osp_number"] is not None for l in expired)  # expired always cites a number
+    assert all(l["osp_number"] is None for l in not_listed)   # not_listed never fabricates one
 
 
 def test_hospital_osp_breakdown_unknown_line_falls_back_gracefully(db_session):
@@ -301,5 +335,21 @@ def test_hospital_osp_breakdown_unknown_line_falls_back_gracefully(db_session):
     db_session.commit()
     breakdown = hcai.hospital_osp_breakdown(db_session)
     row = next(l for l in breakdown["chillers"] if l["name"] == "Brand New Chiller Co")
+    assert row["status"] == "unresearched"
     assert row["osp_number"] is None
     assert "not yet transcribed" in row["note"]
+
+
+def test_hospital_osp_breakdown_live_db_wins_over_stale_fact(db_session):
+    """If ProductLine.oshpd_osp later flips to True for a line HCAI_BRIEF_
+    OSP_FACTS still marks not_listed/expired, the live DB value must win --
+    this is what keeps 'current' self-correcting instead of silently
+    drifting stale on a page people read to decide who to call."""
+    from app.models import ProductLine
+    db_session.add(ProductLine(name="ClimaCool", name_norm="climacool", firm="X",
+                               category="chillers_cooling", building_role="cooling_generation",
+                               oshpd_osp=True))  # hypothetical: ClimaCool renews
+    db_session.commit()
+    breakdown = hcai.hospital_osp_breakdown(db_session)
+    climacool = next(l for l in breakdown["chillers"] if l["name"] == "ClimaCool")
+    assert climacool["status"] == "current"

@@ -677,8 +677,14 @@ def test_hospitals_brief_shows_climacool_and_twin_city_fan_expired(client, db_se
     from app.accounts import seed_product_lines
     seed_product_lines(db_session, cfg)
     r = client.get("/hospitals/brief", headers=AUTH)
-    assert "ClimaCool" in r.text and "confirmed expired" in r.text
+    assert "ClimaCool" in r.text
     assert "TCF/Twin City Fan" in r.text
+    assert "Expired" in r.text and "renewal ask" in r.text  # split status section header, not a single gap column
+    assert "Not listed" in r.text and "new-application ask" in r.text
+    # all nine previously-unresearched fan lines are now individually reported
+    for name in ("Berner", "Canarm", "FanAm", "MacroAir", "Panasonic",
+                "Delta Breez", "Broan NuTone", "Systemair", "Monoxivent"):
+        assert name in r.text
 
 
 def test_esco_board_is_reachable_and_separate(client, db_session, cfg):

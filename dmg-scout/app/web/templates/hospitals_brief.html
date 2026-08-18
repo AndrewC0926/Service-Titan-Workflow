@@ -24,6 +24,18 @@
   Scout's own line-card research; no dollar estimate appears anywhere on this page — no basis exists
   for one yet.</p>
 
+<details class="callout callout-warn" open>
+  <summary>Watch item</summary>
+  <div class="callout-content">
+    <span>
+    <strong>Carel's humidification OSP-0705 is the nearest confirmed-current OSP on this card to its own expiration</strong>
+    <span class="body">Expires <strong>2028-08-11</strong> — about 2 years out as of this brief.
+      Nothing else covered is within the next several years. See "What DMG can field" below for the
+      full table.</span>
+    </span>
+  </div>
+</details>
+
 <h2>Territory coverage</h2>
 <p>{{ '{:,}'.format(coverage.in_territory) }} of {{ '{:,}'.format(coverage.total_buildings) }} hospital
   buildings statewide fall in Scout's 7 territory counties (Los Angeles, Orange, San Bernardino,
@@ -79,36 +91,55 @@
   "OSP by Category" directory, retrieved 2026-08-09.</p>
 
 <h2>What DMG cannot field — the gap</h2>
-<p><strong>Chillers: {{ osp.chillers|selectattr('current')|list|length }} of {{ osp.chillers|length }}
-  lines hold a confirmed current OSP.</strong></p>
-<table class="tbl" style="width:100%">
-<thead><tr><th>Line</th><th>OSP number</th><th>Status</th><th>Note</th></tr></thead>
-<tbody>
-{% for l in osp.chillers %}
-<tr><td>{{ l.name }}</td><td class="mono">{{ l.osp_number or '—' }}</td>
-    <td>{% if l.current %}<span class="ok">current</span>{% elif l.confirmed_expired %}<span class="warn">confirmed expired{% if l.expires %}, {{ l.expires }}{% endif %}</span>{% else %}<span class="note">unknown — no HCAI record found</span>{% endif %}</td>
-    <td class="note">{{ l.note }}</td></tr>
-{% endfor %}
-</tbody>
-</table>
+<p class="note">Two different findings below, kept as separate tables because they lead to different
+  asks. <strong>Expired</strong> means HCAI's own record shows a specific preapproval that lapsed — the
+  ask is a renewal of an existing filing. <strong>Not listed</strong> means no HCAI record was found
+  under any name/spelling checked, ever (current or historical) — the ask is a new application, or this
+  manufacturer has simply never pursued HCAI certification. Neither is proof no OSP could exist under an
+  unchecked name variant, but every line below — all 4 chillers, all 14 fans — has now been checked
+  directly, not assumed.</p>
 
-<p><strong>Fans: {{ osp.fans|selectattr('current')|list|length }} of {{ osp.fans|length }}
-  lines hold a confirmed current OSP.</strong></p>
+{% for group_key, group_label in (('chillers', 'Chillers'), ('fans', 'Fans')) %}
+{% set rows = osp[group_key] %}
+{% set expired = rows|selectattr('status', 'equalto', 'expired')|list %}
+{% set not_listed = rows|selectattr('status', 'equalto', 'not_listed')|list %}
+<p><strong>{{ group_label }}: {{ rows|selectattr('status','equalto','current')|list|length }} of
+  {{ rows|length }} lines hold a confirmed current OSP</strong> — {{ expired|length }} expired,
+  {{ not_listed|length }} not listed.</p>
+
+{% if expired %}
+<p class="note" style="margin-bottom:.2rem"><strong>Expired — renewal ask</strong></p>
 <table class="tbl" style="width:100%">
-<thead><tr><th>Line</th><th>OSP number</th><th>Status</th><th>Note</th></tr></thead>
+<thead><tr><th>Line</th><th>OSP number</th><th>Expired</th><th>Note</th></tr></thead>
 <tbody>
-{% for l in osp.fans %}
-<tr><td>{{ l.name }}</td><td class="mono">{{ l.osp_number or '—' }}</td>
-    <td>{% if l.current %}<span class="ok">current</span>{% elif l.confirmed_expired %}<span class="warn">confirmed expired{% if l.expires %}, {{ l.expires }}{% endif %}</span>{% else %}<span class="note">unknown — no HCAI record found</span>{% endif %}</td>
+{% for l in expired %}
+<tr><td>{{ l.name }}</td><td class="mono">{{ l.osp_number }}</td>
+    <td class="nowrap"><span class="warn">{{ l.expires }}</span></td>
     <td class="note">{{ l.note }}</td></tr>
 {% endfor %}
 </tbody>
 </table>
-<p class="note">"Unknown" means no HCAI record was found under that name in HCAI's own OSP directory —
-  absence of evidence, not a denial; a real preapproval could exist under a different corporate/brand
-  name not yet checked. Source: HCAI's "OSP by Category" directory and individual application PDFs
-  (hcai.ca.gov), cross-checked against a third-party mirror, retrieved 2026-08-09. Full research trail
-  for every line: each ProductLine's own oshpd_osp_basis field in config.yaml.</p>
+{% endif %}
+
+{% if not_listed %}
+<p class="note" style="margin-bottom:.2rem;margin-top:.8rem"><strong>Not listed — new-application ask</strong></p>
+<table class="tbl" style="width:100%">
+<thead><tr><th>Line</th><th>Note</th></tr></thead>
+<tbody>
+{% for l in not_listed %}
+<tr><td>{{ l.name }}</td><td class="note">{{ l.note }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endif %}
+{% endfor %}
+
+<p class="note">Source: HCAI's live OSP directory (hcai.ca.gov/facilities/building-safety/
+  preapproval-programs/osp/) and its "OSP by Category" historical listing
+  (hcai.ca.gov/document/osp-list-by-category/), both fetched and searched directly — the chillers and
+  five of the fan lines were checked 2026-08-09, the remaining nine fan lines 2026-08-19 — cross-checked
+  against a third-party mirror and individual web searches. Full research trail for every covered/
+  expired line: each ProductLine's own oshpd_osp_basis field in config.yaml.</p>
 
 <h2>Contractor reachability — a proxy, not evidence of hospital experience</h2>
 <p>Of the {{ '{:,}'.format(reach.npc_2030_total) }} in-territory buildings that still need NPC work by

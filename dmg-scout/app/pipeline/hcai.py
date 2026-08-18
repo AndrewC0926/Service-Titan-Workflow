@@ -497,66 +497,107 @@ def hospital_contractor_reachability(session, cfg) -> dict:
 
 # ---- OSP number/expiration for the hospital brief (/hospitals/brief) -----
 #
-# HAND-TRANSCRIBED from each line's own oshpd_osp_basis text in config.yaml
-# (read directly, 2026-08-18), not parsed/regexed from it -- the basis text
-# itself is prose written for a human to read, and pattern-matching a date
-# out of free text is exactly the kind of silent-misextraction risk this
-# system abstains from elsewhere (see HospitalBuilding's own
-# has_filed_extension for the same discipline applied to a different
-# source). If a line's oshpd_osp/oshpd_osp_basis is updated with new
-# research, this entry must be updated by hand too -- a known coupling, not
+# HAND-TRANSCRIBED from each line's own research (config.yaml's per-line
+# oshpd_osp_basis field for the 2026-08-09 round; direct HCAI/live-directory
+# checks for the nine fan lines completed 2026-08-19, see below), not
+# parsed/regexed from source text -- pattern-extracting a date out of free
+# prose is exactly the silent-misextraction risk this system abstains from
+# elsewhere (see HospitalBuilding's own has_filed_extension for the same
+# discipline applied to a different source). If a line's research is
+# updated, this entry must be updated by hand too -- a known coupling, not
 # an automatic one. osp_number/expires are None where HCAI's own listing
 # does not state one (shown on the brief as "unknown", never computed).
 #
+# status is one of three DIFFERENT findings that lead to different asks --
+# never collapsed into one "gap" bucket:
+#   "current"     -- confirmed active OSP on file (also gated live on
+#                     ProductLine.oshpd_osp=True in hospital_osp_breakdown,
+#                     so this can't drift stale if the DB record changes)
+#   "expired"     -- HCAI's OWN RECORD shows a specific preapproval that
+#                     lapsed -- the ask is a RENEWAL of an existing filing.
+#   "not_listed"  -- searched directly, no HCAI record under any name/
+#                     spelling checked, ever (current or historical) -- the
+#                     ask is a NEW APPLICATION, or this manufacturer has
+#                     simply never pursued HCAI certification. Absence of
+#                     evidence, not proof no OSP could exist under an
+#                     unchecked name variant.
+#
+# 2026-08-19 fan research (Berner, Canarm, FanAm, MacroAir, Panasonic,
+# Delta Breez, Broan/NuTone, Systemair, Monoxivent -- the nine that were
+# previously unresearched): checked directly against (1) HCAI's LIVE OSP
+# directory (hcai.ca.gov/facilities/building-safety/preapproval-programs/
+# osp/, fetched and full-text-searched directly -- 902 distinct OSP numbers
+# as of this check, current/active records only), (2) HCAI's own "OSP by
+# Category" historical PDF (hcai.ca.gov/document/osp-list-by-category/,
+# fetched and text-extracted directly with pdftotext -- footer-dated
+# 03/01/2022 and confirmed this is STILL the version HCAI serves at that
+# URL today, so it also captures anything expired/cancelled through that
+# date that the live-only directory would have already dropped), covering
+# ALL 25 of HCAI's OSP categories, not just the fan-relevant ones, and (3)
+# individual web searches per name plus spelling variants (Broan-NuTone,
+# DeltaBreez, etc.). Zero matches for all nine, in either source. Scope: no
+# newly-issued OSP that was ALSO already expired again within the narrow
+# 2022-03 to now window would be visible to either check -- a real but
+# narrow gap, disclosed rather than hidden.
+#
 # Scope: every line in category='chillers_cooling' (4) and every line
-# resolving to building_role='fans_ventilation' (~14) -- ALL of them,
-# covered or not -- plus only the CONFIRMED-CURRENT (oshpd_osp=True) lines
-# in air_handling, air_distribution_terminal, and humidification, since
-# those roles are reported on the brief only as "what's covered", not
+# resolving to building_role='fans_ventilation' (14) -- ALL of them, covered
+# or not -- plus only the CONFIRMED-CURRENT (oshpd_osp=True) lines in
+# air_handling, air_distribution_terminal, and humidification, since those
+# roles are reported on the brief only as "what's covered", not
 # exhaustively.
 HOSPITAL_BRIEF_OSP_FACTS = {
     # ---- chillers (category=chillers_cooling) -- GAP, 0 of 4 confirmed current
-    "DB": {"osp_number": None, "expires": None,
-          "note": "No HCAI record found under Dunham-Bush in either chiller category. Absence of evidence, not a denial."},
-    "ClimaCool": {"osp_number": "OSP-0048", "expires": "expired after 2019-12-31",
+    "DB": {"status": "not_listed", "osp_number": None, "expires": None,
+          "note": "No HCAI record found under Dunham-Bush in either chiller category, checked 2026-08-09."},
+    "ClimaCool": {"status": "expired", "osp_number": "OSP-0048", "expires": "expired after 2019-12-31",
                  "note": "Chillers - Water Cooled. HCAI's own listing shows no valid-through date beyond the expiry -- unlike active peer entries, which show a specific future date. No renewal on file."},
-    "Geoclima": {"osp_number": None, "expires": None,
-                "note": "No HCAI record found under Geoclima in either chiller category. Absence of evidence, not a denial."},
-    "Hecoclima": {"osp_number": None, "expires": None,
-                 "note": "No HCAI record found under Hecoclima in either chiller category. Absence of evidence, not a denial."},
+    "Geoclima": {"status": "not_listed", "osp_number": None, "expires": None,
+                "note": "No HCAI record found under Geoclima in either chiller category, checked 2026-08-09."},
+    "Hecoclima": {"status": "not_listed", "osp_number": None, "expires": None,
+                 "note": "No HCAI record found under Hecoclima in either chiller category, checked 2026-08-09."},
     # ---- fans (building_role=fans_ventilation) -- GAP, 0 of 14 confirmed current
-    "TCF/Twin City Fan": {"osp_number": "OSP-0195, -0271, -0355, -0395", "expires": "expired 2022-12-31",
+    "TCF/Twin City Fan": {"status": "expired", "osp_number": "OSP-0195, -0271, -0355, -0395", "expires": "expired 2022-12-31",
                           "note": "All four filings (Exhaust/Smoke Control Fans + Air Handling Units>Fans) expired the same date. No renewal on file."},
-    "Strobic Air": {"osp_number": None, "expires": None,
-                    "note": "Searched HCAI's Exhaust/Smoke Control Fans category directly -- not listed. Absence of evidence, not a denial."},
-    "Howden": {"osp_number": None, "expires": None,
-              "note": "Searched HCAI's Exhaust/Smoke Control Fans category directly -- not listed. Absence of evidence, not a denial."},
-    "Penn Barry": {"osp_number": None, "expires": None,
-                  "note": "Searched HCAI's Exhaust/Smoke Control Fans category directly -- not listed. Absence of evidence, not a denial."},
-    "Soler & Palau": {"osp_number": None, "expires": None,
-                      "note": "Searched HCAI's Exhaust/Smoke Control Fans and Inline Fans/Terminal categories directly -- not listed. Absence of evidence, not a denial."},
-    "Berner": {"osp_number": None, "expires": None, "note": "Not yet researched against HCAI's directory."},
-    "Canarm": {"osp_number": None, "expires": None, "note": "Not yet researched against HCAI's directory."},
-    "FanAm": {"osp_number": None, "expires": None, "note": "Not yet researched against HCAI's directory."},
-    "MacroAir": {"osp_number": None, "expires": None, "note": "Not yet researched against HCAI's directory."},
-    "Panasonic": {"osp_number": None, "expires": None, "note": "Not yet researched against HCAI's directory."},
-    "Delta Breez": {"osp_number": None, "expires": None, "note": "Not yet researched against HCAI's directory."},
-    "Broan NuTone": {"osp_number": None, "expires": None, "note": "Not yet researched against HCAI's directory."},
-    "Systemair": {"osp_number": None, "expires": None, "note": "Not yet researched against HCAI's directory."},
-    "Monoxivent": {"osp_number": None, "expires": None, "note": "Not yet researched against HCAI's directory."},
+    "Strobic Air": {"status": "not_listed", "osp_number": None, "expires": None,
+                    "note": "Searched HCAI's Exhaust/Smoke Control Fans category directly, checked 2026-08-09."},
+    "Howden": {"status": "not_listed", "osp_number": None, "expires": None,
+              "note": "Searched HCAI's Exhaust/Smoke Control Fans category directly, checked 2026-08-09."},
+    "Penn Barry": {"status": "not_listed", "osp_number": None, "expires": None,
+                  "note": "Searched HCAI's Exhaust/Smoke Control Fans category directly, checked 2026-08-09."},
+    "Soler & Palau": {"status": "not_listed", "osp_number": None, "expires": None,
+                      "note": "Searched HCAI's Exhaust/Smoke Control Fans and Inline Fans/Terminal categories directly, checked 2026-08-09."},
+    "Berner": {"status": "not_listed", "osp_number": None, "expires": None,
+              "note": "Not in HCAI's live OSP directory or the full 25-category historical listing under 'Berner' or any variant checked. Air curtains are not an obvious fit for any existing HCAI category. Checked 2026-08-19."},
+    "Canarm": {"status": "not_listed", "osp_number": None, "expires": None,
+              "note": "Not in HCAI's live OSP directory or the full 25-category historical listing. Checked 2026-08-19."},
+    "FanAm": {"status": "not_listed", "osp_number": None, "expires": None,
+             "note": "Not in HCAI's live OSP directory or the full 25-category historical listing. Checked 2026-08-19."},
+    "MacroAir": {"status": "not_listed", "osp_number": None, "expires": None,
+                "note": "Not in HCAI's live OSP directory or the full 25-category historical listing. HVLS ceiling fans are not an obvious fit for any existing HCAI category (not exhaust/smoke-control, not AHU fans). Checked 2026-08-19."},
+    "Panasonic": {"status": "not_listed", "osp_number": None, "expires": None,
+                 "note": "No standalone Panasonic OSP found. Panasonic-brand scroll compressors do appear as a qualified SUBCOMPONENT inside at least one other manufacturer's packaged-unit OSP filing -- a different Panasonic product division (refrigeration compressors), not the ventilation fans on DMG's card, and not a Panasonic OSP in its own right. Checked 2026-08-19."},
+    "Delta Breez": {"status": "not_listed", "osp_number": None, "expires": None,
+                    "note": "Not in HCAI's live OSP directory or the full 25-category historical listing, including the 'DeltaBreez' spelling. Checked 2026-08-19."},
+    "Broan NuTone": {"status": "not_listed", "osp_number": None, "expires": None,
+                     "note": "Not in HCAI's live OSP directory or the full 25-category historical listing under 'Broan', 'NuTone', or 'Broan-NuTone'. Checked 2026-08-19."},
+    "Systemair": {"status": "not_listed", "osp_number": None, "expires": None,
+                 "note": "Not in HCAI's live OSP directory or the full 25-category historical listing. Checked 2026-08-19."},
+    "Monoxivent": {"status": "not_listed", "osp_number": None, "expires": None,
+                  "note": "Not in HCAI's live OSP directory or the full 25-category historical listing. Industrial dust/fume collection is not an obvious fit for any existing HCAI category. Checked 2026-08-19."},
     # ---- covered (confirmed current only)
-    "ClimateCraft": {"osp_number": "OSP-0272", "expires": "2029-07-18",
+    "ClimateCraft": {"status": "current", "osp_number": "OSP-0272", "expires": "2029-07-18",
                      "note": "Air Handling Units (FanMatrix fan-tower assembly specifically -- not a blanket AHU preapproval)."},
-    "AAON": {"osp_number": "OSP-0180", "expires": "2030-03-20",
+    "AAON": {"status": "current", "osp_number": "OSP-0180", "expires": "2030-03-20",
             "note": "Air Conditioning Units - Packaged (RQ, RN-A/B/C). A second number, OSP-0181 (Chillers - Condensers), is also listed active but its own expiry was not independently confirmed."},
-    "Energy Labs": {"osp_number": "OSP-0069", "expires": None,
+    "Energy Labs": {"status": "current", "osp_number": "OSP-0069", "expires": None,
                     "note": "Air Conditioning Units - Custom. HCAI's own listing shows no expired/cancelled flag but also states no specific future expiration date."},
-    "Titus": {"osp_number": "OSP-0352", "expires": "2032-01-06",
+    "Titus": {"status": "current", "osp_number": "OSP-0352", "expires": "2032-01-06",
              "note": "Air Conditioning Units - Inline Fan and Terminal (VAV/fan-powered terminal units only, not grilles/diffusers/registers)."},
-    "Nailor": {"osp_number": "OSP-0561", "expires": "2029-04-17",
+    "Nailor": {"status": "current", "osp_number": "OSP-0561", "expires": "2029-04-17",
               "note": "Single/Dual Duct and Fan Powered Terminal Units."},
-    "Carel": {"osp_number": "OSP-0705", "expires": "2028-08-11",
-             "note": "Humidification Systems (HeaterSteam boilers, UltimateSAM distribution grids). Nearest of every confirmed-current OSP on this brief to its own expiration."},
+    "Carel": {"status": "current", "osp_number": "OSP-0705", "expires": "2028-08-11",
+             "note": "Humidification Systems (HeaterSteam boilers, UltimateSAM distribution grids). WATCH ITEM: nearest of every confirmed-current OSP on this brief to its own expiration -- about 2 years out."},
 }
 
 
@@ -574,13 +615,20 @@ def hospital_osp_breakdown(session) -> dict:
     from app.models import ProductLine
 
     def _fact(name: str) -> dict:
-        return HOSPITAL_BRIEF_OSP_FACTS.get(name, {"osp_number": None, "expires": None,
-                                                    "note": "not yet transcribed onto this brief"})
+        return HOSPITAL_BRIEF_OSP_FACTS.get(
+            name, {"status": "unresearched", "osp_number": None, "expires": None,
+                  "note": "not yet transcribed onto this brief"})
 
     def _row(line) -> dict:
         f = _fact(line.name)
-        return {"name": line.name, "firm": line.firm, "current": line.oshpd_osp is True,
-               "confirmed_expired": line.oshpd_osp is False,
+        # oshpd_osp is read LIVE from the DB -- if it now says True and the
+        # hand-transcribed fact hasn't caught up yet, live wins (this is
+        # what keeps "current" self-correcting). The expired/not_listed/
+        # unresearched split only matters when the DB does NOT show a
+        # confirmed current OSP, since that finer distinction is not
+        # something the DB's 3-valued oshpd_osp column can represent.
+        status = "current" if line.oshpd_osp is True else f["status"]
+        return {"name": line.name, "firm": line.firm, "status": status,
                "osp_number": f["osp_number"], "expires": f["expires"], "note": f["note"]}
 
     lines = session.exec(select(ProductLine)).all()
