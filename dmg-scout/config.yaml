@@ -584,6 +584,12 @@ sources:
   ua_local_250:
     enabled: true
     contractors_url: "https://socalhvacr.info/contractors"
+    # Same weekly-cadence staleness fix as la_ebewe_benchmarking above --
+    # this fetch is ALSO Sundays-only (RETROFIT_WEEKLY_WEEKDAY), confirmed
+    # 2026-08-19 flagged by the digest as "failing" at 62.3h past its last
+    # (successful) run for the identical reason: no override, 36h default.
+    # See app/assumptions.py's "Weekly-fetch staleness threshold" entry.
+    stale_hours: 216
   # Competitor line-card map -- see app/competitors.py's module docstring
   # for the research method (each rep firm's own published line card only)
   # and the two kinds of "unconfirmed" it records. Not a live scraper --
@@ -599,6 +605,11 @@ sources:
   # same day as EBEWE/Local 250 -- ownership doesn't change daily either.
   la_county_ownership:
     enabled: true
+    # Same weekly-cadence staleness fix as la_ebewe_benchmarking/ua_local_250
+    # above -- this fetch is ALSO Sundays-only, confirmed 2026-08-19 at 61.3h
+    # past its last (successful) run for the identical no-override reason.
+    # See app/assumptions.py's "Weekly-fetch staleness threshold" entry.
+    stale_hours: 216
   manual:
     enabled: true
 

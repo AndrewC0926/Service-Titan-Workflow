@@ -882,16 +882,23 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
         group="EBEWE benchmarking", name="Weekly-fetch staleness threshold",
         config_path="sources.la_ebewe_benchmarking.stale_hours",
         value=f"{cfg.get('sources.la_ebewe_benchmarking.stale_hours', 36):.0f} hours "
-             f"({cfg.get('sources.la_ebewe_benchmarking.stale_hours', 36)/24:.1f} days)",
+             f"({cfg.get('sources.la_ebewe_benchmarking.stale_hours', 36)/24:.1f} days) -- same value on "
+             f"sources.ua_local_250.stale_hours and sources.la_county_ownership.stale_hours",
         source_type=MEASURED,
         source_detail=(
-            "Found and fixed 2026-08-19: this fetch runs WEEKLY, Sundays only (app.cli's pipeline "
-            "command, RETROFIT_WEEKLY_WEEKDAY), but neither it nor app.ops.doctor's per-source "
-            "stale_hours override existed for it, so both `scout doctor` and the daily digest's own "
-            "staleness check used the 36-hour default -- flagging a source that runs cleanly every "
-            "week as failing on 6 of every 7 days. Confirmed against the real run history: exactly "
-            "one SourceRun ever recorded, 2026-08-16 (a Sunday), ok=True, 96,211 records imported -- "
-            "matching this fetch's own docstring exactly, zero errors, not a real failure at all. "
+            "Found and fixed 2026-08-19, starting from a digest false-positive on la_ebewe_benchmarking: "
+            "this fetch runs WEEKLY, Sundays only (app.cli's pipeline command, RETROFIT_WEEKLY_WEEKDAY), "
+            "but neither it nor app.ops.doctor's per-source stale_hours override existed for it, so both "
+            "`scout doctor` and the daily digest's own staleness check used the 36-hour default -- "
+            "flagging a source that runs cleanly every week as failing on 6 of every 7 days. Confirmed "
+            "against the real run history: exactly one SourceRun ever recorded, 2026-08-16 (a Sunday), "
+            "ok=True, 96,211 records imported -- matching this fetch's own docstring exactly, zero "
+            "errors, not a real failure at all. Checking the other two sources scheduled the same day "
+            "(app.cli's pipeline command runs fetch_ebewe_benchmarks_cmd, fetch_local250_cmd, and "
+            "fetch_ownership_recency_cmd together, Sundays only) found the identical gap on both: "
+            "ua_local_250 was 62.3h past its last (successful) run when checked, la_county_ownership "
+            "61.3h -- same missing override, same false-positive shape, fixed the same way for all "
+            "three rather than leaving two of them to surface the same false alarm on a later day. "
             "216 hours (9 days) is one full weekly cycle (168h) plus a day and a half of slack for a "
             "legitimately late run, not a pure judgment call the way hcai_seismic_ratings' 90-day "
             "threshold is (see the sibling entry above) -- this one is close to a measured value, "
@@ -902,7 +909,7 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
             "apart again the way they already had."
         ),
         verified=True,
-        last_reviewed="2026-08-19, against the real la_ebewe_benchmarking run history.",
+        last_reviewed="2026-08-19, against the real run history of all three weekly sources.",
     ))
 
     # ---- Project delivery method --------------------------------------------
