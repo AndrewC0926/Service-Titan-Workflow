@@ -878,6 +878,33 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "same document.",
     ))
 
+    out.append(Assumption(
+        group="EBEWE benchmarking", name="Weekly-fetch staleness threshold",
+        config_path="sources.la_ebewe_benchmarking.stale_hours",
+        value=f"{cfg.get('sources.la_ebewe_benchmarking.stale_hours', 36):.0f} hours "
+             f"({cfg.get('sources.la_ebewe_benchmarking.stale_hours', 36)/24:.1f} days)",
+        source_type=MEASURED,
+        source_detail=(
+            "Found and fixed 2026-08-19: this fetch runs WEEKLY, Sundays only (app.cli's pipeline "
+            "command, RETROFIT_WEEKLY_WEEKDAY), but neither it nor app.ops.doctor's per-source "
+            "stale_hours override existed for it, so both `scout doctor` and the daily digest's own "
+            "staleness check used the 36-hour default -- flagging a source that runs cleanly every "
+            "week as failing on 6 of every 7 days. Confirmed against the real run history: exactly "
+            "one SourceRun ever recorded, 2026-08-16 (a Sunday), ok=True, 96,211 records imported -- "
+            "matching this fetch's own docstring exactly, zero errors, not a real failure at all. "
+            "216 hours (9 days) is one full weekly cycle (168h) plus a day and a half of slack for a "
+            "legitimately late run, not a pure judgment call the way hcai_seismic_ratings' 90-day "
+            "threshold is (see the sibling entry above) -- this one is close to a measured value, "
+            "since the cadence itself is a scheduled fact, not a guess. Separately: the digest's own "
+            "check (app.pipeline.notify._stale_sources) had ALSO hardcoded 36 hours independently of "
+            "app.ops.doctor's override mechanism -- the two could disagree about the same source's "
+            "health. Both now call one shared function, app.ops.stale_cutoff, so they can't drift "
+            "apart again the way they already had."
+        ),
+        verified=True,
+        last_reviewed="2026-08-19, against the real la_ebewe_benchmarking run history.",
+    ))
+
     # ---- Project delivery method --------------------------------------------
 
     dmc = delivery_method_coverage or {}

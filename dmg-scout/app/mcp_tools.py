@@ -472,9 +472,11 @@ def log_outreach(project_id: int, notes: str, channel: str = "call",
 @mcp.tool
 def source_health() -> str:
     """Is the pipeline actually running? Last successful run per source
-    (flagged if stale beyond 36 hours), plus today's and this month's LLM
-    spend against the daily budget. Use this if the board looks stale, a
-    number looks off, or projects seem to have stopped updating."""
+    (flagged if stale beyond 36 hours by default, or a source's own
+    sources.<name>.stale_hours override for a non-daily cadence), plus
+    today's and this month's LLM spend against the daily budget. Use this
+    if the board looks stale, a number looks off, or projects seem to have
+    stopped updating."""
     from app.ops import doctor
     from app.spend import budget_status
 

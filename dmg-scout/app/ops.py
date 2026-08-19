@@ -21,6 +21,29 @@ log = logging.getLogger(__name__)
 
 HEALTHCHECK_ENV = "HEALTHCHECK_URL"  # e.g. https://hc-ping.com/<uuid>
 
+DEFAULT_STALE_HOURS = 36
+
+
+def stale_cutoff(cfg, name: str, now: datetime | None = None) -> datetime:
+    """The per-source staleness cutoff: a source's own config entry may set
+    `sources.<name>.stale_hours` to override the 36-hour default -- added
+    for sources that update on a cadence other than daily (a weekly fetch,
+    a manual import), where 36 hours would flag every single run as stale
+    almost immediately after a perfectly healthy one. Every source that
+    doesn't set this keeps the exact prior 36-hour behavior.
+
+    Shared by `scout doctor` (below) and the digest's own staleness check
+    (app.pipeline.notify._stale_sources) specifically so the two cannot
+    independently drift out of sync about what "stale" means for the same
+    source -- confirmed 2026-08-19 they already had: la_ebewe_benchmarking
+    runs weekly (Sundays only) with no override set, so the digest's
+    then-hardcoded 36-hour check flagged it as failing on 6 of every 7
+    days despite a clean, on-schedule, zero-error run every single week."""
+    if now is None:
+        now = utcnow()
+    hours = cfg.get(f"sources.{name}.stale_hours", DEFAULT_STALE_HOURS)
+    return now - timedelta(hours=hours)
+
 
 def ping_healthcheck(success: bool = True) -> bool:
     """Dead man's switch: healthchecks.io alerts if this ping stops arriving.
@@ -114,18 +137,6 @@ def doctor() -> list[tuple[str, bool, str]]:
 
     cfg = load_config()
     now = utcnow()
-    DEFAULT_STALE_HOURS = 36
-
-    def _stale_cutoff(name: str) -> datetime:
-        # A source's own config entry may set `stale_hours` to override the
-        # 36-hour default -- added for manually-triggered sources (e.g.
-        # hcai_seismic_ratings) that update on a human's cadence, not a
-        # scheduler's, where 36 hours would flag every single import as
-        # stale within two days of the person who ran it going on vacation.
-        # Every source that doesn't set this keeps the exact prior 36-hour
-        # behavior.
-        hours = cfg.get(f"sources.{name}.stale_hours", DEFAULT_STALE_HOURS)
-        return now - timedelta(hours=hours)
 
     with session_scope() as session:
         # One pass over the table, grouped by the source a run name belongs to, so
@@ -146,7 +157,7 @@ def doctor() -> list[tuple[str, bool, str]]:
             if oks:
                 last_ok = oks[-1]
                 mode = run_name_mode(last_ok.source) or "fetch"
-                checks.append((f"source:{name}", last_ok.started_at >= _stale_cutoff(name),
+                checks.append((f"source:{name}", last_ok.started_at >= stale_cutoff(cfg, name, now),
                                f"last success {last_ok.started_at:%Y-%m-%d %H:%M}Z ({mode})"))
             elif runs:
                 # Ran and failed is a different diagnosis from never ran, and the

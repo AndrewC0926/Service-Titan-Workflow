@@ -165,6 +165,29 @@ def test_stale_sources_ignores_a_healthy_recent_source(db_session, cfg):
     assert "ceqanet" not in _stale_sources(db_session, cfg)
 
 
+def test_stale_sources_respects_a_weekly_sources_own_stale_hours_override(db_session, cfg):
+    """The 2026-08-19 bug: la_ebewe_benchmarking runs weekly (Sundays only)
+    with a real config.yaml stale_hours override (216h, see
+    app/assumptions.py's "Weekly-fetch staleness threshold" entry), but this
+    check used to hardcode 36 hours for every source regardless -- flagging
+    a clean, on-schedule weekly run as failing on 6 of every 7 days. A run
+    57 hours old (past 36h, well inside 216h) must NOT be flagged now that
+    _stale_sources calls the same app.ops.stale_cutoff `scout doctor` does."""
+    db_session.add(SourceRun(source="la_ebewe_benchmarking", ok=True,
+                             started_at=utcnow() - timedelta(hours=57)))
+    db_session.commit()
+    assert "la_ebewe_benchmarking" not in _stale_sources(db_session, cfg)
+
+
+def test_stale_sources_still_flags_a_weekly_source_past_its_own_override(db_session, cfg):
+    """The override raises the bar, it doesn't remove it -- a source silent
+    well past its own realistic cadence must still be flagged."""
+    db_session.add(SourceRun(source="la_ebewe_benchmarking", ok=True,
+                             started_at=utcnow() - timedelta(hours=300)))
+    db_session.commit()
+    assert "la_ebewe_benchmarking" in _stale_sources(db_session, cfg)
+
+
 def test_quietest_county_requires_minimum_projects(db_session, cfg):
     old = utcnow() - timedelta(days=90)
     _project(db_session, "P", county="LonelyCounty", last_signal_at=old)

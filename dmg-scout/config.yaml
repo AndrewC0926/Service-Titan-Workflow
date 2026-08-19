@@ -542,6 +542,20 @@ sources:
     enabled: true
     dataset_id: "9yda-i4ya"
     portal_url: "https://data.lacity.org/City-Infrastructure-Service-Requests/Existing-Buildings-Energy-Water-Efficiency-EBEWE-P/9yda-i4ya"
+    # This fetch is scheduled WEEKLY, Sundays only (app/cli.py's pipeline
+    # command: RETROFIT_WEEKLY_WEEKDAY, same day as find-replacement-candidates)
+    # -- not a cadence mismatch anyone judged, a fact about how often the
+    # source actually runs, confirmed 2026-08-19 against the real run history
+    # (exactly one SourceRun ever recorded, 2026-08-16, ok=True, 96,211 records
+    # -- matching this fetch's own docstring exactly, zero errors). The 36-hour
+    # default flagged it as failing on 6 of every 7 days despite that clean,
+    # on-schedule run -- the same false-positive shape hcai_seismic_ratings had
+    # before ITS override below, except this one is a real automated weekly
+    # cadence, not an irregular manual one, so the number here is closer to a
+    # measured value than a judgment call: 216 hours = 9 days, one full weekly
+    # cycle (168h) plus a day and a half of slack for a run that's legitimately
+    # running a bit late, not yet nine full days silent.
+    stale_hours: 216
   # Same "direct import, not a Signal source" treatment as la_ebewe_benchmarking
   # above -- listed here specifically so scout doctor/source_health enumerates
   # it. See app/pipeline/hcai.py for why this is a MANUAL import (`scout
@@ -1043,9 +1057,14 @@ digest:
   resend: {api_key_env: "RESEND_API_KEY"}
   # Prose pass over the same grounded digest data -- see app.pipeline.notify's
   # narrate_or_fallback. false reverts to the plain-text digest unconditionally,
-  # no model call at all -- the kill switch if narration reads worse than what
-  # it replaced.
-  narrate: true
+  # no model call at all. Tried live 2026-08-18 (one real send to the real
+  # recipient) and turned off the same day: the plain, scannable list reads
+  # better at 6am than prose does. narrate_or_fallback, narrate_digest, and
+  # _numbers_grounded stay in place rather than being removed -- the grounding
+  # check in particular is reusable for any future feature that turns grounded
+  # structured data into prose, not specific to the digest. Flip back to true
+  # to re-enable; no other code change needed.
+  narrate: false
 
 dashboard:
   basic_auth_username: "andrew"

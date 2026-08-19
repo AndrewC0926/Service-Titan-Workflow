@@ -132,6 +132,48 @@ def test_dead_mans_switch_never_raises_even_on_a_url_httpx_cannot_parse(monkeypa
     assert any("healthcheck ping failed" in r.message for r in caplog.records)
 
 
+def test_stale_cutoff_defaults_to_36_hours(cfg):
+    from app.ops import stale_cutoff
+    from app.models import utcnow
+
+    now = utcnow()
+    cutoff = stale_cutoff(cfg, "some_source_with_no_override", now)
+    assert abs((now - cutoff).total_seconds() - 36 * 3600) < 1
+
+
+def test_stale_cutoff_uses_a_sources_own_override(cfg):
+    """The mechanism app.pipeline.notify._stale_sources now shares with
+    `scout doctor` -- a per-source stale_hours in config.yaml changes the
+    cutoff. Uses the real hcai_seismic_ratings override (2160h) already in
+    config.yaml rather than a synthetic one, so this breaks if that value
+    is ever accidentally removed."""
+    from app.ops import stale_cutoff
+    from app.models import utcnow
+
+    now = utcnow()
+    cutoff = stale_cutoff(cfg, "hcai_seismic_ratings", now)
+    assert abs((now - cutoff).total_seconds() - 2160 * 3600) < 1
+
+
+def test_doctor_and_digest_staleness_agree_on_the_same_source(db_session, cfg):
+    """The actual bug: doctor() and _stale_sources() used to implement
+    staleness independently and could disagree about the same source.
+    A run inside a source's override window (57h old, la_ebewe_
+    benchmarking's real 216h override) must read healthy in both."""
+    from app.ops import doctor
+    from app.pipeline.notify import _stale_sources
+    from app.models import SourceRun, utcnow
+    from datetime import timedelta
+
+    db_session.add(SourceRun(source="la_ebewe_benchmarking", ok=True,
+                             started_at=utcnow() - timedelta(hours=57)))
+    db_session.commit()
+
+    doctor_checks = dict((name, ok) for name, ok, _ in doctor())
+    assert doctor_checks["source:la_ebewe_benchmarking"] is True
+    assert "la_ebewe_benchmarking" not in _stale_sources(db_session, cfg)
+
+
 def test_doctor_reports_missing_pieces(db_session, monkeypatch):
     from app.ops import doctor
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)

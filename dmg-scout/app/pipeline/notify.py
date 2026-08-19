@@ -309,8 +309,18 @@ def _stale_sources(session: Session, cfg: Config) -> list[str]:
     the dashboard's source health to answer, not a daily nag on the phone
     digest. This only flags a source that ran successfully before and has
     since gone quiet.
+
+    Cutoff is per-source via app.ops.stale_cutoff — a flat 36 hours here,
+    independent of that function, is exactly what silently mis-flagged
+    la_ebewe_benchmarking (weekly, Sundays only) as failing on 6 of every 7
+    days until 2026-08-19: `scout doctor` already respected a source's own
+    `stale_hours` override, this check just never called the same function,
+    so the two disagreed about the same source's health. See that
+    function's own docstring.
     """
-    stale_cutoff = utcnow() - timedelta(hours=36)
+    from app.ops import stale_cutoff
+
+    now = utcnow()
     all_runs = session.exec(select(SourceRun)).all()
     by_source: dict[str, list[SourceRun]] = {}
     for run in all_runs:
@@ -324,7 +334,7 @@ def _stale_sources(session: Session, cfg: Config) -> list[str]:
         if not runs:
             continue
         oks = [r for r in runs if r.ok]
-        if not oks or max(r.started_at for r in oks) < stale_cutoff:
+        if not oks or max(r.started_at for r in oks) < stale_cutoff(cfg, name, now):
             out.append(name)
     return out
 
