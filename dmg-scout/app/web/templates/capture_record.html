@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% from "_icon.html" import icon %}
+{% block title %}Record a capture{% endblock %}
+{% block content %}
+
+<div class="sec-head">
+  <div class="sec-title">Record a capture</div>
+  <span class="note">Records in this browser, uploads to the same endpoint the iOS Shortcut targets, then opens the review card. See /captures for everything already logged.</span>
+</div>
+
+{% if not capture_configured %}
+<div class="callout callout-bad mb-3">
+  {{ icon('triangle-alert') }}
+  <span>
+  <strong>Capture is not configured</strong>
+  <span class="body">CAPTURE_API_KEY is not set on the server, so an upload from here would fail exactly like the Shortcut does. Set it, then reload this page.</span>
+  </span>
+</div>
+{% else %}
+
+<div class="capture-page">
+  <button type="button" id="record-btn" class="record-btn" aria-label="Start recording">
+    <span class="record-btn-dot"></span>
+  </button>
+  <div class="record-timer mono" id="record-timer">00:00</div>
+  <div class="record-status note" id="record-status">Tap to record. Stop when you're done — it uploads automatically.</div>
+</div>
+
+<script>
+(function () {
+  const btn = document.getElementById('record-btn');
+  const timerEl = document.getElementById('record-timer');
+  const statusEl = document.getElementById('record-status');
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+    statusEl.textContent = 'This browser cannot record audio (no MediaRecorder). Try Safari or Chrome, over HTTPS.';
+    btn.disabled = true;
+    return;
+  }
+
+  // Safari (iOS/macOS, through 18.3) only ever supports audio/mp4 (AAC) for
+  // MediaRecorder -- it has no WebM container support at all before 18.4.
+  // Chrome/Firefox default to audio/webm;codecs=opus and don't support
+  // audio/mp4 recording. Trying mp4 first and falling back costs nothing on
+  // browsers that don't support it -- isTypeSupported just says no -- and
+  // correctly picks Safari's one real option first.
+  const MIME_CANDIDATES = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
+  const mimeType = MIME_CANDIDATES.find(t => MediaRecorder.isTypeSupported(t)) || '';
+
+  function extFor(mime) {
+    if (mime.indexOf('mp4') !== -1) return 'mp4';
+    if (mime.indexOf('webm') !== -1) return 'webm';
+    if (mime.indexOf('ogg') !== -1) return 'ogg';
+    return 'm4a';
+  }
+
+  let recorder = null;
+  let chunks = [];
+  let startedAt = 0;
+  let timerHandle = null;
+
+  function fmt(seconds) {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+    return m + ':' + s;
+  }
+
+  function tick() {
+    timerEl.textContent = fmt((Date.now() - startedAt) / 1000);
+  }
+
+  async function startRecording() {
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      statusEl.textContent = 'Microphone permission denied or unavailable: ' + err.message;
+      return;
+    }
+    chunks = [];
+    const opts = mimeType ? { mimeType } : {};
+    recorder = new MediaRecorder(stream, opts);
+    recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+    recorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      upload();
+    };
+    recorder.start();
+    startedAt = Date.now();
+    timerEl.textContent = '00:00';
+    timerHandle = setInterval(tick, 200);
+    btn.classList.add('recording');
+    btn.setAttribute('aria-label', 'Stop recording');
+    statusEl.textContent = 'Recording…';
+  }
+
+  function stopRecording() {
+    clearInterval(timerHandle);
+    btn.classList.remove('recording');
+    btn.disabled = true;
+    statusEl.textContent = 'Uploading…';
+    recorder.stop();
+  }
+
+  async function upload() {
+    const blob = new Blob(chunks, { type: mimeType || 'audio/webm' });
+    const form = new FormData();
+    form.append('file', blob, 'capture.' + extFor(mimeType || 'audio/webm'));
+    try {
+      const resp = await fetch('/capture/upload', { method: 'POST', body: form });
+      const text = await resp.text();
+      if (resp.ok) {
+        const m = text.match(/\/captures\/(\d+)/);
+        if (m) {
+          statusEl.textContent = 'Uploaded — opening review card…';
+          window.location.href = '/captures/' + m[1];
+          return;
+        }
+        statusEl.textContent = text;
+      } else {
+        statusEl.textContent = 'Upload failed (' + resp.status + '): ' + text;
+      }
+    } catch (err) {
+      statusEl.textContent = 'Upload failed: ' + err.message;
+    }
+    btn.disabled = false;
+    btn.setAttribute('aria-label', 'Start recording');
+  }
+
+  btn.addEventListener('click', () => {
+    if (btn.classList.contains('recording')) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

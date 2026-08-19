@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icon.html" import icon %}
 {% block title %}Captures{% endblock %}
 {% block content %}
 
@@ -6,6 +7,8 @@
   <div class="sec-title">Voice captures — proposals from a phone call, never a final record</div>
   <span class="note">Confirm writes to the outreach log; reject discards. See /assumptions for how names get matched.</span>
 </div>
+
+<a href="/capture" class="chip" style="margin-bottom:1rem">{{ icon('plus') }} Record a capture</a>
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
   {% for key, label in [('pending','Pending'), ('approved','Confirmed'), ('rejected','Rejected'), ('all','All')] %}

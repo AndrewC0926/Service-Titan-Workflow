@@ -22,8 +22,8 @@
 {% from "_icon.html" import icon %}
 {# Every page destination in one place -- the overflow menu and the Cmd-K
    palette both render from this SAME list (the palette via the JSON blob
-   below) so the two can't drift out of sync. 5 primary tabs, 14 behind the
-   overflow disclosure -- see /home/andrewcrane/.claude/plans/
+   below) so the two can't drift out of sync. 5 primary tabs, the rest
+   behind the overflow disclosure -- see /home/andrewcrane/.claude/plans/
    parallel-crunching-clover.md for why this split and not some other one. #}
 {% set nav_items = [
   {'href': '/', 'label': 'Today', 'key': 'today', 'primary': true},
@@ -38,6 +38,7 @@
   {'href': '/searches', 'label': 'Saved searches', 'key': 'searches', 'primary': false},
   {'href': '/outreach', 'label': 'Outreach', 'key': 'outreach', 'primary': false},
   {'href': '/captures', 'label': 'Captures', 'key': 'captures', 'primary': false},
+  {'href': '/capture', 'label': 'Record capture', 'key': 'capture', 'primary': false},
   {'href': '/lines', 'label': 'Line card', 'key': 'lines', 'primary': false},
   {'href': '/reference', 'label': 'Reference', 'key': 'reference', 'primary': false},
   {'href': '/firms', 'label': 'Firms', 'key': 'firms', 'primary': false},

@@ -751,4 +751,32 @@
   .kv-rest > span:not(:first-child)::before { content: "·"; margin: 0 0.85rem; color: var(--color-rule-hard); }
   .kv-rest .k { text-transform: uppercase; letter-spacing: 0.08em; }
   .kv-rest .v { font-family: var(--font-mono); color: var(--color-ink-mid); }
+
+  /* ---- /capture: browser-recorded voice capture --------------------------
+     One-handed, thumb-sized, same as /today's exception to the density
+     rule above -- this is read/tapped on a phone mid-recording, not a desk.
+     Red = recording, same semantic as .warn/--color-stamp-bad elsewhere
+     (the reject button, stale-source stamps), not a new color introduced
+     just for this. */
+  .capture-page {
+    display: flex; flex-direction: column; align-items: center; gap: 1rem;
+    max-width: 22rem; margin: 2.5rem auto; text-align: center;
+  }
+  .record-btn {
+    width: 7rem; height: 7rem; border-radius: 50%;
+    background: var(--color-panel); border: 2px solid var(--color-rule-hard);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; padding: 0; transition: border-color 0.15s;
+  }
+  .record-btn:hover { border-color: var(--color-stamp-bad); }
+  .record-btn:disabled { opacity: 0.5; cursor: default; }
+  .record-btn-dot {
+    width: 3.25rem; height: 3.25rem; border-radius: 50%;
+    background: var(--color-stamp-bad); transition: border-radius 0.15s, width 0.15s, height 0.15s;
+  }
+  .record-btn.recording .record-btn-dot { border-radius: var(--radius-sm); width: 2.5rem; height: 2.5rem; }
+  .record-timer {
+    font-size: 1.75rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .record-status { min-height: 2.5rem; }
 }

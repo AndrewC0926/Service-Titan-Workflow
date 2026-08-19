@@ -4,11 +4,13 @@ thermal gradient on the score column."""
 from __future__ import annotations
 
 import json
+import logging
 import os
 import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import httpx
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials, HTTPAuthorizationCredentials, HTTPBearer
@@ -24,7 +26,12 @@ from app.accounts import (
     ROLE_LABELS,
     ROLE_ORDER,
 )
-from app.access_log import access_logging_middleware, access_summary, admin_username
+from app.access_log import (
+    access_logging_middleware,
+    access_summary,
+    admin_username,
+    capture_voice_logging_middleware,
+)
 from app.assumptions import slugify
 from app.config import load_config
 from app.delivery import DELIVERY_METHOD_ABBR, DELIVERY_METHOD_LABELS, DELIVERY_METHOD_NOTES
@@ -94,7 +101,18 @@ def _category_filter(cat: Category | None):
         return Project.category.in_(Category.boards())
     return Project.category == cat
 from app.normalize import normalize_name
+from app.ops import setup_logging
 from app.pipeline.resolve import apply_review_decision
+
+# The cron service calls this via app/cli.py at import time; the web service
+# never did, which meant log.info/log.warning calls anywhere in a request
+# handler were silently dropped below the root logger's default WARNING
+# level with no handler attached at all -- not visible in Render's log
+# stream, not even via Python's stderr-writing last-resort handler for
+# WARNING+ (that's ex-post-facto, not a substitute for a real handler).
+# capture_voice_logging_middleware below depends on this actually working.
+setup_logging()
+log = logging.getLogger(__name__)
 
 app = FastAPI(title="DMG Scout", lifespan=mcp_app.lifespan)
 # Flattened onto the route list directly rather than app.mount("/mcp", mcp_app):
@@ -106,6 +124,7 @@ for _mw in mounted_middleware():
     app.add_middleware(_mw.cls, *_mw.args, **_mw.kwargs)
 app.router.routes.extend(mounted_routes())
 app.middleware("http")(access_logging_middleware)
+app.middleware("http")(capture_voice_logging_middleware)
 security = HTTPBasic()
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -183,6 +202,7 @@ def capture_auth(credentials: HTTPAuthorizationCredentials = Depends(capture_bea
                             detail="CAPTURE_API_KEY env var is not set")
     if credentials is None or not secrets.compare_digest(credentials.credentials, key):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED,
+                            detail="bearer token missing or does not match CAPTURE_API_KEY",
                             headers={"WWW-Authenticate": "Bearer"})
     return "capture"
 
@@ -2018,6 +2038,105 @@ async def capture_voice(file: UploadFile = File(...), _: str = Depends(capture_a
         # review_queue row itself -- see capture_voice_note.
         raise HTTPException(502, detail=f"transcription failed: {exc}") from exc
     return Response(content=f"logged, review at /captures/{row.id}\n", media_type="text/plain")
+
+
+@app.get("/capture/voice")
+def capture_voice_probe(request: Request, token: str | None = None) -> Response:
+    """Diagnostic GET for the exact black-box problem this endpoint has had:
+    a wrong URL and a broken multipart body both look like nothing
+    happened, from the Shortcut or from a phone's browser. Visiting this
+    URL confirms the address is even reachable at all -- distinguishing
+    "wrong URL, nothing here" from "right URL, wrong/missing token", which
+    otherwise look identical.
+
+    Deliberately NOT behind capture_auth: a bare Safari address-bar visit
+    can't attach an Authorization header, so requiring one here would make
+    it impossible to ever get past "alive" from a phone. The token can
+    ALSO be checked here, via ?token=... -- diagnostic only, never accepted
+    this way on the real POST path above, and never logged (see
+    capture_voice_logging_middleware, which only logs POSTs)."""
+    from app.config import capture_api_key
+
+    key = capture_api_key()
+    if not key:
+        return Response(
+            "capture/voice is alive, but CAPTURE_API_KEY is not set on the server -- "
+            "every real POST will 503 until it is.\n",
+            media_type="text/plain")
+
+    supplied = token
+    auth_header = request.headers.get("authorization", "")
+    if not supplied and auth_header.lower().startswith("bearer "):
+        supplied = auth_header[len("bearer "):]
+
+    if supplied is None:
+        return Response(
+            "capture/voice is alive.\n"
+            "Expects: POST multipart/form-data, field name 'file', header "
+            "'Authorization: Bearer <CAPTURE_API_KEY>'.\n"
+            "Append ?token=<your CAPTURE_API_KEY> to THIS url to check your token too.\n",
+            media_type="text/plain")
+    if secrets.compare_digest(supplied, key):
+        return Response("capture/voice is alive, and this token is correct.\n", media_type="text/plain")
+    return Response("capture/voice is alive, but this token does NOT match CAPTURE_API_KEY.\n",
+                    media_type="text/plain", status_code=status.HTTP_401_UNAUTHORIZED)
+
+
+@app.get("/capture", response_class=HTMLResponse)
+def capture_record_page(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Browser-recorded capture: records in Safari/Chrome via MediaRecorder
+    and uploads through /capture/upload below, which relays it to the REAL
+    /capture/voice -- see that route's docstring for why a relay and not a
+    direct client-side POST. Exists because the iOS Shortcut has never once
+    worked (zero review_queue rows ever, no Shortcuts user agent ever seen)
+    and stayed an undebuggable black box on the phone; this removes every
+    unknown between a person and a capture -- no Shortcut config, no
+    multipart guesswork, no silent iOS failure -- and if IT works, the
+    server side is proven fine and the problem was always the Shortcut."""
+    from app.config import capture_api_key
+
+    return templates.TemplateResponse(request, "capture_record.html", {
+        "tb": _title_block(session), "active": "capture",
+        "capture_configured": bool(capture_api_key()),
+    })
+
+
+@app.post("/capture/upload")
+async def capture_upload_relay(file: UploadFile = File(...), _: str = Depends(auth)) -> Response:
+    """The browser-capture page's upload target. The browser never learns
+    CAPTURE_API_KEY -- app.config.capture_api_key's docstring is explicit
+    that the phone-automation secret and the dashboard login are different
+    secrets with different exposure surfaces, and this page is reachable by
+    anyone with the (more widely shared) dashboard password. So this relays
+    the recording to the REAL /capture/voice via an in-process ASGI call
+    into this same app (httpx's ASGITransport -- not a second server, not a
+    real network hop, and not a bypass: it runs the actual route, through
+    the actual capture_auth dependency and the actual
+    capture_voice_logging_middleware, exactly as a real HTTP request would)
+    with the bearer token attached here, server-side. Whatever
+    /capture/voice returns -- success text or a failure detail -- is
+    relayed back to the browser verbatim, so a browser-capture failure is
+    exactly as visible as a real one, and "if it works in the browser, the
+    server side is fine" is actually true: this exercises the same auth
+    and multipart-parsing code path the iOS Shortcut hits, not a shortcut
+    around it."""
+    from app.config import capture_api_key
+
+    key = capture_api_key()
+    if not key:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="CAPTURE_API_KEY env var is not set")
+
+    audio_bytes = await file.read()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                 base_url="http://capture-relay") as inner:
+        resp = await inner.post(
+            "/capture/voice",
+            headers={"Authorization": f"Bearer {key}"},
+            files={"file": (file.filename or "capture.webm", audio_bytes,
+                            file.content_type or "application/octet-stream")},
+        )
+    return Response(content=resp.content, media_type="text/plain", status_code=resp.status_code)
 
 
 @app.get("/captures", response_class=HTMLResponse)

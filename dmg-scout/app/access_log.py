@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
 import logging
 import os
 from datetime import timedelta
@@ -168,6 +169,72 @@ async def access_logging_middleware(request, call_next):
                       ip=ip, user_agent=user_agent)
     except Exception:  # noqa: BLE001 — access logging must never break the page it's logging
         log.exception("access logging failed for %s %s", request.method, path)
+    return response
+
+
+# ---- /capture/voice: every attempt logged, with why, not just page hits ---
+#
+# The 2026-08-19 finding that motivated this: the iOS Shortcut has never
+# once successfully sent a capture, and no Shortcuts user agent has ever
+# appeared anywhere -- not in this module's own AccessLog table (which DOES
+# already log every hit to this path, since it isn't excluded above), and
+# not visibly enough to debug, because extract_basic_auth_username only
+# ever decodes a `Basic ...` header. /capture/voice is Bearer-authenticated,
+# so every capture attempt -- real or failed -- has always logged into
+# AccessLog with username=None, no status code, and no reason. That's
+# enough to tell "nothing ever hit this path" (the actual finding) from
+# "something hit it and failed silently," but not enough to debug the
+# second case if it ever starts happening -- this closes that gap with a
+# dedicated, path-scoped log line carrying the status and a human reason,
+# not a new table: this is an operational signal read from Render's own
+# log stream (see app.ops.setup_logging, called for the web service in
+# app/web/main.py specifically so this doesn't get silently dropped by
+# Python logging's default WARNING root level), the same way every other
+# Render-side diagnosis this project does already works.
+CAPTURE_VOICE_PATH = "/capture/voice"
+
+
+def _capture_voice_reason(response) -> str:
+    """A human reason for a /capture/voice outcome, read straight from the
+    JSON `detail` FastAPI puts on every 4xx/5xx it produces -- covers
+    capture_auth's 401, the automatic 422 when the multipart body is wrong
+    (missing 'file' field, wrong content-type entirely), and this
+    endpoint's own explicit 400/413/502 raises, all from ONE code path
+    instead of hardcoding each case separately."""
+    if response.status_code < 400:
+        return "ok"
+    try:
+        data = json.loads(bytes(response.body))
+    except Exception:
+        return f"HTTP {response.status_code}"
+    detail = data.get("detail")
+    if isinstance(detail, list):  # FastAPI's own validation-error shape
+        parts = []
+        for e in detail:
+            loc = ".".join(str(x) for x in e.get("loc", []) if x != "body")
+            msg = e.get("msg", e)
+            parts.append(f"{loc}: {msg}" if loc else str(msg))
+        return "; ".join(parts) or f"HTTP {response.status_code}"
+    return str(detail) if detail is not None else f"HTTP {response.status_code}"
+
+
+async def capture_voice_logging_middleware(request, call_next):
+    """Logs every POST to /capture/voice, success or rejected, with the
+    user agent, IP, status, and a reason -- see the module comment above
+    for why this exists as its own thing rather than folding into
+    log_access(). GET hits (the diagnostic probe, app/web/main.py:
+    capture_voice_probe) are left alone: that handler's OWN response body
+    already tells the whole story, and it's read directly off a phone, not
+    off a log."""
+    if request.url.path != CAPTURE_VOICE_PATH or request.method != "POST":
+        return await call_next(request)
+    response = await call_next(request)
+    reason = _capture_voice_reason(response)
+    ua = request.headers.get("user-agent", "-")
+    ip = request.client.host if request.client else "-"
+    level = log.info if response.status_code < 400 else log.warning
+    level("capture/voice POST status=%s reason=%s ua=%r ip=%s",
+         response.status_code, reason, ua, ip)
     return response
 
 

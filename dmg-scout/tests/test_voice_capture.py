@@ -319,3 +319,158 @@ def test_audio_streams_back_the_original_bytes(db_session, client):
     row_id, _ = _seed_capture(db_session)
     r = client.get(f"/captures/{row_id}/audio", headers=AUTH)
     assert r.status_code == 200 and r.content == b"AUDIO"
+
+
+# --- browser capture: /capture page, /capture/voice GET probe, relay -----
+
+
+def test_capture_page_requires_dashboard_auth(client):
+    assert client.get("/capture").status_code == 401
+
+
+def test_capture_page_renders_the_recorder_when_configured(client):
+    r = client.get("/capture", headers=AUTH)
+    assert r.status_code == 200
+    assert "record-btn" in r.text
+
+
+def test_capture_page_shows_not_configured_when_key_missing(client, monkeypatch):
+    monkeypatch.delenv("CAPTURE_API_KEY", raising=False)
+    r = client.get("/capture", headers=AUTH)
+    assert r.status_code == 200
+    assert "not configured" in r.text.lower()
+    assert "record-btn" not in r.text
+
+
+def test_capture_voice_probe_with_no_token_explains_what_it_expects(client):
+    r = client.get("/capture/voice")
+    assert r.status_code == 200
+    assert "alive" in r.text.lower()
+    assert "Bearer" in r.text
+
+
+def test_capture_voice_probe_rejects_a_wrong_token(client):
+    r = client.get("/capture/voice?token=wrong")
+    assert r.status_code == 401
+    assert "does NOT match" in r.text
+
+
+def test_capture_voice_probe_confirms_a_correct_token_via_query_param(client):
+    """A bare Safari address-bar visit can't attach an Authorization header
+    -- ?token=... is the only way to verify the bearer token from a phone
+    without going through the Shortcut itself."""
+    r = client.get("/capture/voice?token=testcapkey")
+    assert r.status_code == 200
+    assert "correct" in r.text.lower()
+
+
+def test_capture_voice_probe_confirms_a_correct_token_via_header(client):
+    r = client.get("/capture/voice", headers={"Authorization": "Bearer testcapkey"})
+    assert r.status_code == 200
+    assert "correct" in r.text.lower()
+
+
+def test_capture_voice_probe_when_key_is_unset(client, monkeypatch):
+    monkeypatch.delenv("CAPTURE_API_KEY", raising=False)
+    r = client.get("/capture/voice")
+    assert r.status_code == 200
+    assert "not set" in r.text.lower()
+
+
+def test_capture_upload_requires_dashboard_auth(client):
+    r = client.post("/capture/upload", files={"file": ("x.webm", b"a", "audio/webm")})
+    assert r.status_code == 401
+
+
+def test_capture_upload_503s_when_key_is_unset(client, monkeypatch):
+    monkeypatch.delenv("CAPTURE_API_KEY", raising=False)
+    r = client.post("/capture/upload", headers=AUTH, files={"file": ("x.webm", b"a", "audio/webm")})
+    assert r.status_code == 503
+
+
+@respx.mock
+def test_capture_upload_relays_to_the_real_capture_voice_endpoint(client, db_session, monkeypatch):
+    """The browser-capture relay (app/web/main.py:capture_upload_relay) must
+    exercise the SAME /capture/voice code path the iOS Shortcut hits -- an
+    in-process ASGI call, not a bypass -- so a working browser capture
+    actually proves the server side is fine. audio/mp4 here matches what
+    Safari's MediaRecorder actually produces (see capture_record.html)."""
+    _mock_whisper("Recorded from Safari on iOS.")
+    monkeypatch.setattr("app.llm.extract_voice_capture",
+                        lambda transcript: OutreachCallExtraction(confidence=0.4))
+    monkeypatch.setattr("app.llm.last_call_cost_usd", lambda: 0.0)
+    monkeypatch.setattr("app.spend.check_budget", lambda: None)
+
+    r = client.post("/capture/upload", headers=AUTH,
+                    files={"file": ("capture.mp4", b"FAKE-AAC-AUDIO", "audio/mp4")})
+    assert r.status_code == 200
+    assert "logged, review at /captures/" in r.text
+
+    from sqlmodel import select
+    rows = db_session.exec(select(ReviewQueue)).all()
+    assert len(rows) == 1
+    assert rows[0].provenance["transcript"] == "Recorded from Safari on iOS."
+
+
+# --- capture_voice_logging_middleware: every attempt logged, with why -----
+
+
+def test_capture_voice_reason_extracts_a_plain_detail_string():
+    from starlette.responses import JSONResponse
+
+    from app.access_log import _capture_voice_reason
+    resp = JSONResponse({"detail": "bearer token missing or does not match CAPTURE_API_KEY"}, status_code=401)
+    assert _capture_voice_reason(resp) == "bearer token missing or does not match CAPTURE_API_KEY"
+
+
+def test_capture_voice_reason_extracts_a_validation_error_list():
+    from starlette.responses import JSONResponse
+
+    from app.access_log import _capture_voice_reason
+    resp = JSONResponse({"detail": [{"loc": ["body", "file"], "msg": "Field required"}]}, status_code=422)
+    reason = _capture_voice_reason(resp)
+    assert "file" in reason and "Field required" in reason
+
+
+def test_capture_voice_reason_is_ok_below_400():
+    from starlette.responses import PlainTextResponse
+
+    from app.access_log import _capture_voice_reason
+    resp = PlainTextResponse("logged, review at /captures/1\n", status_code=200)
+    assert _capture_voice_reason(resp) == "ok"
+
+
+def test_capture_voice_logging_middleware_logs_rejected_auth(client, caplog):
+    """The 2026-08-19 finding this whole feature responds to: the iOS
+    Shortcut has never once appeared anywhere, including this log -- if it
+    ever DOES fire and fail, this is what makes that visible instead of
+    invisible."""
+    with caplog.at_level("WARNING"):
+        client.post("/capture/voice", files={"file": ("x.m4a", b"a", "audio/m4a")})
+    assert any("capture/voice" in r.message and "401" in r.message for r in caplog.records)
+
+
+def test_capture_voice_logging_middleware_logs_missing_file_field(client, caplog):
+    with caplog.at_level("WARNING"):
+        client.post("/capture/voice", headers={"Authorization": "Bearer testcapkey"})
+    assert any("capture/voice" in r.message for r in caplog.records)
+
+
+@respx.mock
+def test_capture_voice_logging_middleware_logs_success(client, caplog, monkeypatch):
+    _mock_whisper("logged ok")
+    monkeypatch.setattr("app.llm.extract_voice_capture",
+                        lambda transcript: OutreachCallExtraction(confidence=0.1))
+    monkeypatch.setattr("app.llm.last_call_cost_usd", lambda: 0.0)
+    monkeypatch.setattr("app.spend.check_budget", lambda: None)
+    with caplog.at_level("INFO"):
+        r = client.post("/capture/voice", headers={"Authorization": "Bearer testcapkey"},
+                        files={"file": ("x.m4a", b"a", "audio/m4a")})
+    assert r.status_code == 200
+    assert any("reason=ok" in r.message for r in caplog.records)
+
+
+def test_capture_voice_logging_middleware_ignores_get(client, caplog):
+    with caplog.at_level("INFO"):
+        client.get("/capture/voice")
+    assert not any("capture/voice POST" in r.message for r in caplog.records)
