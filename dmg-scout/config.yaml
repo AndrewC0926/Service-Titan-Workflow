@@ -9,19 +9,55 @@ request_max_retries_5xx: 2        # 5xx is often deterministic (Legistar 500 = u
                                   # 404 and other definitive 4xx are never retried
 
 llm:
+  # ---- Model routing policy (2026-08-19) -----------------------------------
+  # Route by TASK, not by preference: a stage where a fixed JSON schema does
+  # the constraining and the model only fills fields is a Haiku candidate.
+  # A stage requiring synthesis, research, or real judgment on ambiguous
+  # evidence stays on Sonnet. Verified, not assumed -- see app/assumptions.py's
+  # "Model routing" group for the full per-field evidence behind both
+  # decisions below (extract_model KEPT on Sonnet; voice_capture_model MOVED
+  # to Haiku), and app.spend.record()'s `model` column for a live per-call
+  # record of which model actually handled each call.
   triage_model: "claude-haiku-4-5-20251001"
+  # KEPT on Sonnet 4.6, deliberately NOT moved to Haiku despite being a
+  # fixed-schema extraction task: a 12-document hand-verified comparison
+  # (2026-08-19, evals/golden.jsonl) found Haiku meaningfully worse on
+  # jurisdiction fields specifically -- state precision 0.45 vs Sonnet's
+  # 1.00 (6 of 11 wrong), county 0.58 vs 0.92 -- which this app's scoring
+  # and territory logic depends on being right. Per this app's own stated
+  # standard ("if Haiku loses meaningfully, keep Sonnet and say so"), it
+  # loses meaningfully here. sam_gov_extract (app.llm.extract_division_23_
+  # mentions) shares this key and is therefore unchanged too, by the same
+  # reasoning -- structurally the same kind of extraction, no separate
+  # evidence needed to reach the same conclusion.
   extract_model: "claude-sonnet-4-6"
+  # KEPT on Sonnet: deciding whether two records are the same real-world
+  # project is a judgment call over ambiguous evidence (see ADJUDICATE_
+  # SYSTEM's own instruction to answer "uncertain" rather than force a
+  # match), not a schema the model is only filling in -- the routing
+  # policy's own "requires judgment, stays on Sonnet" side, not verified
+  # against a golden set because none exists for this stage.
   adjudicate_model: "claude-sonnet-4-6"
-  outreach_model: "claude-sonnet-4-6"  # see app/pipeline/fathom_outreach.py
-  # Sonnet 5, not 4-6: a short, well-scoped extraction task, and Sonnet 5's
-  # intro pricing ($2/$10 per MTok through 2026-08-31) runs out the same day
-  # this feature's own deadline does -- see app/assumptions.py's entry for
-  # this constant and app/pipeline/voice_capture.py's cost-per-capture math.
-  voice_capture_model: "claude-sonnet-5"
-  # Pre-call brief (app/precall.py): needs web_search tool support (Sonnet 5
-  # and Sonnet 4.6 both qualify) and is prose synthesis + judgment about what
-  # counts as corroborated, not a rigid extraction -- same tier reasoning
-  # this app already trusts for voice_capture_model above.
+  outreach_model: "claude-sonnet-4-6"  # see app/pipeline/fathom_outreach.py --
+  # extraction + light synthesis from a call transcript; no golden set exists
+  # for this stage either, so left unmoved rather than guessed at.
+  # MOVED to Haiku (2026-08-19): a 5-transcript hand-verified comparison
+  # (see app/assumptions.py) scored Haiku 24/25 field-level exact matches
+  # against Sonnet's 25/25 -- and the one miss was a stage-characterization
+  # nuance, not a name or a date. 5/5 on contact_name, firm_name, and
+  # next_action_date (including both an explicit stated date and two cases
+  # where the correct answer is null, not a guess) for BOTH models. Costs
+  # ~3x less per call and loses nothing on exactly the two field types this
+  # app's own standard called out (names, dates).
+  voice_capture_model: "claude-haiku-4-5-20251001"
+  # KEPT on Sonnet -- explicitly, per this app's own routing policy above:
+  # needs web_search tool support (Sonnet 5 and Sonnet 4.6 both qualify) and
+  # is prose synthesis + judgment about what counts as corroborated
+  # (deciding what's genuinely newsworthy from web results, writing a
+  # readable brief with citations), not a rigid extraction against a fixed
+  # schema -- the "requires synthesis or research, stays on Sonnet" side of
+  # the policy, same as adjudicate_model above. This is the stage
+  # llm.stage_daily_budget_usd below was specifically sized to watch.
   precall_model: "claude-sonnet-5"
   # Digest narration (app/pipeline/notify.py): rephrasing an already-
   # assembled, already-grounded payload into prose, not extraction or
@@ -118,6 +154,27 @@ llm:
                                   # run measured (extract, $6.95) and below the
                                   # daily cap, so it binds first on a runaway.
   budget_warn_fraction: 0.8       # digest + dashboard warning threshold
+  # Per-stage daily caps, ON TOP of daily_budget_usd above -- see
+  # app.spend.check_budget's own docstring. Exists so one expensive or
+  # runaway stage can't alone consume the whole day's global budget before
+  # anything else gets a chance to run. Only stages listed here get an
+  # extra ceiling; everything else is still bound by daily_budget_usd, same
+  # as before this existed.
+  #
+  # precall_project / precall_contractor (app/precall.py): the one stage
+  # this was built to watch. Measured real cost per brief: $0.28 (one real
+  # sample, 2026-08-17, 71K input tokens + 3 web searches -- see
+  # data/precall_cache/project_825.json). Precall was ALSO, until
+  # 2026-08-19, invisible to token_spend entirely (see app.precall's module
+  # docstring) -- a cap here would have been enforced against a number that
+  # never moved. $5/day each is ~18 briefs/day per entity type, comfortably
+  # above any real single-rep usage day, while still bounding the worst
+  # case to a third of daily_budget_usd instead of all of it. No real
+  # multi-day usage history exists yet to size this more precisely than
+  # that -- revisit once actual precall volume is observed.
+  stage_daily_budget_usd:
+    precall_project: 5.0
+    precall_contractor: 5.0
 
 territories:
   california:

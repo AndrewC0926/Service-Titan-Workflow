@@ -141,3 +141,66 @@ def test_budget_status_reports_the_active_run(db_session, cfg):
         assert st["run"]["calls"] == 1
         assert not st["run"]["exhausted"]
     assert "run" not in budget_status()
+
+
+# ---- per-stage daily budget caps -------------------------------------------
+#
+# 2026-08-19: ON TOP OF the global daily cap, not instead of it -- so one
+# expensive or runaway stage (the pre-call brief, ~$0.28/call, was the one
+# this was built to watch) can't alone consume the whole day's budget.
+
+
+def test_stage_spent_today_only_counts_that_stage(db_session, cfg):
+    from app.spend import stage_spent_today
+    record("precall_project", "claude-sonnet-5", _tokens_for(cfg, 0.10, "claude-sonnet-5"), 0)
+    record("extract", "claude-sonnet-4-6", _tokens_for(cfg, 0.20), 0)
+    assert 0.09 < stage_spent_today("precall_project") < 0.11
+    assert stage_spent_today("precall_contractor") == 0.0
+
+
+def test_check_budget_raises_past_a_configured_stage_cap(db_session, cfg, monkeypatch):
+    monkeypatch.setitem(cfg.data["llm"], "stage_daily_budget_usd", {"precall_project": 0.10})
+    record("precall_project", "claude-sonnet-5", _tokens_for(cfg, 0.15, "claude-sonnet-5"), 0)
+    with pytest.raises(BudgetExceeded, match="daily budget for stage 'precall_project' exhausted"):
+        check_budget("precall_project")
+
+
+def test_check_budget_ignores_stage_cap_for_a_different_stage(db_session, cfg, monkeypatch):
+    monkeypatch.setitem(cfg.data["llm"], "stage_daily_budget_usd", {"precall_project": 0.10})
+    record("precall_project", "claude-sonnet-5", _tokens_for(cfg, 0.15, "claude-sonnet-5"), 0)
+    check_budget("precall_contractor")  # different stage, no cap configured for it -- must not raise
+
+
+def test_check_budget_with_no_stage_arg_skips_stage_check_entirely(db_session, cfg, monkeypatch):
+    """The existing global-cap-only call sites (nothing passes a stage) must
+    behave exactly as before this feature existed."""
+    monkeypatch.setitem(cfg.data["llm"], "stage_daily_budget_usd", {"precall_project": 0.01})
+    record("precall_project", "claude-sonnet-5", _tokens_for(cfg, 5.0, "claude-sonnet-5"), 0)
+    check_budget()  # no stage given -- stage cap never consulted, must not raise
+
+
+def test_check_budget_respects_a_stage_with_no_configured_cap(db_session, cfg, monkeypatch):
+    monkeypatch.setitem(cfg.data["llm"], "stage_daily_budget_usd", {"precall_project": 0.10})
+    # Well past what precall_project's OWN cap would allow, but under the
+    # global daily cap -- isolates "no per-stage cap configured" from
+    # "tripped the global cap instead," which a too-large spend here would
+    # accidentally test instead.
+    record("adjudicate", "claude-sonnet-4-6", _tokens_for(cfg, 1.0), 0)
+    check_budget("adjudicate")  # no llm.stage_daily_budget_usd.adjudicate entry -- unbounded by this
+
+
+def test_record_folds_a_flat_extra_cost_into_the_one_row(db_session, cfg):
+    """app.precall's web_search charge ($0.01/search) -- not itself
+    token-priced, so price() has no way to know about it; extra_cost_usd is
+    the one place a caller can add a real dollar amount on top."""
+    from sqlmodel import select
+    from app.models import TokenSpend
+
+    token_cost = record("precall_project", "claude-sonnet-5", 1000, 100)
+    combined_cost = record("precall_project", "claude-sonnet-5", 1000, 100, extra_cost_usd=0.03)
+    assert combined_cost - token_cost == pytest.approx(0.03, abs=1e-6)
+
+    rows = db_session.exec(
+        select(TokenSpend).where(TokenSpend.stage == "precall_project")
+    ).all()
+    assert len(rows) == 2  # one row per call, the flat cost folded IN, not a second row

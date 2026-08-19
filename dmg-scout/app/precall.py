@@ -21,11 +21,19 @@ with citations woven into the sentences, not a JSON payload to render.
 
 Cost is priced with the same $/MTok table app.spend.price() reads
 (config.yaml's llm.prices) for consistency with every other LLM call in this
-codebase, plus web_search's own per-search cost -- but it is NEVER recorded
-to token_spend. That table lives in Postgres, and this module writes
-nothing there, on purpose, even for its own telemetry. Cost lives only in
-the cache file next to the brief it paid for; precall_cost_report() reads
-every cached brief's cost straight off disk.
+codebase, plus web_search's own per-search cost. The brief's own TEXT still
+never touches Postgres -- only the cache file next to it does, and
+precall_cost_report() still reads every cached brief's cost straight off
+disk. The COST, however, now ALSO writes one app.spend.record() row per
+call (2026-08-19): a precall brief runs ~$0.28 (measured), largely
+uncapped and, until this change, entirely invisible to token_spend --
+meaning a per-stage daily budget cap on precall_project/precall_contractor
+(see llm.stage_daily_budget_usd in config.yaml) would have been enforced
+against a number that was always zero. This is a narrow exception to "no
+DB writes here": a TokenSpend insert is pure spend telemetry, not a Scout
+entity, and it's the same write every other LLM call site in this app
+already makes via app.llm._tool_call -- precall was the one place doing
+its own thing.
 """
 from __future__ import annotations
 
@@ -313,10 +321,9 @@ def _client():
 
 
 def _call_llm(cfg: Config, system: str, user_content: str, *, stage: str, max_uses: int = 5) -> dict:
-    from app.spend import check_budget, price
+    from app.spend import check_budget, price, record
 
-    check_budget()  # read-only: sums token_spend, raises BudgetExceeded past the kill switch.
-                    # Never records here -- see module docstring on why this writes nothing to Postgres.
+    check_budget(stage)  # global, run, AND this stage's own daily cap -- see module docstring
     model = cfg.get("llm.precall_model", cfg.get("llm.extract_model"))
     client = _client()
     resp = client.messages.create(
@@ -348,6 +355,10 @@ def _call_llm(cfg: Config, system: str, user_content: str, *, stage: str, max_us
                      if block.type == "server_tool_use" and block.name == "web_search")
     token_cost = price(cfg, model, resp.usage.input_tokens, resp.usage.output_tokens)
     search_cost = n_searches * WEB_SEARCH_COST_PER_CALL_USD
+    # extra_cost_usd folds the flat web_search charge into this ONE row rather
+    # than a second row per call -- see app.spend.record's own docstring.
+    record(stage, model, resp.usage.input_tokens, resp.usage.output_tokens,
+          extra_cost_usd=search_cost)
     log.info("precall %s: model=%s in=%d out=%d searches=%d cost=$%.4f",
              stage, model, resp.usage.input_tokens, resp.usage.output_tokens, n_searches,
              token_cost + search_cost)

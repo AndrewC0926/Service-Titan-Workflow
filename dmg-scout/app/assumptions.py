@@ -970,6 +970,64 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "trade packages are structured, and the note says so rather than picking a side.",
     ))
 
+    # ---- Model routing ------------------------------------------------------
+    # 2026-08-19: per-stage LLM model choice, verified rather than assumed --
+    # see config.yaml's llm: block for the live per-stage values and the
+    # policy comment above them ("route by task: fixed-schema extraction ->
+    # Haiku, synthesis/research/judgment -> Sonnet"). Both decisions below
+    # were tested against hand-verified ground truth before being applied,
+    # per the standard this app holds itself to: a routing change that costs
+    # measurable accuracy doesn't ship, even if it costs less.
+    out.append(Assumption(
+        group="Model routing", name="extract_model: kept on Sonnet, not moved to Haiku",
+        config_path="llm.extract_model",
+        value=f"{cfg.get('llm.extract_model')} (unchanged)",
+        source_type=MEASURED,
+        source_detail=(
+            "extract() is a fixed-schema extraction task -- the routing policy's own "
+            "Haiku candidate shape -- but a 12-document hand-verified comparison "
+            "(2026-08-19, evals/golden.jsonl, spanning ceqanet/goed sources) found Haiku "
+            "meaningfully worse specifically on jurisdiction fields: state precision 0.45 vs "
+            "Sonnet 4.6's 1.00 (6 of 11 wrong -- a field that should be nearly unambiguous), "
+            "county 0.58 vs 0.92 (5 of 12 wrong vs 1). cooling_type also fabricated twice "
+            "under Haiku (zero under Sonnet). Some fields favored Haiku (project_name 0.67 "
+            "vs 0.42 precision; named_people fabricated less, 15 vs 29) -- this was not a "
+            "clean sweep either direction, but county/state are load-bearing for this app's "
+            "own territory and scoring logic, and losing them meaningfully is exactly the "
+            "case this app's own standard says keep Sonnet and say so. sam_gov_extract "
+            "shares this same config key and is therefore unchanged for the identical "
+            "reason, not a separately measured decision. Per-document ground truth and both "
+            "models' rerun output are recorded in evals/golden.jsonl (verified: true "
+            "entries, model_haiku/model_sonnet keys)."
+        ),
+        verified=True,
+        last_reviewed="Measured 2026-08-19 against 12 hand-verified documents, 24 real API calls.",
+    ))
+    out.append(Assumption(
+        group="Model routing", name="voice_capture_model: moved from Sonnet 5 to Haiku",
+        config_path="llm.voice_capture_model",
+        value=f"{cfg.get('llm.voice_capture_model')} (was claude-sonnet-5)",
+        source_type=MEASURED,
+        source_detail=(
+            "extract_voice_capture() fills a fixed schema (OutreachCallExtraction) from a "
+            "call transcript -- the routing policy's Haiku candidate shape, and unlike "
+            "extract_model above, verification found no meaningful loss. A 5-transcript "
+            "hand-written comparison (2026-08-19, covering a clean case, a deliberately odd "
+            "name spelling, a case with an explicit stated date, a case where the correct "
+            "answer is a null date rather than a guess, and a low-information/garbled case) "
+            "scored Haiku 24/25 field-level exact matches against Sonnet 4.6's 25/25. The one "
+            "miss (case 2, stage='interested' vs the correct null) is a stage-classification "
+            "nuance, not a name or a date -- contact_name, firm_name, and next_action_date "
+            "each scored 5/5 for BOTH models, including the two null-date cases (proving "
+            "neither model guesses a date that was never stated). This is exactly the two "
+            "field types this app's own standard names (\"if Haiku loses meaningfully on "
+            "names or dates, keep Sonnet\") -- it does not lose on either, so the move is "
+            "made. Haiku also runs ~3x cheaper per call at current prices (see llm.prices)."
+        ),
+        verified=True,
+        last_reviewed="Measured 2026-08-19 against 5 hand-written transcripts, 10 real API calls.",
+    ))
+
     # ---- Voice capture -----------------------------------------------------
 
     import app.pipeline.voice_capture as vc

@@ -191,3 +191,67 @@ def test_pre_call_brief_never_writes_to_the_db_session(db_session, monkeypatch):
     precall.pre_call_brief(db_session, "project", p.id, force_refresh=True)
     assert not db_session.new
     assert not db_session.dirty
+
+
+# ---- _call_llm: token_spend recording (2026-08-19) -----------------------
+#
+# Until now this stage was entirely invisible to token_spend -- see the
+# module docstring for why that made a per-stage budget cap here
+# meaningless (it would be enforced against a number that never moved).
+# _call_llm's own API call was never exercised by this file's other tests
+# (they all mock _call_llm itself, per its module docstring) -- these
+# mock ONE level deeper, at the Anthropic client, specifically to prove
+# the real function now records real spend.
+
+class _FakeMessages:
+    def __init__(self, n_searches=1):
+        self.n_searches = n_searches
+
+    def create(self, **kwargs):
+        from types import SimpleNamespace
+        blocks = [SimpleNamespace(type="server_tool_use", name="web_search")
+                 for _ in range(self.n_searches)]
+        blocks.append(SimpleNamespace(type="text", text="BOTTOM LINE\nTest brief text."))
+        return SimpleNamespace(content=blocks,
+                               usage=SimpleNamespace(input_tokens=1000, output_tokens=200))
+
+
+class _FakeAnthropicClient:
+    def __init__(self, n_searches=1):
+        self.messages = _FakeMessages(n_searches)
+
+
+def test_call_llm_records_token_spend_including_search_cost(db_session, cfg, monkeypatch):
+    from sqlmodel import select
+    from app.models import TokenSpend
+
+    monkeypatch.setattr(precall, "_client", lambda: _FakeAnthropicClient(n_searches=2))
+    result = precall._call_llm(cfg, "system", "user content", stage="precall_project")
+
+    assert result["web_searches"] == 2
+    rows = db_session.exec(select(TokenSpend).where(TokenSpend.stage == "precall_project")).all()
+    assert len(rows) == 1
+    # cost_usd on the row must be the COMBINED (token + search) cost, folded into
+    # this one row -- not just the token portion price() alone would compute.
+    assert rows[0].cost_usd == pytest.approx(result["cost_usd"], abs=1e-6)
+    assert rows[0].cost_usd > result["token_cost_usd"]  # search cost genuinely added something
+
+
+def test_call_llm_is_gated_by_its_own_stage_daily_cap(db_session, cfg, monkeypatch):
+    """The cap this whole change exists to make possible: a per-stage daily
+    ceiling that's actually enforceable now that precall writes to
+    token_spend at all."""
+    from app.spend import BudgetExceeded, record
+
+    monkeypatch.setitem(cfg.data["llm"], "stage_daily_budget_usd", {"precall_project": 0.01})
+    record("precall_project", "claude-sonnet-5", 100_000, 0)  # already well past the cap
+
+    called = {"n": 0}
+    def _client_should_not_be_called():
+        called["n"] += 1
+        return _FakeAnthropicClient()
+    monkeypatch.setattr(precall, "_client", _client_should_not_be_called)
+
+    with pytest.raises(BudgetExceeded, match="daily budget for stage 'precall_project' exhausted"):
+        precall._call_llm(cfg, "system", "user content", stage="precall_project")
+    assert called["n"] == 0  # check_budget raised before the API was ever touched

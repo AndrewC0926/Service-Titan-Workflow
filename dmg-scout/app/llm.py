@@ -341,7 +341,7 @@ def _tool_call(model: str, system: str, tool: dict, user_content: str,
                max_tokens: int = 2048, stage: str = "unknown") -> dict:
     from app.spend import check_budget, record
     client = _client()
-    check_budget()  # raises BudgetExceeded past the daily cap
+    check_budget(stage)  # raises BudgetExceeded past the daily, run, or per-stage cap
     resp = client.messages.create(
         model=model,
         max_tokens=max_tokens,

@@ -137,9 +137,15 @@ def price(cfg: Config, model: str, input_tokens: int, output_tokens: int) -> flo
     return input_tokens / 1e6 * p["in"] + output_tokens / 1e6 * p["out"]
 
 
-def record(stage: str, model: str, input_tokens: int, output_tokens: int) -> float:
+def record(stage: str, model: str, input_tokens: int, output_tokens: int, *,
+          extra_cost_usd: float = 0.0) -> float:
+    """extra_cost_usd folds in a flat, non-token cost component (e.g.
+    app.precall's $0.01/search web_search charge) into the SAME spend row,
+    rather than a second row per call -- price() stays a pure token-cost
+    function; this is the one place a caller can add a real dollar amount
+    price() has no way to know about."""
     cfg = load_config()
-    cost = price(cfg, model, input_tokens, output_tokens)
+    cost = price(cfg, model, input_tokens, output_tokens) + extra_cost_usd
     try:
         with session_scope() as session:
             session.add(TokenSpend(day=_today(), stage=stage, model=model,
@@ -163,6 +169,16 @@ def spent_today() -> float:
         return sum(r.cost_usd for r in rows)
 
 
+def stage_spent_today(stage: str) -> float:
+    """Same as spent_today(), scoped to one stage -- what check_budget(stage)
+    checks a configured llm.stage_daily_budget_usd.<stage> cap against."""
+    with session_scope() as session:
+        rows = session.exec(
+            select(TokenSpend).where(TokenSpend.day == _today(), TokenSpend.stage == stage)
+        ).all()
+        return sum(r.cost_usd for r in rows)
+
+
 def spent_month() -> float:
     prefix = _today()[:7]
     with session_scope() as session:
@@ -170,12 +186,21 @@ def spent_month() -> float:
         return sum(r.cost_usd for r in rows if r.day.startswith(prefix))
 
 
-def check_budget() -> None:
-    """Raise BudgetExceeded past the run cap or the daily cap.
+def check_budget(stage: str | None = None) -> None:
+    """Raise BudgetExceeded past the run cap, the daily cap, or (if `stage`
+    is given and configured) that stage's own daily cap.
 
     The run cap is checked FIRST and is the one that holds across midnight. The
     daily check below is kept for calls made outside any run, and is deliberately
     left clock-keyed — it is a per-day ceiling and that is what it should mean.
+
+    The per-stage cap is a SEPARATE, additional ceiling on top of the daily one
+    — see llm.stage_daily_budget_usd in config.yaml. It exists so one runaway or
+    unusually expensive stage (the pre-call brief, at ~$0.28/call with web_search,
+    is the one this was sized for) cannot alone consume the whole day's global
+    budget before any other stage gets a chance to run. A stage with no entry in
+    that config is bound only by the global daily cap, same as before this
+    existed.
     """
     if os.environ.get("SCOUT_LLM_DISABLED") == "1":
         raise BudgetExceeded("SCOUT_LLM_DISABLED=1 — manual kill switch is on")
@@ -200,17 +225,31 @@ def check_budget() -> None:
 
     cfg = load_config()
     budget = cfg.get("llm.daily_budget_usd")
-    if not budget:
-        return
-    spent = spent_today()
-    if spent >= budget:
-        raise BudgetExceeded(
-            f"daily LLM budget exhausted: ${spent:.2f} of ${budget:.2f} — "
-            f"raise llm.daily_budget_usd in config.yaml to continue today"
-        )
-    if spent >= budget * cfg.get("llm.budget_warn_fraction", 0.8):
-        log.warning("LLM spend at %.0f%% of daily budget ($%.2f of $%.2f)",
-                    100 * spent / budget, spent, budget)
+    if budget:
+        spent = spent_today()
+        if spent >= budget:
+            raise BudgetExceeded(
+                f"daily LLM budget exhausted: ${spent:.2f} of ${budget:.2f} — "
+                f"raise llm.daily_budget_usd in config.yaml to continue today"
+            )
+        if spent >= budget * cfg.get("llm.budget_warn_fraction", 0.8):
+            log.warning("LLM spend at %.0f%% of daily budget ($%.2f of $%.2f)",
+                        100 * spent / budget, spent, budget)
+
+    if stage is not None:
+        stage_cap = cfg.get("llm.stage_daily_budget_usd", {}).get(stage)
+        if stage_cap:
+            stage_spent = stage_spent_today(stage)
+            if stage_spent >= stage_cap:
+                raise BudgetExceeded(
+                    f"daily budget for stage {stage!r} exhausted: ${stage_spent:.2f} of "
+                    f"${stage_cap:.2f} — raise llm.stage_daily_budget_usd.{stage} in "
+                    f"config.yaml to continue today. This is a per-stage cap on top of "
+                    f"the global llm.daily_budget_usd, not a substitute for it."
+                )
+            if stage_spent >= stage_cap * cfg.get("llm.budget_warn_fraction", 0.8):
+                log.warning("stage %r spend at %.0f%% of its daily budget ($%.2f of $%.2f)",
+                            stage, 100 * stage_spent / stage_cap, stage_spent, stage_cap)
 
 
 def budget_status() -> dict:
