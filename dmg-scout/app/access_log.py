@@ -36,7 +36,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-import json
 import logging
 import os
 from datetime import timedelta
@@ -193,43 +192,46 @@ async def access_logging_middleware(request, call_next):
 # Render-side diagnosis this project does already works.
 CAPTURE_VOICE_PATH = "/capture/voice"
 
-
-def _capture_voice_reason(response) -> str:
-    """A human reason for a /capture/voice outcome, read straight from the
-    JSON `detail` FastAPI puts on every 4xx/5xx it produces -- covers
-    capture_auth's 401, the automatic 422 when the multipart body is wrong
-    (missing 'file' field, wrong content-type entirely), and this
-    endpoint's own explicit 400/413/502 raises, all from ONE code path
-    instead of hardcoding each case separately."""
-    if response.status_code < 400:
-        return "ok"
-    try:
-        data = json.loads(bytes(response.body))
-    except Exception:
-        return f"HTTP {response.status_code}"
-    detail = data.get("detail")
-    if isinstance(detail, list):  # FastAPI's own validation-error shape
-        parts = []
-        for e in detail:
-            loc = ".".join(str(x) for x in e.get("loc", []) if x != "body")
-            msg = e.get("msg", e)
-            parts.append(f"{loc}: {msg}" if loc else str(msg))
-        return "; ".join(parts) or f"HTTP {response.status_code}"
-    return str(detail) if detail is not None else f"HTTP {response.status_code}"
+# 2026-08-19 bugfix: this used to read the reason back off call_next()'s
+# RETURN VALUE via response.body -- which looks like it should work (a
+# plain Response/JSONResponse renders .body eagerly at construction) but
+# doesn't, because @app.middleware("http")'s call_next() doesn't hand back
+# the original response object at all. Starlette's BaseHTTPMiddleware runs
+# the downstream app in a background task and reconstructs a
+# StreamingResponse-like wrapper from the raw ASGI messages for the
+# middleware to inspect; that wrapper has no eagerly-rendered .body, so
+# every read failed, the broad `except Exception` silently swallowed it,
+# and every single rejection logged the generic "HTTP 401"/"HTTP 422"
+# fallback instead of the real reason -- confirmed against real production
+# log lines 2026-08-19, all three deliberately-different rejection tests
+# ("bad bearer" / "wrong content type" / "missing file field") came back
+# reading identically as "reason=HTTP 401" despite very different actual
+# causes. The fix captures the reason INSIDE the code that's actually
+# raising the failure, on request.state (the one object the response
+# reconstruction above never touches), before the exception ever leaves
+# that code -- see app/web/main.py's capture_auth, capture_voice, and the
+# RequestValidationError handler, all three of which set
+# request.state.capture_reason right where they know it. This module then
+# only ever reads it back, never reconstructs it after the fact.
+CAPTURE_VOICE_STATE_ATTR = "capture_reason"
 
 
 async def capture_voice_logging_middleware(request, call_next):
     """Logs every POST to /capture/voice, success or rejected, with the
     user agent, IP, status, and a reason -- see the module comment above
     for why this exists as its own thing rather than folding into
-    log_access(). GET hits (the diagnostic probe, app/web/main.py:
-    capture_voice_probe) are left alone: that handler's OWN response body
-    already tells the whole story, and it's read directly off a phone, not
-    off a log."""
+    log_access(), and the comment just above for why the reason comes from
+    request.state rather than the response. GET hits (the diagnostic
+    probe, app/web/main.py: capture_voice_probe) are left alone: that
+    handler's OWN response body already tells the whole story, and it's
+    read directly off a phone, not off a log."""
     if request.url.path != CAPTURE_VOICE_PATH or request.method != "POST":
         return await call_next(request)
     response = await call_next(request)
-    reason = _capture_voice_reason(response)
+    if response.status_code < 400:
+        reason = "ok"
+    else:
+        reason = getattr(request.state, CAPTURE_VOICE_STATE_ATTR, None) or f"HTTP {response.status_code}"
     ua = request.headers.get("user-agent", "-")
     ip = request.client.host if request.client else "-"
     level = log.info if response.status_code < 400 else log.warning

@@ -12,6 +12,8 @@ from pathlib import Path
 
 import httpx
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials, HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
@@ -125,6 +127,32 @@ for _mw in mounted_middleware():
 app.router.routes.extend(mounted_routes())
 app.middleware("http")(access_logging_middleware)
 app.middleware("http")(capture_voice_logging_middleware)
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_exception_handler(request: Request, exc: RequestValidationError) -> Response:
+    """FastAPI's own default 422 handler, plus one addition: for
+    /capture/voice specifically, stash a readable reason on
+    request.state.capture_reason before building the response --
+    capture_voice's own `file: UploadFile = File(...)` parameter fails
+    validation this way (a RequestValidationError, not an HTTPException
+    from application code) for BOTH a missing 'file' field AND a
+    wrong-content-type body (confirmed empirically: FastAPI can't actually
+    tell these two apart for this endpoint -- a non-multipart body just
+    means no 'file' part is ever found either), so this is the only place
+    that reason is ever available to capture. See app.access_log's module
+    comment for why capture_voice_logging_middleware can't read it off the
+    eventual response instead."""
+    if request.url.path == "/capture/voice":
+        parts = []
+        for e in exc.errors():
+            loc = ".".join(str(x) for x in e.get("loc", ()) if x != "body")
+            msg = e.get("msg", str(e))
+            parts.append(f"{loc}: {msg}" if loc else str(msg))
+        request.state.capture_reason = "; ".join(parts) or "validation error"
+    return await request_validation_exception_handler(request, exc)
+
+
 security = HTTPBasic()
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -190,17 +218,25 @@ def auth(credentials: HTTPBasicCredentials = Depends(security)) -> str:
 capture_bearer = HTTPBearer(auto_error=False)
 
 
-def capture_auth(credentials: HTTPAuthorizationCredentials = Depends(capture_bearer)) -> str:
+def capture_auth(request: Request,
+                 credentials: HTTPAuthorizationCredentials = Depends(capture_bearer)) -> str:
     """Auth for POST /capture/voice (the iOS Shortcut endpoint) -- a bearer
     token via CAPTURE_API_KEY, deliberately separate from the dashboard's
     HTTP Basic DASHBOARD_PASSWORD (see auth() above and
-    app.config.capture_api_key's docstring)."""
+    app.config.capture_api_key's docstring).
+
+    request.state.capture_reason is set here, before each raise, for
+    capture_voice_logging_middleware (app/access_log.py) to read back after
+    the fact -- see that module's comment for why it can't reliably read
+    this off the eventual response instead."""
     from app.config import capture_api_key
     key = capture_api_key()
     if not key:
+        request.state.capture_reason = "CAPTURE_API_KEY env var is not set"
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
                             detail="CAPTURE_API_KEY env var is not set")
     if credentials is None or not secrets.compare_digest(credentials.credentials, key):
+        request.state.capture_reason = "bearer token missing or does not match CAPTURE_API_KEY"
         raise HTTPException(status.HTTP_401_UNAUTHORIZED,
                             detail="bearer token missing or does not match CAPTURE_API_KEY",
                             headers={"WWW-Authenticate": "Bearer"})
@@ -2011,20 +2047,25 @@ def add_signal_submit(
 # --- for the one writer a confirm calls through.                           -
 
 @app.post("/capture/voice")
-async def capture_voice(file: UploadFile = File(...), _: str = Depends(capture_auth),
+async def capture_voice(request: Request, file: UploadFile = File(...), _: str = Depends(capture_auth),
                         session: Session = Depends(get_session)):
     """Authenticated multipart endpoint the iOS Shortcut posts a recorded
     voice note to. Deliberately returns plain text, not HTML/JSON with a
     schema to maintain -- the Shortcut only needs to know it worked; the
-    actual review happens later at /captures on a browser."""
+    actual review happens later at /captures on a browser.
+
+    Sets request.state.capture_reason before each raise -- see
+    capture_auth's docstring and app.access_log's module comment for why."""
     from app.pipeline.voice_capture import MAX_UPLOAD_BYTES, TranscriptionFailed, capture_voice_note
 
     audio_bytes = await file.read()
     if not audio_bytes:
+        request.state.capture_reason = "empty upload"
         raise HTTPException(400, detail="empty upload")
     if len(audio_bytes) > MAX_UPLOAD_BYTES:
-        raise HTTPException(413, detail=f"{len(audio_bytes)} bytes exceeds the "
-                                        f"{MAX_UPLOAD_BYTES}-byte limit")
+        reason = f"{len(audio_bytes)} bytes exceeds the {MAX_UPLOAD_BYTES}-byte limit"
+        request.state.capture_reason = reason
+        raise HTTPException(413, detail=reason)
     try:
         row = capture_voice_note(
             session, load_config(), audio_bytes=audio_bytes,
@@ -2036,7 +2077,9 @@ async def capture_voice(file: UploadFile = File(...), _: str = Depends(capture_a
         # so there is no partial capture worth keeping. Every failure AFTER
         # this point (extraction, matching) is instead absorbed into the
         # review_queue row itself -- see capture_voice_note.
-        raise HTTPException(502, detail=f"transcription failed: {exc}") from exc
+        reason = f"transcription failed: {exc}"
+        request.state.capture_reason = reason
+        raise HTTPException(502, detail=reason) from exc
     return Response(content=f"logged, review at /captures/{row.id}\n", media_type="text/plain")
 
 

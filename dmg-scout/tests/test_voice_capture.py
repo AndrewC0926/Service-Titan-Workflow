@@ -413,51 +413,72 @@ def test_capture_upload_relays_to_the_real_capture_voice_endpoint(client, db_ses
 
 
 # --- capture_voice_logging_middleware: every attempt logged, with why -----
+#
+# 2026-08-19 bugfix: the previous version of these tests only asserted that
+# SOME log line appeared, or that a generic "401" substring was in it --
+# never the actual reason text. That's exactly how a real bug shipped past
+# all of them: the reason field was reading back "HTTP 401" for every
+# rejection regardless of cause (call_next()'s returned response has no
+# eagerly-rendered .body -- see app.access_log's module comment), and
+# "capture/voice" and "401" were BOTH still present in that wrong string,
+# so the old assertions passed anyway. These now assert the real reason
+# text a human would actually read off the log line.
 
 
-def test_capture_voice_reason_extracts_a_plain_detail_string():
-    from starlette.responses import JSONResponse
-
-    from app.access_log import _capture_voice_reason
-    resp = JSONResponse({"detail": "bearer token missing or does not match CAPTURE_API_KEY"}, status_code=401)
-    assert _capture_voice_reason(resp) == "bearer token missing or does not match CAPTURE_API_KEY"
-
-
-def test_capture_voice_reason_extracts_a_validation_error_list():
-    from starlette.responses import JSONResponse
-
-    from app.access_log import _capture_voice_reason
-    resp = JSONResponse({"detail": [{"loc": ["body", "file"], "msg": "Field required"}]}, status_code=422)
-    reason = _capture_voice_reason(resp)
-    assert "file" in reason and "Field required" in reason
-
-
-def test_capture_voice_reason_is_ok_below_400():
-    from starlette.responses import PlainTextResponse
-
-    from app.access_log import _capture_voice_reason
-    resp = PlainTextResponse("logged, review at /captures/1\n", status_code=200)
-    assert _capture_voice_reason(resp) == "ok"
-
-
-def test_capture_voice_logging_middleware_logs_rejected_auth(client, caplog):
+def test_capture_voice_logging_middleware_logs_the_real_auth_rejection_reason(client, caplog):
     """The 2026-08-19 finding this whole feature responds to: the iOS
     Shortcut has never once appeared anywhere, including this log -- if it
     ever DOES fire and fail, this is what makes that visible instead of
     invisible."""
     with caplog.at_level("WARNING"):
         client.post("/capture/voice", files={"file": ("x.m4a", b"a", "audio/m4a")})
-    assert any("capture/voice" in r.message and "401" in r.message for r in caplog.records)
+    assert any(
+        "capture/voice POST status=401 "
+        "reason=bearer token missing or does not match CAPTURE_API_KEY" in r.message
+        for r in caplog.records
+    )
 
 
-def test_capture_voice_logging_middleware_logs_missing_file_field(client, caplog):
+def test_capture_voice_logging_middleware_logs_the_real_missing_file_reason(client, caplog):
+    """Confirmed empirically: FastAPI can't actually distinguish "wrong
+    content type" from "missing file field" for this endpoint -- a
+    non-multipart body just means the required 'file' part is never found
+    either, so both surface as the identical RequestValidationError. The
+    reason text reflects that (body.file: Field required), not a made-up
+    distinction the framework doesn't actually draw."""
     with caplog.at_level("WARNING"):
         client.post("/capture/voice", headers={"Authorization": "Bearer testcapkey"})
-    assert any("capture/voice" in r.message for r in caplog.records)
+    assert any(
+        "capture/voice POST status=422 reason=" in r.message and "file" in r.message
+        and "Field required" in r.message
+        for r in caplog.records
+    )
+
+
+def test_capture_voice_logging_middleware_logs_the_real_wrong_content_type_reason(client, caplog):
+    with caplog.at_level("WARNING"):
+        client.post("/capture/voice", headers={"Authorization": "Bearer testcapkey",
+                                               "Content-Type": "application/json"},
+                    content=b'{"not":"multipart"}')
+    assert any(
+        "capture/voice POST status=422 reason=" in r.message and "file" in r.message
+        for r in caplog.records
+    )
+
+
+def test_capture_voice_logging_middleware_logs_the_real_oversized_upload_reason(client, caplog):
+    oversized = vc.MAX_UPLOAD_BYTES + 1
+    with caplog.at_level("WARNING"):
+        client.post("/capture/voice", headers={"Authorization": "Bearer testcapkey"},
+                    files={"file": ("x.m4a", b"x" * oversized, "audio/m4a")})
+    assert any(
+        f"capture/voice POST status=413 reason={oversized} bytes exceeds the" in r.message
+        for r in caplog.records
+    )
 
 
 @respx.mock
-def test_capture_voice_logging_middleware_logs_success(client, caplog, monkeypatch):
+def test_capture_voice_logging_middleware_logs_success_with_reason_ok(client, caplog, monkeypatch):
     _mock_whisper("logged ok")
     monkeypatch.setattr("app.llm.extract_voice_capture",
                         lambda transcript: OutreachCallExtraction(confidence=0.1))
@@ -467,7 +488,7 @@ def test_capture_voice_logging_middleware_logs_success(client, caplog, monkeypat
         r = client.post("/capture/voice", headers={"Authorization": "Bearer testcapkey"},
                         files={"file": ("x.m4a", b"a", "audio/m4a")})
     assert r.status_code == 200
-    assert any("reason=ok" in r.message for r in caplog.records)
+    assert any("capture/voice POST status=200 reason=ok" in r.message for r in caplog.records)
 
 
 def test_capture_voice_logging_middleware_ignores_get(client, caplog):
