@@ -35,7 +35,17 @@ RUN curl -sL -o /usr/local/bin/tailwindcss \
     && rm /usr/local/bin/tailwindcss \
     && test -s app/web/static/app.css
 
-RUN pip install --no-cache-dir .
+# --retries/--timeout: this exact step has now failed on three separate
+# deploys (2026-08-19), always the same transient files.pythonhosted.org
+# 502 during dependency resolution, always fixed by a bare retry via the
+# Render API -- pip's own defaults (5 retries, 15s timeout) apparently
+# aren't enough headroom against that edge's flakiness.
+# This does not fix the root cause (see this Dockerfile's own layer-ordering
+# note above: pip install re-runs, and re-fetches, on every commit that
+# touches app/, regardless of whether any dependency changed) -- it only
+# gives a flaky single request more room to succeed without a human having
+# to notice the build failed and manually retry it.
+RUN pip install --no-cache-dir --retries 10 --timeout 60 .
 
 # `pip install .` (no -e) COPIES app/ into site-packages -- a real,
 # separate copy, permanently divorced from /srv/dmg-scout. app/config.py's
