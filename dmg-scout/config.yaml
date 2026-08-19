@@ -596,8 +596,19 @@ sources:
   # a hand-researched dataset, re-loaded by `scout seed-competitors` --
   # so this entry exists purely for /health visibility (per instruction),
   # not an automated re-fetch cadence.
+  #
+  # stale_hours: 2160 (90 days) -- a judgment call, not a measured cadence,
+  # same reasoning and same number as hcai_seismic_ratings above: this is a
+  # hand-researched dataset with no fetch schedule at all (not even an
+  # irregular-but-real one the way EBEWE/Local 250/ownership are weekly), so
+  # there's no run history to derive a number from -- unlike those three
+  # sources' 216h, which was measured off an actual Sundays-only cadence.
+  # 90 days matches HCAI's manual-import threshold: long enough not to nag
+  # on a dataset that only changes when someone re-researches it by hand,
+  # short enough to still catch a genuinely abandoned reload.
   competitor_lines:
     enabled: true
+    stale_hours: 2160
   # Change-of-ownership recency for the retrofit board -- see
   # app/pipeline/ownership.py's module docstring for why this is the LA
   # County ASSESSOR's own RecordingDate field, not the Recorder's deed

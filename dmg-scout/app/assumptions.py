@@ -755,6 +755,26 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
         verified=True,
         last_reviewed="Researched and seeded 2026-08-16 (scout seed-competitors).",
     ))
+    out.append(Assumption(
+        group="Competitor line card map", name="Manual-reload staleness threshold",
+        config_path="sources.competitor_lines.stale_hours",
+        value=f"{cfg.get('sources.competitor_lines.stale_hours', 2160):.0f} hours "
+             f"({cfg.get('sources.competitor_lines.stale_hours', 2160)/24:.0f} days)",
+        source_type=PLACEHOLDER,
+        source_detail="A judgment call, not a measured cadence -- unlike the EBEWE benchmarking "
+                      "group's 'Weekly-fetch staleness threshold' entry (216h, derived from a real "
+                      "Sundays-only automated schedule), this source has no fetch schedule at all to "
+                      "measure: it's a hand-researched dataset with no run history, reloaded only "
+                      "when someone re-researches the rep-firm line cards by hand (`scout "
+                      "seed-competitors`). Same reasoning and same number as "
+                      "sources.hcai_seismic_ratings.stale_hours (see the 'Hospital seismic "
+                      "compliance' group's 'Manual-import staleness threshold' entry): every other "
+                      "source in config.yaml's sources: block defaults to a 36-hour staleness window "
+                      "(app.ops.doctor), which would flag a hand-maintained dataset as stale within "
+                      "two days of any realistic manual re-research cadence. 90 days is long enough "
+                      "not to nag on a dataset that only moves when someone re-does the research, "
+                      "short enough to still catch a genuinely abandoned one.",
+    ))
 
     # ---- Union signatory (UA Local 250) --------------------------------------
 
