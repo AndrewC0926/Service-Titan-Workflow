@@ -186,6 +186,34 @@ def test_doctor_reports_missing_pieces(db_session, monkeypatch):
     assert checks["llm_budget"][0] is True
 
 
+def test_dead_mans_switch_not_applicable_on_the_web_service(db_session, monkeypatch):
+    """The 2026-08-19 false positive: HEALTHCHECK_URL is deliberately only
+    provisioned on the cron service (render.yaml), so app.mcp_tools.
+    source_health -- which runs inside the WEB service -- always saw it
+    unset and reported a FAIL that looked like a real incident. On the web
+    service this check must report not-applicable (ok=True), never FAIL --
+    a health check that cries wolf is worse than one that doesn't run
+    there at all."""
+    from app.ops import doctor
+    monkeypatch.delenv("HEALTHCHECK_URL", raising=False)
+    monkeypatch.setenv("RENDER_SERVICE_TYPE", "web")
+    checks = dict((name, (ok, detail)) for name, ok, detail in doctor())
+    ok, detail = checks["dead_mans_switch"]
+    assert ok is True
+    assert "not applicable" in detail
+
+
+def test_dead_mans_switch_still_real_on_the_cron_service(db_session, monkeypatch):
+    """The override is scoped to the web service only -- on the cron
+    service (where this check is actually meaningful) a missing
+    HEALTHCHECK_URL must still FAIL exactly as before."""
+    from app.ops import doctor
+    monkeypatch.delenv("HEALTHCHECK_URL", raising=False)
+    monkeypatch.setenv("RENDER_SERVICE_TYPE", "cron")
+    checks = dict((name, (ok, detail)) for name, ok, detail in doctor())
+    assert checks["dead_mans_switch"][0] is False
+
+
 # ---- doctor reads source_runs through a naming convention -------------------
 #
 # All seven sources reported "no successful run recorded" against a table holding

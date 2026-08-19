@@ -243,9 +243,23 @@ def doctor() -> list[tuple[str, bool, str]]:
                    f"{len(bad)} non-canonical state value(s) in use: {', '.join(bad)} — "
                    f"run normalize_state() over existing rows"))
 
-    armed = bool(os.environ.get(HEALTHCHECK_ENV))
-    checks.append(("dead_mans_switch", armed,
-                   "HEALTHCHECK_URL set" if armed else "HEALTHCHECK_URL not set — cron death would be silent"))
+    # Meaningful only on the cron service: HEALTHCHECK_URL is deliberately
+    # NOT provisioned on the web service (see render.yaml -- the cron
+    # service's envVars block is the only one that lists it), so running
+    # doctor() from the web service's own MCP tool (app.mcp_tools.
+    # source_health) always saw it unset and reported a FAIL that looked
+    # like an incident but was really just asking the wrong service the
+    # question. RENDER_SERVICE_TYPE is a Render-injected env var (unset
+    # outside Render, e.g. local dev/tests, where the old cron-relevant
+    # behavior below is exactly what's wanted since the ambiguity favors a
+    # real signal over a silently-skipped one).
+    if os.environ.get("RENDER_SERVICE_TYPE") == "web":
+        checks.append(("dead_mans_switch", True,
+                       "not applicable on the web service — only the cron service pings this"))
+    else:
+        armed = bool(os.environ.get(HEALTHCHECK_ENV))
+        checks.append(("dead_mans_switch", armed,
+                       "HEALTHCHECK_URL set" if armed else "HEALTHCHECK_URL not set — cron death would be silent"))
 
     from app.spend import budget_status
     st = budget_status()
