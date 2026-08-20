@@ -217,7 +217,9 @@ def test_extract_schedule_survives_llm_failure_without_losing_document(db_sessio
 
 def test_quote_grounded_contiguous_match():
     text = "Some text. AHU-1 supplies 4 TONS via TRANE model X100. More text."
-    assert quote_grounded("AHU-1 supplies 4 TONS via TRANE", text) is None
+    check = quote_grounded("AHU-1 supplies 4 TONS via TRANE", text)
+    assert check.problem is None
+    assert check.assembled is False
 
 
 def test_quote_grounded_tolerates_punctuation_column_separators():
@@ -225,25 +227,44 @@ def test_quote_grounded_tolerates_punctuation_column_separators():
     separator ('MANUFACTURER -- TRANE'); a model that copies it as
     'MANUFACTURER TRANE' is not fabricating, it's dropping formatting."""
     text = "MARK RTU-01\nMANUFACTURER -- TRANE\nMODEL -- X100"
-    assert quote_grounded("MANUFACTURER TRANE", text) is None
+    check = quote_grounded("MANUFACTURER TRANE", text)
+    assert check.problem is None
 
 
-def test_quote_grounded_multi_span_gets_softer_reason():
+def test_quote_grounded_multi_span_is_grounded_not_flagged():
+    """The fix: a tag proven by its own column header plus a capacity and a
+    manufacturer each proven by their own row label IS genuinely grounded,
+    just not contiguous -- it must NOT block the row. 'assembled' still
+    records that it took several fragments, for display only."""
     # A real transposed schedule: RTU-01's own fields are not adjacent to
     # each other -- RTU-02/RTU-03's values sit between them on each row.
     text = ("MARK RTU-01 RTU-02 RTU-03\n"
            "NOMINAL TONS 4 7.5 3\n"
            "MANUFACTURER -- TRANE CARRIER YORK")
-    reason = quote_grounded("RTU-01 ... NOMINAL TONS 4 ... MANUFACTURER TRANE", text)
-    assert reason is not None
-    assert "assembled from multiple separate locations" in reason
+    check = quote_grounded("RTU-01 ... NOMINAL TONS 4 ... MANUFACTURER TRANE", text)
+    assert check.problem is None
+    assert check.assembled is True
 
 
-def test_quote_grounded_fabricated_fragment_gets_hard_reason():
+def test_quote_grounded_fabricated_fragment_still_fails():
+    """Keep the discipline: a fragment that genuinely isn't in the document
+    anywhere is still an unconditional failure, multi-span or not."""
     text = "MARK RTU-01\nNOMINAL TONS 4\nMANUFACTURER -- TRANE"
-    reason = quote_grounded("RTU-01 ... MANUFACTURER TOTALLY-INVENTED-BRAND-XYZ", text)
-    assert reason is not None
-    assert "not found in the document" in reason
+    check = quote_grounded("RTU-01 ... MANUFACTURER TOTALLY-INVENTED-BRAND-XYZ", text)
+    assert check.problem is not None
+    assert "not found in the document" in check.problem
+
+
+def test_ground_schedule_entry_multi_span_clears_review_but_marks_assembled():
+    text = ("MARK RTU-01 RTU-02\n"
+           "NOMINAL TONS 4 7.5\n"
+           "MANUFACTURER -- TRANE CARRIER")
+    raw = _entry(tag="RTU-01", capacity_value=4.0, capacity_unit="TONS",
+                basis_of_design_manufacturer="TRANE",
+                source_quote="RTU-01 ... NOMINAL TONS 4 ... MANUFACTURER TRANE").model_dump(mode="json")
+    grounded, reasons = ground_schedule_entry(raw, text)
+    assert reasons == []               # must NOT block the row
+    assert grounded["quote_assembled"] is True
 
 
 def test_ground_schedule_entry_flags_ungrounded_capacity():

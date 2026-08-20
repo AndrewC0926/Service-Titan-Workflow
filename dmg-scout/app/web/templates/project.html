@@ -226,6 +226,7 @@
     <td>{{ e.approved_equals | join(', ') if e.approved_equals else '—' }}</td>
     <td class="num">{{ '%.2f'|format(e.confidence) }}</td>
     <td class="dim" style="max-width:280px;font-size:11px">{{ e.source_quote[:140] }}{% if e.source_quote|length > 140 %}…{% endif %}
+      {%- if e.extraction_json.get('quote_assembled') %}<br><span class="dim" title="Verified from several separately-grounded locations in the document (e.g. a transposed schedule table), not one contiguous line -- each piece checked, just not adjacent.">assembled from table</span>{% endif -%}
       {%- if e.needs_review %}<br><span class="bad">{{ icon('triangle-alert') }} {{ e.review_reason }}</span>{% endif %}</td>
   </tr>
   {% endfor %}

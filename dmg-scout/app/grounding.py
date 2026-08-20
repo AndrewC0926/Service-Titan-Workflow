@@ -274,59 +274,127 @@ SCHEDULE_LOW_CONFIDENCE_BELOW = 0.7
 
 _QUOTE_ELLIPSIS = re.compile(r"\s*(?:\.{3}|…)\s*")
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
+_NON_ALNUM_NO_NL = re.compile(r"[^a-z0-9\n]+")
 
 
 def _normalize_for_match(s: str) -> str:
-    """Lowercase, collapse every run of non-alphanumeric characters to one
-    space. Deliberately more aggressive than name_grounded's plain
-    whitespace collapse: a flattened schedule table uses "--", "|", ":" as
-    pure column-separator punctuation ("MANUFACTURER -- TRANE"), which a
-    model correctly treats as formatting, not content, when it copies a
-    fragment as "MANUFACTURER TRANE" -- confirmed against a real public
-    rooftop-unit schedule, 2026-08-20. Only used for schedule-entry
-    fragment matching, not for name_grounded/unit_grounded's own checks,
-    which stay conservative on purpose."""
+    """Lowercase, collapse every run of non-alphanumeric characters
+    (INCLUDING newlines) to one space. Deliberately more aggressive than
+    name_grounded's plain whitespace collapse: a flattened schedule table
+    uses "--", "|", ":" as pure column-separator punctuation
+    ("MANUFACTURER -- TRANE"), which a model correctly treats as
+    formatting, not content, when it copies a fragment as "MANUFACTURER
+    TRANE" -- confirmed against a real public rooftop-unit schedule,
+    2026-08-20. Only used for schedule-entry fragment matching, not for
+    name_grounded/unit_grounded's own checks, which stay conservative on
+    purpose."""
     return _NON_ALNUM.sub(" ", s.lower()).strip()
 
 
-def quote_grounded(quote: str, text: str) -> str | None:
+def _normalize_lines_for_match(s: str) -> str:
+    """Same as _normalize_for_match, but keeps line breaks as row
+    boundaries instead of collapsing them away. A flattened TRANSPOSED
+    schedule table's physical PDF line is its table ROW -- confirmed
+    against a real public rooftop-unit schedule, 2026-08-20, where a single
+    line like 'MANUFACTURER -- TRANE TRANE CARRIER YORK...' carries every
+    tag's value for that one field. Used by _same_line_token_sequence,
+    which needs row boundaries to stay real: without them, a token search
+    could match across two completely unrelated fields anywhere in the
+    document."""
+    return "\n".join(_NON_ALNUM_NO_NL.sub(" ", ln.lower()).strip() for ln in s.split("\n"))
+
+
+def _same_line_token_sequence(fragment: str, lined_text: str) -> bool:
+    """True if `fragment`'s words all appear, in order, on ONE physical
+    line of `lined_text` (see _normalize_lines_for_match) -- with anything
+    at all allowed between them, since a transposed table's row genuinely
+    interleaves other tags' real values between a field's label and any one
+    tag's own value ('MODEL -- 4TCC3048A1 TSC090A360A2800 ...' -- RTU-02's
+    model number, TSC090A360A2800, is real and on the MODEL row, just not
+    adjacent to the word "MODEL" because RTU-01's model number sits between
+    them). This is still "every fragment literally appears in the
+    document": every word is required, in the stated order, on a single
+    real row of the table -- it only stops requiring them to be touching.
+
+    Deliberately scoped to one line (not one paragraph, not the whole
+    document): the arbitrary-gap tolerance this needs to bridge a crowded
+    row would be dangerously loose applied document-wide -- it would prove
+    a manufacturer name is 'grounded' just because it appears anywhere near
+    an unrelated number anywhere in a long filing. Confining the gap to a
+    single physical table row is what keeps this a real check instead of a
+    rubber stamp.
+    """
+    # Tokenize with the SAME normalization already applied to lined_text --
+    # a raw fragment token like "RTU-01" must become "rtu 01" (two tokens,
+    # hyphen gone) to have any chance of matching, since lined_text's own
+    # hyphens were already collapsed to spaces the same way.
+    tokens = _normalize_for_match(fragment).split()
+    if not tokens:
+        return False
+    pattern = re.compile(r".*?".join(re.escape(t) for t in tokens))
+    return any(pattern.search(line) for line in lined_text.split("\n"))
+
+
+@dataclass
+class QuoteCheck:
+    problem: str | None    # None means grounded -- nothing for the caller to flag
+    assembled: bool        # True if grounded from >1 separately-verified fragment,
+                           # not one contiguous span -- informational, not a failure
+
+
+def quote_grounded(quote: str, text: str) -> QuoteCheck:
     """Checks `quote` against `text`, allowing for one real layout: a
     TRANSPOSED schedule table (one row per FIELD, one column per unit --
     confirmed against a real public rooftop-unit schedule, 2026-08-20) puts
     a tag and its capacity/manufacturer many lines apart, so a model asked
     for one verbatim excerpt legitimately cannot quote them as one
-    contiguous span and instead joins several real, separately-grounded
-    fragments with "...". That is a different, WEAKER finding than a quote
-    that is not in the document at all, and conflating the two would flag
-    the single most common real-world schedule layout as if every row were
-    fabricated.
+    contiguous span and instead joins several real fragments with "...".
 
-    Returns None if fully grounded as one contiguous (whitespace-collapsed)
-    span -- the strong case. Returns a short string describing what's
-    weaker if the quote is an ellipsis-joined sequence of fragments that
-    EACH ground individually (multi-span case) or contains a genuinely
-    unfound fragment (the real failure case). The caller (ground_schedule_
-    entry) turns a non-None return into a review reason; None means no
-    reason to add.
+    A tag proven by its own column-header row, plus a capacity proven by its
+    own row label, plus a manufacturer proven by its own row label, IS
+    genuinely grounded -- just assembled from several places instead of one.
+    Treating that the same as a quote that is not in the document AT ALL
+    (fabrication) would flag the single most common real-world schedule
+    layout as if every row were invented, which is exactly what blocked
+    every one of 62 rows on the first real document this ran against
+    (2026-08-20) -- see app/pipeline/schedule.py's module docstring.
 
-    A floor of 8 characters per fragment, same reasoning as name_grounded's
-    own length floor: text too short to be distinctive proves nothing.
+    So: QuoteCheck.problem is None whenever every fragment is independently
+    grounded (whether the quote was one contiguous span or several joined
+    with "..."). It is a description of what's missing ONLY when a fragment
+    genuinely cannot be found anywhere in the document -- that is still
+    unconditionally a failure; assembling evidence from real, separately-
+    verified locations is not the same claim as inventing one, and this
+    function must never blur that line the other direction either.
+    QuoteCheck.assembled records which case it was, for transparency (shown
+    on the schedule row, never used to flag it).
+
+    A floor of 8 characters per fragment for the plain-substring tier, same
+    reasoning as name_grounded's own length floor: text too short to be
+    distinctive proves nothing there. The same-line token-sequence fallback
+    has no separate floor -- multi-word requirement plus one-line scoping is
+    already its own distinctiveness guard.
     """
     if not quote or not quote.strip():
-        return "source_quote is empty"
+        return QuoteCheck("source_quote is empty", assembled=False)
     normalized_text = _normalize_for_match(text)
     if _normalize_for_match(quote) in normalized_text:
-        return None
+        return QuoteCheck(None, assembled=False)
     fragments = [f.strip() for f in _QUOTE_ELLIPSIS.split(quote) if f.strip()]
-    if len(fragments) < 2:
-        return "source_quote does not appear in the document"
-    ungrounded = [f for f in fragments
-                 if len(f) >= 8 and _normalize_for_match(f) not in normalized_text]
+    assembled = len(fragments) > 1
+    lined_text = _normalize_lines_for_match(text)
+    ungrounded = []
+    for f in fragments:
+        if len(f) >= 8 and _normalize_for_match(f) in normalized_text:
+            continue
+        if _same_line_token_sequence(f, lined_text):
+            assembled = True  # a same-line reassembly is never the fully-contiguous case
+            continue
+        ungrounded.append(f)
     if ungrounded:
-        return f"source_quote fragment(s) not found in the document: {ungrounded!r}"
-    return ("source_quote is assembled from multiple separate locations in the document "
-           "(a transposed schedule table, most likely) rather than one contiguous excerpt -- "
-           "each fragment individually verified, but the row was not read off one line")
+        return QuoteCheck(f"source_quote fragment(s) not found in the document: {ungrounded!r}",
+                          assembled=assembled)
+    return QuoteCheck(None, assembled=assembled)
 
 
 def ground_schedule_entry(entry: dict, text: str) -> tuple[dict, list[str]]:
@@ -346,9 +414,13 @@ def ground_schedule_entry(entry: dict, text: str) -> tuple[dict, list[str]]:
     reasons: list[str] = []
     entry = dict(entry)
 
-    quote_issue = quote_grounded(entry.get("source_quote") or "", text)
-    if quote_issue:
-        reasons.append(quote_issue)
+    quote_check = quote_grounded(entry.get("source_quote") or "", text)
+    if quote_check.problem:
+        reasons.append(quote_check.problem)
+    # Informational only -- shown on the row so a rep can see this was
+    # assembled from several table locations rather than read off one line,
+    # but never itself a reason to flag the row. See QuoteCheck's docstring.
+    entry["quote_assembled"] = quote_check.assembled
 
     tag = entry.get("tag") or ""
     if not tag or not name_grounded(tag, text):

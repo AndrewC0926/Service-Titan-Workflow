@@ -142,7 +142,7 @@ def extract_schedule(session: Session, cfg: Config, doc: ProjectDocument) -> dic
             confidence=grounded.get("confidence") or 0.0,
             needs_review=bool(reasons),
             review_reason="; ".join(reasons) if reasons else None,
-            extraction_json=raw,
+            extraction_json=grounded,
         ))
 
     doc.extraction_error = None
