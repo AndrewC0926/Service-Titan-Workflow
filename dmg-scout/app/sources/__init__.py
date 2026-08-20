@@ -5,7 +5,7 @@ from app.sources.base import SourceAdapter, registry  # noqa: F401
 
 # Importing modules registers their adapters.
 from app.sources import (  # noqa: E402,F401
-    ats, ceqanet, civicplus, edgar, goed, legistar, primegov, pucn, rss,
+    ats, caeatfa, ceqanet, civicplus, edgar, goed, legistar, primegov, pucn, rss,
 )
 
 

@@ -363,6 +363,20 @@ sources:
     document_types: []
     fetch_detail: true   # pull the detail page for keyword-matched rows
     lookback_days: 30
+  caeatfa:
+    enabled: true
+    # Compliance check + column layout verified live 2026-08-20 -- see
+    # app/sources/caeatfa.py's module docstring. Scoped to territory.CA only
+    # (a Sacramento-administered program; there is no NV/AZ equivalent).
+    awards_url: "https://www.treasurer.ca.gov/sites/default/files/caeatfa/salesandtax.xlsx"
+    sheet: "Apps Approved"
+    min_doc_chars: 250   # a full fact-sheet row runs ~500-700 chars; floor guards a layout drift silently truncating fields
+    # CAEATFA's own program rule (treasurer.ca.gov/caeatfa/ste/faq): every
+    # approved award's Qualified Property purchases must complete within this
+    # many years of board approval. Used as the "still plausibly
+    # pre-construction" cutoff on /assumptions and in coverage reporting --
+    # not a guessed lookback, the program's own stated deadline.
+    purchase_window_years: 5
   edgar:
     enabled: true
     base_url: "https://efts.sec.gov/LATEST/search-index"

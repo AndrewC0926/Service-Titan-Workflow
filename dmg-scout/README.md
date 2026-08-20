@@ -50,6 +50,7 @@ and idempotent — re-running never duplicates or corrupts.
 | Adapter | What | Signal | Status |
 |---|---|---|---|
 | `ceqanet` | CA environmental filings (CSV export + detail pages) | `ceqa_nop`, `ceqa_deir` | Tier 1, enabled |
+| `caeatfa` | CAEATFA sales-tax exclusion (STE) board approvals — self-service awards workbook | `abatement_application` | Tier 1, enabled |
 | `edgar` | SEC full-text search — data center ABS/CMBS deal documents + named-developer filings, fetched in full | `abs_issuance` | Tier 1, enabled |
 | `goed` | NV GOED board packets (PDF) — abatements pre-construction | `abatement_application` | Tier 1, enabled |
 | `legistar` | City/county agendas via Legistar Web API | `planning_agenda` | Tier 1, enabled |

@@ -1264,6 +1264,61 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
         last_reviewed="2026-08-17, read directly from data.chhs.ca.gov/pages/terms.",
     ))
 
+    # ---- CAEATFA sales-tax exclusion approvals -------------------------------
+
+    out.append(Assumption(
+        group="CAEATFA sales-tax exclusion approvals", name="treasurer.ca.gov — terms of use and robots.txt",
+        config_path=None,
+        value="Automated bulk download sanctioned; no restriction found",
+        source_type=STATED,
+        source_detail=(
+            "Two checks, both read directly 2026-08-20. (1) ROBOTS.TXT -- fetched "
+            "treasurer.ca.gov/robots.txt directly (200 OK, standard Drupal boilerplate): it "
+            "disallows /core/, /profiles/, /admin/, /search/, /user/*, /comment/reply/, "
+            "/node/add/, /media/oembed, and a short list of named README/config files. It does "
+            "NOT disallow /caeatfa/ or /sites/default/files/, where sources.caeatfa.awards_url "
+            "lives -- confirmed by direct fetch of that exact path, and PoliteClient enforces "
+            "the same robots.txt check again at request time regardless. (2) CONDITIONS OF USE "
+            "-- ca.gov/legal/conditions-of-use/ (the site-wide policy treasurer.ca.gov operates "
+            "under) imposes no restriction on automated or bulk access; its only 'unauthorized "
+            "use' language concerns defeating security controls, and it states public "
+            "information 'may be distributed or copied as permitted by law.' Separately, "
+            "CAEATFA's own STE program page (treasurer.ca.gov/caeatfa/ste/index.asp) publishes "
+            "the exact file this source downloads as a self-service link titled 'Sales and Use "
+            "Tax Exclusion Program Awards' -- the sanctioned intended use, same standing as "
+            "CSLB's bulk 'License Master' download (see the 'Line card branch coverage' group's "
+            "sibling precedent app.pipeline.cslb.py), not a scrape of a search UI meant for "
+            "one-record-at-a-time lookup. See app/sources/caeatfa.py's module docstring for the "
+            "full account, including the two sheets ('Apps Denied', 'Apps up for Consideration') "
+            "deliberately not read."
+        ),
+        verified=True,
+        last_reviewed="2026-08-20, read directly from treasurer.ca.gov/robots.txt and ca.gov/legal/conditions-of-use/.",
+    ))
+
+    out.append(Assumption(
+        group="CAEATFA sales-tax exclusion approvals",
+        name="“Still pre-construction” window",
+        config_path="sources.caeatfa.purchase_window_years",
+        value=f"{cfg.get('sources.caeatfa.purchase_window_years', 5)} years from board approval",
+        source_type=STATED,
+        source_detail=(
+            "treasurer.ca.gov/caeatfa/ste/faq, read directly 2026-08-20: 'All Qualified Property "
+            "purchases must be completed within five years of Application approval,' with an "
+            "intermediate milestone requiring at least 15% purchased or on executed purchase "
+            "order within two years of approval or the award holder is ineligible for a new "
+            "award for two years. This is CAEATFA's own stated deadline for when an approved "
+            "project's equipment buying is done, not a lookback window invented for this system "
+            "-- an award still inside the 5-year window has not necessarily reported all its "
+            "purchases yet (Signal.raw_text carries the '% Reported' figure from the same row so "
+            "a rep can see how far along a given award actually is), and an award past the "
+            "5-year mark is assumed to have completed its buildout even if % Reported is stale "
+            "or blank in the published workbook."
+        ),
+        verified=True,
+        last_reviewed="2026-08-20, read directly from treasurer.ca.gov/caeatfa/ste/faq.",
+    ))
+
     out.append(Assumption(
         group="Hospital seismic compliance", name="Manual-import staleness threshold",
         config_path="sources.hcai_seismic_ratings.stale_hours",
