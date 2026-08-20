@@ -125,11 +125,26 @@ class CaeatfaAdapter(SourceAdapter):
         except Exception as exc:  # noqa: BLE001
             raise SourceFailure(f"CAEATFA awards workbook unreadable: {exc}") from exc
 
+        # Two passes: CAEATFA's own workbook is not guaranteed unique on App
+        # No. within the territory subset -- confirmed live 2026-08-20, where
+        # "15-SM005" is printed on two entirely unrelated approvals (U.S.
+        # Corrugated of Los Angeles, GKN Aerospace Chem-Tronics). Colliding
+        # on App No. alone as source_uid would let the second silently
+        # overwrite the first at store time (fetch.py updates in place on a
+        # changed content hash for a known uid) rather than storing both --
+        # exactly the silent-drop failure mode this system's grounding
+        # discipline exists to catch. The common case (a unique App No.) is
+        # left as a bare string so re-running this adapter never re-derives
+        # a different source_uid for a row already stored under the old,
+        # simpler id.
+        rows = [row for row in ws.iter_rows(min_row=FIRST_DATA_ROW) if row[COL_APPLICANT - 1].value]
+        app_no_counts: dict = {}
+        for row in rows:
+            app_no_counts[row[COL_APP_NO - 1].value] = app_no_counts.get(row[COL_APP_NO - 1].value, 0) + 1
+
         n_total = n_territory = 0
-        for row in ws.iter_rows(min_row=FIRST_DATA_ROW):
+        for row in rows:
             applicant = row[COL_APPLICANT - 1].value
-            if not applicant:
-                continue
             n_total += 1
             primary_county = row[COL_PRIMARY_COUNTY - 1].value
             if primary_county not in territory:
@@ -167,9 +182,15 @@ class CaeatfaAdapter(SourceAdapter):
                 "Source: CAEATFA Sales and Use Tax Exclusion Program Awards, State of California Office of "
                 f"the State Treasurer ({url})."
             )
+            if not app_no:
+                uid = f"{applicant}:{date_approved:%Y-%m-%d}"
+            elif app_no_counts[app_no] > 1:
+                uid = f"{app_no}:{applicant}"
+            else:
+                uid = str(app_no)
             yield FetchedDoc(
                 source=self.name,
-                source_uid=str(app_no) if app_no else f"{applicant}:{date_approved:%Y-%m-%d}",
+                source_uid=uid,
                 url=SOURCE_PAGE,
                 title=f"CAEATFA STE approval: {applicant} ({city or primary_county})",
                 raw_text=raw_text,

@@ -86,6 +86,35 @@ def test_caeatfa_drops_rows_with_no_board_date(cfg):
 
 
 @respx.mock
+def test_caeatfa_disambiguates_a_duplicate_app_no(cfg):
+    """CAEATFA's own workbook is not guaranteed unique on App No. within the
+    territory subset -- confirmed live 2026-08-20, '15-SM005' printed on two
+    unrelated approvals. Both must survive as distinct documents, and a row
+    with a unique App No. must keep the plain (non-disambiguated) uid so a
+    fix here never re-derives a different id for an already-stored row."""
+    xlsx = _workbook([
+        ("15-SM005", datetime(2015, 6, 16), "U.S. Corrugated of Los Angeles, Inc.", "Santa Fe Springs",
+         "Los Angeles", "Advanced Manufacturing", "Corrugated Packaging Manufacturing", 23_969_087, 1.0),
+        ("15-SM005", datetime(2015, 4, 21), "GKN Aerospace Chem-Tronics, Inc.", "Santa Ana",
+         "Orange", "Advanced Manufacturing", "Aerospace Manufacturing", 118_687_529, 1.0),
+        ("24-SM099", datetime(2024, 1, 1), "Unique App No Inc.", "Fontana",
+         "San Bernardino", "Advanced Manufacturing", "Testing", 1_000_000, 0.0),
+    ])
+    respx.get(AWARDS_URL).mock(return_value=httpx.Response(200, content=xlsx))
+
+    with fast_client() as client:
+        docs = list(CaeatfaAdapter().fetch(_cfg(cfg), client))
+
+    assert len(docs) == 3
+    uids = {d.source_uid for d in docs}
+    assert uids == {
+        "15-SM005:U.S. Corrugated of Los Angeles, Inc.",
+        "15-SM005:GKN Aerospace Chem-Tronics, Inc.",
+        "24-SM099",  # unique App No. keeps the plain, undisambiguated uid
+    }
+
+
+@respx.mock
 def test_caeatfa_does_not_invent_a_dollar_figure_when_none_is_stated(cfg):
     xlsx = _workbook([
         ("24-SM004", datetime(2024, 1, 1), "Amount Not Stated Inc.", "Irvine",
