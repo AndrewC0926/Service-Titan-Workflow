@@ -23,11 +23,12 @@ from app.accounts import (
     project_facility_type,
     pull_through,
     resolve_building_role,
+    seed_product_line_branches,
     seed_product_lines,
 )
 from app.db import get_session
 from app.models import (
-    AccountCoverage, Category, FacilityType, Project, ProductLine, Signal, SignalType,
+    AccountCoverage, Category, FacilityType, Project, ProductLine, ProductLineBranch, Signal, SignalType,
     ProjectSignal, Stage, Window,
 )
 from app.web.main import app
@@ -35,6 +36,10 @@ from app.web.main import app
 
 def seed(db_session, cfg):
     return seed_product_lines(db_session, cfg)
+
+
+def seed_branches(db_session, cfg):
+    return seed_product_line_branches(db_session, cfg)
 
 
 def _project(session, name, category=Category.data_center, status="active", **kw):
@@ -423,3 +428,145 @@ def test_project_detail_shows_line_card_fit(client, db_session, cfg):
     assert resp.status_code == 200
     assert "Line card fit" in resp.text
     assert "Air handling" in resp.text
+
+
+# ---- branch coverage --------------------------------------------------------
+#
+# Real branch data as of 2026-08-20, transcribed from the 5 DMG office line
+# cards under docs/line-cards/ (Bay Area, Sacramento, Reno had no card
+# supplied and stay entirely unknown). Every DMG/both-firm line gets a
+# confirmed_covered or confirmed_not_covered row at each of the 5 branches
+# with a card -- these are DMG's own cards, a complete listing of what the
+# branch carries under the DMG name, so an omission is evidence for a
+# DMG/both line. A ToroAire-firm line only gets a row where it actually
+# appears (positive evidence); its absence from a DMG-branded card proves
+# nothing about ToroAire's own, separate card, so it stays unknown rather
+# than confirmed_not_covered.
+
+def test_seed_product_line_branches_writes_rows_for_dmg_lines_and_only_positive_toroaire_rows(db_session, cfg):
+    seed(db_session, cfg)
+    added = seed_branches(db_session, cfg)
+    assert added == 229
+    rows = db_session.exec(select(ProductLineBranch)).all()
+    assert {r.branch for r in rows} == {
+        "DMG Hawaii", "DMG Los Angeles", "DMG San Diego", "DMG Central Coast", "DMG Central Valley",
+    }
+    # Every row is sourced from an actual card, not a verbal recap.
+    assert all(row.verified for row in rows)
+    assert all(row.source_pdf for row in rows)
+    assert all(row.source_pdf_revision_date for row in rows)
+    # No ToroAire-firm line ever gets a confirmed_not_covered row -- a DMG
+    # card's silence about it isn't evidence (Titus is ToroAire-firm).
+    toroaire_not_covered = [
+        r for r in rows if r.status == "confirmed_not_covered"
+        and db_session.get(ProductLine, r.product_line_id).firm == "ToroAire"
+    ]
+    assert toroaire_not_covered == []
+    titus = db_session.exec(select(ProductLine).where(ProductLine.name == "Titus")).one()
+    assert db_session.exec(
+        select(ProductLineBranch).where(ProductLineBranch.product_line_id == titus.id)
+    ).all() == []  # unknown at every branch, not confirmed_not_covered anywhere
+
+
+def test_seed_product_line_branches_matches_real_hawaii_card_not_the_old_guess(db_session, cfg):
+    """The correction this test locks in: DB and ClimaCool are on Hawaii's
+    actual card (chillers); Marley and Recold -- the two cooling-tower
+    lines -- are BOTH absent from it, full stop, not "Marley under
+    discussion." An earlier seed built from a verbal recap instead of the
+    real PDF got this backwards."""
+    seed(db_session, cfg)
+    seed_branches(db_session, cfg)
+    by_name = {}
+    for row in db_session.exec(select(ProductLineBranch).where(ProductLineBranch.branch == "DMG Hawaii")):
+        by_name[db_session.get(ProductLine, row.product_line_id).name] = row
+    assert by_name["DB"].status == "confirmed_covered"
+    assert by_name["ClimaCool"].status == "confirmed_covered"
+    assert by_name["Marley"].status == "confirmed_not_covered"
+    assert by_name["Recold"].status == "confirmed_not_covered"
+    assert by_name["DB"].source_pdf == "Line Card DMG Hawaii 01-02-26.pdf"
+
+
+def test_seed_product_line_branches_is_idempotent(db_session, cfg):
+    seed(db_session, cfg)
+    seed_branches(db_session, cfg)
+    added_again = seed_branches(db_session, cfg)
+    assert added_again == 0
+    assert len(db_session.exec(select(ProductLineBranch)).all()) == 229
+
+
+def test_branches_with_no_card_supplied_stay_entirely_unknown(db_session, cfg):
+    """Bay Area, Sacramento, and Reno had no card attached to Andy's email
+    -- they must never be backfilled from a sibling branch's card."""
+    seed(db_session, cfg)
+    seed_branches(db_session, cfg)
+    rows = db_session.exec(select(ProductLineBranch)).all()
+    branches = {r.branch for r in rows}
+    for unsupplied in ("DMG Bay Area", "DMG Sacramento", "DMG Reno"):
+        assert unsupplied not in branches
+
+
+def test_lines_appearing_on_at_least_one_real_card(db_session, cfg):
+    """The audit the correction asked for: how many of the 70 lines appear
+    on at least one real card, and which appear on none -- Titus is the
+    known example of a line on none of the 5 cards."""
+    seed(db_session, cfg)
+    seed_branches(db_session, cfg)
+    covered_ids = set(db_session.exec(
+        select(ProductLineBranch.product_line_id)
+        .where(ProductLineBranch.status == "confirmed_covered").distinct()
+    ).all())
+    all_lines = db_session.exec(select(ProductLine)).all()
+    on_no_card = sorted(l.name for l in all_lines if l.id not in covered_ids)
+    assert len(covered_ids) == 49
+    assert len(on_no_card) == 21
+    assert "Titus" in on_no_card
+
+
+def test_lines_index_branch_filter_shows_real_card_status(client, db_session, cfg):
+    seed(db_session, cfg)
+    seed_branches(db_session, cfg)
+    resp = client.get("/lines?role=heat_rejection&branch=DMG+Hawaii", headers=AUTH)
+    assert resp.status_code == 200
+    assert "confirmed not carried" in resp.text  # Marley and Recold, both absent from Hawaii's card
+
+
+def test_lines_index_discloses_socal_scope_even_without_branch_filter(client, db_session, cfg):
+    seed(db_session, cfg)
+    seed_branches(db_session, cfg)
+    resp = client.get("/lines", headers=AUTH)
+    assert resp.status_code == 200
+    assert "SoCal card" in resp.text
+    assert "5 of 8 DMG offices have a card on file" in resp.text
+    assert "49" in resp.text  # lines appearing on >=1 real card, of 70
+
+
+def test_line_detail_shows_branch_coverage(client, db_session, cfg):
+    seed(db_session, cfg)
+    seed_branches(db_session, cfg)
+    line = db_session.exec(select(ProductLine).where(ProductLine.name == "DB")).one()
+    resp = client.get(f"/line/{line.id}", headers=AUTH)
+    assert resp.status_code == 200
+    assert "Branch coverage" in resp.text
+    assert "DMG Hawaii" in resp.text
+    assert "confirmed carried" in resp.text
+
+
+def test_line_detail_no_branch_data_is_unknown_not_blank(client, db_session, cfg):
+    """Before seed_product_line_branches has ever run (or for a line/branch
+    pair no card has been loaded for), the page must say unknown, not
+    silently show nothing."""
+    seed(db_session, cfg)  # lines only -- branch seed deliberately not run
+    line = db_session.exec(select(ProductLine).where(ProductLine.name == "AAON")).one()
+    resp = client.get(f"/line/{line.id}", headers=AUTH)
+    assert resp.status_code == 200
+    assert "unknown, not assumed to match" in resp.text
+
+
+def test_project_detail_discloses_socal_scope_on_line_card_fit(client, db_session, cfg):
+    seed(db_session, cfg)
+    p = _project(db_session, "Branch disclosure project")
+    _link_signal(db_session, p, facility_type=FacilityType.cleanroom)
+    resp = client.get(f"/project/{p.id}", headers=AUTH)
+    assert resp.status_code == 200
+    assert "SoCal card, not company-wide" in resp.text
+    assert "DMG Hawaii" in resp.text

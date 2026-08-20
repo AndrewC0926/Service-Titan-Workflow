@@ -2141,6 +2141,86 @@ accounts:
        markets: [healthcare, industrial_warehouse, education, labs, multifamily],
        markets_basis: "fanam.com (retrieved 2026-08-13). industrial_warehouse: homepage states FanAm 'serves both the industrial/commercial as well as the residential/hi-rise market,' and the /applications page lists industrial-setting uses including 'Waste Water Treatment Plants (WWTP),' 'Lift Stations,' 'Battery Storage/Charging Rooms,' 'Paint Booth Exhaust,' and 'Flammable Storage,' while /products cites 'process technology, petro chemistry, textile production, printing plants, laundries.' education: /applications lists 'Schools/Universities' under Corrosive Applications. labs: /applications lists 'Lab Hood Exhaust,' 'Fume Cabinets,' and 'Propulsion Labs,' and /products names 'laboratories' among served facility types. healthcare: /applications lists 'Anesthesia Applications' under Hazardous Applications, an explicit hospital/surgical-suite gas-exhaust use case. multifamily: homepage and /about2 explicitly describe a 'residential/hi-rise' market segment distinct from single-family residential. No page, case study, or copy found for data_center, hospitality, or office across the homepage, /about2, /applications, or /products pages, so excluded. Retrieved 2026-08-13."}
 
+  # ---- line card branches ----------------------------------------------
+  #
+  # Which DMG/ToroAire branch actually carries a given line -- see
+  # app.models.ProductLineBranch's docstring. line_card above is
+  # unqualified by branch (in practice, it's DMG's SoCal card); this is the
+  # ONLY place that record differs by location.
+  #
+  # 2026-08-20: replaced an earlier, wrong seed that was built from a
+  # verbal recap instead of DMG's own cards, and that guessed Marley/Recold
+  # backwards for Hawaii as a result. Andy Tripicchio emailed all 8 DMG
+  # office line cards on 2026-08-20 ("Line Cards" thread); 5 of the 8
+  # offices (Los Angeles, San Diego, Hawaii, Central Coast/San Luis Obispo,
+  # Central Valley/Fresno) had a card attached, saved verbatim under
+  # docs/line-cards/. Bay Area, Sacramento, and Reno had no card supplied
+  # and get NO entry below -- every one of their 70 lines stays unknown,
+  # per ProductLineBranch's own "absence means unknown" rule. `covered`
+  # below is transcribed directly from each PDF's logo grid, matched to
+  # this file's line_card `name` values by hand (case/brand-name
+  # differences noted per branch where they occur); nothing on it is
+  # inferred from another branch's card. seed_product_line_branches (see
+  # app/accounts.py) derives confirmed_not_covered for every OTHER seeded
+  # line at that branch from this same list -- a one-page line card is
+  # meant to be a complete listing of what a branch carries, so an
+  # omission reads as evidence of non-coverage, not merely unknown. That's
+  # an inference from an enumerated first-party document, not a guess --
+  # but it is still an inference, not a literal "we don't carry this"
+  # quote, which is why every row it produces says so explicitly rather
+  # than presenting as a bare fact.
+  line_card_branches:
+    - branch: "DMG Hawaii"
+      source_pdf: "Line Card DMG Hawaii 01-02-26.pdf"
+      revision_date: "2026-01-02"
+      covered: [AAON, Airzone, "AtmosAir/Bioclimatic", BASX, ClimaCool, ClimateMaster, ChangeAir,
+                CRC, DB, Ebtron, "Energy Labs", Geoclima, "Heat Pipe Technology", Howden, IEC,
+                Islandaire, LFSystems, LG, MacroAir, Nailor, "PEP Filters", "Soler & Palau",
+                Systemair, "Thermal Corp", "TCF/Twin City Fan", UVDI, Yaskawa]
+    - branch: "DMG Los Angeles"
+      source_pdf: "Line Card DMG Los Angeles 05-26-26.pdf"
+      revision_date: "2026-05-26"
+      covered: [AAON, DB, "Energy Labs", LG, Marley, BASX, ClimateCraft, VTS, ClimaCool,
+                "VU Flow Environmental", Geoclima, ClimateMaster, Hecoclima, IEC, Recold,
+                "Strobic Air", Ebtron, "AtmosAir/Bioclimatic", UVDI, Cosatron, "Vibro-Acoustics",
+                Neptronic, LFSystems, Carel, Cambridge, "PEP Filters", Seresco, Aldes, MacroAir,
+                Islandaire, ChangeAir, "Flow-Tech", "Heat Pipe Technology", Howden, Suburban,
+                "Ice-Cel", Yaskawa, HCi, Airzone, Systemair, "Barcol-Air", Ventacity, "Thermal Corp"]
+    - branch: "DMG San Diego"
+      source_pdf: "Line Card DMG San Diego 05-26-26.pdf"
+      revision_date: "2026-05-26"
+      covered: [AAON, DB, "Energy Labs", LG, BASX, Marley, "Strobic Air", ClimaCool,
+                "VU Flow Environmental", ClimateCraft, ClimateMaster, Hecoclima, IEC, Recold,
+                Geoclima, Ebtron, "AtmosAir/Bioclimatic", UVDI, Cosatron, "Vibro-Acoustics",
+                Neptronic, LFSystems, Carel, Cambridge, "PEP Filters", Seresco, Aldes, MacroAir,
+                Islandaire, ChangeAir, "Flow-Tech", "Heat Pipe Technology", Howden, "Ice-Cel",
+                Yaskawa, HCi, Airzone, Systemair, "Barcol-Air", Ventacity, "Thermal Corp", VTS]
+    - branch: "DMG Central Coast"
+      source_pdf: "Line Card DMG Central Coast 03-24-26.pdf"
+      revision_date: "2026-03-24"
+      # San Luis Obispo office. Same catalog as Los Angeles's card minus
+      # Bessamaire and Xinda (neither is a Scout line either way, so this
+      # doesn't change the matched-line list vs. Los Angeles).
+      covered: [AAON, DB, "Energy Labs", LG, Marley, BASX, ClimateCraft, VTS, ClimaCool,
+                "VU Flow Environmental", Geoclima, ClimateMaster, Hecoclima, IEC, Recold,
+                "Strobic Air", Ebtron, "AtmosAir/Bioclimatic", UVDI, Cosatron, "Vibro-Acoustics",
+                Neptronic, LFSystems, Carel, Cambridge, "PEP Filters", Seresco, Aldes, MacroAir,
+                Islandaire, ChangeAir, "Flow-Tech", "Heat Pipe Technology", Howden, Suburban,
+                "Ice-Cel", Yaskawa, HCi, Airzone, Systemair, "Barcol-Air", Ventacity, "Thermal Corp"]
+    - branch: "DMG Central Valley"
+      source_pdf: "Line Card DMG Central Valley 12-22-25.pdf"
+      revision_date: "2025-12-22"
+      # Fresno office -- a visibly different card layout/catalog from the
+      # other four, not a subset or superset of any of them. "American
+      # Aldes" on this card is treated as the same line as "Aldes"
+      # elsewhere (American Aldes Ventilation Corporation is Aldes' own US
+      # entity name), not a guess from brand similarity.
+      covered: [AAON, Aldes, "AtmosAir/Bioclimatic", Cambridge, ClimaCool, ClimateCraft,
+                ClimateMaster, Cosatron, CRC, DB, Ebtron, "Energy Labs", "Engineered Comfort",
+                "VU Flow Environmental", Geoclima, IEC, Islandaire, LG, MacroAir, Nailor,
+                Neptronic, "Penn Barry", Seresco, "Strobic Air", "Thermal Corp",
+                "TCF/Twin City Fan", UVDI, Ventacity, VTS]
+
   # ---- selection tools ------------------------------------------------
   #
   # Which selection software a rep actually uses to spec one line. One row

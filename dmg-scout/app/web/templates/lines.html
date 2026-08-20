@@ -9,6 +9,23 @@
     and the way lines combine on a job, not alphabetically.</span>
 </div>
 
+<details class="callout callout-warn">
+  <summary>How this is built</summary>
+  <div class="callout-content">
+    <span>
+    <strong>This card reflects DMG's SoCal card, not one company-wide card</strong>
+    <span class="body">Every field below (category, tier, markets, eligibility) was researched against DMG's
+      Southern California line card. Which DMG/ToroAire branch actually carries a given line is a separate
+      dimension, sourced from each branch's own published line-card PDF (see docs/line-cards/), not inferred
+      from this one: {{ known_branches|length }} of 8 DMG offices have a card on file (Bay Area, Sacramento,
+      and Reno do not — every line stays unknown at those three). Of {{ total_all }} lines, {{ lines_on_any_card }}
+      appear on at least one branch's real card; {{ total_all - lines_on_any_card }} appear on none of the
+      {{ known_branches|length }} cards on file. Use the branch filter below to see one branch's own status per
+      line.</span>
+    </span>
+  </div>
+</details>
+
 {% if best_guess_lines %}
 <details class="callout callout-warn">
   <summary>How this is built</summary>
@@ -62,17 +79,27 @@
     <option value="ufc_4_010_06" {% if f_eligible=='ufc_4_010_06' %}selected{% endif %}>UFC 4-010-06 confirmed</option>
     <option value="ahri_certified" {% if f_eligible=='ahri_certified' %}selected{% endif %}>AHRI certified confirmed</option>
   </select>
+  <select name="branch" onchange="this.form.submit()">
+    <option value="">Branch coverage: not shown</option>
+    {% for b in known_branches %}<option value="{{ b }}" {% if f_branch==b %}selected{% endif %}>{{ b }}</option>{% endfor %}
+  </select>
 </form>
 {% if f_eligible %}
 <p class="note mb-2" style="max-width:56rem">Eligibility fields stay null until a factory confirms them — most
   lines have not been confirmed on anything yet, so this filter will often come back thin. That is the honest
   state of the data, not a bug in the filter.</p>
 {% endif %}
+{% if f_branch %}
+<p class="note mb-2" style="max-width:56rem">Showing {{ f_branch }}'s own status per line (right-hand column),
+  sourced from that branch's own line-card PDF — "confirmed carried" means the line is printed on the card,
+  "confirmed not carried" means the card exists and the line isn't on it. A blank cell means unknown — that
+  branch has no card on file, so nothing here is assumed to match the SoCal card above.</p>
+{% endif %}
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
 {% for r in role_order %}
 <a class="chip" aria-pressed="{{ 'true' if r==active_role else 'false' }}"
-   href="/lines?role={{ r }}{% if f_firm %}&firm={{ f_firm }}{% endif %}{% if f_market %}&market={{ f_market }}{% endif %}{% if f_value_tier %}&value_tier={{ f_value_tier }}{% endif %}{% if f_eligible %}&eligible={{ f_eligible }}{% endif %}">
+   href="/lines?role={{ r }}{% if f_firm %}&firm={{ f_firm }}{% endif %}{% if f_market %}&market={{ f_market }}{% endif %}{% if f_value_tier %}&value_tier={{ f_value_tier }}{% endif %}{% if f_eligible %}&eligible={{ f_eligible }}{% endif %}{% if f_branch %}&branch={{ f_branch }}{% endif %}">
   {{ ROLE_LABELS[r] }}<span class="ct">{{ role_counts.get(r, 0) }}</span>
 </a>
 {% endfor %}
@@ -82,6 +109,7 @@
 <colgroup>
   <col style="width:16rem"><col style="width:7rem"><col style="width:16rem">
   <col style="width:5rem"><col style="width:16rem"><col>
+  {%- if f_branch %}<col style="width:12rem">{% endif %}
 </colgroup>
 <thead><tr>
   <th title="What this line fills — {{ ROLE_LABELS[active_role] }} on this tab.">Line</th>
@@ -90,6 +118,7 @@
   <th class="num" title="1 (highest $/unit) to 5 (lowest) — see /assumptions for the dollar bands behind each tier.">Tier</th>
   <th title="Sourced from manufacturer literature where researched (see the line's page for citations); a '?' marks an older, unverified best-guess instead. Empty means not yet mapped, not 'sells nowhere'.">Markets served</th>
   <th title="The 18 finer accounts.adjacency category this line scores gap/pull-through math on.">Category</th>
+  {%- if f_branch %}<th title="Confirmed coverage at {{ f_branch }}. Blank means unknown, never assumed from the SoCal card.">{{ f_branch }}</th>{% endif %}
 </tr></thead>
 <tbody>
 {% for line in by_role.get(active_role, []) %}
@@ -109,9 +138,21 @@
   <td class="nowrap">{{ line.category.replace('_',' ') }}
     {%- if line.id in best_guess_ids %}&nbsp;<span class="caveat" title="Category is a best-guess from the original seed, not confirmed.">?</span>{% endif -%}
   </td>
+  {%- if f_branch %}
+  <td class="note">
+    {%- set b = branch_status_by_line_id.get(line.id) -%}
+    {%- if b -%}
+      {%- if b.status == 'confirmed_covered' -%}confirmed carried
+      {%- elif b.status == 'confirmed_not_covered' -%}confirmed not carried
+      {%- elif b.status == 'reported_discussion' -%}reportedly under discussion
+      {%- else -%}{{ b.status }}{%- endif -%}
+      {%- if not b.verified %}&nbsp;<span class="caveat" title="{{ b.source_detail }}">?</span>{% endif -%}
+    {%- else -%}unknown{%- endif -%}
+  </td>
+  {%- endif %}
 </tr>
 {% else %}
-<tr><td colspan="6" class="note">No lines match these filters in this role.</td></tr>
+<tr><td colspan="{{ 7 if f_branch else 6 }}" class="note">No lines match these filters in this role.</td></tr>
 {% endfor %}
 </tbody>
 </table>

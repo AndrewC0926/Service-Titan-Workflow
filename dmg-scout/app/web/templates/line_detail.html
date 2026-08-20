@@ -18,6 +18,31 @@
     <th>Equipment type</th><td>{{ line.equipment_type.replace('_',' ') if line.equipment_type else '—' }}</td></tr>
 </table>
 
+<h2>Branch coverage</h2>
+<p class="note" style="max-width:56rem">Everything above this line was researched against DMG's SoCal card. Whether
+  another DMG/ToroAire branch carries this line is a separate, mostly-unresearched fact.</p>
+{% if branches %}
+<table style="max-width:900px">
+<tr><th>Branch</th><th>Status</th><th>Source</th></tr>
+{% for b in branches %}
+<tr>
+  <td>{{ b.branch }}</td>
+  <td>
+    {%- if b.status == 'confirmed_covered' -%}confirmed carried
+    {%- elif b.status == 'confirmed_not_covered' -%}confirmed not carried
+    {%- elif b.status == 'reported_discussion' -%}reportedly under discussion
+    {%- else -%}{{ b.status }}{%- endif -%}
+    {% if not b.verified %}<span class="caveat" title="Not independently verified.">?</span>{% endif %}
+  </td>
+  <td class="note" style="max-width:32rem">{{ b.source_detail }}</td>
+</tr>
+{% endfor %}
+</table>
+{% else %}
+<p class="note">No branch coverage recorded for this line at any location — unknown, not assumed to match
+  the SoCal card above.</p>
+{% endif %}
+
 <h2>Selection tool</h2>
 {% if selection_tool and selection_tool.verification_status == 'confirmed' %}
 <p><span class="ok" title="{{ selection_tool.verified_by }}, {{ selection_tool.verified_date.strftime('%Y-%m-%d') if selection_tool.verified_date else '' }}">{{ icon('check') }} confirmed</span>

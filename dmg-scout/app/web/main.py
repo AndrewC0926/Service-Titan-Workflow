@@ -973,7 +973,7 @@ def project_detail(project_id: int, request: Request,
     # project's building type, what does the line card offer by role, and
     # where does it offer nothing at all. Knowing the gap matters as much
     # as knowing the fit -- see app/accounts.py:line_offering_by_role.
-    from app.accounts import line_offering_by_role, project_facility_type
+    from app.accounts import SOCAL_CARD_DISCLOSURE, line_offering_by_role, project_facility_type
     facility_type = project_facility_type(project, signals)
     role_offerings = line_offering_by_role(session, project.category, facility_type)
 
@@ -1008,6 +1008,7 @@ def project_detail(project_id: int, request: Request,
         "stage_progression": stage_progression, "stage_age": stage_age,
         "stale_months": stale_months, "score_breakdown": score_breakdown,
         "role_offerings": role_offerings, "facility_type": facility_type,
+        "socal_card_disclosure": SOCAL_CARD_DISCLOSURE,
         "competing_by_role": competing_by_role, "competitor_rep_firms": competitor_rep_firms,
         "tb": _title_block(session), "active": "board",
     })
@@ -1513,9 +1514,16 @@ def firm_brief(firm_id: int, request: Request,
 
 @app.get("/lines", response_class=HTMLResponse)
 def lines_index(request: Request, role: str = "", firm: str = "", market: str = "",
-                value_tier: str = "", eligible: str = "",
+                value_tier: str = "", eligible: str = "", branch: str = "",
                 session: Session = Depends(get_session), _: str = Depends(auth)):
     from app.accounts import category_is_best_guess
+    from app.models import ProductLineBranch
+
+    branch_rows = session.exec(select(ProductLineBranch)).all()
+    known_branches = sorted({b.branch for b in branch_rows})
+    branch_status_by_line_id: dict[int, ProductLineBranch] = {
+        b.product_line_id: b for b in branch_rows if b.branch == branch
+    } if branch else {}
 
     q = select(ProductLine)
     if firm == "both":
@@ -1547,6 +1555,9 @@ def lines_index(request: Request, role: str = "", firm: str = "", market: str = 
         "role_counts": {r: len(v) for r, v in by_role.items()},
         "active_role": active_role, "markets": MARKETS,
         "f_firm": firm, "f_market": market, "f_value_tier": value_tier, "f_eligible": eligible,
+        "f_branch": branch, "known_branches": known_branches,
+        "branch_status_by_line_id": branch_status_by_line_id,
+        "lines_on_any_card": len({b.product_line_id for b in branch_rows if b.status == "confirmed_covered"}),
         "best_guess_lines": best_guess_lines, "best_guess_total": len(best_guess_lines),
         "best_guess_ids": {line.id for line in best_guess_lines},
         "legacy_market_lines": legacy_market_lines, "legacy_market_total": len(legacy_market_lines),
@@ -1584,7 +1595,7 @@ def line_detail(line_id: int, request: Request,
         value_tier_band,
     )
     from app.competitors import competing_lines_by_role
-    from app.models import RepFirm, SelectionTool
+    from app.models import ProductLineBranch, RepFirm, SelectionTool
     line = session.get(ProductLine, line_id)
     if line is None:
         raise HTTPException(404)
@@ -1593,6 +1604,9 @@ def line_detail(line_id: int, request: Request,
         select(SelectionTool).where(SelectionTool.product_line_id == line.id)).first()
     competing = competing_lines_by_role(session).get(line.building_role, [])
     rep_firms = {f.id: f for f in session.exec(select(RepFirm)).all()}
+    branches = session.exec(
+        select(ProductLineBranch).where(ProductLineBranch.product_line_id == line.id)
+        .order_by(ProductLineBranch.branch)).all()
     return templates.TemplateResponse(request, "line_detail.html", {
         "line": line, "best_guess": category_is_best_guess(line),
         "pull_through": pull_through(session, cfg, line),
@@ -1602,6 +1616,7 @@ def line_detail(line_id: int, request: Request,
         "selection_tool": selection_tool,
         "access_labels": SELECTION_TOOL_ACCESS_LABELS, "verif_labels": SELECTION_TOOL_VERIFICATION_LABELS,
         "competing_lines": competing, "rep_firms": rep_firms,
+        "branches": branches,
         "tb": _title_block(session), "active": "lines",
     })
 

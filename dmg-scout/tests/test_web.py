@@ -613,6 +613,11 @@ def test_hospitals_board_shows_capability_gap_warning(client, db_session, cfg):
     assert "cannot currently field a full mechanical package" in r.text.lower()
 
 
+def test_hospitals_board_discloses_socal_scope(client, db_session, cfg):
+    r = client.get("/hospitals", headers=AUTH)
+    assert "SoCal" in r.text
+
+
 def test_hospitals_board_deadline_filter(client, db_session, cfg):
     from app.models import HospitalBuilding, utcnow
     db_session.add(HospitalBuilding(perm_id="1", building_nbr="B1", facility_name="Overdue Hospital",
@@ -641,6 +646,7 @@ def test_hospital_building_detail_renders(client, db_session, cfg):
     assert r.status_code == 200
     assert "Detail Test Hospital" in r.text
     assert "Main Tower" in r.text
+    assert "SoCal" in r.text
 
 
 def test_hospital_building_detail_404_for_unknown_id(client, db_session, cfg):
@@ -671,6 +677,7 @@ def test_hospitals_brief_renders_no_dollar_estimate(client, db_session, cfg):
     assert "NPC 5 assigned to" in r.text
     assert "72 hours" in r.text
     assert "$" not in r.text.split('<h2 style="font-size:18px">')[1]  # no dollar figure in the brief body
+    assert "SoCal" in r.text
 
 
 def test_hospitals_brief_shows_climacool_and_twin_city_fan_expired(client, db_session, cfg):

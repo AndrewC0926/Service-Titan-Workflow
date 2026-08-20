@@ -776,6 +776,59 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "short enough to still catch a genuinely abandoned one.",
     ))
 
+    # ---- Line card branch coverage -------------------------------------------
+
+    from app.normalize import normalize_name
+    _branch_cards = cfg.get("accounts.line_card_branches", []) or []
+    _line_card_names = [e["name"] for e in cfg.get("accounts.line_card", []) or []]
+    _line_card_total = len(_line_card_names)
+    _covered_anywhere_norm = {
+        normalize_name(n) for card in _branch_cards for n in card.get("covered", [])
+    }
+    _lines_on_any_card = sum(1 for n in _line_card_names if normalize_name(n) in _covered_anywhere_norm)
+    _branches_with_a_card = [c["branch"] for c in _branch_cards]
+    out.append(Assumption(
+        group="Line card branch coverage",
+        name="Which DMG/ToroAire branch actually carries each line",
+        config_path="accounts.line_card_branches",
+        value=f"{len(_branches_with_a_card)} of 8 DMG offices have a card on file; {_lines_on_any_card} "
+             f"of {_line_card_total} lines appear on at least one of them, "
+             f"{_line_card_total - _lines_on_any_card} appear on none",
+        source_type=MEASURED,
+        source_detail=(
+            "Every field on the line card itself (category, tier, markets, eligibility) was "
+            "researched against DMG's Southern California card -- see SOCAL_CARD_DISCLOSURE in "
+            "app/accounts.py, surfaced on /lines, /line/{id}, a project's line-card-fit table, the "
+            "pre-call brief payload, and the hospital board/brief/building pages. Which DMG/ToroAire "
+            "branch actually carries a line is a separate fact, tracked in ProductLineBranch, and "
+            "absence of a row means unknown -- never inferred as either covered or not covered. "
+            "Seeded 2026-08-20 from Andy Tripicchio's 'Line Cards' email (sent 2026-08-20), which "
+            "attached all 8 DMG offices' own line-card PDFs; 5 had a card attached -- "
+            f"{', '.join(_branches_with_a_card)} -- saved verbatim under docs/line-cards/. Bay Area, "
+            "Sacramento, and Reno had no card supplied and get zero rows, so every line stays unknown "
+            "at those three. For each of the 5 branches with a card, every DMG- or both-firm line gets a "
+            "row -- confirmed_covered if printed on that branch's card, confirmed_not_covered if the card "
+            "exists and the line is not on it (a one-page DMG line card is a complete listing of what the "
+            "branch carries under the DMG name, so an omission is read as evidence of non-coverage for a "
+            "DMG/both line -- an inference from an enumerated first-party document, not a bare guess, and "
+            "every confirmed_not_covered row's source_detail says so explicitly). A ToroAire-firm line "
+            "only gets a row where it actually appears on a card: a DMG-branded card's silence about a "
+            "ToroAire product is not evidence about ToroAire's own, separate card, which this seed has no "
+            "copy of -- 20 of the 21 lines an earlier pass at this data marked 'confirmed on no card' "
+            "turned out to be exactly this case, discovered by cross-checking against config.yaml's own "
+            "`firm` field, and were corrected to unknown rather than confirmed_not_covered (Titus among "
+            "them -- it never appears on any of the 5 DMG cards, and is ToroAire-firm, so it stays "
+            "unknown at every branch, not confirmed absent). verified=True on every row: each comes "
+            "directly from reading the branch's own published card, a first-party primary source, not a "
+            "verbal recap. An earlier 2026-08-19 seed built from a verbal recap instead of the actual "
+            "cards was wrong in a different way -- it guessed Marley/Recold backwards for Hawaii -- and "
+            "was discarded in favor of this one. See config.yaml's accounts.line_card_branches "
+            "entries for each branch's transcribed `covered` list and PDF filename/revision date."
+        ),
+        verified=True,
+        last_reviewed="2026-08-20, read directly from each branch's own line-card PDF.",
+    ))
+
     # ---- Union signatory (UA Local 250) --------------------------------------
 
     from app.pipeline.local250 import NAME_ONLY_THRESHOLD, NAME_WITH_CITY_THRESHOLD

@@ -349,6 +349,19 @@ def test_hospital_osp_breakdown_climacool_shows_expired_status(db_session):
     assert climacool["osp_number"] == "OSP-0048"
 
 
+def test_hospital_osp_breakdown_discloses_socal_scope(db_session):
+    from app.accounts import SOCAL_CARD_DISCLOSURE
+    breakdown = hcai.hospital_osp_breakdown(db_session)
+    assert breakdown["socal_card_disclosure"] == SOCAL_CARD_DISCLOSURE
+    assert "SoCal" in breakdown["socal_card_disclosure"]
+
+
+def test_hospital_capability_gaps_discloses_socal_scope(db_session):
+    from app.accounts import SOCAL_CARD_DISCLOSURE
+    gaps = hcai.hospital_capability_gaps(db_session)
+    assert gaps["socal_card_disclosure"] == SOCAL_CARD_DISCLOSURE
+
+
 def test_hospital_osp_breakdown_every_fan_line_has_a_definitive_status(db_session):
     """All 14 fan lines have now been researched (2026-08-09 + 2026-08-19) --
     none should be reporting the 'unresearched' fallback status any more."""

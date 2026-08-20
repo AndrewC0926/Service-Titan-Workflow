@@ -808,6 +808,60 @@ class ProductLine(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class ProductLineBranch(SQLModel, table=True):
+    """Which DMG/ToroAire location actually carries a given line -- the
+    dimension ProductLine itself doesn't have. ProductLine's own fields
+    (oshpd_osp, description, etc.) were all researched against DMG's SoCal
+    card; nothing about the line row says whether that coverage holds at
+    any other branch.
+
+    The absence of a row for a given (product_line_id, branch) pair means
+    unknown -- never inferred as either covered or not covered. Only write
+    a row when a branch's coverage of a line is actually known. A branch
+    with no line card supplied (Bay Area, Sacramento, Reno as of the
+    2026-08-20 seed) gets ZERO rows -- every one of its 70 lines stays
+    unknown, not backfilled from a sibling branch's card.
+
+    status is one of:
+      - 'confirmed_covered' -- the line is printed on that branch's own
+        line card.
+      - 'confirmed_not_covered' -- the branch has a line card on file and
+        this line is NOT on it. A one-page line card is meant to be a
+        complete listing of what the branch carries, so an omission is
+        read as evidence of non-coverage, not merely unknown -- but this
+        is an inference from an enumerated document, not a literal "we
+        don't carry this" quote, and source_detail says so on every row.
+      - 'reported_discussion' -- neither of the above; someone reported
+        the branch is discussing adding the line, not that it does yet.
+        Not used by the card-derived seed below; reserved for a future
+        verbal-only report that isn't yet reflected on any card.
+
+    verified is True for every row derived directly from reading a
+    branch's own published line-card PDF (a first-party primary source,
+    same standing as CompetitorLine's 'confirmed' status) -- source_pdf
+    and source_pdf_revision_date name exactly which document and which
+    dated revision of it produced the row, so a later, newer card
+    supersedes it visibly rather than silently. verified=False is
+    reserved for a row sourced only from someone's statement rather than
+    a card -- source_detail carries who said it and when, in the same
+    prose-citation style as every other *_basis field in this file, e.g.
+    "Stated by Andy, 2026-08-19: ...". Either way, source_detail is
+    required -- a row being unverified doesn't make it unknown, it's a
+    known claim with a named source, which is a different thing from
+    having no information at all."""
+    __tablename__ = "product_line_branches"
+
+    id: int | None = Field(default=None, primary_key=True)
+    product_line_id: int = Field(foreign_key="product_lines.id", index=True)
+    branch: str = Field(index=True)  # e.g. "DMG Hawaii" -- free text, not a canonical location enum
+    status: str = Field(index=True)  # confirmed_covered | confirmed_not_covered | reported_discussion
+    verified: bool = Field(default=False, index=True)
+    source_pdf: str | None = None          # filename under docs/line-cards/, e.g. "Line Card DMG Hawaii 01-02-26.pdf"
+    source_pdf_revision_date: str | None = None  # the date printed in the filename, e.g. "2026-01-02"
+    source_detail: str = Field(sa_column=Column(Text, nullable=False))
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class RepFirm(SQLModel, table=True):
     """A COMPETING manufacturers' rep firm in DMG/ToroAire's territory --
     the other side of the line card. See app/competitors.py for the

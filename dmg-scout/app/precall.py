@@ -208,6 +208,7 @@ LINE."""
 
 
 def _serialize_project(ing: dict) -> dict:
+    from app.accounts import SOCAL_CARD_DISCLOSURE
     p, b, age = ing["project"], ing["brief"], ing["stage_age"]
     tons = None
     if p.tons_estimate_low:
@@ -249,6 +250,7 @@ def _serialize_project(ing: dict) -> dict:
             {"role": ro.label, "gap": ro.gap, "lines": [ln.name for ln in ro.lines]}
             for ro in ing["role_offerings"] if ro.relevant
         ] or "not determined (facility type unknown)",
+        "line_card_scope": SOCAL_CARD_DISCLOSURE,
         "regulatory_triggers": ("not applicable to this project -- SB1206/EBEWE/CARB triggers are "
                                 "tracked for the separate retrofit-building population, not "
                                 "early-signal projects like this one"),

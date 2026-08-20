@@ -93,6 +93,13 @@
   2026-08-19.</p>
 
 <h2>What DMG cannot field — the gap</h2>
+<div class="callout callout-warn">
+  {{ icon('triangle-alert') }}
+  <span>
+  <strong>SoCal card, not company-wide</strong>
+  <span class="body">{{ osp.socal_card_disclosure }}</span>
+  </span>
+</div>
 {% set all_gap_rows = osp.gapped_roles.values()|map(attribute='rows')|sum(start=[]) %}
 {% set all_expired = all_gap_rows|selectattr('status', 'equalto', 'expired')|list %}
 {% set all_not_listed = all_gap_rows|selectattr('status', 'equalto', 'not_listed')|list %}

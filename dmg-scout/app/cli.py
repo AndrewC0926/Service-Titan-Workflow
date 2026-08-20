@@ -1364,11 +1364,13 @@ def seed_lines_cmd() -> None:
     accounts automatically pick up any newly-added line on their next page
     load (see app.accounts.ensure_coverage_rows), no separate backfill needed.
     """
-    from app.accounts import seed_product_lines
+    from app.accounts import seed_product_line_branches, seed_product_lines
     cfg = load_config()
     with session_scope() as session:
         added = seed_product_lines(session, cfg)
+        branches_added = seed_product_line_branches(session, cfg)
     typer.echo(f"{added} product lines added (existing rows updated in place)")
+    typer.echo(f"{branches_added} product line branch records added (existing rows updated in place)")
 
 
 @app.command("seed-selection-tools")

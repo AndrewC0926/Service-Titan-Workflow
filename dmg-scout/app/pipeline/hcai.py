@@ -405,7 +405,7 @@ def hospital_capability_gaps(session) -> dict:
     See config.yaml's per-line oshpd_osp_basis entries and
     HOSPITAL_BRIEF_OSP_FACTS' own module comment for the individual
     research trail behind every figure here."""
-    from app.accounts import ROLE_LABELS, ROLE_ORDER, resolve_building_role
+    from app.accounts import SOCAL_CARD_DISCLOSURE, ROLE_LABELS, ROLE_ORDER, resolve_building_role
     from app.models import ProductLine
 
     lines = session.exec(select(ProductLine)).all()
@@ -458,6 +458,7 @@ def hospital_capability_gaps(session) -> dict:
         "fans_covered": by_role_key["fans_ventilation"]["covered"],
         "fans_checked": by_role_key["fans_ventilation"]["checked"],
         "fans_confirmed_expired": by_role_key["fans_ventilation"]["confirmed_expired"],
+        "socal_card_disclosure": SOCAL_CARD_DISCLOSURE,
     }
 
 
@@ -752,7 +753,7 @@ def hospital_osp_breakdown(session) -> dict:
     a generic unknown/not-yet-transcribed row rather than raising, so a
     future new line added to one of these categories doesn't break the
     brief, it just shows up honestly incomplete."""
-    from app.accounts import ROLE_LABELS, ROLE_ORDER, resolve_building_role
+    from app.accounts import SOCAL_CARD_DISCLOSURE, ROLE_LABELS, ROLE_ORDER, resolve_building_role
     from app.models import ProductLine
 
     def _fact(name: str) -> dict:
@@ -808,4 +809,5 @@ def hospital_osp_breakdown(session) -> dict:
     covered = sorted((_row(l) for l in lines if l.name in covered_names and l.oshpd_osp is True),
                      key=lambda r: r["name"])
 
-    return {"chillers": chillers, "fans": fans, "gapped_roles": gapped_roles, "covered": covered}
+    return {"chillers": chillers, "fans": fans, "gapped_roles": gapped_roles, "covered": covered,
+            "socal_card_disclosure": SOCAL_CARD_DISCLOSURE}

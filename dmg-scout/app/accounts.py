@@ -28,6 +28,7 @@ from app.models import (
     FacilityType,
     Firm,
     ProductLine,
+    ProductLineBranch,
     Project,
     ProjectFirm,
     ProjectSignal,
@@ -398,6 +399,90 @@ def seed_product_lines(session: Session, cfg: Config) -> int:
             continue
         session.add(ProductLine(name=name, name_norm=norm, **fields))
         added += 1
+    session.commit()
+    return added
+
+
+def seed_product_line_branches(session: Session, cfg: Config) -> int:
+    """Load per-branch line coverage from config.yaml's line_card_branches
+    into product_line_branches. Idempotent, same shape as
+    seed_product_lines: keyed on (product_line_id, branch), config wins
+    over anything already in the row on every field, insert only if new.
+
+    Each config.yaml entry is one branch's own published line card: a PDF
+    filename, its printed revision date, and `covered`, the list of lines
+    transcribed directly off that card. For a branch with an entry here,
+    every ProductLine on it (`covered`, matched by name) gets a
+    confirmed_covered row. A line NOT on the card gets confirmed_not_covered
+    ONLY if its firm is "DMG" or "both" -- these are DMG's own branded
+    cards (Andy's email: "all the DMG office line cards"), a complete
+    listing of what the branch carries UNDER THE DMG NAME, so an omission
+    there is read as evidence of non-coverage for a DMG/both line (see
+    ProductLineBranch.confirmed_not_covered's own docstring for why that's
+    an inference from an enumerated document, not a bare guess). A line
+    whose firm is "ToroAire" is NOT covered by that same inference: a DMG
+    card's silence about a ToroAire-branded line says nothing about
+    whether that branch also carries it under ToroAire's own, separate
+    card, which this seed has no copy of -- 20 of the 21 lines a first
+    pass at this data marked "on no card" turned out to be exactly this
+    case (confirmed via config.yaml's own `firm` field), so a ToroAire
+    line absent from a DMG card gets NO row and stays unknown, exactly
+    like a branch with no card at all. A branch with NO card entry here
+    (Bay Area, Sacramento, Reno as of the 2026-08-20 seed) gets no rows at
+    all -- every one of its lines stays unknown, never backfilled from a
+    sibling branch's card."""
+    added = 0
+    all_lines = session.exec(select(ProductLine)).all()
+    for entry in cfg.get("accounts.line_card_branches", []) or []:
+        branch = entry["branch"]
+        source_pdf = entry["source_pdf"]
+        revision_date = entry["revision_date"]
+        covered_norm = {normalize_name(name) for name in entry.get("covered", [])}
+        matched_norms = set()
+        for line in all_lines:
+            covered = line.name_norm in covered_norm
+            if covered:
+                matched_norms.add(line.name_norm)
+            elif line.firm == "ToroAire":
+                # A DMG-branded card's silence about a ToroAire-only line
+                # is not evidence -- see the docstring above. Stays
+                # unknown, same as a branch with no card supplied.
+                continue
+            fields = {
+                "status": "confirmed_covered" if covered else "confirmed_not_covered",
+                "verified": True,
+                "source_pdf": source_pdf,
+                "source_pdf_revision_date": revision_date,
+                "source_detail": (
+                    f"Printed on {branch}'s own line card ({source_pdf}, revision {revision_date})."
+                    if covered else
+                    f"Not printed on {branch}'s own line card ({source_pdf}, revision {revision_date}) -- "
+                    "the card is a complete listing of what the branch carries under the DMG name, so "
+                    "this DMG/both-firm line's absence from it is read as evidence of non-coverage, not "
+                    "merely unknown. That is an inference from an enumerated first-party document, not "
+                    "a literal 'we don't carry this' quote from the branch."
+                ),
+            }
+            existing = session.exec(
+                select(ProductLineBranch).where(
+                    ProductLineBranch.product_line_id == line.id,
+                    ProductLineBranch.branch == branch,
+                )
+            ).first()
+            if existing:
+                changed = any(getattr(existing, k) != v for k, v in fields.items())
+                if changed:
+                    for k, v in fields.items():
+                        setattr(existing, k, v)
+                    session.add(existing)
+                continue
+            session.add(ProductLineBranch(product_line_id=line.id, branch=branch, **fields))
+            added += 1
+        unmatched = covered_norm - matched_norms
+        if unmatched:
+            log.warning("seed_product_line_branches: %s's covered list names %d line(s) with no "
+                       "matching ProductLine (check spelling against config.yaml's line_card names): %s",
+                       branch, len(unmatched), sorted(unmatched))
     session.commit()
     return added
 
@@ -986,6 +1071,19 @@ def matching_projects_for_line(session: Session, line: ProductLine, limit: int =
 # awarded by a public hospital district) is a one-line addition here, not
 # a silent gap in a gap-checker.
 CATEGORIES_REQUIRING_HCAI_OSP: frozenset[str] = frozenset()
+
+# Every ProductLine field this module reads -- category, markets, eligibility,
+# and every RoleOffering below -- was researched against DMG's SoCal card.
+# "Covered"/"gap" here means "on the SoCal card", not "at every DMG/ToroAire
+# branch" -- see app.models.ProductLineBranch, which tracks branch coverage
+# separately and only for the handful of lines someone has actually checked.
+# Surface this wherever role_offerings reaches a human or an LLM prompt.
+SOCAL_CARD_DISCLOSURE = (
+    "This reflects DMG's Southern California line card, not a company-wide card. "
+    "Whether a given DMG/ToroAire branch (e.g. DMG Hawaii) actually carries a line "
+    "is tracked separately and is unknown for most lines -- \"covered\" here means "
+    "\"on the SoCal card\", not \"available from every branch\"."
+)
 
 
 @dataclass
