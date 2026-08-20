@@ -1,0 +1,87 @@
+name: dmg-scout golden regression
+
+# Gates any change that could silently degrade extraction quality. This is
+# `tests/test_golden_regression.py` -- 12 hand-verified documents
+# (dmg-scout/evals/golden.jsonl), re-run through the real app.llm.extract()
+# and scored against dmg-scout/evals/baseline.json. It caught real bugs the
+# first time it ran (2026-08-19: mw_total and named-entity fabrication) --
+# but that run only happened because someone asked. This makes it run on
+# every commit that could plausibly cause the same class of regression,
+# without being asked, and fails the build the same way it failed locally.
+#
+# Marked `@pytest.mark.live` in the test file, which pyproject.toml's
+# addopts ("-m 'not live'") excludes from every ordinary local/CI test run
+# for exactly the reason this workflow exists to override: 12 real Claude
+# API calls cost real money and time, and no bare `pytest` invocation
+# should pay for that by accident. `-m live` here is the documented
+# override (see pyproject.toml's own comment on addopts).
+#
+# Scoped by path to the code that can actually cause an extraction
+# regression -- everything else in dmg-scout is unaffected and shouldn't
+# wait on, or pay for, 12 live API calls.
+
+on:
+  push:
+    paths:
+      - "dmg-scout/app/llm.py"
+      - "dmg-scout/app/sections.py"
+      - "dmg-scout/app/schemas.py"
+      - "dmg-scout/app/grounding.py"
+      - "dmg-scout/app/golden.py"
+      - "dmg-scout/app/pipeline/extract.py"
+      - "dmg-scout/app/pipeline/resolve.py"
+      - "dmg-scout/app/pipeline/size_score.py"
+      - "dmg-scout/app/sizing.py"
+      - "dmg-scout/evals/golden.jsonl"
+      - "dmg-scout/evals/baseline.json"
+      - "dmg-scout/tests/test_golden_regression.py"
+  pull_request:
+    paths:
+      - "dmg-scout/app/llm.py"
+      - "dmg-scout/app/sections.py"
+      - "dmg-scout/app/schemas.py"
+      - "dmg-scout/app/grounding.py"
+      - "dmg-scout/app/golden.py"
+      - "dmg-scout/app/pipeline/extract.py"
+      - "dmg-scout/app/pipeline/resolve.py"
+      - "dmg-scout/app/pipeline/size_score.py"
+      - "dmg-scout/app/sizing.py"
+      - "dmg-scout/evals/golden.jsonl"
+      - "dmg-scout/evals/baseline.json"
+      - "dmg-scout/tests/test_golden_regression.py"
+  workflow_dispatch: {}
+
+jobs:
+  golden-regression:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dmg-scout
+    env:
+      # File-backed, not in-memory: the init step and the pytest step are
+      # separate processes and must see the same tables. Scratch-only,
+      # discarded with the runner -- this NEVER touches the real database
+      # (that would mean handing a CI secret access to production Postgres
+      # to run a test suite, and mixing this run's token_spend rows into
+      # real spend history). check_budget()'s daily-cap read needs the
+      # token_spend table to exist at all, even empty -- see init step.
+      DATABASE_URL: "sqlite:///./ci_golden.db"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dmg-scout
+        run: pip install -e ".[dev]"
+
+      - name: Create scratch tables
+        run: python -c "from app.db import init_db; init_db()"
+
+      - name: Run golden regression (live -- real Claude API calls)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: pytest -m live tests/test_golden_regression.py -v

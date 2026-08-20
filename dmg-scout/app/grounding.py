@@ -20,9 +20,27 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from sqlmodel import Session, select
+from sqlmodel import Session, or_, select
 
 from app.models import RawDocument, Signal
+
+# Bump this whenever unit_grounded()/name_grounded()/reject_ungrounded_*()'s
+# own matching logic changes in a way that could change a verdict on
+# already-persisted data (a new variant pattern, a tightened/loosened
+# proximity window, a new field added to NUMERIC_FIELDS/UNIT_TOKENS -- NOT
+# for changes that only affect newly-extracted documents the same way
+# regardless of when they run, like a comment or a refactor with no
+# behavioral change). extract() stamps every new signal with this value at
+# write time; fix_corpus() only re-examines signals stamped BELOW it, so a
+# version bump is what makes "re-check the corpus" mean something, and
+# what makes fix_corpus's own SQL query cheap on every day nothing changed
+# instead of a full-text scan of the growing corpus every single day.
+#
+# History: 1 (2026-08-19) -- named_people/named_firms grounding added
+# (previously no check existed at all); audit_signal() unified with
+# unit_grounded()'s exact logic (previously a separate, looser check);
+# single-occurrence numeric grounding flagged weak.
+GROUNDING_VERSION = 1
 
 # Numeric fields worth auditing. Coordinates are excluded: they are transcribed from
 # DMS to decimal, so the digits legitimately differ from the source text.
@@ -405,9 +423,27 @@ def fix_corpus(session: Session) -> dict:
     This is that retroactive pass -- the one-time and repeatable fix for
     "the guard runs, but only forward from when it was added." Run it
     again after any future change to unit_grounded()/name_grounded()'s own
-    logic, for the same reason.
+    logic, for the same reason -- which is also why it is now version-
+    gated (see GROUNDING_VERSION) rather than something that has to be
+    remembered and run by hand: only signals stamped BELOW the current
+    version are examined at all, so on any day nothing in this module
+    changed, the query below returns nothing and this is a no-op, not a
+    full-text scan of the whole corpus. Every examined signal is stamped
+    to the current version whether or not anything was rejected -- a
+    signal that already passes needs the stamp exactly as much as one that
+    gets corrected, so it is not re-examined again for no reason tomorrow.
     """
-    signals = session.exec(select(Signal).where(Signal.raw_document_id.is_not(None))).all()
+    n_total = session.exec(
+        select(Signal).where(Signal.raw_document_id.is_not(None))
+    ).all()
+    n_total = len(n_total)
+    signals = session.exec(
+        select(Signal).where(
+            Signal.raw_document_id.is_not(None),
+            or_(Signal.grounding_version.is_(None),
+               Signal.grounding_version < GROUNDING_VERSION),
+        )
+    ).all()
     changes: list[dict] = []
     for sig in signals:
         doc = session.get(RawDocument, sig.raw_document_id)
@@ -455,21 +491,30 @@ def fix_corpus(session: Session) -> dict:
             ej["rejected_numeric"] = (ej.get("rejected_numeric") or []) + row_rejected_numeric
             ej["rejected_names"] = (ej.get("rejected_names") or []) + row_rejected_names
             sig.extraction_json = ej
-            session.add(sig)
             changes.append({"signal_id": sig.id, "project_name": sig.project_name,
                             "rejected_numeric": row_rejected_numeric,
                             "rejected_names": row_rejected_names})
-    if changes:
+        # Stamped whether or not anything was rejected -- a clean signal is
+        # just as "checked against the current guard" as a corrected one,
+        # and needs the stamp for the SAME reason: so tomorrow's run (or
+        # today's pipeline stage) doesn't re-examine it for nothing.
+        sig.grounding_version = GROUNDING_VERSION
+        session.add(sig)
+    if signals:
         session.commit()
-    return {"n_signals_scanned": len(signals), "n_signals_corrected": len(changes),
-            "changes": changes}
+    return {"n_signals_total": n_total, "n_signals_examined": len(signals),
+            "n_signals_corrected": len(changes), "changes": changes}
 
 
 def fix_text(result: dict) -> str:
-    lines = [f"Retroactive grounding fix — {result['n_signals_scanned']} signals scanned, "
+    lines = [f"Retroactive grounding fix (guard version {GROUNDING_VERSION}) — "
+             f"{result['n_signals_examined']} of {result['n_signals_total']} signals were "
+             f"stamped below the current version and re-checked, "
              f"{result['n_signals_corrected']} corrected"]
+    if result["n_signals_examined"] == 0:
+        return lines[0] + "\nEvery signal already carries the current guard version — nothing to re-check."
     if not result["changes"]:
-        return lines[0] + "\nNothing to fix — every persisted value already passes the current guard."
+        return lines[0] + "\nNothing to fix — every re-checked value already passes the current guard."
     for c in result["changes"]:
         lines.append(f"\nsignal #{c['signal_id']} {c['project_name']!r}")
         for r in c["rejected_numeric"]:

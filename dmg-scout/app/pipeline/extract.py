@@ -10,7 +10,7 @@ from datetime import datetime
 from sqlmodel import Session, select
 
 from app.config import Config
-from app.grounding import reject_ungrounded_names, reject_ungrounded_numbers
+from app.grounding import GROUNDING_VERSION, reject_ungrounded_names, reject_ungrounded_numbers
 from app.http import PoliteClient
 from app.llm import LLMUnavailable, extract
 from app.normalize import normalize_state
@@ -180,6 +180,12 @@ def _extract_docs(session: Session, cfg: Config, limit: int) -> dict:
                 stats["flagged_signals"] += 1
             signal.named_people = data.get("named_people", [])
             signal.named_firms = data.get("named_firms", [])
+            # This signal was just checked against the CURRENT guard (both
+            # calls above), so it starts current -- see app.grounding.
+            # GROUNDING_VERSION and fix_corpus's own docstring for why this
+            # is what makes "a guard shipped after this row was written
+            # never re-examines it" structurally impossible to repeat.
+            signal.grounding_version = GROUNDING_VERSION
             session.add(signal)
 
             doc.processed_at = utcnow()

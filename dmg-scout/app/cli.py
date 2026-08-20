@@ -363,9 +363,24 @@ def pipeline(force: bool = typer.Option(
                 elif step is resolve:
                     step(no_llm=False)
                 elif step is grounding:
-                    # Report, never halt the run: the unit guard has already nulled
-                    # what it could prove wrong, and anything still flagged is for a
-                    # human to look at, not a reason to skip scoring.
+                    # Retroactive re-check FIRST, then the audit report -- this is
+                    # what makes "a guard shipped after a row was written never
+                    # re-examines it" (Blue Owl, FAAC: wrong for weeks, fixed by
+                    # hand 2026-08-19) structurally impossible to repeat, rather
+                    # than depending on someone remembering to run `scout
+                    # grounding --fix` after touching app/grounding.py. Cheap on
+                    # any day GROUNDING_VERSION didn't change: fix_corpus's own
+                    # query only pulls signals stamped below the current
+                    # version, so this is a fast no-result query, not a
+                    # full-text scan of the growing corpus every single day.
+                    from app.grounding import fix_corpus, fix_text
+                    with session_scope() as grounding_session:
+                        fix_result = fix_corpus(grounding_session)
+                    if fix_result["n_signals_examined"]:
+                        typer.echo(fix_text(fix_result))
+                    # Report, never halt the run: the guard has already nulled
+                    # what it could prove wrong, and anything still flagged is for
+                    # a human to look at, not a reason to skip scoring.
                     step(strict=False)
                 elif step is find_replacement_candidates_cmd:
                     # Real values, not this command's typer.Option(...) defaults --

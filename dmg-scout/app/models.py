@@ -222,6 +222,17 @@ class Signal(SQLModel, table=True):
     extraction_json: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
     named_people: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
     named_firms: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
+    # Which version of app.grounding's guard last validated this row's numeric
+    # and named-entity fields. NULL means never checked under a versioned
+    # regime (every signal extracted before 2026-08-19). See
+    # app.grounding.GROUNDING_VERSION and fix_corpus's own docstring: Blue
+    # Owl and FAAC sat on live, board-visible fabricated values for weeks
+    # because a RawDocument is only ever extracted once, so a guard shipped
+    # after them never re-examined them -- this is what makes that
+    # structurally impossible to repeat. `scout grounding --fix` (and the
+    # `grounding` pipeline stage) query on this column directly, so a day
+    # with no version bump is a cheap no-op query, not a full corpus scan.
+    grounding_version: int | None = Field(default=None, index=True)
 
 
 class Project(SQLModel, table=True):

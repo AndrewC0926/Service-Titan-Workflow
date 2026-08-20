@@ -223,6 +223,11 @@ def test_extract_nulls_a_fabricated_number_end_to_end(db_session, cfg, monkeypat
     assert sig.mw_total is None, "fabricated megawatt figure reached the signal"
     rej = sig.extraction_json["rejected_numeric"]
     assert rej and rej[0]["field"] == "mw_total" and rej[0]["value"] == 163.355
+    from app.grounding import GROUNDING_VERSION
+    assert sig.grounding_version == GROUNDING_VERSION, (
+        "a freshly-extracted signal was just checked against the current guard "
+        "(both calls above) and must start stamped current -- otherwise the next "
+        "pipeline run's grounding stage would immediately re-examine it for nothing")
 
 
 def test_extract_drops_a_fabricated_name_end_to_end(db_session, cfg, monkeypatch):
@@ -506,3 +511,64 @@ def test_fix_text_reports_what_was_corrected(db_session):
     _pair(db_session, BLUE_OWL, mw_total=163.355)
     text = fix_text(fix_corpus(db_session))
     assert "nulled mw_total=163.355" in text
+
+
+# --- grounding_version: the retroactive gap made structurally impossible ---
+# 2026-08-19: Blue Owl and FAAC were wrong for weeks specifically because
+# nothing ever re-examined a signal after the guard that would have caught
+# it shipped. The version stamp is what makes fix_corpus's own query find
+# exactly the signals that need re-checking -- not the whole corpus every
+# time, and not nothing forever.
+
+from app.grounding import GROUNDING_VERSION  # noqa: E402
+
+
+def test_fix_corpus_stamps_every_examined_signal_to_the_current_version(db_session):
+    sig, doc = _pair(db_session, VERNON, mw_total=99.0)
+    assert sig.grounding_version is None
+    fix_corpus(db_session)
+    db_session.refresh(sig)
+    assert sig.grounding_version == GROUNDING_VERSION
+
+
+def test_fix_corpus_skips_a_signal_already_at_the_current_version(db_session, monkeypatch):
+    """The whole point: a signal already stamped current is NOT re-examined,
+    even if it would fail the guard if it were -- this is what keeps a
+    normal day's run cheap (a query that returns nothing) instead of a
+    full-text scan of the growing corpus every single time."""
+    sig, doc = _pair(db_session, BLUE_OWL, mw_total=163.355)
+    sig.grounding_version = GROUNDING_VERSION
+    db_session.add(sig); db_session.commit()
+
+    result = fix_corpus(db_session)
+    assert result["n_signals_examined"] == 0
+    assert result["n_signals_corrected"] == 0
+    db_session.refresh(sig)
+    assert sig.mw_total == 163.355, "a signal already at the current version must not be re-checked"
+
+
+def test_fix_corpus_re_examines_a_signal_stamped_below_the_current_version(db_session):
+    """A guard-version bump (a real change to unit_grounded/name_grounded's
+    own logic) is exactly what should make a stale-stamped signal eligible
+    again -- this simulates that by stamping a lower version by hand."""
+    sig, doc = _pair(db_session, BLUE_OWL, mw_total=163.355)
+    sig.grounding_version = GROUNDING_VERSION - 1 if GROUNDING_VERSION > 0 else None
+    db_session.add(sig); db_session.commit()
+
+    result = fix_corpus(db_session)
+    assert result["n_signals_examined"] == 1
+    assert result["n_signals_corrected"] == 1
+    db_session.refresh(sig)
+    assert sig.mw_total is None
+    assert sig.grounding_version == GROUNDING_VERSION
+
+
+def test_fix_corpus_reports_total_corpus_size_alongside_examined_count(db_session):
+    _pair(db_session, VERNON, mw_total=99.0)
+    sig2, doc2 = _pair(db_session, BLUE_OWL, mw_total=163.355)
+    sig2.grounding_version = GROUNDING_VERSION
+    db_session.add(sig2); db_session.commit()
+
+    result = fix_corpus(db_session)
+    assert result["n_signals_total"] == 2
+    assert result["n_signals_examined"] == 1  # only the unstamped one
