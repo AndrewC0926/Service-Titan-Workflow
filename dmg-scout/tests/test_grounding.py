@@ -1,6 +1,14 @@
 """The grounding audit catches invented numbers, which is the failure that matters."""
 import pytest
-from app.grounding import _variants, audit_signal, audit_text, audit_corpus
+from app.grounding import (
+    _variants,
+    audit_signal,
+    audit_text,
+    audit_corpus,
+    count_unit_grounded_occurrences,
+    name_grounded,
+    reject_ungrounded_names,
+)
 from app.models import Category, RawDocument, Signal, SignalType, Stage, TriageResult
 
 
@@ -217,6 +225,36 @@ def test_extract_nulls_a_fabricated_number_end_to_end(db_session, cfg, monkeypat
     assert rej and rej[0]["field"] == "mw_total" and rej[0]["value"] == 163.355
 
 
+def test_extract_drops_a_fabricated_name_end_to_end(db_session, cfg, monkeypatch):
+    """Same guarantee as the numeric guard above, for named_people/
+    named_firms -- this stage had NO grounding check of any kind before
+    2026-08-19 (raw model output went straight onto the signal)."""
+    import app.pipeline.extract as ex
+    from app.models import TriageResult
+    from app.pipeline.extract import run_extract
+
+    doc = RawDocument(source="goed", source_uid="g1", url="https://x/g1",
+                      title="Board Packet", raw_text=REAL_PRODUCTION_TEXT, content_hash="g1",
+                      triage_result=TriageResult.relevant,
+                      meta={"triage_category": "industrial"})
+    db_session.add(doc); db_session.commit()
+
+    monkeypatch.setattr(ex, "extract", lambda *a, **k: {
+        "project_name": "Some Facility", "county": "Storey", "state": "NV",
+        "stage": "construction", "confidence": 0.9,
+        "named_people": [{"name": "Amanda Berry-Jones"}, {"name": "Nobody Real"}],
+        "named_firms": [], "_raw": {}, "_sections": {}})
+
+    stats = run_extract(db_session, cfg, limit=5)
+    assert stats["extracted"] == 1
+    assert stats["rejected_names"] == 1 and stats["flagged_signals"] == 1
+
+    from sqlmodel import select as sel2
+    sig2 = db_session.exec(sel2(Signal).where(Signal.raw_document_id == doc.id)).one()
+    assert [p["name"] for p in sig2.named_people] == ["Amanda Berry-Jones"]
+    assert sig2.extraction_json["rejected_names"][0]["value"] == "Nobody Real"
+
+
 def test_a_rejected_number_cannot_drive_sizing(db_session, cfg, monkeypatch):
     """The consequence that matters: 163.355 MW sized Blue Owl at 31,096-44,748
     tons. With the field nulled there is nothing left to size from."""
@@ -282,3 +320,189 @@ def test_values_match_as_numbers_not_digit_runs(value, text, expect, why):
     """Substring search grounded '3' against the 3 in '$30,183,000', so every small
     value grounded trivially and the guard silently stopped guarding."""
     assert unit_grounded("mw_total", value, text) is expect, why
+
+
+# --- name guard: named_people/named_firms had NO grounding at all before ----
+# 2026-08-19: confirmed by reading app/pipeline/extract.py -- signal.named_people
+# and signal.named_firms were set directly from the raw model output, with
+# nothing between them and persistence. A retroactive scan of all 474
+# production signals found zero confirmed pure inventions once real-world
+# formatting variance was accounted for (every flagged name traced to a real
+# mention: a parenthetical abbreviation, a credential suffix, a PDF line-wrap
+# artifact) -- these tests encode exactly the variants that scan validated,
+# so a genuinely invented name (no trace of it anywhere) is still caught.
+
+REAL_PRODUCTION_TEXT = (
+    "RDA EDAWN, Amanda Berry- infrastructure operators from a single Nevada "
+    "operation. The company prioritizes recruiting\nJones from within the state "
+    "across manufacturing. Agency Name\n\n\nKimley-Horn and Associates, In\n\n\n"
+    "Job Title. Email: jhaughton@synergyconsultingca.com. Certificate holder: "
+    "FRANCISCO V. AGUILAR, Secretary of State."
+)
+
+
+def test_name_grounded_true_for_an_exact_match():
+    assert name_grounded("Amanda Berry-Jones", "The applicant is Amanda Berry-Jones, CFO.") is True
+
+
+def test_name_grounded_true_for_a_parenthetical_abbreviation_either_direction():
+    assert name_grounded("EDAWN", "Economic Development Authority of Western Nevada (EDAWN)") is True
+    assert name_grounded("Economic Development Authority of Western Nevada (EDAWN)",
+                         "supported by EDAWN") is True
+
+
+def test_name_grounded_true_for_a_credential_suffix():
+    assert name_grounded("Beth Chow, AICP", "signed by Beth Chow, AICP, Senior Planner") is True
+
+
+def test_name_grounded_true_for_a_dropped_or_added_middle_initial():
+    assert name_grounded("Peter Irby", "Contact: Peter P. Irby, Plant Manager") is True
+
+
+def test_name_grounded_true_for_a_pdf_line_wrap_split_mid_word():
+    """The real Type III production case: 'Amanda Berry-' then a literal
+    newline then 'Jones' several words later, from a two-column PDF layout."""
+    assert name_grounded("Amanda Berry-Jones", REAL_PRODUCTION_TEXT) is True
+
+
+def test_name_grounded_true_for_a_field_truncated_at_column_width():
+    """The real Heritage Valley production case: 'Kimley-Horn and Associates,
+    In' cut off before 'c.' by a form field's own width."""
+    assert name_grounded("Kimley-Horn and Associates, Inc.", REAL_PRODUCTION_TEXT) is True
+
+
+def test_name_grounded_false_for_a_name_with_no_trace_at_all():
+    assert name_grounded("Completely Fictional Person", REAL_PRODUCTION_TEXT) is False
+
+
+def test_reject_ungrounded_names_drops_only_the_ungrounded_entry():
+    data = {"named_people": [{"name": "Amanda Berry-Jones"}, {"name": "Nobody Real"}],
+           "named_firms": [{"name": "EDAWN"}]}
+    out, rejected = reject_ungrounded_names(data, REAL_PRODUCTION_TEXT)
+    assert [p["name"] for p in out["named_people"]] == ["Amanda Berry-Jones"]
+    assert out["named_firms"] == [{"name": "EDAWN"}]
+    assert len(rejected) == 1
+    assert rejected[0]["field"] == "named_people" and rejected[0]["value"] == "Nobody Real"
+
+
+def test_reject_ungrounded_names_is_a_noop_when_everything_grounds():
+    data = {"named_people": [{"name": "Amanda Berry-Jones"}], "named_firms": []}
+    out, rejected = reject_ungrounded_names(data, REAL_PRODUCTION_TEXT)
+    assert out["named_people"] == [{"name": "Amanda Berry-Jones"}]
+    assert rejected == []
+
+
+# --- audit_signal must agree with the write-time guard ----------------------
+# 2026-08-19 fix: audit_signal() used to run its OWN, looser check (bare
+# digit-boundary match, no unit-proximity requirement at all) instead of
+# unit_grounded() -- so `scout grounding` could call a value "grounded" that
+# reject_ungrounded_numbers() would have rejected at write time. Confirmed
+# in production: Blue Owl's mw_total=163.355 and FAAC's building_sqft=84800
+# are both unit-bearing fields the write-time guard rejects, but the OLD
+# audit_signal would have reported them grounded (a bare "163" or "84800"
+# never actually appears digit-for-digit in either fixture, but the point
+# stands generally -- the two checks must not be able to disagree at all).
+
+
+def test_audit_signal_agrees_with_the_write_time_guard_on_blue_owl(db_session):
+    sig, doc = _pair(db_session, BLUE_OWL, mw_total=163.355)
+    finding = audit_signal(sig, doc)[0]
+    assert finding.grounded is unit_grounded("mw_total", 163.355, BLUE_OWL) is False
+
+
+def test_audit_signal_agrees_with_the_write_time_guard_on_vernon(db_session):
+    sig, doc = _pair(db_session, VERNON, mw_total=99.0)
+    finding = audit_signal(sig, doc)[0]
+    assert finding.grounded is unit_grounded("mw_total", 99.0, VERNON) is True
+
+
+def test_audit_signal_flags_single_occurrence_unit_fields_as_weak(db_session):
+    """One real mention is real evidence, not corroborated evidence -- see
+    count_unit_grounded_occurrences' own docstring for why this is
+    informational (weak=True) rather than a rejection: the real production
+    case (Colovore Reno 1, mw_total=16.0) that motivated this is a real,
+    single, unit-bearing mention that is nonetheless describing a DIFFERENT
+    site's history, not this filing's own load -- something occurrence
+    COUNTING alone cannot distinguish from a genuinely correct single
+    mention (the Nimble 001 production case, mw_total=1.0, 'about 1 MW',
+    which is correct). Both are single-occurrence and both are `weak`;
+    neither is auto-rejected, because rejecting Nimble's real value to catch
+    Colovore's wrong one would be a worse trade than leaving both flagged
+    for a human to glance at."""
+    sig, doc = _pair(db_session, "a 99 MW emergency system", mw_total=99.0)
+    finding = audit_signal(sig, doc)[0]
+    assert finding.grounded is True
+    assert finding.weak is True
+    assert count_unit_grounded_occurrences("mw_total", 99.0, "a 99 MW emergency system") == 1
+
+
+def test_audit_signal_does_not_flag_multiply_corroborated_values_as_weak(db_session):
+    text = "The facility draws 50 MW. Total site capacity: 50 MW as confirmed in Table 2."
+    sig, doc = _pair(db_session, text, mw_total=50.0)
+    finding = audit_signal(sig, doc)[0]
+    assert finding.grounded is True
+    assert finding.weak is False
+
+
+# --- fix_corpus: retroactive correction of already-persisted rows ----------
+# 2026-08-19: the real gap this closes. Blue Owl (mw_total=163.355) and FAAC
+# (building_sqft=84800) -- both this module's OWN motivating examples --
+# were STILL sitting on live signals, because the write-time guard only
+# ever runs forward from when it was added, never backward over rows
+# extracted before it existed.
+
+from app.grounding import fix_corpus, fix_text  # noqa: E402
+
+
+def test_fix_corpus_nulls_an_already_persisted_ungrounded_number(db_session):
+    sig, doc = _pair(db_session, BLUE_OWL, mw_total=163.355)
+    result = fix_corpus(db_session)
+    assert result["n_signals_corrected"] == 1
+    db_session.refresh(sig)
+    assert sig.mw_total is None
+    assert sig.extraction_json["rejected_numeric"][0]["field"] == "mw_total"
+
+
+def test_fix_corpus_removes_an_already_persisted_ungrounded_name(db_session):
+    sig, doc = _pair(db_session, REAL_PRODUCTION_TEXT,
+                     named_people=[{"name": "Amanda Berry-Jones"}, {"name": "Nobody Real"}])
+    result = fix_corpus(db_session)
+    assert result["n_signals_corrected"] == 1
+    db_session.refresh(sig)
+    assert [p["name"] for p in sig.named_people] == ["Amanda Berry-Jones"]
+
+
+def test_fix_corpus_leaves_a_clean_signal_untouched(db_session):
+    sig, doc = _pair(db_session, VERNON, mw_total=99.0, acres=11.55)
+    result = fix_corpus(db_session)
+    assert result["n_signals_corrected"] == 0
+    db_session.refresh(sig)
+    assert sig.mw_total == 99.0 and sig.acres == 11.55
+
+
+def test_fix_corpus_preserves_prior_rejections_rather_than_overwriting(db_session):
+    """A signal that was ALREADY flagged at write time (a different field)
+    must keep that record when a retroactive pass corrects a second one --
+    the auditable history is additive, not last-write-wins."""
+    sig, doc = _pair(db_session, BLUE_OWL, mw_total=163.355)
+    sig.extraction_json = {"rejected_numeric": [{"field": "acres", "value": 5.0,
+                                                 "reason": "prior write-time rejection"}],
+                           "rejected_names": []}
+    db_session.add(sig); db_session.commit()
+
+    fix_corpus(db_session)
+    db_session.refresh(sig)
+    fields = {r["field"] for r in sig.extraction_json["rejected_numeric"]}
+    assert fields == {"acres", "mw_total"}
+
+
+def test_fix_text_reports_nothing_to_fix_on_a_clean_corpus(db_session):
+    _pair(db_session, VERNON, mw_total=99.0)
+    text = fix_text(fix_corpus(db_session))
+    assert "Nothing to fix" in text
+
+
+def test_fix_text_reports_what_was_corrected(db_session):
+    _pair(db_session, BLUE_OWL, mw_total=163.355)
+    text = fix_text(fix_corpus(db_session))
+    assert "nulled mw_total=163.355" in text

@@ -81,17 +81,138 @@ def unit_grounded(field: str, value: float, text: str) -> bool:
     fact. Requiring the unit token nearby is what separates 99 in "99 MW" from 99 in
     "$99,000,000".
     """
+    return count_unit_grounded_occurrences(field, value, text) > 0
+
+
+def count_unit_grounded_occurrences(field: str, value: float, text: str) -> int:
+    """How many INDEPENDENT places in the text ground this value+unit --
+    unit_grounded() only needs to know "more than zero"; this is also used
+    to flag single-occurrence grounding as weaker evidence (see WEAK_
+    SINGLE_OCCURRENCE below): one mention is real but unconfirmed, several
+    independent mentions corroborate each other the way a repeated MW
+    figure in Vernon's own filing does.
+
+    Deliberately NOT a fix for subject misattribution (a number that is
+    genuinely present, with its unit, but describes something OTHER than
+    this filing's own subject -- confirmed in production, Colovore Reno 1's
+    mw_total=16.0 grounds against "(16MW in RNO01)", a company-history
+    aside about an existing DIFFERENT site, not this filing's own stated
+    load). That is explicitly out of scope for mechanical grounding per
+    this module's own docstring ("a number can be present and still be the
+    wrong one... only hand verification catches that") -- occurrence
+    counting cannot tell a real corroborating repeat from a real but
+    unrelated single mention, it can only tell "one" from "several", which
+    is why this is surfaced as `weak`, not auto-rejected.
+    """
     pattern = _UNIT_RE.get(field)
     if pattern is None:
-        return True                      # not a unit-bearing field; nothing to check
+        return 1                      # not a unit-bearing field; nothing to check
     lower = text.lower()
+    n = 0
     for variant in _variants(value):
         for m in _value_pattern(variant.lower()).finditer(lower):
             lo = max(0, m.start() - UNIT_PROXIMITY_CHARS)
             hi = m.end() + UNIT_PROXIMITY_CHARS
             if pattern.search(lower[lo:hi]):
-                return True
+                n += 1
+    return n
+
+
+def _name_variants(name: str) -> set[str]:
+    """How a real, correctly-identified name might legitimately fail a naive
+    exact-substring check against the raw extracted text, WITHOUT being
+    invented -- confirmed against the real production corpus (2026-08-19,
+    all 474 signals): a parenthetical abbreviation the model expanded or
+    contracted ("EDAWN" <-> "Economic Development Authority of Western
+    Nevada"), a credential suffix ("Beth Chow, AICP"), a middle initial
+    added or dropped ("Peter Irby" <-> "Peter P. Irby"), or a PDF
+    text-extraction artifact -- a mid-word line wrap ("Berry-\\nJones") or a
+    field cut off at a column width ("Kimley-Horn and Associates, In"). None
+    of those are fabrication; a name with NO trace of any of its
+    significant words anywhere in the text is."""
+    variants: set[str] = {name}
+    m = re.match(r"^(.*?)\s*\(([^)]+)\)\s*$", name)
+    if m:
+        variants.add(m.group(1).strip())
+        variants.add(m.group(2).strip())
+    variants.add(re.sub(r",\s*[A-Z]{2,5}$", "", name).strip())  # trailing credential
+    tokens = [t for t in re.split(r"[\s,]+", name) if t]
+    if len(tokens) > 1:
+        variants.add(tokens[-1])                    # surname / last word
+        variants.add(f"{tokens[0]} {tokens[-1]}")    # first + last, drop middles
+    # Hyphenated compounds (surnames, firm names) split further: the real
+    # production case this exists for is a two-column PDF layout that
+    # interleaved unrelated text between "Berry-" and "Jones" -- nowhere
+    # near adjacent even after whitespace collapse, so "Berry-Jones" as one
+    # token never matches, but "Jones" alone, checked independently, does.
+    for t in list(tokens):
+        for part in t.split("-"):
+            if len(part) > 2:
+                variants.add(part)
+    return {v for v in variants if len(v) > 2}
+
+
+def name_grounded(name: str, text: str) -> bool:
+    """True if `name` (or a real-world-plausible variant of it, see
+    _name_variants) appears literally in `text`. Whitespace is collapsed
+    first so a PDF line-wrap that splits one name across a newline (a
+    real, confirmed production case: "Amanda Berry-\\nJones") does not read
+    as absent.
+
+    Also accepts a long, unambiguous PREFIX of the name/firm as grounding
+    evidence -- confirmed production case (Heritage Valley): a form field
+    literally cut off at its own column width, "Kimley-Horn and
+    Associates, In", for the model's own correct "Kimley-Horn and
+    Associates, Inc." A short name has no long-enough prefix to be
+    unambiguous, so this only engages past a length floor.
+    """
+    collapsed = re.sub(r"\s+", " ", text).lower()
+    for variant in _name_variants(name):
+        if re.sub(r"\s+", " ", variant).lower() in collapsed:
+            return True
+    full = re.sub(r"\s+", " ", name).strip().lower()
+    if len(full) >= 12:
+        prefix = full[:max(12, int(len(full) * 0.8))]
+        if prefix in collapsed:
+            return True
     return False
+
+
+def reject_ungrounded_names(data: dict, text: str) -> tuple[dict, list[dict]]:
+    """Same contract as reject_ungrounded_numbers, for named_people/
+    named_firms: entries with no textual basis at all are dropped, not
+    downgraded, and the drop is reported so it stays auditable.
+
+    2026-08-19: this field pair had NO grounding check of any kind before
+    this -- confirmed by reading app/pipeline/extract.py, where
+    signal.named_people/named_firms were set directly from the raw model
+    output. A retroactive scan of all 474 production signals found zero
+    confirmed pure inventions (every flagged name traced to a real
+    variant per _name_variants above), but the absence of ANY check was
+    real and structural, not merely unexercised so far."""
+    rejections: list[dict] = []
+    for field_name in ("named_people", "named_firms"):
+        items = data.get(field_name)
+        if not items:
+            continue
+        kept, dropped = [], []
+        for item in items:
+            name = (item or {}).get("name") or ""
+            if name.strip() and name_grounded(name, text):
+                kept.append(item)
+            else:
+                dropped.append(item)
+        if dropped:
+            data[field_name] = kept
+            for item in dropped:
+                rejections.append({
+                    "field": field_name, "value": item.get("name"),
+                    "reason": f"{item.get('name')!r} does not appear in the source "
+                              f"document, under any of its real-world-plausible "
+                              f"variants (parenthetical/credential/initial stripped, "
+                              f"line-wrap collapsed)",
+                })
+    return data, rejections
 
 
 def reject_ungrounded_numbers(data: dict, text: str) -> tuple[dict, list[dict]]:
@@ -177,6 +298,23 @@ def _numbers_near(text: str, needle_len: int) -> list[str]:
 
 
 def audit_signal(signal: Signal, doc: RawDocument) -> list[Finding]:
+    """Read-only audit of what's currently persisted. Uses the EXACT same
+    unit_grounded() logic reject_ungrounded_numbers() checks at write time
+    for every unit-bearing field (2026-08-19 fix -- this used to be a
+    separate, looser inline check with no unit-proximity requirement at
+    all, so `scout grounding` could report a value "grounded" that the
+    write-time guard would have rejected, or vice versa. Confirmed in
+    production: Blue Owl's mw_total=163.355 and FAAC's building_sqft=84800
+    both predate this guard's own deployment and are STILL grounded=False
+    under this shared logic -- they were never re-checked after the guard
+    was added, only newly-extracted documents were. See `scout grounding
+    --fix` for the retroactive pass that corrects already-persisted rows.
+
+    Fields with no unit token (generator_count, building_count, etc.) keep
+    the original bare digit-presence check -- reject_ungrounded_numbers()
+    never covered these either (see UNIT_TOKENS), so there is nothing to
+    unify there.
+    """
     text = doc.raw_text or ""
     lower = text.lower()
     out: list[Finding] = []
@@ -184,12 +322,21 @@ def audit_signal(signal: Signal, doc: RawDocument) -> list[Finding]:
         value = getattr(signal, fname, None)
         if value is None:
             continue
-        variants = _variants(float(value))
-        grounded = any(_value_pattern(v.lower()).search(lower) for v in variants)
-        weak = grounded and abs(float(value)) < LOW_SIGNAL_BELOW
+        fval = float(value)
+        variants = _variants(fval)
+        if fname in UNIT_TOKENS:
+            n = count_unit_grounded_occurrences(fname, fval, text)
+            grounded = n > 0
+            # A single independent mention is real evidence, but not
+            # corroborated evidence -- see count_unit_grounded_occurrences'
+            # own docstring for why this can flag but not reject.
+            weak = grounded and n == 1
+        else:
+            grounded = any(_value_pattern(v.lower()).search(lower) for v in variants)
+            weak = grounded and abs(fval) < LOW_SIGNAL_BELOW
         out.append(Finding(
             doc_id=doc.id, signal_id=signal.id, source=doc.source,
-            title=doc.title or "", field=fname, value=float(value),
+            title=doc.title or "", field=fname, value=fval,
             grounded=grounded, weak=weak,
             nearest=[] if grounded else _numbers_near(text, len(variants[0])),
         ))
@@ -237,4 +384,96 @@ def audit_text(result: dict) -> str:
         lines.append(f"    {f.field} = {f.value:g}   not found in source text")
         if f.nearest:
             lines.append(f"    numbers actually present: {', '.join(f.nearest[:8])}")
+    return "\n".join(lines)
+
+
+def fix_corpus(session: Session) -> dict:
+    """Retroactively re-apply the CURRENT grounding guard (numeric AND
+    name) to every already-persisted signal, and correct what fails.
+
+    2026-08-19: the reason this exists. reject_ungrounded_numbers() runs at
+    write time, inside app.pipeline.extract._extract_docs, correctly,
+    BEFORE a signal is created -- but a RawDocument is only ever processed
+    ONCE (processed_at gates the extract query), so a row extracted before
+    this guard existed, or before a guard IMPROVEMENT shipped, never gets
+    re-checked against the newer logic. Confirmed in production: Blue Owl's
+    mw_total=163.355 and FAAC's building_sqft=84800 are both the guard's
+    OWN motivating examples (see this module's docstring) and were STILL
+    sitting on live, board-visible signals, because both predate the guard
+    and nothing had ever gone back to apply it to already-written rows.
+
+    This is that retroactive pass -- the one-time and repeatable fix for
+    "the guard runs, but only forward from when it was added." Run it
+    again after any future change to unit_grounded()/name_grounded()'s own
+    logic, for the same reason.
+    """
+    signals = session.exec(select(Signal).where(Signal.raw_document_id.is_not(None))).all()
+    changes: list[dict] = []
+    for sig in signals:
+        doc = session.get(RawDocument, sig.raw_document_id)
+        if doc is None or not doc.raw_text:
+            continue
+        text = doc.raw_text
+        touched = False
+        row_rejected_numeric: list[dict] = []
+        for fname in UNIT_TOKENS:
+            value = getattr(sig, fname, None)
+            if value is None:
+                continue
+            fval = float(value)
+            if unit_grounded(fname, fval, text):
+                continue
+            setattr(sig, fname, None)
+            row_rejected_numeric.append({
+                "field": fname, "value": fval,
+                "reason": f"{fval:g} does not appear in the source document with a "
+                          f"{fname.split('_')[-1]} unit within {UNIT_PROXIMITY_CHARS} "
+                          f"characters (retroactive fix, 2026-08-19)",
+            })
+            touched = True
+        row_rejected_names: list[dict] = []
+        for fname in ("named_people", "named_firms"):
+            items = getattr(sig, fname, None) or []
+            kept, dropped = [], []
+            for item in items:
+                name = (item or {}).get("name") or ""
+                if name.strip() and name_grounded(name, text):
+                    kept.append(item)
+                else:
+                    dropped.append(item)
+            if dropped:
+                setattr(sig, fname, kept)
+                for item in dropped:
+                    row_rejected_names.append({
+                        "field": fname, "value": item.get("name"),
+                        "reason": f"{item.get('name')!r} does not appear in the source "
+                                  f"document (retroactive fix, 2026-08-19)",
+                    })
+                touched = True
+        if touched:
+            ej = dict(sig.extraction_json or {})
+            ej["rejected_numeric"] = (ej.get("rejected_numeric") or []) + row_rejected_numeric
+            ej["rejected_names"] = (ej.get("rejected_names") or []) + row_rejected_names
+            sig.extraction_json = ej
+            session.add(sig)
+            changes.append({"signal_id": sig.id, "project_name": sig.project_name,
+                            "rejected_numeric": row_rejected_numeric,
+                            "rejected_names": row_rejected_names})
+    if changes:
+        session.commit()
+    return {"n_signals_scanned": len(signals), "n_signals_corrected": len(changes),
+            "changes": changes}
+
+
+def fix_text(result: dict) -> str:
+    lines = [f"Retroactive grounding fix — {result['n_signals_scanned']} signals scanned, "
+             f"{result['n_signals_corrected']} corrected"]
+    if not result["changes"]:
+        return lines[0] + "\nNothing to fix — every persisted value already passes the current guard."
+    for c in result["changes"]:
+        lines.append(f"\nsignal #{c['signal_id']} {c['project_name']!r}")
+        for r in c["rejected_numeric"]:
+            lines.append(f"  nulled {r['field']}={r['value']:g} — {r['reason']}")
+        for r in c["rejected_names"]:
+            lines.append(f"  removed {r['field']}={r['value']!r} — {r['reason']}")
     return "\n".join(lines)

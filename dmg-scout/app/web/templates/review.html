@@ -27,14 +27,15 @@
 </table>
 
 {% if flagged is defined and flagged %}
-<h2 style="margin-top:26px">Rejected numbers — the document did not support these</h2>
+<h2 style="margin-top:26px">Rejected numbers and names — the document did not support these</h2>
 <p class="dim" style="margin-top:-6px">
-  Already null everywhere downstream and excluded from sizing; nothing is waiting on
-  you. Listed so a rejection is visible rather than a silent hole, and so a run of
-  them on one source gets noticed. Fix by correcting the filing's reading by hand,
-  not by loosening the guard.</p>
+  Already dropped everywhere downstream (numbers nulled, names removed from the
+  list) and excluded from sizing; nothing is waiting on you. Listed so a
+  rejection is visible rather than a silent hole, and so a run of them on one
+  source gets noticed. Fix by correcting the filing's reading by hand, not by
+  loosening the guard.</p>
 <table>
-<thead><tr><th>Project</th><th>Field</th><th class="num">Rejected value</th>
+<thead><tr><th>Project</th><th>Field</th><th>Rejected value</th>
   <th>Why</th><th>Numbers actually in the document</th></tr></thead>
 <tbody>
 {% for f in flagged %}
@@ -42,7 +43,7 @@
   <td>{{ f.signal.project_name or '(unnamed)' }}<br>
       <span class="dim">{% if f.doc %}<a href="{{ f.doc.url }}">{{ f.doc.source }} doc {{ f.doc.id }}</a>{% else %}—{% endif %}</span></td>
   <td class="mono">{{ f.rej.field }}</td>
-  <td class="num mono">{{ '%g'|format(f.rej.value) }}</td>
+  <td class="{{ 'num ' if f.rej.value is number else '' }}mono">{{ '%g'|format(f.rej.value) if f.rej.value is number else f.rej.value }}</td>
   <td class="dim">{{ f.rej.reason }}</td>
   <td class="dim mono">{{ (f.rej.nearest or [])[:6]|join(', ') or '—' }}</td>
 </tr>

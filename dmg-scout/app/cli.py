@@ -1511,8 +1511,17 @@ def doc_stats(
 
 
 @app.command("grounding")
-def grounding(strict: bool = typer.Option(
-        False, "--strict", help="Exit 1 if any asserted number is ungrounded")) -> None:
+def grounding(
+    strict: bool = typer.Option(
+        False, "--strict", help="Exit 1 if any asserted number is ungrounded"),
+    fix: bool = typer.Option(
+        False, "--fix", help="Retroactively re-apply the current grounding guard "
+                             "(numeric AND named-entity) to every already-persisted "
+                             "signal, correcting anything that fails -- see "
+                             "app.grounding.fix_corpus's own docstring for why this "
+                             "exists: the write-time guard only ever runs forward "
+                             "from when it was added or last improved."),
+) -> None:
     """Check every asserted number against its source document.
 
     Finds invented values, which is the failure that actually reaches a customer —
@@ -1520,6 +1529,12 @@ def grounding(strict: bool = typer.Option(
     misreading: a number can be present in the document and still be the wrong one,
     and only hand verification catches that.
     """
+    if fix:
+        from app.grounding import fix_corpus, fix_text
+        with session_scope() as session:
+            result = fix_corpus(session)
+        typer.echo(fix_text(result))
+        return
     from app.grounding import audit_corpus, audit_text
     with session_scope() as session:
         result = audit_corpus(session)

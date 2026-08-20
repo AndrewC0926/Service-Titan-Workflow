@@ -10,7 +10,7 @@ from datetime import datetime
 from sqlmodel import Session, select
 
 from app.config import Config
-from app.grounding import reject_ungrounded_numbers
+from app.grounding import reject_ungrounded_names, reject_ungrounded_numbers
 from app.http import PoliteClient
 from app.llm import LLMUnavailable, extract
 from app.normalize import normalize_state
@@ -71,7 +71,7 @@ def _extract_docs(session: Session, cfg: Config, limit: int) -> dict:
     ).all()
 
     stats = {"extracted": 0, "errors": 0, "rejected_numbers": 0,
-             "flagged_signals": 0}
+             "rejected_names": 0, "flagged_signals": 0}
     with PoliteClient() as client:
         for doc in docs:
             text = _ensure_body(doc, client)
@@ -121,6 +121,18 @@ def _extract_docs(session: Session, cfg: Config, limit: int) -> dict:
                 for r in rejected:
                     log.warning("doc %s: rejected %s=%g — %s",
                                 doc.id, r["field"], r["value"], r["reason"])
+            # Same guard, for named_people/named_firms -- these had NO grounding
+            # check at all before 2026-08-19 (confirmed: nothing between the raw
+            # model output and signal.named_people/named_firms below). A
+            # retroactive scan of the whole production corpus found zero
+            # confirmed pure inventions under this check, but that is not the
+            # same as the check having existed.
+            data, rejected_names = reject_ungrounded_names(data, text)
+            if rejected_names:
+                stats["rejected_names"] += len(rejected_names)
+                for r in rejected_names:
+                    log.warning("doc %s: rejected %s=%r — %s",
+                                doc.id, r["field"], r["value"], r["reason"])
 
             # Idempotency: one signal per raw document; re-extraction replaces it.
             existing = session.exec(
@@ -162,8 +174,9 @@ def _extract_docs(session: Session, cfg: Config, limit: int) -> dict:
             # review queue can show what was thrown away rather than only a null.
             signal.extraction_json = {"raw": data.get("_raw", {}),
                                       "sections": data.get("_sections", {}),
-                                      "rejected_numeric": rejected}
-            if rejected:
+                                      "rejected_numeric": rejected,
+                                      "rejected_names": rejected_names}
+            if rejected or rejected_names:
                 stats["flagged_signals"] += 1
             signal.named_people = data.get("named_people", [])
             signal.named_firms = data.get("named_firms", [])
