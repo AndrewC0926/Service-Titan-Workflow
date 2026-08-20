@@ -2,8 +2,16 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+# Imported, not duplicated: ScheduleEntryExtraction.role is classified into
+# the SAME 13-role taxonomy /lines and /project already group DMG's own line
+# card by (see app/accounts.py's own module comment for why 13 roles, not
+# the 18 finer accounts.adjacency categories). One canonical list; a second,
+# hand-copied one here would drift the moment a role is added or renamed.
+from app.accounts import ROLE_ORDER
 
 EXTRACTION_JSON_SCHEMA: dict = {
     "type": "object",
@@ -255,6 +263,23 @@ class ScheduleEntryExtraction(BaseModel):
                     "schedule table's own heading (e.g. 'Rooftop Unit', 'Air Handling Unit', "
                     "'Chiller', 'Fan Coil Unit', 'VAV Box', 'Exhaust Fan'). Null if the "
                     "document doesn't state or clearly imply a type for this tag.")
+    role: Literal[ROLE_ORDER] | None = Field(  # type: ignore[valid-type]
+        default=None,
+        description="Which of these 13 building roles equipment_type belongs to -- a "
+                    "CLASSIFICATION judgment, not something to quote or ground: air_handling "
+                    "(AHUs, RTUs, packaged units), cooling_generation (chillers, VRF/split "
+                    "condensing units, heat pumps), heat_rejection (cooling towers, dry coolers, "
+                    "condensers rejecting heat outdoors), air_distribution_terminal (VAV/CAV "
+                    "boxes, diffusers, grilles, fan coils, chilled beams), fans_ventilation "
+                    "(exhaust/supply fans, HVLS fans, air curtains), dampers_life_safety "
+                    "(fire/smoke dampers, louvers), controls_valves (BAS, valves, sensors), "
+                    "indoor_air_quality (filtration, UV, air cleaning), humidification "
+                    "(humidifiers/dehumidifiers), acoustics_seismic (sound attenuation, seismic "
+                    "restraint hardware), energy_recovery (ERVs, heat-recovery wheels/coils), "
+                    "water_treatment, heating_specialty (boilers, unit heaters, and anything "
+                    "that doesn't clearly fit the other 12). Null if equipment_type itself is "
+                    "null or genuinely doesn't fit any of these (rare -- most HVAC equipment "
+                    "fits one).")
     capacity_value: float | None = Field(
         default=None,
         description="The primary capacity/size number for this unit, exactly as printed -- "

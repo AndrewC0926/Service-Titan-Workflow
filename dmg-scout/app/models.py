@@ -2074,6 +2074,14 @@ class ScheduleEntry(SQLModel, table=True):
     project_id: int = Field(foreign_key="projects.id", index=True)
     tag: str = Field(index=True)
     equipment_type: str | None = None
+    # One of app.accounts.ROLE_ORDER's 13 values, or null -- the SAME
+    # building-role taxonomy DMG's own line card (ProductLine.building_role)
+    # is grouped by, so a tag maps onto "which of our lines could serve
+    # this" directly (app/schedule_mapping.py) rather than through a second,
+    # hand-maintained equipment_type -> role table that could drift from the
+    # line card's own. A classification judgment, like triage's category --
+    # not something grounding checks against the document text.
+    role: str | None = Field(default=None, index=True)
     capacity_value: float | None = None
     capacity_unit: str | None = None
     airflow_cfm: float | None = None

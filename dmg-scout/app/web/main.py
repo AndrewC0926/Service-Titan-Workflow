@@ -1012,6 +1012,9 @@ def project_detail(project_id: int, request: Request,
             .order_by(ScheduleEntry.tag)).all()
         for doc in documents
     }
+    from app.schedule_mapping import actionable, map_project_schedule_to_line_card
+    schedule_mapping = map_project_schedule_to_line_card(session, project_id)
+    actionable_mapping = actionable(schedule_mapping)
 
     return templates.TemplateResponse(request, "project.html", {
         "p": project, "timeline": timeline, "people": people, "firms": firms,
@@ -1024,6 +1027,7 @@ def project_detail(project_id: int, request: Request,
         "socal_card_disclosure": SOCAL_CARD_DISCLOSURE,
         "competing_by_role": competing_by_role, "competitor_rep_firms": competitor_rep_firms,
         "documents": documents, "doc_entries": doc_entries,
+        "schedule_mapping": schedule_mapping, "actionable_mapping": actionable_mapping,
         "tb": _title_block(session), "active": "board",
     })
 

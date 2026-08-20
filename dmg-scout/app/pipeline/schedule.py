@@ -134,6 +134,7 @@ def extract_schedule(session: Session, cfg: Config, doc: ProjectDocument) -> dic
         session.add(ScheduleEntry(
             project_document_id=doc.id, project_id=doc.project_id,
             tag=grounded["tag"], equipment_type=grounded.get("equipment_type"),
+            role=grounded.get("role"),
             capacity_value=grounded.get("capacity_value"), capacity_unit=grounded.get("capacity_unit"),
             airflow_cfm=grounded.get("airflow_cfm"),
             basis_of_design_manufacturer=grounded.get("basis_of_design_manufacturer"),

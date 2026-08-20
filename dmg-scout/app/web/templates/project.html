@@ -240,6 +240,60 @@
 <p class="dim">No documents attached yet.</p>
 {% endfor %}
 
+{% if schedule_mapping %}
+<h2>Schedule vs. line card</h2>
+<p class="note" style="margin-top:-6px">Every scheduled tag mapped onto DMG's own line card: which of our lines could
+  serve it, who actually holds the basis of design, and which of our lines are named as an acceptable equal. A tag
+  the document didn't give enough to classify a role for is shown as unclassified, not guessed.</p>
+
+{% if actionable_mapping %}
+<div class="callout callout-warn" style="max-width:56rem">
+  {{ icon('triangle-alert') }}
+  <span>
+  <strong>{{ actionable_mapping|length }} tag(s) worth acting on</strong>
+  <span class="body">A competitor holds the basis of design here, and one of our own lines is named, on this same
+    document, as an acceptable equal — everything needed to ask for the substitution is already on the page.</span>
+  </span>
+</div>
+<table style="max-width:1100px">
+<thead><tr><th>Tag</th><th>Role</th><th>Competitor basis of design</th><th>Our approved-equal line(s)</th></tr></thead>
+<tbody>
+{% for m in actionable_mapping %}
+<tr>
+  <td class="mono">{{ m.tag }}</td>
+  <td>{{ m.role_label }}</td>
+  <td class="bad">{{ m.basis_of_design_manufacturer }}</td>
+  <td>{% for l in m.equal_lines_that_are_ours %}<a href="/line/{{ l.id }}">{{ l.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% endif %}
+
+<details class="mt-2">
+  <summary class="note" style="cursor:pointer">All {{ schedule_mapping|length }} scheduled tag(s), by status</summary>
+  <table style="max-width:1200px;margin-top:8px">
+  <thead><tr><th>Tag</th><th>Role</th><th>Status</th><th>Basis of design</th><th>Approved equals (raw)</th><th>Our lines for this role</th></tr></thead>
+  <tbody>
+  {% for m in schedule_mapping %}
+  <tr>
+    <td class="mono">{{ m.tag }}{% if m.needs_review %} <span class="caveat" title="This tag's extraction still needs review">?</span>{% endif %}</td>
+    <td>{{ m.role_label or '—' }}</td>
+    <td>
+      {%- if m.status in ('actionable_equal', 'we_hold_bod') -%}<span class="ok">{{ m.status_label }}</span>
+      {%- elif m.status == 'gap_no_equal' -%}<span class="bad">{{ m.status_label }}</span>
+      {%- else -%}<span class="dim">{{ m.status_label }}</span>{%- endif -%}
+    </td>
+    <td>{{ m.basis_of_design_manufacturer or '—' }}</td>
+    <td>{{ m.approved_equals | join(', ') if m.approved_equals else '—' }}</td>
+    <td>{% for l in m.our_lines_for_role %}<a href="/line/{{ l.id }}">{{ l.name }}</a>{% if not loop.last %}, {% endif %}{% else %}<span class="bad">none</span>{% endfor %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+  </table>
+</details>
+{% endif %}
+
 <h2>Outcome</h2>
 <form method="post" action="/project/{{ p.id }}/outcome" class="grid" style="max-width:900px">
   <select name="status" required>
