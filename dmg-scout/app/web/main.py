@@ -57,10 +57,12 @@ from app.models import (
     ProductLine,
     Project,
     ProjectContact,
+    ProjectDocument,
     ProjectFirm,
     ProjectSignal,
     RawDocument,
     ReviewQueue,
+    ScheduleEntry,
     HcaiCountyActivity,
     HospitalBuilding,
     RetrofitBuilding,
@@ -1000,6 +1002,17 @@ def project_detail(project_id: int, request: Request,
     ladder = build_ladder(session, project)
     from app.pipeline.size_score import project_score_breakdown
     score_breakdown = project_score_breakdown(session, load_config(), project)
+
+    documents = session.exec(
+        select(ProjectDocument).where(ProjectDocument.project_id == project_id)
+        .order_by(ProjectDocument.uploaded_at.desc())).all()
+    doc_entries = {
+        doc.id: session.exec(
+            select(ScheduleEntry).where(ScheduleEntry.project_document_id == doc.id)
+            .order_by(ScheduleEntry.tag)).all()
+        for doc in documents
+    }
+
     return templates.TemplateResponse(request, "project.html", {
         "p": project, "timeline": timeline, "people": people, "firms": firms,
         "resolved_firms": resolved_firms, "outcome_statuses": OUTCOME_STATUSES,
@@ -1010,6 +1023,7 @@ def project_detail(project_id: int, request: Request,
         "role_offerings": role_offerings, "facility_type": facility_type,
         "socal_card_disclosure": SOCAL_CARD_DISCLOSURE,
         "competing_by_role": competing_by_role, "competitor_rep_firms": competitor_rep_firms,
+        "documents": documents, "doc_entries": doc_entries,
         "tb": _title_block(session), "active": "board",
     })
 
@@ -1110,6 +1124,56 @@ def mark_false_positive(project_id: int, reason: str = Form(""),
                                   score_at_mark=p.score, window_at_mark=p.window.value))
     session.commit()
     return HTMLResponse('<span class="bad">marked FP ✓</span>')
+
+
+@app.post("/project/{project_id}/documents", response_class=HTMLResponse)
+async def upload_project_document(project_id: int, request: Request, file: UploadFile = File(...),
+                                  doc_type: str = Form("other"),
+                                  session: Session = Depends(get_session), auth_user: str = Depends(auth)):
+    """A rep attaches a PDF -- a drawing set, a Division 23 spec section, or
+    just the mechanical sheets. Stores it and reads its text layer; does NOT
+    run schedule extraction (a separate, explicit, LLM-costing step) -- see
+    app/pipeline/schedule.py."""
+    from app.pipeline.schedule import UploadRejected, attach_document
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404)
+    data = await file.read()
+    try:
+        attach_document(session, project_id=project_id, data=data,
+                        filename=file.filename or "document.pdf",
+                        content_type=file.content_type, doc_type=doc_type,
+                        uploaded_by=auth_user)
+    except UploadRejected as exc:
+        raise HTTPException(413 if "exceeds" in str(exc) else 400, detail=str(exc)) from exc
+    return RedirectResponse(f"/project/{project_id}", status_code=303)
+
+
+@app.post("/project/{project_id}/documents/{doc_id}/extract", response_class=HTMLResponse)
+def extract_project_document_schedule(project_id: int, doc_id: int,
+                                      session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.pipeline.schedule import ExtractionFailed, extract_schedule
+    doc = session.get(ProjectDocument, doc_id)
+    if not doc or doc.project_id != project_id:
+        raise HTTPException(404)
+    try:
+        stats = extract_schedule(session, load_config(), doc)
+    except ExtractionFailed as exc:
+        return HTMLResponse(f'<span class="bad">extraction failed — {exc}</span>')
+    return HTMLResponse(
+        f'<span class="ok">{stats["entries"]} row(s) extracted'
+        + (f', <span class="bad">{stats["needs_review"]} need review</span>' if stats["needs_review"] else '')
+        + '</span> — <a href="/project/' + str(project_id) + '">refresh the page</a> to see the schedule')
+
+
+@app.get("/project/{project_id}/documents/{doc_id}/download")
+def download_project_document(project_id: int, doc_id: int,
+                              session: Session = Depends(get_session), _: str = Depends(auth)):
+    doc = session.get(ProjectDocument, doc_id)
+    if not doc or doc.project_id != project_id:
+        raise HTTPException(404)
+    return Response(content=doc.data, media_type=doc.content_type,
+                    headers={"Content-Disposition": f'inline; filename="{doc.filename}"'})
 
 
 @app.post("/firms")

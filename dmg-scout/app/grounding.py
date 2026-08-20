@@ -264,6 +264,126 @@ def reject_ungrounded_numbers(data: dict, text: str) -> tuple[dict, list[dict]]:
     return data, rejections
 
 
+# Below this, a ScheduleEntry is flagged for review regardless of whether
+# every field grounded cleanly -- a model that is honestly unsure about a
+# rotated table or a split row should not get to skip review just because
+# the fields it did read happen to be real numbers. See
+# app.assumptions's "Equipment schedule extraction" group.
+SCHEDULE_LOW_CONFIDENCE_BELOW = 0.7
+
+
+_QUOTE_ELLIPSIS = re.compile(r"\s*(?:\.{3}|…)\s*")
+_NON_ALNUM = re.compile(r"[^a-z0-9]+")
+
+
+def _normalize_for_match(s: str) -> str:
+    """Lowercase, collapse every run of non-alphanumeric characters to one
+    space. Deliberately more aggressive than name_grounded's plain
+    whitespace collapse: a flattened schedule table uses "--", "|", ":" as
+    pure column-separator punctuation ("MANUFACTURER -- TRANE"), which a
+    model correctly treats as formatting, not content, when it copies a
+    fragment as "MANUFACTURER TRANE" -- confirmed against a real public
+    rooftop-unit schedule, 2026-08-20. Only used for schedule-entry
+    fragment matching, not for name_grounded/unit_grounded's own checks,
+    which stay conservative on purpose."""
+    return _NON_ALNUM.sub(" ", s.lower()).strip()
+
+
+def quote_grounded(quote: str, text: str) -> str | None:
+    """Checks `quote` against `text`, allowing for one real layout: a
+    TRANSPOSED schedule table (one row per FIELD, one column per unit --
+    confirmed against a real public rooftop-unit schedule, 2026-08-20) puts
+    a tag and its capacity/manufacturer many lines apart, so a model asked
+    for one verbatim excerpt legitimately cannot quote them as one
+    contiguous span and instead joins several real, separately-grounded
+    fragments with "...". That is a different, WEAKER finding than a quote
+    that is not in the document at all, and conflating the two would flag
+    the single most common real-world schedule layout as if every row were
+    fabricated.
+
+    Returns None if fully grounded as one contiguous (whitespace-collapsed)
+    span -- the strong case. Returns a short string describing what's
+    weaker if the quote is an ellipsis-joined sequence of fragments that
+    EACH ground individually (multi-span case) or contains a genuinely
+    unfound fragment (the real failure case). The caller (ground_schedule_
+    entry) turns a non-None return into a review reason; None means no
+    reason to add.
+
+    A floor of 8 characters per fragment, same reasoning as name_grounded's
+    own length floor: text too short to be distinctive proves nothing.
+    """
+    if not quote or not quote.strip():
+        return "source_quote is empty"
+    normalized_text = _normalize_for_match(text)
+    if _normalize_for_match(quote) in normalized_text:
+        return None
+    fragments = [f.strip() for f in _QUOTE_ELLIPSIS.split(quote) if f.strip()]
+    if len(fragments) < 2:
+        return "source_quote does not appear in the document"
+    ungrounded = [f for f in fragments
+                 if len(f) >= 8 and _normalize_for_match(f) not in normalized_text]
+    if ungrounded:
+        return f"source_quote fragment(s) not found in the document: {ungrounded!r}"
+    return ("source_quote is assembled from multiple separate locations in the document "
+           "(a transposed schedule table, most likely) rather than one contiguous excerpt -- "
+           "each fragment individually verified, but the row was not read off one line")
+
+
+def ground_schedule_entry(entry: dict, text: str) -> tuple[dict, list[str]]:
+    """Check one ScheduleEntryExtraction-shaped dict against the document
+    text it was extracted from. Returns (entry, reasons) -- reasons is
+    empty only when every check passes and confidence clears the floor.
+
+    Manufacturer fields (basis_of_design_manufacturer, approved_equals) are
+    REJECTED (nulled/filtered) on failure, same reject-not-downgrade
+    discipline as reject_ungrounded_numbers/reject_ungrounded_names above --
+    a manufacturer name Scout cannot find in the document must never reach a
+    rep as if it were read off the page. tag/capacity_value/source_quote
+    failures are reported but NOT nulled: a schedule row with no tag is not
+    useful to keep at all, so the row is flagged for a human to look at
+    rather than silently hollowed out.
+    """
+    reasons: list[str] = []
+    entry = dict(entry)
+
+    quote_issue = quote_grounded(entry.get("source_quote") or "", text)
+    if quote_issue:
+        reasons.append(quote_issue)
+
+    tag = entry.get("tag") or ""
+    if not tag or not name_grounded(tag, text):
+        reasons.append(f"tag {tag!r} does not appear in the document")
+
+    cap = entry.get("capacity_value")
+    if cap is not None:
+        try:
+            fcap = float(cap)
+        except (TypeError, ValueError):
+            fcap = None
+        if fcap is not None:
+            collapsed = re.sub(r"\s+", " ", text)
+            if not any(v in collapsed for v in _variants(fcap)):
+                reasons.append(f"capacity_value {fcap:g} does not appear in the document")
+
+    bod = entry.get("basis_of_design_manufacturer")
+    if bod and not name_grounded(bod, text):
+        reasons.append(f"basis_of_design_manufacturer {bod!r} does not appear in the document -- nulled")
+        entry["basis_of_design_manufacturer"] = None
+
+    kept_equals, dropped_equals = [], []
+    for mfr in entry.get("approved_equals") or []:
+        (kept_equals if mfr and name_grounded(mfr, text) else dropped_equals).append(mfr)
+    if dropped_equals:
+        reasons.append(f"approved_equals {dropped_equals!r} do not appear in the document -- dropped")
+    entry["approved_equals"] = kept_equals
+
+    confidence = entry.get("confidence") or 0.0
+    if confidence < SCHEDULE_LOW_CONFIDENCE_BELOW:
+        reasons.append(f"low extraction confidence ({confidence:.2f} < {SCHEDULE_LOW_CONFIDENCE_BELOW})")
+
+    return entry, reasons
+
+
 @dataclass
 class Finding:
     doc_id: int

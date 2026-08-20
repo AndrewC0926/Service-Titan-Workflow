@@ -1996,3 +1996,93 @@ class CaptureAudio(SQLModel, table=True):
     data: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
     size_bytes: int = 0
     created_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class ProjectDocument(SQLModel, table=True):
+    """A PDF a rep attaches to a project -- a drawing set, a Division 23 spec
+    section, or just the mechanical sheets, handed over by an engineer or a
+    GC. See app/pipeline/schedule.py for how this becomes ScheduleEntry rows.
+
+    Stored in Postgres, not on Render's local disk -- same reasoning as
+    CaptureAudio above (the web/cron containers' disks are ephemeral across
+    deploys). A drawing set runs larger than a voice note; MAX_UPLOAD_BYTES
+    in app/pipeline/schedule.py caps it well under what the basic-256mb
+    Postgres plan can hold at the volume one rep's project files produce. If
+    that volume grows enough to strain it, move to object storage -- not
+    done here on purpose, same as CaptureAudio's own note on this, since
+    nothing about this schema needs to change to do that later.
+
+    raw_text is extracted once at upload time (pdfplumber, cheap, no LLM) and
+    kept so schedule extraction can be re-run against it without re-reading
+    the PDF bytes -- and so a document with no text layer (a scanned, un-OCR'd
+    drawing set) is visibly distinguishable at a glance from one Scout simply
+    hasn't gotten to yet.
+    """
+    __tablename__ = "project_documents"
+
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="projects.id", index=True)
+    filename: str
+    content_type: str = Field(default="application/pdf")
+    data: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
+    size_bytes: int = 0
+    # drawing_set | spec_section | mechanical_sheets | other -- the rep's own
+    # label at upload time, purely descriptive (nothing downstream branches
+    # on it); free text rather than an enum so a document that's genuinely
+    # both isn't forced into one bucket.
+    doc_type: str = Field(default="other", index=True)
+    page_count: int | None = None
+    raw_text: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    uploaded_at: datetime = Field(default_factory=utcnow, index=True)
+    uploaded_by: str | None = None
+    extracted_at: datetime | None = None
+    # Set when pdf_to_text/schedule extraction itself failed (a corrupt file,
+    # an LLM error) -- kept distinct from "extracted_at is set but 0 rows
+    # found", which is a legitimate outcome for a document with no equipment
+    # schedule in it at all (e.g. an architectural sheet set).
+    extraction_error: str | None = None
+
+
+class ScheduleEntry(SQLModel, table=True):
+    """One equipment-schedule line item extracted from a ProjectDocument --
+    one tag, its capacity/airflow, and which manufacturer(s) the document
+    itself names for it. See app/pipeline/schedule.py.
+
+    Same grounding discipline as Signal (app/grounding.py): every field here
+    is checked against the source document's own text before being trusted,
+    and source_quote is not optional -- a row with no verbatim excerpt
+    backing it has nothing to ground it against and is unconditionally
+    needs_review. A rejected/ungrounded field is set to null and the reason
+    is recorded in extraction_json, exactly like Signal's rejected_numeric/
+    rejected_names -- never silently dropped, never silently kept as if
+    trusted.
+
+    needs_review is the union of every grounding failure PLUS a low raw
+    confidence score -- a human decides what "low" means for their own risk
+    tolerance by reading review_reason, not by re-deriving it from
+    extraction_json. Re-extraction (re-running against the same document)
+    deletes and replaces every row for that project_document_id, same
+    replace-not-append idiom as Signal's one-per-raw_document.
+    """
+    __tablename__ = "schedule_entries"
+
+    id: int | None = Field(default=None, primary_key=True)
+    project_document_id: int = Field(foreign_key="project_documents.id", index=True)
+    # Denormalized from project_documents.project_id so a project's full
+    # schedule (across every document attached to it) is one indexed query,
+    # not a join through project_documents for every read.
+    project_id: int = Field(foreign_key="projects.id", index=True)
+    tag: str = Field(index=True)
+    equipment_type: str | None = None
+    capacity_value: float | None = None
+    capacity_unit: str | None = None
+    airflow_cfm: float | None = None
+    basis_of_design_manufacturer: str | None = None
+    approved_equals: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
+    source_quote: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    source_page: int | None = None
+    confidence: float = 0.0
+    needs_review: bool = Field(default=False, index=True)
+    review_reason: str | None = None
+    extraction_json: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
+    created_at: datetime = Field(default_factory=utcnow)

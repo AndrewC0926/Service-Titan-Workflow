@@ -180,6 +180,65 @@
   <p class="note">{% for ro in role_offerings if not ro.relevant %}{{ ro.label }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
 </details>
 
+<h2>Project documents</h2>
+<p class="note" style="margin-top:-6px">Drawing sets, Division 23 spec sections, or mechanical sheets an engineer
+  or GC handed the rep. "Extract schedule" reads every scheduled unit by tag, capacity, airflow, and any
+  manufacturer the document itself names as basis of design or an approved equal — every field is checked
+  against the document's own text before being trusted; a row that fails that check, or that the model itself
+  was unsure about, is marked <span class="bad">NEEDS REVIEW</span> rather than dropped or trusted silently.</p>
+<form method="post" action="/project/{{ p.id }}/documents" enctype="multipart/form-data" class="grid" style="max-width:700px;margin-bottom:10px">
+  <input type="file" name="file" accept="application/pdf" required>
+  <select name="doc_type">
+    <option value="drawing_set">Drawing set</option>
+    <option value="spec_section">Spec section</option>
+    <option value="mechanical_sheets">Mechanical sheets</option>
+    <option value="other" selected>Other</option>
+  </select>
+  <button>Attach PDF</button>
+</form>
+{% for doc in documents %}
+<div class="callout" style="max-width:1100px;margin-bottom:14px">
+  <strong>{{ doc.filename }}</strong> <span class="tag">{{ doc.doc_type.replace('_',' ') }}</span>
+  <span class="dim">{{ doc.page_count or '?' }} pages, {{ '%.1f'|format(doc.size_bytes / 1048576) }} MB,
+    uploaded {{ doc.uploaded_at.strftime('%Y-%m-%d') }}{% if doc.uploaded_by %} by {{ doc.uploaded_by }}{% endif %}</span>
+  — <a href="/project/{{ p.id }}/documents/{{ doc.id }}/download" target="_blank" rel="noopener">{{ icon('external-link') }} view PDF</a>
+  {% if doc.extraction_error and not doc.extracted_at %}
+    <div class="bad">{{ icon('triangle-alert') }} {{ doc.extraction_error }}</div>
+  {% else %}
+    <form hx-post="/project/{{ p.id }}/documents/{{ doc.id }}/extract" hx-target="#extract-result-{{ doc.id }}" hx-swap="innerHTML" style="display:inline">
+      <button>{{ 're-extract' if doc.extracted_at else 'Extract schedule' }} schedule</button>
+      <span id="extract-result-{{ doc.id }}">{% if doc.extraction_error and doc.extracted_at %}<span class="bad">last attempt failed — {{ doc.extraction_error }}</span>{% endif %}</span>
+    </form>
+  {% endif %}
+  {% set entries = doc_entries.get(doc.id, []) %}
+  {% if entries %}
+  <table style="margin-top:8px">
+  <thead><tr><th>Tag</th><th>Type</th><th class="num">Capacity</th><th class="num">Airflow</th>
+    <th>Basis of design</th><th>Approved equals</th><th class="num">Conf</th><th>Quote</th></tr></thead>
+  <tbody>
+  {% for e in entries %}
+  <tr{% if e.needs_review %} class="bad" title="{{ e.review_reason }}"{% endif %}>
+    <td class="mono">{{ e.tag }}</td>
+    <td>{{ e.equipment_type or '—' }}</td>
+    <td class="num">{% if e.capacity_value is not none %}{{ e.capacity_value }} {{ e.capacity_unit or '' }}{% else %}—{% endif %}</td>
+    <td class="num">{{ '{:,.0f}'.format(e.airflow_cfm) + ' cfm' if e.airflow_cfm is not none else '—' }}</td>
+    <td>{{ e.basis_of_design_manufacturer or '—' }}</td>
+    <td>{{ e.approved_equals | join(', ') if e.approved_equals else '—' }}</td>
+    <td class="num">{{ '%.2f'|format(e.confidence) }}</td>
+    <td class="dim" style="max-width:280px;font-size:11px">{{ e.source_quote[:140] }}{% if e.source_quote|length > 140 %}…{% endif %}
+      {%- if e.needs_review %}<br><span class="bad">{{ icon('triangle-alert') }} {{ e.review_reason }}</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+  </table>
+  {% elif doc.extracted_at %}
+  <p class="dim">No equipment schedule found in this document.</p>
+  {% endif %}
+</div>
+{% else %}
+<p class="dim">No documents attached yet.</p>
+{% endfor %}
+
 <h2>Outcome</h2>
 <form method="post" action="/project/{{ p.id }}/outcome" class="grid" style="max-width:900px">
   <select name="status" required>

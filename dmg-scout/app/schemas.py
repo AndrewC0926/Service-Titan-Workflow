@@ -231,3 +231,95 @@ class OutreachCallExtraction(BaseModel):
             return None
         s = str(v).strip()
         return None if s == "" or s.lower() in ("unknown", "not stated", "n/a", "none") else s
+
+
+class ScheduleEntryExtraction(BaseModel):
+    """One equipment-schedule line item pulled from ONE uploaded project
+    document (a drawing set, a Division 23 spec section, or mechanical
+    sheets). See app/pipeline/schedule.py.
+
+    Same discipline as OutreachCallExtraction above: real Pydantic
+    validation, nulls over guesses, nothing corrected or normalized here
+    (a tag is transcribed exactly as printed, not renumbered or reformatted)
+    -- app.grounding-style checks run AFTER this against the document's own
+    text, and that is where fabrication gets caught, not here.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    tag: str = Field(
+        description="The equipment tag exactly as printed on the schedule or drawing, e.g. "
+                    "'AHU-1', 'RTU-3', 'CH-1' -- never invented, renumbered, or normalized.")
+    equipment_type: str | None = Field(
+        default=None,
+        description="What kind of equipment this is, in the document's own words or the "
+                    "schedule table's own heading (e.g. 'Rooftop Unit', 'Air Handling Unit', "
+                    "'Chiller', 'Fan Coil Unit', 'VAV Box', 'Exhaust Fan'). Null if the "
+                    "document doesn't state or clearly imply a type for this tag.")
+    capacity_value: float | None = Field(
+        default=None,
+        description="The primary capacity/size number for this unit, exactly as printed -- "
+                    "never converted, computed, or estimated from another field.")
+    capacity_unit: str | None = Field(
+        default=None,
+        description="The unit capacity_value is stated in, exactly as printed (e.g. 'tons', "
+                    "'MBH', 'kW', 'HP', 'gpm'). Null if capacity_value is null.")
+    airflow_cfm: float | None = Field(
+        default=None,
+        description="Airflow in CFM, only if the document states it in CFM directly for this "
+                    "tag -- never converted from another unit or another field.")
+    basis_of_design_manufacturer: str | None = Field(
+        default=None,
+        description="The manufacturer this document explicitly identifies as the basis of "
+                    "design, or the specified/named manufacturer, for THIS SPECIFIC tag. Null "
+                    "if the document lists multiple manufacturers for this tag with none "
+                    "singled out, or if a manufacturer is named but not tied to this tag.")
+    approved_equals: list[str] = Field(
+        default_factory=list,
+        description="Manufacturers this document explicitly lists as an approved equal / "
+                    "acceptable substitute / acceptable manufacturer / 'or equal' for THIS "
+                    "tag (or for the equipment category this tag belongs to, if the document "
+                    "states equals at that level rather than per-tag). Empty list if none are "
+                    "named -- never inferred from general industry knowledge.")
+    source_quote: str = Field(
+        description="A short (under 150 characters) VERBATIM excerpt copied exactly from the "
+                    "document -- character for character, not paraphrased -- that shows this "
+                    "row's tag and supports its key data. This is the proof the row came from "
+                    "the text; a row without a real quote from the document is not usable.")
+    source_page: int | None = Field(
+        default=None,
+        description="The page number (1-indexed, within the pages you were shown) this row "
+                    "appears on, if you can determine it. Null if not determinable.")
+    confidence: float = Field(
+        ge=0.0, le=1.0,
+        description="How clearly the document supports this specific row. Score low for "
+                    "anything read from a rotated/merged table cell, an abbreviation whose "
+                    "meaning you had to infer, or a row split across a page break or column.")
+
+    @field_validator("tag", "source_quote", mode="before")
+    @classmethod
+    def _strip_required(cls, v):
+        return str(v).strip() if v is not None else v
+
+    @field_validator("equipment_type", "capacity_unit", "basis_of_design_manufacturer", mode="before")
+    @classmethod
+    def _blank_to_none(cls, v):
+        """Same reasoning as OutreachCallExtraction._blank_to_none above --
+        the model sometimes emits '' or 'unknown'/'n/a' instead of the null
+        the schema asks for."""
+        if v is None:
+            return None
+        s = str(v).strip()
+        return None if s == "" or s.lower() in ("unknown", "not stated", "n/a", "none") else s
+
+
+class EquipmentScheduleExtraction(BaseModel):
+    """Every equipment-schedule row found in ONE uploaded project document.
+    See ScheduleEntryExtraction and app/pipeline/schedule.py."""
+    model_config = ConfigDict(extra="forbid")
+
+    entries: list[ScheduleEntryExtraction] = Field(
+        default_factory=list,
+        description="One entry per distinct equipment tag found in an equipment schedule "
+                    "table, drawing callout, or spec section. Empty list if the document "
+                    "contains no equipment schedule at all -- never invent entries from a "
+                    "general narrative mention of equipment with no tag or schedule behind it.")

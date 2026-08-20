@@ -10,7 +10,12 @@ from contextvars import ContextVar
 import anthropic
 
 from app.config import anthropic_api_key, load_config
-from app.schemas import EXTRACTION_JSON_SCHEMA, OutreachCallExtraction, coerce_extraction
+from app.schemas import (
+    EXTRACTION_JSON_SCHEMA,
+    EquipmentScheduleExtraction,
+    OutreachCallExtraction,
+    coerce_extraction,
+)
 
 log = logging.getLogger(__name__)
 
@@ -337,6 +342,20 @@ def _client() -> anthropic.Anthropic:
     return anthropic.Anthropic(api_key=key)
 
 
+class TruncatedToolCall(Exception):
+    """The model's tool-call JSON was cut off by max_tokens before it could
+    finish. Confirmed production case (2026-08-20, schedule_extraction on a
+    ~40-tag equipment schedule): the SDK cannot parse a partial JSON object,
+    so a truncated call comes back as an EMPTY dict, not a partial one --
+    which looked identical to "the model found nothing" until stop_reason
+    was checked directly. Silently returning {} here would be exactly the
+    failure this codebase's own grounding discipline exists to catch one
+    level up (a confident wrong answer, here 'zero rows', beating an honest
+    error) -- so this raises instead. Callers that pass a generous
+    max_tokens for a large or unbounded-length result should still catch
+    this and say so, not treat it as "nothing to extract"."""
+
+
 def _tool_call(model: str, system: str, tool: dict, user_content: str,
                max_tokens: int = 2048, stage: str = "unknown") -> dict:
     from app.spend import check_budget, record
@@ -352,6 +371,11 @@ def _tool_call(model: str, system: str, tool: dict, user_content: str,
     )
     cost = record(stage, model, resp.usage.input_tokens, resp.usage.output_tokens)
     _last_call_cost_usd.set(cost)
+    if resp.stop_reason == "max_tokens":
+        raise TruncatedToolCall(
+            f"{tool['name']} call hit the {max_tokens}-token output cap before finishing "
+            f"({resp.usage.output_tokens} tokens generated) -- the result is incomplete, not empty."
+        )
     for block in resp.content:
         if block.type == "tool_use" and block.name == tool["name"]:
             return dict(block.input)
@@ -625,3 +649,86 @@ def extract_voice_capture(transcript: str) -> OutreachCallExtraction:
     raw = _tool_call(model, VOICE_CAPTURE_SYSTEM, VOICE_CAPTURE_TOOL, transcript,
                      max_tokens=1024, stage="voice_capture")
     return OutreachCallExtraction.model_validate(raw)
+
+
+# A drawing set or spec section has no CEQA-style section headers for
+# app.sections.select_relevant_text to key on (that chunker is built for
+# NOP/DEIR filings — "project description", "utilities/energy" — not
+# "mechanical schedule"), so a naive character cap is used instead of a
+# targeted one. Good enough for a spec section or the mechanical sheets of a
+# drawing set; a genuinely huge multi-hundred-page set would need a real
+# schedule-aware chunker, not built here since nothing this size has been
+# tested against it yet.
+MAX_SCHEDULE_EXTRACT_CHARS = 120_000
+
+SCHEDULE_EXTRACTION_SYSTEM = """You extract equipment schedule data from a construction
+document (a drawing set, a Division 23 mechanical specification section, or mechanical
+drawing sheets) for an HVAC/mechanical equipment manufacturers' rep firm. The rep needs to
+know, for every scheduled unit: its tag, what kind of equipment it is, its capacity and
+airflow, and which manufacturer(s) the document itself names for it.
+
+Rules — these are absolute:
+- NEVER guess, infer, or compute a value the document does not state. A capacity you'd have
+  to convert from another unit, estimate from a floor area, or infer from a "typical" unit
+  size is not stated — leave it null.
+- A tag with no equipment schedule table or drawing callout behind it — a bare mention in
+  prose — is not a schedule entry. Only extract tags that appear on an actual schedule
+  (a table with columns like mark/tag, capacity, CFM, manufacturer, model) or in an
+  equipment list/callout that clearly ties a tag to specific data.
+- basis_of_design_manufacturer is ONLY the manufacturer the document explicitly singles out
+  as the basis of design, or as "specified", "the specified equipment", or the named
+  manufacturer in a schedule's own "Manufacturer" or "Mfr" column for that tag — not
+  whichever manufacturer happens to be mentioned first, and not a guess when a schedule
+  column is blank.
+- approved_equals is ONLY manufacturers the document explicitly lists as an acceptable
+  substitute — "or equal", "or approved equal", "other acceptable manufacturers", "acceptable
+  manufacturers", a bracketed list following a basis-of-design statement. If a spec section
+  states equals for a whole equipment category rather than per-tag, apply that same list to
+  every tag in that category, in that document — do not invent a per-tag distinction the
+  document doesn't draw.
+- source_quote must be built ONLY from text that is ACTUALLY in the document, kept SHORT
+  (under 150 characters) — copy exact characters, do not paraphrase, do not clean up
+  whitespace or punctuation you didn't literally copy. Some real schedules are TRANSPOSED
+  (one row per FIELD, one column per unit) rather than one row per unit — when the tag and
+  its data are not on one contiguous line, join the real fragments you copied with " ... "
+  (e.g. "RTU-01 ... NOMINAL TONS 4 ... MANUFACTURER TRANE") rather than inventing a single
+  contiguous sentence that was never actually written that way. Every fragment you join this
+  way must itself be copied verbatim — never invent a fragment to fill a gap. A row you cannot
+  back with real fragments should not be extracted at all.
+- confidence reflects how clearly THIS row is supported — a scanned/rotated table read with
+  difficulty, an abbreviation you had to interpret, or a row split across a page break should
+  score low even if the document overall is clear.
+- If the document contains no equipment schedule at all (e.g. it is purely architectural,
+  or civil, or has no schedule table or equipment list), return an empty entries list. Do not
+  manufacture entries to have something to report."""
+
+SCHEDULE_EXTRACTION_TOOL = {
+    "name": "record_equipment_schedule",
+    "description": "Record every equipment-schedule row this document supports.",
+    "input_schema": {
+        k: v for k, v in EquipmentScheduleExtraction.model_json_schema().items()
+        if k not in ("title", "description")
+    },
+}
+
+
+def extract_equipment_schedule(text: str, title: str = "") -> EquipmentScheduleExtraction:
+    """Constrained decoding (forced tool_choice against
+    EquipmentScheduleExtraction's own schema) PLUS explicit Pydantic
+    validation, same pattern as extract_voice_capture above. Raises
+    pydantic.ValidationError if the model's output doesn't validate.
+
+    Grounding (does each field actually appear in `text`) is NOT done here
+    — see app/pipeline/schedule.py's ground_schedule_entry, which needs the
+    same `text` this was extracted from and runs after this returns."""
+    cfg = load_config()
+    model = cfg.get("llm.schedule_extraction_model", cfg.get("llm.extract_model"))
+    truncated = len(text) > MAX_SCHEDULE_EXTRACT_CHARS
+    body = text[:MAX_SCHEDULE_EXTRACT_CHARS]
+    preface = ("Document text:" if not truncated else
+               f"Document text (truncated to the first {MAX_SCHEDULE_EXTRACT_CHARS:,} of "
+               f"{len(text):,} characters):")
+    content = f"Title: {title}\n\n{preface}\n{body}"
+    raw = _tool_call(model, SCHEDULE_EXTRACTION_SYSTEM, SCHEDULE_EXTRACTION_TOOL, content,
+                     max_tokens=16000, stage="schedule_extraction")
+    return EquipmentScheduleExtraction.model_validate(raw)
