@@ -1012,9 +1012,18 @@ def project_detail(project_id: int, request: Request,
             .order_by(ScheduleEntry.tag)).all()
         for doc in documents
     }
-    from app.schedule_mapping import actionable, map_project_schedule_to_line_card
+    from app.schedule_mapping import (
+        actionable,
+        displaceable,
+        map_project_schedule_to_line_card,
+        resolve_displacement,
+        role_gaps,
+    )
     schedule_mapping = map_project_schedule_to_line_card(session, project_id)
     actionable_mapping = actionable(schedule_mapping)
+    displacement_rows = resolve_displacement(session, project, schedule_mapping)
+    displaceable_rows = displaceable(displacement_rows)
+    role_gap_rows = role_gaps(displacement_rows)
 
     return templates.TemplateResponse(request, "project.html", {
         "p": project, "timeline": timeline, "people": people, "firms": firms,
@@ -1028,6 +1037,7 @@ def project_detail(project_id: int, request: Request,
         "competing_by_role": competing_by_role, "competitor_rep_firms": competitor_rep_firms,
         "documents": documents, "doc_entries": doc_entries,
         "schedule_mapping": schedule_mapping, "actionable_mapping": actionable_mapping,
+        "displaceable_rows": displaceable_rows, "role_gap_rows": role_gap_rows,
         "tb": _title_block(session), "active": "board",
     })
 

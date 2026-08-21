@@ -270,6 +270,65 @@
 </table>
 {% endif %}
 
+{% if displaceable_rows or role_gap_rows %}
+<h3>Displacement — who holds it, and could we</h3>
+<p class="note" style="margin-top:-6px">A schedule's own Manufacturer column rarely also names an approved equal — that's
+  spec-section language, not schedule language. This instead joins each tag's competitor basis of design against
+  Scout's own researched competitor line-card map (7 rep firms, 66 line assignments) to show who actually holds it —
+  a named rep firm, factory-direct (no rep to displace), or genuinely unknown — and whether one of our own lines
+  serves the same role.
+  {%- if displaceable_rows and displaceable_rows[0].branch %} Branch-restricted to the {{ displaceable_rows[0].branch }}
+    card.{% elif displaceable_rows and displaceable_rows[0].branch_note %} {{ displaceable_rows[0].branch_note }}
+  {%- elif role_gap_rows and role_gap_rows[0].branch %} Branch-restricted to the {{ role_gap_rows[0].branch }} card.
+  {%- elif role_gap_rows and role_gap_rows[0].branch_note %} {{ role_gap_rows[0].branch_note }}{% endif %}</p>
+
+{% if displaceable_rows %}
+<table style="max-width:1200px">
+<thead><tr><th>Tag</th><th>Role</th><th>Competitor basis of design</th><th>Who holds it</th><th>Our line(s) in this role</th></tr></thead>
+<tbody>
+{% for r in displaceable_rows %}
+<tr>
+  <td class="mono">{{ r.tag }}{% if r.needs_review %} <span class="caveat" title="This tag's extraction still needs review">?</span>{% endif %}</td>
+  <td>{{ r.role_label }}</td>
+  <td class="bad">{{ r.bod_manufacturer }}</td>
+  <td>
+    {%- if r.competitor_state == 'factory_direct' -%}<span class="dim">{{ r.competitor_state_label }}</span>
+    {%- elif r.competitor_state == 'unknown' -%}<span class="dim">{{ r.competitor_state_label }}</span>
+    {%- else -%}{{ r.competitor_state_label }}{%- endif -%}
+  </td>
+  <td>{% for l in r.our_lines %}<a href="/line/{{ l.id }}">{{ l.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% endif %}
+
+{% if role_gap_rows %}
+<div class="callout callout-warn" style="max-width:56rem;margin-top:10px">
+  {{ icon('triangle-alert') }}
+  <span>
+  <strong>{{ role_gap_rows|length }} tag(s) are a line-card gap, not a call to make</strong>
+  <span class="body">A competitor holds the basis of design and we carry nothing in that role
+    {%- if role_gap_rows[0].branch %} at the {{ role_gap_rows[0].branch }} branch{% endif %} — worth telling Andy
+    about, kept separate from the displaceable list above so the two are never read as the same finding.</span>
+  </span>
+</div>
+<table style="max-width:900px;margin-top:8px">
+<thead><tr><th>Tag</th><th>Role</th><th>Competitor basis of design</th><th>Who holds it</th></tr></thead>
+<tbody>
+{% for r in role_gap_rows %}
+<tr>
+  <td class="mono">{{ r.tag }}</td>
+  <td>{{ r.role_label }}</td>
+  <td class="bad">{{ r.bod_manufacturer }}</td>
+  <td class="dim">{{ r.competitor_state_label }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% endif %}
+{% endif %}
+
 <details class="mt-2">
   <summary class="note" style="cursor:pointer">All {{ schedule_mapping|length }} scheduled tag(s), by status</summary>
   <table style="max-width:1200px;margin-top:8px">
