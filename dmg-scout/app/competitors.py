@@ -50,6 +50,41 @@ per-role competitive surfacing. Keyline Sales' own line card is
 predominantly plumbing fixtures (American Standard, Gerber, Viega, and
 ~20 more) entirely outside DMG's HVAC/mechanical scope -- not transcribed
 line-by-line here, noted instead.
+
+CARRIER, added 2026-08-21 (Carrier and Liebert were the two manufacturers
+schedule-displacement rows resolved "unknown" against most often). Sigler
+Wholesale Distributors -- operating in Southern California as "Sigler SoCal
+Engineering," siglersocalengineering.com -- is the real channel: their own
+products page names the "Carrier World Of Comfort Line Card" directly and
+lists air handlers, packaged rooftop units, condensing units, chillers, and
+cooling towers; their own locations page names Brea, Chatsworth, Irvine,
+Lakewood, Riverside, Burbank, Irwindale, Ontario, El Cajon, San Marcos, and
+Temecula -- confirming Los Angeles, Orange, Riverside, San Bernardino, and
+San Diego counties of DMG's 7-county territory BY NAME. Imperial and Kern
+are NOT named anywhere on that page and are NOT recorded as covered --
+absence of a name is not evidence either way, same discipline as every
+other unconfirmed-territory case in this file. Compliance: checked
+siglersocalengineering.com/robots.txt directly (200 OK) -- disallows only
+/ajax/, /apps/, and one self-referential path, nothing that blocks the
+pages read here. siglers.com (the parent corporate site, used only to
+discover the SoCal Engineering division's existence, never cited as a
+source below) explicitly disallows ClaudeBot and sets
+`Content-Signal: ai-train=no` in its own robots.txt -- not used as a
+citation source for that reason, even though the fact itself (Sigler is
+Carrier's independent SoCal distributor, a joint venture since 2010 per
+Sigler's own public materials) is corroborated there too.
+
+LIEBERT/VERTIV, same date: genuinely could not confirm to this file's own
+standard. Every lead traced to either a third-party HVAC-directory-style
+aggregator page (never Vertiv's own statement) or a distributor with no
+confirmed Southern-California-specific presence (Alpine Power Systems,
+Redford, Michigan HQ, "approved platinum distributor" per its own site,
+but no page found naming any of DMG's 7 counties). Vertiv's own
+"Find a Partner" locator requires an account login and could not be read.
+Left entirely unrecorded -- not a guessed "unconfirmed" row, no row at
+all -- per this file's own "never a third-party directory" rule and the
+project's null-over-inference discipline: a channel Scout could not
+confirm stays unknown, not filled in with the best lead found.
 """
 from __future__ import annotations
 
@@ -90,6 +125,15 @@ REP_FIRMS: dict[str, dict] = {
         "website": "https://wrightsales.net/",
         "territory_note": "CA, NV (except Clark County), HI",
     },
+    # Added 2026-08-21 -- see this module's own docstring, "CARRIER" section,
+    # for the full research record and why siglers.com (vs. this cited
+    # subdomain) was deliberately not used as a source.
+    "Sigler SoCal Engineering": {
+        "website": "https://www.siglersocalengineering.com/",
+        "territory_note": "Confirmed by name: Los Angeles, Orange, Riverside, San Bernardino, "
+                          "San Diego. Imperial and Kern not named anywhere on the site -- not "
+                          "recorded as covered.",
+    },
 }
 
 _NSWC_SRC = "https://nswcmech.com/products/manufacturers/"
@@ -100,6 +144,7 @@ _WPR_SRC = "https://wpreps.com/manufacturers-1"
 _KEYLINE_SRC = "https://www.keylinesales.com/california-products/"
 _WRIGHT_SRC = "https://wrightsales.net/"
 _TRANE_SRC = "https://www.trane.com/commercial/north-america/us/en/contact-us/locate-sales-offices/losangeles.html"
+_SIGLER_SRC = "https://www.siglersocalengineering.com/products.html"
 
 _DMG_OVERLAP = ("Also appears on DMG's own line card for this same role -- recorded unconfirmed "
                 "rather than presenting DMG and this rep firm as if they cleanly compete for it.")
@@ -241,6 +286,16 @@ COMPETITOR_LINES: list[tuple] = [
      "-- an absence-based finding, disclosed as such."),
     ("Trane", None, "air_handling", "factory_direct", "confirmed", _TRANE_SRC,
      "Same basis as the cooling_generation row above -- Trane's product line spans both roles."),
+
+    # ---- Sigler SoCal Engineering -- Carrier's SoCal channel, added 2026-08-21 --
+    ("Carrier", "Sigler SoCal Engineering", "air_handling", "rep_firm", "confirmed", _SIGLER_SRC,
+     "Sigler's own products page names the 'Carrier World Of Comfort Line Card' directly and "
+     "lists air handlers and packaged rooftop units under it. Territory confirmed by name (see "
+     "REP_FIRMS entry) for LA/Orange/Riverside/San Bernardino/San Diego only -- not Imperial or "
+     "Kern."),
+    ("Carrier", "Sigler SoCal Engineering", "cooling_generation", "rep_firm", "confirmed", _SIGLER_SRC,
+     "Same source as the air_handling row above -- the same product page lists chillers and "
+     "condensing units/heat pumps under the same Carrier line card."),
 ]
 
 
