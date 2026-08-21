@@ -13,7 +13,7 @@ from typing import ClassVar
 
 from sqlmodel import select
 
-from app.grounding import canonicalize_tag, ground_schedule_entry, quote_grounded
+from app.grounding import canonicalize_tag, ground_schedule_entry, merge_duplicate_tag_entries, quote_grounded
 from app.llm import TruncatedToolCall
 from app.models import Category, Project, ProjectDocument, ScheduleEntry
 from app.pipeline import schedule as sched
@@ -174,6 +174,38 @@ def test_extract_schedule_is_idempotent_replace_not_append(db_session, cfg, monk
 
     rows = db_session.exec(select(ScheduleEntry).where(ScheduleEntry.project_document_id == doc.id)).all()
     assert len(rows) == 1  # re-extraction replaced, did not duplicate
+
+
+def test_extract_schedule_merges_duplicate_tag_before_storing(db_session, cfg, monkeypatch):
+    """A tag extracted twice (schedule row + spec sheet, same physical
+    unit, no field conflict) must store as ONE ScheduleEntry with the
+    union of both sources' fields -- not two rows, and the returned
+    "entries" count must reflect the merge, not the raw extraction count."""
+    text = "CU1 8 TONS MANUFACTURER TRANE MODEL X100 -- CU1 approved equal YORK"
+    _mock_pdf_reading(monkeypatch, text=text)
+    p = _project(db_session)
+    doc = sched.attach_document(db_session, project_id=p.id, data=_MINI_PDF,
+                                filename="sheet.pdf", content_type="application/pdf")
+    monkeypatch.setattr("app.llm.extract_equipment_schedule", lambda text, title="":
+                        EquipmentScheduleExtraction(entries=[
+                            _entry(tag="CU1", capacity_value=8.0, source_quote="CU1 ... 8 TONS ... MANUFACTURER TRANE",
+                                  confidence=0.9),
+                            _entry(tag="CU 1", capacity_value=None, capacity_unit=None,
+                                  approved_equals=["YORK"],
+                                  source_quote="CU1 approved equal YORK", confidence=0.8),
+                        ]))
+    monkeypatch.setattr("app.spend.check_budget", lambda stage=None: None)
+
+    stats = sched.extract_schedule(db_session, cfg, doc)
+
+    assert stats["entries"] == 1
+    rows = db_session.exec(select(ScheduleEntry).where(ScheduleEntry.project_document_id == doc.id)).all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.tag == "CU1"
+    assert row.capacity_value == 8.0
+    assert row.approved_equals == ["YORK"]
+    assert row.needs_review is False  # clean merge, nothing to flag
 
 
 def test_extract_schedule_raises_on_no_text_layer(db_session, cfg):
@@ -378,3 +410,106 @@ def test_canonicalize_tag_leaves_unrecognized_shapes_unchanged():
     shape it doesn't have."""
     assert canonicalize_tag("HR TRAIN ROOM") == "HR TRAIN ROOM"
     assert canonicalize_tag("  ch-1  ") == "CH-1"
+
+
+# ---- merge_duplicate_tag_entries -------------------------------------------
+# All three fixtures below are the real entries a temperature=0 extraction
+# run against tests/fixtures/rtu_schedule.pdf actually produced (2026-08-21),
+# trimmed to the fields that matter for each assertion -- not hypotheticals.
+
+def _sched_entry(**kw):
+    base = {"equipment_type": None, "role": None, "capacity_value": None,
+           "capacity_unit": None, "capacity_btuh": None, "airflow_cfm": None,
+           "basis_of_design_manufacturer": None, "approved_equals": [],
+           "source_quote": "", "source_page": None, "confidence": 0.8}
+    base.update(kw)
+    return base
+
+
+def test_merge_combines_schedule_row_and_spec_sheet_for_the_same_unit():
+    """CU1 extracts once from the schedule table (capacity, manufacturer)
+    and once from its own spec sheet (approved_equals) -- no field conflict,
+    so these merge into one row with the union of both sources' facts."""
+    entries = [
+        _sched_entry(tag="CU1", equipment_type="Condensing Unit", capacity_value=8.0,
+                    capacity_unit="NOMINAL TON", basis_of_design_manufacturer="LIEBERT",
+                    confidence=0.88, source_page=3),
+        _sched_entry(tag="CU 1", equipment_type="Condensing Unit",
+                    basis_of_design_manufacturer="LIEBERT",
+                    approved_equals=["Emerson/Liebert"], confidence=0.82, source_page=3),
+    ]
+    merged, log = merge_duplicate_tag_entries(entries)
+    assert len(merged) == 1
+    row = merged[0]
+    assert row["tag"] == "CU1"                        # higher-confidence source's literal tag
+    assert row["capacity_value"] == 8.0                # from the schedule row
+    assert row["approved_equals"] == ["Emerson/Liebert"]  # from the spec sheet
+    assert "_merge_conflict" not in row
+    assert log[0]["merged"] is True
+
+
+def test_merge_does_not_conflate_same_tag_reused_across_buildings():
+    """This document's real RTU-01 names two different units -- 4-ton Trane
+    in BLDG-2 (page 1), 6-ton Carrier in BLDG-3 West Half (page 3) -- tag
+    numbering resets per building. Same literal tag string, real conflict:
+    both rows are kept, unmerged, and NOT flagged for review, since nothing
+    about either row is actually wrong."""
+    entries = [
+        _sched_entry(tag="RTU-01", capacity_value=4.0, basis_of_design_manufacturer="TRANE",
+                    confidence=0.92, source_page=1),
+        _sched_entry(tag="RTU-01", capacity_value=6.0, basis_of_design_manufacturer="CARRIER",
+                    confidence=0.85, source_page=3),
+    ]
+    merged, log = merge_duplicate_tag_entries(entries)
+    assert len(merged) == 2
+    assert {e["capacity_value"] for e in merged} == {4.0, 6.0}
+    assert all("_merge_conflict" not in e for e in merged)
+    assert log[0]["merged"] is False
+
+
+def test_merge_flags_conflict_when_canonicalization_connects_different_data():
+    """"CU-3" (mislabeled "NEW UNIT-CU-3" annotation, actually reads the
+    UNRELATED RTU-08 replacement spec block -- 4-ton packaged rooftop unit)
+    and "CU3" (the real Liebert condensing-unit spec sheet) canonicalize to
+    the same tag but disagree on equipment_type entirely. Different literal
+    tag strings connected only by canonicalize_tag's normalization, with a
+    real conflict, IS suspicious -- flagged for review rather than merged
+    or silently dropped."""
+    entries = [
+        _sched_entry(tag="CU-3", equipment_type="Packaged Rooftop Unit", capacity_value=4.0,
+                    airflow_cfm=1280.0, confidence=0.88, source_page=3),
+        _sched_entry(tag="CU3", equipment_type="Condensing Unit",
+                    basis_of_design_manufacturer="LIEBERT",
+                    approved_equals=["Emerson/Liebert"], confidence=0.82, source_page=3),
+    ]
+    merged, log = merge_duplicate_tag_entries(entries)
+    assert len(merged) == 2
+    assert all(e.get("_merge_conflict") for e in merged)
+    assert log[0]["merged"] is False
+    assert log[0]["conflicts"][0]["flagged"] is True
+
+
+def test_merge_real_document_extraction_reduces_62_to_59():
+    """End-to-end check against the actual 62-entry output of a real
+    temperature=0 extraction run against tests/fixtures/rtu_schedule.pdf
+    (2026-08-21, checked into fixtures/rtu_schedule_extraction_2026-08-21.json
+    verbatim) -- must merge down to 59, matching the deterministic ground
+    truth (test_real_document_ground_truth_tag_count). Exactly one
+    canonical-tag group (CU-3/CU3) should stay unmerged AND flagged; the 16
+    RTU-01..16 cross-building pairs must stay unmerged and NOT flagged."""
+    import json
+    from pathlib import Path
+
+    entries = json.loads(
+        (Path(__file__).parent / "fixtures" / "rtu_schedule_extraction_2026-08-21.json").read_text())
+    assert len(entries) == 62
+
+    merged, log = merge_duplicate_tag_entries(entries)
+    assert len(merged) == 59
+
+    flagged = [e for e in merged if e.get("_merge_conflict")]
+    assert len(flagged) == 2  # both sides of the one genuine CU-3/CU3 conflict
+    assert {e["tag"] for e in flagged} == {"CU-3", "CU3"}
+
+    true_merges = [item for item in log if item["merged"]]
+    assert {item["canonical_tag"] for item in true_merges} == {"RTU-7", "CU-1", "CU-2"}

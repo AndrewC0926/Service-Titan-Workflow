@@ -38,6 +38,7 @@ from app.assumptions import slugify
 from app.config import load_config
 from app.delivery import DELIVERY_METHOD_ABBR, DELIVERY_METHOD_LABELS, DELIVERY_METHOD_NOTES
 from app.reference import ROLE_REFERENCE, TAB_LABELS, TAB_ORDER, equipment_tooltip
+from app.schedule_mapping import BRANCH_BY_COUNTY
 from app.db import get_session
 from app.firmprofile import CONTACT_STATE_LABELS
 from app.manual import add_manual_signal
@@ -74,6 +75,16 @@ from app.models import (
     StageObservation,
     utcnow,
 )
+
+# /board and /retrofit default to the LA-office rep's own territory rather
+# than the whole company's (see BRANCH_BY_COUNTY's docstring in
+# app/schedule_mapping.py for why this dict, not a new one -- it is the
+# SAME literal county association the branch-restriction feature already
+# uses, so "my territory" here can never drift from what "my branch" means
+# there). Reusing it means this is exactly {"los angeles"} today and would
+# need no code change if a second office's rep view were ever added.
+MY_BRANCH = "DMG Los Angeles"
+MY_TERRITORY_COUNTIES = {c for c, b in BRANCH_BY_COUNTY.items() if b == MY_BRANCH}
 
 
 def _parse_category(value: str | None) -> Category | None:
@@ -296,30 +307,47 @@ def today(request: Request, session: Session = Depends(get_session), _: str = De
     })
 
 
+def _my_territory_filter():
+    """Project.county exactly matches one of MY_TERRITORY_COUNTIES -- same
+    literal, no-guessing discipline as app.schedule_mapping.resolve_branch:
+    a project with no county on file, or a county not literally in the set
+    (including a multi-county "Los Angeles; San Bernardino" string, which
+    resolve_branch also would not resolve), is NOT assumed to be mine and
+    stays behind the territory filter rather than being guessed in."""
+    return func.lower(func.trim(Project.county)).in_(MY_TERRITORY_COUNTIES)
+
+
 @app.get("/board", response_class=HTMLResponse)
-def board(request: Request, category: str = "data_center",
+def board(request: Request, category: str = "data_center", territory: str = "mine",
           session: Session = Depends(get_session), _: str = Depends(auth)):
     # Two boards, one pipeline. Defaults to data centers: that is the book of
     # business this system was built for, and industrial should never silently
     # dilute it. `?category=all` shows both.
     cat = _parse_category(category)
-    q = select(Project).where(Project.status.in_(ACTIVE_STATUSES),
-                              Project.in_territory == True,
-                              _category_filter(cat))
+    base_conditions = [Project.status.in_(ACTIVE_STATUSES), Project.in_territory == True,
+                       _category_filter(cat)]
+    territory_conditions = base_conditions if territory == "all" else [*base_conditions, _my_territory_filter()]
+    q = select(Project).where(*territory_conditions)
     projects = session.exec(q.order_by(Project.score.desc())).all()
     # Every category gets a count, including esco — a chip whose count is hidden
-    # is a category nobody will ever click.
+    # is a category nobody will ever click. Counts respect the territory
+    # filter too, so the chip numbers always match what clicking them shows.
     counts = {
         c.value: session.exec(
             select(func.count(Project.id)).where(
                 Project.status.in_(ACTIVE_STATUSES),
                 Project.in_territory == True,
-                Project.category == c)).one()
+                Project.category == c,
+                *([] if territory == "all" else [_my_territory_filter()]))).one()
         for c in (*Category.boards(), Category.esco)
     }
     watch_count = session.exec(
         select(func.count(Project.id)).where(Project.status.in_(ACTIVE_STATUSES),
                                              Project.in_territory == False)).one()
+    # How many this category's "mine" filter is currently hiding -- shown so
+    # the toggle to "all" states what it reveals, not just that it exists.
+    territory_hidden_count = session.exec(
+        select(func.count(Project.id)).where(*base_conditions, ~_my_territory_filter())).one()
     days_since = {}
     for p in projects:
         days_since[p.id] = (utcnow() - p.last_signal_at).days if p.last_signal_at else None
@@ -333,6 +361,7 @@ def board(request: Request, category: str = "data_center",
         "projects": projects, "days_since": days_since, "review_count": review_count,
         "has_pre_bod": has_pre_bod, "watch_count": watch_count, "is_watchlist": False,
         "completeness": completeness, "category": category, "cat_counts": counts,
+        "territory": territory, "territory_hidden_count": territory_hidden_count,
         "tb": _title_block(session), "active": "board",
         **_board_extras(session, projects),
     })
@@ -509,7 +538,7 @@ def _window_progress(projects: list[Project]) -> dict[int, int]:
 @app.get("/retrofit", response_class=HTMLResponse)
 def retrofit_board(request: Request, county: str = None, min_status: str = None,
                    population: str = "replacement_candidate", limit: int = 200,
-                   has_ebewe: bool = False, sold_last_24mo: bool = False,
+                   has_ebewe: bool = False, sold_last_24mo: bool = False, territory: str = "mine",
                    session: Session = Depends(get_session), _: str = Depends(auth)):
     """Two SEPARATE populations, never merged — see RetrofitBuilding's
     docstring:
@@ -523,10 +552,28 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
         years. Not a call list (everything here just got serviced) — market
         and contractor intelligence: where mechanical work is actually
         happening.
-    Both a SEPARATE population from /board (zero APN overlap, confirmed)."""
+    Both a SEPARATE population from /board (zero APN overlap, confirmed).
+
+    territory defaults to "mine" -- an explicit county always wins (a rep
+    picking a specific county from the dropdown means it), otherwise "mine"
+    defaults to MY_TERRITORY_COUNTIES (same literal association /board's
+    territory filter uses), and "all" applies no default. All of
+    retrofit_buildings is Los Angeles county today (2026-08-21 -- confirmed
+    by querying every distinct county on file), so this currently changes
+    nothing in practice; it exists for when other counties' retrofit data
+    is added."""
+    effective_county = county
+    if effective_county is None and territory == "mine":
+        effective_county = next(iter(MY_TERRITORY_COUNTIES)).title()
     base_q = select(RetrofitBuilding).where(RetrofitBuilding.population == population)
-    if county:
-        base_q = base_q.where(RetrofitBuilding.county == county)
+    if effective_county:
+        base_q = base_q.where(RetrofitBuilding.county == effective_county)
+    territory_hidden_count = 0
+    if territory == "mine" and county is None:
+        territory_hidden_count = session.exec(
+            select(func.count(RetrofitBuilding.id)).where(
+                RetrofitBuilding.population == population,
+                RetrofitBuilding.county != effective_county)).one()
     STATUS_ORDER = ["overdue", "due", "approaching", "not_due"]
     if min_status and min_status in STATUS_ORDER:
         base_q = base_q.where(RetrofitBuilding.service_life_status.in_(
@@ -662,8 +709,9 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
     }
     return templates.TemplateResponse(request, "retrofit_board.html", {
         "buildings": buildings, "summary": summary, "counties": counties,
-        "county": county, "min_status": min_status, "population": population, "limit": limit,
+        "county": effective_county, "min_status": min_status, "population": population, "limit": limit,
         "has_ebewe": has_ebewe, "sold_last_24mo": sold_last_24mo,
+        "territory": territory, "territory_hidden_count": territory_hidden_count,
         "score_max": max([b.rank_score for b in buildings if b.rank_score] or [1.0]),
         "nearest_contractor": nearest_contractor,
         "tb": _title_block(session), "active": "retrofit",

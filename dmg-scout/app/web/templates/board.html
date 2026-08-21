@@ -72,6 +72,18 @@
   <span><span class="k" title="A filing stated a project delivery method (design-bid-build, design-build, design-assist, CM at risk, or progressive design-build) -- most filings never say, so expect this low. See /assumptions for the definitions.">Delivery method known</span> <span class="v">{{ summary.delivery_method_known }} / {{ summary.n }}{% if summary.n %} · {{ (100 * summary.delivery_method_known / summary.n)|round|int }}%{% endif %}</span></span>
 </div>
 
+{% if not is_watchlist and territory is defined %}
+<div class="mb-2 flex flex-wrap items-center gap-1.5">
+  {# Default is the LA-office rep's own territory (app.web.main.MY_TERRITORY_COUNTIES --
+     the same literal county association app.schedule_mapping's branch restriction
+     uses). Nothing is deleted -- "All territories" shows the rest. #}
+  {% for key, label in [('mine','My territory'), ('all','All territories')] %}
+  {% set sel = (territory or 'mine') == key %}
+  <a href="/board?category={{ category or 'data_center' }}&territory={{ key }}" class="chip" aria-pressed="{{ 'true' if sel else 'false' }}">{{ label }}{% if key == 'mine' and territory_hidden_count %}<span class="ct">{{ '{:,}'.format(territory_hidden_count) }} hidden</span>{% endif %}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% if not is_watchlist and cat_counts is defined %}
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
   {# "Both boards", not "All": esco is a retrofit procurement with no tonnage and
@@ -80,7 +92,7 @@
   {% for key, label in [('data_center','Data centers'), ('industrial','Industrial'),
                         ('all','Both boards'), ('esco','ESCO retrofit')] %}
   {% set sel = (category or 'data_center') == key %}
-  <a href="/board?category={{ key }}" class="chip" aria-pressed="{{ 'true' if sel else 'false' }}">{{ label }}{% if key != 'all' %}<span class="ct">{{ cat_counts.get(key, 0) }}</span>{% endif %}</a>
+  <a href="/board?category={{ key }}&territory={{ territory or 'mine' }}" class="chip" aria-pressed="{{ 'true' if sel else 'false' }}">{{ label }}{% if key != 'all' %}<span class="ct">{{ cat_counts.get(key, 0) }}</span>{% endif %}</a>
   {% endfor %}
   <span class="note ml-1">
     {%- if category == 'esco' -%}

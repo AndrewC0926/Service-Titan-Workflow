@@ -356,8 +356,12 @@ def quote_grounded(quote: str, text: str) -> QuoteCheck:
     Treating that the same as a quote that is not in the document AT ALL
     (fabrication) would flag the single most common real-world schedule
     layout as if every row were invented, which is exactly what blocked
-    every one of 62 rows on the first real document this ran against
-    (2026-08-20) -- see app/pipeline/schedule.py's module docstring.
+    every row of the first real extraction run against this app's real test
+    document (a 62-tag run against tests/fixtures/rtu_schedule.pdf,
+    2026-08-20 -- that document's real row count was later established at
+    59; the 62-tag figure here describes what THAT run counted, before
+    ground truth existed to compare it against, not the document's actual
+    size) -- see app/pipeline/schedule.py's module docstring.
 
     So: QuoteCheck.problem is None whenever every fragment is independently
     grounded (whether the quote was one contiguous span or several joined
@@ -405,17 +409,18 @@ _TAG_SHAPE = re.compile(r"^([A-Z]+)[-\s]*(\d+)([-\s]?[A-Z])?$")
 
 def canonicalize_tag(raw: str) -> str:
     """Collapse cosmetic variation in a schedule tag string -- "CU 1" /
-    "CU-3" / "CU3" / "NEW UNIT-CU-3" all becoming the same canonical form --
-    WITHOUT deciding whether two different tag strings refer to the same
-    physical unit. That is a much bigger claim (this session's real
-    extraction runs also produced "CU1" and "CU 1" as genuinely two
-    separate schedule rows for the same unit -- one read off the schedule
-    table, one off its own spec sheet -- which this function does NOT
-    merge; that is the strong/weak substitution problem, deliberately left
-    unbuilt this session). Scope is bounded to exactly this shape: an
-    alphabetic equipment-type prefix, optional separator, a number, and an
-    optional trailing letter (RTU-01, RTU-01-A, CU3, AH1). Anything that
-    doesn't match that shape is returned upper-cased and stripped, unchanged
+    "CU-3" / "CU3" / "NEW UNIT-CU-3" all becoming the same canonical form.
+    This is ONLY a string normalizer: two entries sharing a canonical tag
+    are not automatically the same physical unit (this real document's
+    "RTU-01" genuinely names two different units -- 4-ton Trane in BLDG-2,
+    6-ton Carrier in BLDG-3 West Half -- because the tag numbering resets
+    per building). Deciding whether same-canonical-tag entries can actually
+    be merged is merge_duplicate_tag_entries below, which checks field
+    agreement before combining anything; this function only produces the
+    grouping key. Scope is bounded to exactly this shape: an alphabetic
+    equipment-type prefix, optional separator, a number, and an optional
+    trailing letter (RTU-01, RTU-01-A, CU3, AH1). Anything that doesn't
+    match that shape is returned upper-cased and stripped, unchanged
     otherwise -- this is not a general tag parser.
     """
     s = (raw or "").strip().upper()
@@ -430,6 +435,147 @@ def canonicalize_tag(raw: str) -> str:
     if letter:
         canon += f"-{letter.strip('- ').upper()}"
     return canon
+
+
+# Fields checked for agreement before two same-canonical-tag entries are
+# considered the same physical unit. Deliberately excludes tag/source_quote/
+# source_page/confidence (expected to differ -- that's the whole point of
+# having two sources) and approved_equals (a list, unioned rather than
+# compared).
+_MERGE_FIELDS = ("equipment_type", "role", "capacity_value", "capacity_unit",
+                 "capacity_btuh", "airflow_cfm", "basis_of_design_manufacturer")
+
+
+def _entries_conflict(a: dict, b: dict) -> str | None:
+    """None if a and b could describe the same physical unit -- every field
+    they BOTH state agrees. A field only one of them states is not a
+    conflict (that's the useful case: one source fills a gap in the
+    other)."""
+    for field in _MERGE_FIELDS:
+        av, bv = a.get(field), b.get(field)
+        if av is None or bv is None:
+            continue
+        if isinstance(av, str) and isinstance(bv, str):
+            if av.strip().lower() != bv.strip().lower():
+                return f"{field} disagrees ({av!r} vs {bv!r})"
+        elif av != bv:
+            return f"{field} disagrees ({av!r} vs {bv!r})"
+    return None
+
+
+def merge_duplicate_tag_entries(entries: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Group raw ScheduleEntryExtraction-shaped dicts by canonicalize_tag(tag)
+    and merge a group's entries into one row ONLY when every field they both
+    state agrees -- e.g. this document's CU1 and CU2 each get extracted
+    once from the schedule table and once from their own spec-sheet block,
+    with no field conflict between the pair, so those merge cleanly. A
+    canonical-tag match with a real field conflict is NOT merged -- both
+    entries are kept, separately. Guessing which of two disagreeing sources
+    is real would be exactly the inference this app's grounding discipline
+    exists to refuse. But an unmerged conflict is only flagged with a
+    "_merge_conflict" note (the caller turns this into a needs_review
+    reason) when the two entries' RAW tag strings actually differ -- e.g.
+    "CU-3" vs "CU3" disagreeing on equipment_type is genuinely suspicious,
+    because canonicalize_tag had to do real normalization to even connect
+    them. Two entries that already shared the IDENTICAL literal tag string
+    before canonicalization (this document's "RTU-01" appearing as 4-ton
+    Trane on page 1 and 6-ton Carrier on page 3) are expected, unremarkable
+    behavior -- building-scoped tag numbering resetting per building, not a
+    sign either row is wrong -- and are kept separate silently, un-flagged.
+    This is a heuristic, not a proof: a model that genuinely double-read one
+    row with two different values under the identical tag string would also
+    go unflagged by it.
+
+    Field-merge rule per group that DOES merge: the higher-confidence entry
+    is the base; a field null on the base is filled from the other entry
+    (never the reverse -- a populated field is never overwritten by a
+    conflict-free pairing, since _entries_conflict already ruled out
+    disagreement). approved_equals is unioned. source_quote is concatenated
+    (both fragments are independently grounded evidence). source_page keeps
+    the earlier page. confidence takes the max of the two.
+
+    Returns (merged_entries, merge_log) -- merge_log has one item per
+    canonical-tag group that had more than one raw entry, recording what
+    happened (merged, and which fields came from where; or not merged, and
+    why)."""
+    groups: dict[str, list[dict]] = {}
+    order: list[str] = []
+    for e in entries:
+        key = canonicalize_tag(e.get("tag") or "")
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(e)
+
+    out: list[dict] = []
+    merge_log: list[dict] = []
+    for key in order:
+        group = groups[key]
+        if len(group) == 1:
+            out.append(group[0])
+            continue
+
+        group = sorted(group, key=lambda e: e.get("confidence") or 0.0, reverse=True)
+        base = dict(group[0])
+        diffs: list[dict] = []
+        conflicts: list[dict] = []
+        for other in group[1:]:
+            conflict = _entries_conflict(base, other)
+            if conflict:
+                same_literal_tag = (other.get("tag") or "").strip() == (base.get("tag") or "").strip()
+                conflicts.append({"tag": other.get("tag"), "reason": conflict, "flagged": not same_literal_tag})
+                flagged = dict(other)
+                if not same_literal_tag:
+                    # canonicalize_tag had to do real normalization to connect
+                    # these two -- e.g. "CU-3" vs "CU3" -- so a field
+                    # disagreement between them is genuinely suspicious.
+                    flagged["_merge_conflict"] = (
+                        f"canonical tag {key!r} also matched {base.get('tag')!r} but {conflict} "
+                        f"-- kept separate, not merged")
+                # else: identical literal tag on both, e.g. this document's
+                # "RTU-01" naming two different units in two buildings --
+                # expected tag-reuse, not flagged.
+                out.append(flagged)
+                continue
+
+            for field in _MERGE_FIELDS:
+                bv = other.get(field)
+                if bv in (None, "") or base.get(field) not in (None, ""):
+                    continue
+                diffs.append({"field": field, "kept": bv, "source_tag": other.get("tag")})
+                base[field] = bv
+
+            merged_equals = list(dict.fromkeys(
+                (base.get("approved_equals") or []) + (other.get("approved_equals") or [])))
+            if merged_equals != (base.get("approved_equals") or []):
+                diffs.append({"field": "approved_equals", "kept": merged_equals, "source_tag": "union"})
+            base["approved_equals"] = merged_equals
+
+            oq, bq = (other.get("source_quote") or "").strip(), (base.get("source_quote") or "").strip()
+            if oq and oq not in bq:
+                base["source_quote"] = f"{bq} ... {oq}" if bq else oq
+
+            op, bp = other.get("source_page"), base.get("source_page")
+            if op is not None and (bp is None or op < bp):
+                base["source_page"] = op
+
+            base["confidence"] = max(base.get("confidence") or 0.0, other.get("confidence") or 0.0)
+
+        flagged_conflicts = [c for c in conflicts if c["flagged"]]
+        if flagged_conflicts:
+            note = "; ".join(c["reason"] for c in flagged_conflicts)
+            base["_merge_conflict"] = (
+                f"canonical tag {key!r} also matched {[c['tag'] for c in flagged_conflicts]} but {note} "
+                f"-- kept separate, not merged")
+        out.append(base)
+        merge_log.append({
+            "canonical_tag": key,
+            "raw_tags": [e.get("tag") for e in group],
+            "merged": bool(diffs) or (len(group) - 1 - len(conflicts) > 0),
+            "diffs": diffs,
+            "conflicts": conflicts,
+        })
+    return out, merge_log
 
 
 def ground_schedule_entry(entry: dict, text: str) -> tuple[dict, list[str]]:

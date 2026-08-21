@@ -32,7 +32,7 @@ import logging
 from sqlmodel import Session, delete
 
 from app.config import Config
-from app.grounding import ground_schedule_entry
+from app.grounding import ground_schedule_entry, merge_duplicate_tag_entries
 from app.models import ProjectDocument, ScheduleEntry, utcnow
 from app.pdftext import DEFAULT_MAX_PAGES, pdf_page_count, pdf_to_text
 
@@ -125,10 +125,17 @@ def extract_schedule(session: Session, cfg: Config, doc: ProjectDocument) -> dic
 
     session.exec(delete(ScheduleEntry).where(ScheduleEntry.project_document_id == doc.id))
 
+    raw_entries = [e.model_dump(mode="json") for e in extraction.entries]
+    merged_entries, merge_log = merge_duplicate_tag_entries(raw_entries)
+    if merge_log:
+        log.info("extract_schedule: document %s merge_log: %s", doc.id, merge_log)
+
     n_review = 0
-    for e in extraction.entries:
-        raw = e.model_dump(mode="json")
+    for raw in merged_entries:
+        merge_conflict = raw.pop("_merge_conflict", None)
         grounded, reasons = ground_schedule_entry(raw, doc.raw_text)
+        if merge_conflict:
+            reasons = [*reasons, merge_conflict]
         if reasons:
             n_review += 1
         session.add(ScheduleEntry(
@@ -152,4 +159,4 @@ def extract_schedule(session: Session, cfg: Config, doc: ProjectDocument) -> dic
     doc.extracted_at = utcnow()
     session.add(doc)
     session.commit()
-    return {"entries": len(extraction.entries), "needs_review": n_review}
+    return {"entries": len(merged_entries), "needs_review": n_review}

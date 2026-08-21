@@ -19,9 +19,9 @@
 </details>
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
-  <a href="/retrofit?population=replacement_candidate{% if county %}&county={{ county }}{% endif %}"
+  <a href="/retrofit?population=replacement_candidate&territory={{ territory }}{% if county %}&county={{ county }}{% endif %}"
      class="chip" aria-pressed="{{ 'true' if population == 'replacement_candidate' else 'false' }}">Replacement candidates</a>
-  <a href="/retrofit?population=recently_active{% if county %}&county={{ county }}{% endif %}"
+  <a href="/retrofit?population=recently_active&territory={{ territory }}{% if county %}&county={{ county }}{% endif %}"
      class="chip" aria-pressed="{{ 'true' if population == 'recently_active' else 'false' }}">Recently active (market intel)</a>
 </div>
 
@@ -78,12 +78,12 @@
 </details>
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
-  <a href="/retrofit?population={{ population }}{% if county %}&county={{ county }}{% endif %}{% if min_status %}&min_status={{ min_status }}{% endif %}&has_ebewe=true{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}"
+  <a href="/retrofit?population={{ population }}&territory={{ territory }}{% if county %}&county={{ county }}{% endif %}{% if min_status %}&min_status={{ min_status }}{% endif %}&has_ebewe=true{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}"
      class="chip" aria-pressed="{{ 'true' if has_ebewe else 'false' }}">Has EBEWE data ({{ '{:,}'.format(summary.ebewe_covered) }})</a>
-  <a href="/retrofit?population={{ population }}{% if county %}&county={{ county }}{% endif %}{% if min_status %}&min_status={{ min_status }}{% endif %}{% if has_ebewe %}&has_ebewe=true{% endif %}&sold_last_24mo=true"
+  <a href="/retrofit?population={{ population }}&territory={{ territory }}{% if county %}&county={{ county }}{% endif %}{% if min_status %}&min_status={{ min_status }}{% endif %}{% if has_ebewe %}&has_ebewe=true{% endif %}&sold_last_24mo=true"
      class="chip" aria-pressed="{{ 'true' if sold_last_24mo else 'false' }}">Sold in last 24 months ({{ '{:,}'.format(summary.sold_24mo_covered) }})</a>
   {% if has_ebewe or sold_last_24mo %}
-  <a href="/retrofit?population={{ population }}{% if county %}&county={{ county }}{% endif %}{% if min_status %}&min_status={{ min_status }}{% endif %}"
+  <a href="/retrofit?population={{ population }}&territory={{ territory }}{% if county %}&county={{ county }}{% endif %}{% if min_status %}&min_status={{ min_status }}{% endif %}"
      class="chip" aria-pressed="false">Clear</a>
   {% endif %}
 </div>
@@ -132,7 +132,7 @@
     <span>
     <strong>Showing top {{ '{:,}'.format(summary.shown) }} of {{ '{:,}'.format(summary.n) }}</strong>
     <span class="body">Ranked highest first — the true population size is not hidden, just not all
-      rendered in one page. <a href="?population={{ population }}{% if county %}&county={{ county }}{% endif %}&limit={{ limit * 5 }}">Show top {{ '{:,}'.format(limit * 5) }} instead</a>,
+      rendered in one page. <a href="?population={{ population }}&territory={{ territory }}{% if county %}&county={{ county }}{% endif %}&limit={{ limit * 5 }}">Show top {{ '{:,}'.format(limit * 5) }} instead</a>,
       or use <span class="mono">/retrofit/report</span> for a printable, size-limited list.</span>
     </span>
   </div>
@@ -162,10 +162,14 @@
   <a href="/retrofit?population={{ population }}&county={{ c }}{% if min_status %}&min_status={{ min_status }}{% endif %}{% if has_ebewe %}&has_ebewe=true{% endif %}{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}"
      class="chip" aria-pressed="{{ 'true' if county == c else 'false' }}">{{ c }}</a>
   {% endfor %}
-  <a href="/retrofit?population={{ population }}{% if min_status %}&min_status={{ min_status }}{% endif %}{% if has_ebewe %}&has_ebewe=true{% endif %}{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}" class="chip" aria-pressed="{{ 'true' if not county else 'false' }}">All counties</a>
+  {# Explicit territory=all -- omitting county alone is not enough to mean
+     "all", since the route defaults to the LA-office rep's own territory
+     (app.web.main.MY_TERRITORY_COUNTIES) when neither is given. Nothing is
+     deleted by the default; this is how you get back everything else. #}
+  <a href="/retrofit?population={{ population }}&territory=all{% if min_status %}&min_status={{ min_status }}{% endif %}{% if has_ebewe %}&has_ebewe=true{% endif %}{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}" class="chip" aria-pressed="{{ 'true' if territory == 'all' and not county else 'false' }}">All counties{% if territory != 'all' and territory_hidden_count %}<span class="ct">{{ '{:,}'.format(territory_hidden_count) }} hidden</span>{% endif %}</a>
   <span class="note ml-1">|</span>
   {% for key, label in [('overdue','Overdue only'), ('due','Due+'), ('approaching','Approaching+'), ('', 'All statuses')] %}
-  <a href="/retrofit?population={{ population }}&{% if county %}county={{ county }}&{% endif %}min_status={{ key }}{% if has_ebewe %}&has_ebewe=true{% endif %}{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}" class="chip" aria-pressed="{{ 'true' if min_status == key else 'false' }}">{{ label }}</a>
+  <a href="/retrofit?population={{ population }}&territory={{ territory }}&{% if county %}county={{ county }}&{% endif %}min_status={{ key }}{% if has_ebewe %}&has_ebewe=true{% endif %}{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}" class="chip" aria-pressed="{{ 'true' if min_status == key else 'false' }}">{{ label }}</a>
   {% endfor %}
   {% if county %}
   <a href="/retrofit/report?population={{ population }}&county={{ county }}" class="chip ml-1">{{ icon('printer') }} Printable contractor report</a>

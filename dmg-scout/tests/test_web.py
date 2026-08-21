@@ -91,7 +91,7 @@ def test_today_called_them_logs_outreach_without_navigating(client, db_session, 
 
 def test_board_renders(client, db_session, cfg):
     seed(db_session, cfg)
-    r = client.get("/board", headers=AUTH)
+    r = client.get("/board?territory=all", headers=AUTH)
     assert r.status_code == 200
     assert "Meridian DC" in r.text
     # The window stamp reads IN-BOD; the enum value is IN_BOD. Asserting on the
@@ -331,7 +331,7 @@ def test_board_shows_whether_there_is_anyone_to_call(client, db_session, cfg):
     looked reachable when it was not.
     """
     seed(db_session, cfg)
-    r = client.get("/board", headers=AUTH)
+    r = client.get("/board?territory=all", headers=AUTH)
     assert "Who to call" in r.text
     assert ("No one" in r.text or "Research" in r.text
             or "tel" in r.text or "@" in r.text)
@@ -344,7 +344,7 @@ def test_board_score_bar_is_scaled_to_the_board_maximum(client, db_session, cfg)
     top-scoring row must therefore render a full-width bar whatever its raw score.
     """
     seed(db_session, cfg)
-    r = client.get("/board", headers=AUTH)
+    r = client.get("/board?territory=all", headers=AUTH)
     assert 'class="bar"' in r.text
     assert "width:100.0%" in r.text
 
@@ -408,7 +408,7 @@ def test_add_signal_form_creates_project(client, db_session, cfg):
         "county": "Orange", "state": "CA",
     }, follow_redirects=False)
     assert r.status_code == 303
-    board = client.get("/board", headers=AUTH).text
+    board = client.get("/board?territory=all", headers=AUTH).text
     assert "Unnamed" in board or "Jane" in board
 
 
@@ -703,5 +703,5 @@ def test_esco_board_is_reachable_and_separate(client, db_session, cfg):
                            stage=Stage.procurement, status="active", in_territory=True,
                            score=0.4, window=Window.PRE_BOD, county="Clark", state="NV"))
     db_session.commit()
-    assert "City Hall ESPC" in client.get("/board?category=esco", headers=AUTH).text
-    assert "City Hall ESPC" not in client.get("/board?category=all", headers=AUTH).text
+    assert "City Hall ESPC" in client.get("/board?category=esco&territory=all", headers=AUTH).text
+    assert "City Hall ESPC" not in client.get("/board?category=all&territory=all", headers=AUTH).text

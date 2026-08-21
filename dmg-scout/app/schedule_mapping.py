@@ -174,8 +174,14 @@ def actionable(mappings: list[TagMapping]) -> list[TagMapping]:
 # and the SAM.gov Division-23 sweep found zero manufacturer mentions across
 # 66 solicitations for the same FAR reason. The document class that DOES
 # reliably name a real manufacturer + model is the equipment schedule on
-# the drawings (confirmed: 59 of 62 real rows on the rooftop-unit schedule
-# grounded a basis of design) -- but a schedule's own "Manufacturer" column
+# the drawings (confirmed: the rooftop-unit schedule has 59 real equipment
+# rows -- see app.pdftext.count_equipment_tags_deterministic and
+# tests/test_schedule.py's test_real_document_ground_truth_tag_count for
+# how that number was established without an LLM -- and after
+# app.grounding.merge_duplicate_tag_entries collapses each tag extracted
+# twice (once off the schedule row, once off its own spec sheet) down to
+# one row per physical unit, 53 of those 59 grounded a basis of design,
+# 2026-08-21) -- but a schedule's own "Manufacturer" column
 # is not spec-substitution language, so it essentially never also names an
 # equal. Displacement is the question a schedule alone CAN answer: who
 # holds this basis of design, and do we carry something in the same role --

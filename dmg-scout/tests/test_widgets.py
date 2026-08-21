@@ -151,7 +151,7 @@ def test_board_renders_a_sparkline_and_a_window_bar_for_an_entitlement_project(c
     db_session.add(p)
     db_session.commit()
 
-    r = client.get("/board", headers=AUTH)
+    r = client.get("/board?territory=all", headers=AUTH)
     assert r.status_code == 200
     assert 'class="widget-svg spark"' in r.text
     assert 'class="widget-svg"' in r.text  # the window bar (spark has its own subclass)
