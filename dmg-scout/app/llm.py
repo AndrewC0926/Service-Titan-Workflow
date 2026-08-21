@@ -357,11 +357,12 @@ class TruncatedToolCall(Exception):
 
 
 def _tool_call(model: str, system: str, tool: dict, user_content: str,
-               max_tokens: int = 2048, stage: str = "unknown") -> dict:
+               max_tokens: int = 2048, stage: str = "unknown",
+               temperature: float | None = None) -> dict:
     from app.spend import check_budget, record
     client = _client()
     check_budget(stage)  # raises BudgetExceeded past the daily, run, or per-stage cap
-    resp = client.messages.create(
+    kwargs = dict(
         model=model,
         max_tokens=max_tokens,
         system=system,
@@ -369,6 +370,9 @@ def _tool_call(model: str, system: str, tool: dict, user_content: str,
         tool_choice={"type": "tool", "name": tool["name"]},
         messages=[{"role": "user", "content": user_content}],
     )
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    resp = client.messages.create(**kwargs)
     cost = record(stage, model, resp.usage.input_tokens, resp.usage.output_tokens)
     _last_call_cost_usd.set(cost)
     if resp.stop_reason == "max_tokens":
@@ -695,6 +699,15 @@ Rules — these are absolute:
   contiguous sentence that was never actually written that way. Every fragment you join this
   way must itself be copied verbatim — never invent a fragment to fill a gap. A row you cannot
   back with real fragments should not be extracted at all.
+- Some spec-sheet-style entries state one unit's capacity twice, once in tons and once in
+  BTU/H (e.g. "Total Capacity 92,700 BTU/H" and "Nom Tons 8" for the same tag) — these are the
+  SAME capacity in two units, not a conflict to resolve. Do not pick one. Put the tons reading
+  in capacity_value/capacity_unit and the BTU/H reading in capacity_btuh. This only applies
+  when the document restates the identical headline number for that tag — a schedule's
+  separate "Nominal Tons" and "Cooling Coil Total Capacity (Net)" columns are DIFFERENT
+  quantities (nameplate size vs. net rated performance) even though both happen to be
+  capacity-like numbers; only capacity_value gets filled from a schedule table like that,
+  never capacity_btuh.
 - confidence reflects how clearly THIS row is supported — a scanned/rotated table read with
   difficulty, an abbreviation you had to interpret, or a row split across a page break should
   score low even if the document overall is clear.
@@ -729,6 +742,11 @@ def extract_equipment_schedule(text: str, title: str = "") -> EquipmentScheduleE
                f"Document text (truncated to the first {MAX_SCHEDULE_EXTRACT_CHARS:,} of "
                f"{len(text):,} characters):")
     content = f"Title: {title}\n\n{preface}\n{body}"
+    # temperature=0 reduces run-to-run variance but does not guarantee
+    # determinism -- the Anthropic Messages API has no seed parameter, so
+    # this is a reduction, not a fix. See tests/test_schedule.py's
+    # test_real_document_ground_truth_tag_count for the fixed denominator
+    # (59) any future variance measurement should compare against.
     raw = _tool_call(model, SCHEDULE_EXTRACTION_SYSTEM, SCHEDULE_EXTRACTION_TOOL, content,
-                     max_tokens=16000, stage="schedule_extraction")
+                     max_tokens=16000, stage="schedule_extraction", temperature=0)
     return EquipmentScheduleExtraction.model_validate(raw)

@@ -255,6 +255,25 @@ def _match_competitor(bod_name: str, competing_lines: list[CompetitorLine]) -> C
     return None
 
 
+def _county_covered(cl: CompetitorLine, project: Project) -> bool:
+    """True when this competitor row's own confirmed coverage doesn't rule
+    out the project's county. An empty covered_counties means no
+    county-level research was ever done for this row -- treated as "no
+    restriction to apply", NOT as "covers everywhere" (see CompetitorLine's
+    docstring), so that returns True same as before this field existed. A
+    non-empty list is a real, sourced boundary (e.g. Sigler SoCal
+    Engineering names 5 of Scout's 7 territory counties and excludes
+    Imperial and Kern) -- a project whose county isn't in that list, or
+    that has no county on file at all, is NOT confirmed covered and must
+    not resolve to this rep firm."""
+    if not cl.covered_counties:
+        return True
+    county = (project.county or "").strip().lower()
+    if not county:
+        return False
+    return county in {c.strip().lower() for c in cl.covered_counties}
+
+
 @dataclass
 class DisplacementRow:
     entry_id: int
@@ -318,6 +337,8 @@ def resolve_displacement(session: Session, project: Project,
             continue
 
         cl = _match_competitor(m.basis_of_design_manufacturer, m.competing_lines)
+        if cl is not None and not _county_covered(cl, project):
+            cl = None
         if cl is None:
             competitor_state, competitor_rep_firm, competitor_unconfirmed = "unknown", None, False
         else:

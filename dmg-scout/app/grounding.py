@@ -397,6 +397,41 @@ def quote_grounded(quote: str, text: str) -> QuoteCheck:
     return QuoteCheck(None, assembled=assembled)
 
 
+_TAG_NOISE_PREFIX = re.compile(
+    r"^(?:NEW\s+UNIT[-\s]*|REPLACEMENT(?:\s+FOR)?[-\s]*|EXISTING[-\s]*)", re.IGNORECASE)
+_TAG_FOOTNOTE_SUFFIX = re.compile(r"\s*\*\d+\s*$")
+_TAG_SHAPE = re.compile(r"^([A-Z]+)[-\s]*(\d+)([-\s]?[A-Z])?$")
+
+
+def canonicalize_tag(raw: str) -> str:
+    """Collapse cosmetic variation in a schedule tag string -- "CU 1" /
+    "CU-3" / "CU3" / "NEW UNIT-CU-3" all becoming the same canonical form --
+    WITHOUT deciding whether two different tag strings refer to the same
+    physical unit. That is a much bigger claim (this session's real
+    extraction runs also produced "CU1" and "CU 1" as genuinely two
+    separate schedule rows for the same unit -- one read off the schedule
+    table, one off its own spec sheet -- which this function does NOT
+    merge; that is the strong/weak substitution problem, deliberately left
+    unbuilt this session). Scope is bounded to exactly this shape: an
+    alphabetic equipment-type prefix, optional separator, a number, and an
+    optional trailing letter (RTU-01, RTU-01-A, CU3, AH1). Anything that
+    doesn't match that shape is returned upper-cased and stripped, unchanged
+    otherwise -- this is not a general tag parser.
+    """
+    s = (raw or "").strip().upper()
+    s = _TAG_NOISE_PREFIX.sub("", s).strip()
+    s = _TAG_FOOTNOTE_SUFFIX.sub("", s).strip()
+    m = _TAG_SHAPE.match(s)
+    if not m:
+        return s
+    prefix, number, letter = m.groups()
+    number = str(int(number))  # "01" -> "1", so RTU-01 and RTU-1 canonicalize the same
+    canon = f"{prefix}-{number}"
+    if letter:
+        canon += f"-{letter.strip('- ').upper()}"
+    return canon
+
+
 def ground_schedule_entry(entry: dict, text: str) -> tuple[dict, list[str]]:
     """Check one ScheduleEntryExtraction-shaped dict against the document
     text it was extracted from. Returns (entry, reasons) -- reasons is
@@ -426,16 +461,50 @@ def ground_schedule_entry(entry: dict, text: str) -> tuple[dict, list[str]]:
     if not tag or not name_grounded(tag, text):
         reasons.append(f"tag {tag!r} does not appear in the document")
 
+    collapsed = re.sub(r"\s+", " ", text)
+
     cap = entry.get("capacity_value")
+    fcap = None
     if cap is not None:
         try:
             fcap = float(cap)
         except (TypeError, ValueError):
             fcap = None
-        if fcap is not None:
-            collapsed = re.sub(r"\s+", " ", text)
-            if not any(v in collapsed for v in _variants(fcap)):
-                reasons.append(f"capacity_value {fcap:g} does not appear in the document")
+        if fcap is not None and not any(v in collapsed for v in _variants(fcap)):
+            reasons.append(f"capacity_value {fcap:g} does not appear in the document")
+            fcap = None  # ungrounded -- don't use it for corroboration below
+
+    btuh = entry.get("capacity_btuh")
+    fbtuh = None
+    if btuh is not None:
+        try:
+            fbtuh = float(btuh)
+        except (TypeError, ValueError):
+            fbtuh = None
+        if fbtuh is not None and not any(v in collapsed for v in _variants(fbtuh)):
+            reasons.append(f"capacity_btuh {fbtuh:g} does not appear in the document")
+            fbtuh = None
+
+    # Two grounded, independent readings of the SAME capacity (tons vs BTU/H)
+    # agreeing is corroborating evidence, not conflicting evidence -- see
+    # schemas.py's capacity_btuh docstring. Only checked when capacity_unit
+    # is actually tons, since capacity_btuh is defined as "the same headline
+    # number restated in BTU/H" specifically for a tons reading.
+    entry["capacity_corroborated"] = None
+    if fcap is not None and fbtuh is not None:
+        unit = (entry.get("capacity_unit") or "").strip().lower()
+        if unit in ("ton", "tons"):
+            implied_tons = fbtuh / 12000
+            # nominal tonnage is a rounded nameplate label, not an exact
+            # figure -- allow the larger of a half ton or 10% of headroom.
+            tolerance = max(0.5, 0.10 * fcap)
+            corroborated = abs(implied_tons - fcap) <= tolerance
+            entry["capacity_corroborated"] = corroborated
+            if not corroborated:
+                reasons.append(
+                    f"capacity_value {fcap:g} tons and capacity_btuh {fbtuh:g} BTU/H "
+                    f"({implied_tons:.2f} tons) disagree beyond a nameplate-rounding tolerance"
+                )
 
     bod = entry.get("basis_of_design_manufacturer")
     if bod and not name_grounded(bod, text):

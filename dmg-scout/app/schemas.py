@@ -288,6 +288,19 @@ class ScheduleEntryExtraction(BaseModel):
         default=None,
         description="The unit capacity_value is stated in, exactly as printed (e.g. 'tons', "
                     "'MBH', 'kW', 'HP', 'gpm'). Null if capacity_value is null.")
+    capacity_btuh: float | None = Field(
+        default=None,
+        description="ONLY fill this when the SAME headline capacity for this tag is stated a "
+                    "SECOND time in BTU/H (or MBH -- multiply by 1000) elsewhere in that tag's "
+                    "own entry, e.g. a spec block that states both 'Total Capacity 92,700 "
+                    "BTU/H' and 'Nom Tons 8' for one unit -- these describe the same capacity "
+                    "in two units, not two different facts, so both get recorded rather than "
+                    "picked between. Do NOT fill this from a schedule column that is a "
+                    "DIFFERENT quantity from capacity_value even if it is also in "
+                    "BTU/H-like units -- e.g. a 'Cooling Coil Total Capacity (Net)' schedule "
+                    "column is a net/rated performance number, not a restatement of a "
+                    "'Nominal Tons' column, and must not be copied here. Null unless the "
+                    "document itself restates the identical headline number in BTU/H.")
     airflow_cfm: float | None = Field(
         default=None,
         description="Airflow in CFM, only if the document states it in CFM directly for this "

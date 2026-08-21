@@ -936,6 +936,15 @@ class CompetitorLine(SQLModel, table=True):
     conflict_note: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     source_url: str
     retrieved_at: datetime = Field(default_factory=utcnow)
+    # Counties this row's source (source_url, as of retrieved_at) actually
+    # names as covered -- e.g. Sigler SoCal Engineering's own locations page
+    # names 5 of Scout's 7 territory counties by name and excludes Imperial
+    # and Kern. Empty list means no county-level coverage was researched for
+    # this row -- NOT "covers everywhere" -- callers that need a coverage
+    # decision (app/schedule_mapping.py's resolve_displacement) must treat
+    # an empty list as "no restriction to apply" rather than as evidence of
+    # statewide coverage, since those are two different unknowns.
+    covered_counties: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
 
 
 class Account(SQLModel, table=True):
@@ -2101,6 +2110,15 @@ class ScheduleEntry(SQLModel, table=True):
     role: str | None = Field(default=None, index=True)
     capacity_value: float | None = None
     capacity_unit: str | None = None
+    # Only set when the document restates capacity_value's SAME headline
+    # number a second time in BTU/H for this tag (see schemas.py's
+    # capacity_btuh docstring) -- never a conversion Scout computed itself.
+    capacity_btuh: float | None = None
+    # True/False when both capacity_value (tons) and capacity_btuh are
+    # grounded and checked against each other; null when there was nothing
+    # to cross-check. Agreement is corroborating evidence, not a conflict --
+    # see app/grounding.py's ground_schedule_entry.
+    capacity_corroborated: bool | None = None
     airflow_cfm: float | None = None
     basis_of_design_manufacturer: str | None = None
     approved_equals: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))

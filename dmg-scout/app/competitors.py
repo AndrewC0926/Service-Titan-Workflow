@@ -298,6 +298,21 @@ COMPETITOR_LINES: list[tuple] = [
      "condensing units/heat pumps under the same Carrier line card."),
 ]
 
+# Sigler's own locations page (https://www.siglersocalengineering.com/locations.html,
+# retrieved 2026-08-21) names Brea, Chatsworth, Irvine, Lakewood, Riverside,
+# Burbank, Irwindale, Ontario, El Cajon, San Marcos, and Temecula -- 5 of
+# Scout's 7 territory counties BY NAME. Imperial and Kern are not named
+# anywhere on the site and are deliberately NOT included here -- absence of
+# a name is not evidence of coverage, same discipline as everything else in
+# this file. Keyed separately from COMPETITOR_LINES rather than widening
+# that tuple, since county research only exists for these two rows so far.
+_SIGLER_COUNTIES = ["Los Angeles", "Orange", "Riverside", "San Bernardino", "San Diego"]
+
+COVERED_COUNTIES_BY_ROW: dict[tuple[str, str | None, str | None], list[str]] = {
+    ("Carrier", "Sigler SoCal Engineering", "air_handling"): _SIGLER_COUNTIES,
+    ("Carrier", "Sigler SoCal Engineering", "cooling_generation"): _SIGLER_COUNTIES,
+}
+
 
 def seed_competitor_lines(session: Session) -> dict:
     """Loads REP_FIRMS and COMPETITOR_LINES into the database -- upserts by
@@ -347,6 +362,7 @@ def seed_competitor_lines(session: Session) -> dict:
         row.source_url = source_url
         row.conflict_note = note
         row.retrieved_at = retrieved_at
+        row.covered_counties = COVERED_COUNTIES_BY_ROW.get((manufacturer, rep_firm_name, role), [])
         stored += 1
     session.commit()
 

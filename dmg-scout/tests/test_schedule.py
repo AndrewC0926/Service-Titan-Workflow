@@ -13,7 +13,7 @@ from typing import ClassVar
 
 from sqlmodel import select
 
-from app.grounding import ground_schedule_entry, quote_grounded
+from app.grounding import canonicalize_tag, ground_schedule_entry, quote_grounded
 from app.llm import TruncatedToolCall
 from app.models import Category, Project, ProjectDocument, ScheduleEntry
 from app.pipeline import schedule as sched
@@ -323,3 +323,58 @@ def test_tool_call_raises_on_max_tokens_instead_of_returning_empty(monkeypatch):
         assert False, "should have raised TruncatedToolCall"
     except TruncatedToolCall as exc:
         assert "max_tokens" in str(exc) or "16000" in str(exc)
+
+
+# ---- ground truth (no LLM) -------------------------------------------------
+
+def test_real_document_ground_truth_tag_count():
+    """Seven LLM extraction runs against tests/fixtures/rtu_schedule.pdf
+    measured 62, 59, 58, 61, 61, 58, 61 tags -- but none of those was ever
+    checked against the document itself, only against each other. This
+    parses the PDF's ruling-line table structure directly (no LLM) to get
+    the real count: 59.
+
+    Breakdown, read from the table structure by hand and confirmed by
+    app.pdftext.count_equipment_tags_deterministic:
+      - BLDG-2 schedule (page 1): 20 MARK-row tags (RTU-01..16, RTU-A..D)
+      - BLDG-3 East Half (page 2): 16 MARK-row tags (RTU-01-A..16-A)
+      - BLDG-3 West Half (page 3): 19 MARK-row tags (RTU-01..17, CU1, CU2)
+      - Page 4 spec sheets add 4 tags with no MARK-row entry anywhere
+        (AH1, AH2, AH3, CU3); CU1 and CU2 also get their own spec-sheet
+        block on page 4 but are NOT counted twice, since they already
+        appear in the page-3 MARK row as the same physical units.
+      55 MARK-row tags + 4 spec-sheet-only tags = 59.
+
+    This is the fixed denominator for all future variance measurements
+    against this document -- compare an extraction run's tag count to 59,
+    not to a previous run's tag count.
+    """
+    from pathlib import Path
+
+    from app.pdftext import count_equipment_tags_deterministic
+
+    data = (Path(__file__).parent / "fixtures" / "rtu_schedule.pdf").read_bytes()
+    assert count_equipment_tags_deterministic(data) == 59
+
+
+# ---- canonicalize_tag -------------------------------------------------------
+
+def test_canonicalize_tag_collapses_real_observed_variants():
+    """Five temperature=0 extraction runs against rtu_schedule.pdf (2026-08-21)
+    produced identical tag counts (62) in every run, and identical tag SETS
+    in 4 of 5 -- run 4 alone spelled one row "NEW UNIT-CU-3" where the other
+    four spelled it "CU-3" (both read off the same page-4 footnote-derived
+    unit). These are the actual variant strings observed, not hypotheticals."""
+    assert canonicalize_tag("CU 1") == canonicalize_tag("CU1") == "CU-1"
+    assert (canonicalize_tag("CU-3") == canonicalize_tag("CU3")
+            == canonicalize_tag("NEW UNIT-CU-3") == "CU-3")
+    assert canonicalize_tag("RTU-01") == canonicalize_tag("RTU-1") == "RTU-1"
+    assert canonicalize_tag("RTU-01-A") == "RTU-1-A"
+
+
+def test_canonicalize_tag_leaves_unrecognized_shapes_unchanged():
+    """Bounded scope -- a tag that isn't [prefix][number][optional letter]
+    passes through upper-cased and stripped rather than being forced into a
+    shape it doesn't have."""
+    assert canonicalize_tag("HR TRAIN ROOM") == "HR TRAIN ROOM"
+    assert canonicalize_tag("  ch-1  ") == "CH-1"

@@ -171,9 +171,11 @@ def test_resolve_branch_never_guesses_a_nearby_county(db_session):
 
 # ---- resolve_displacement ---------------------------------------------------
 
-def _competitor(db_session, manufacturer, role, channel="rep_firm", rep_firm_id=None, status="confirmed"):
+def _competitor(db_session, manufacturer, role, channel="rep_firm", rep_firm_id=None, status="confirmed",
+                covered_counties=None):
     cl = CompetitorLine(manufacturer=manufacturer, building_role=role, channel=channel,
-                        rep_firm_id=rep_firm_id, status=status, source_url="https://example.com")
+                        rep_firm_id=rep_firm_id, status=status, source_url="https://example.com",
+                        covered_counties=covered_counties or [])
     db_session.add(cl)
     db_session.commit()
     return cl
@@ -222,6 +224,39 @@ def test_displacement_unknown_when_no_competitor_research_exists(db_session):
     (2026-08-21) -- must resolve unknown, never guessed into a state."""
     p = _project(db_session)
     _line(db_session, "AAON", "air_handling")
+    _entry(db_session, p.id, tag="AH-1", role="air_handling", basis_of_design_manufacturer="Carrier")
+
+    mappings = map_project_schedule_to_line_card(db_session, p.id)
+    r = resolve_displacement(db_session, p, mappings)[0]
+    assert r.competitor_state == "unknown"
+    assert r.competitor_rep_firm is None
+
+
+def test_displacement_resolves_rep_firm_inside_covered_county(db_session):
+    """Sigler SoCal Engineering's own locations page confirms Los Angeles
+    by name -- a project there resolves to the rep firm normally."""
+    p = _project(db_session, county="Los Angeles")
+    _line(db_session, "AAON", "air_handling")
+    firm = _rep_firm(db_session, "Sigler SoCal Engineering")
+    _competitor(db_session, "Carrier", "air_handling", rep_firm_id=firm.id,
+               covered_counties=["Los Angeles", "Orange", "Riverside", "San Bernardino", "San Diego"])
+    _entry(db_session, p.id, tag="AH-1", role="air_handling", basis_of_design_manufacturer="Carrier")
+
+    mappings = map_project_schedule_to_line_card(db_session, p.id)
+    r = resolve_displacement(db_session, p, mappings)[0]
+    assert r.competitor_state == "rep_firm"
+    assert r.competitor_rep_firm == "Sigler SoCal Engineering"
+
+
+def test_displacement_falls_back_to_unknown_outside_covered_county(db_session):
+    """Sigler's locations page does NOT name Imperial or Kern -- a Carrier
+    BOD on a project in either county must resolve unknown, not to Sigler,
+    even though Sigler is the only researched Carrier channel anywhere."""
+    p = _project(db_session, county="Imperial")
+    _line(db_session, "AAON", "air_handling")
+    firm = _rep_firm(db_session, "Sigler SoCal Engineering")
+    _competitor(db_session, "Carrier", "air_handling", rep_firm_id=firm.id,
+               covered_counties=["Los Angeles", "Orange", "Riverside", "San Bernardino", "San Diego"])
     _entry(db_session, p.id, tag="AH-1", role="air_handling", basis_of_design_manufacturer="Carrier")
 
     mappings = map_project_schedule_to_line_card(db_session, p.id)

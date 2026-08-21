@@ -136,6 +136,8 @@ def extract_schedule(session: Session, cfg: Config, doc: ProjectDocument) -> dic
             tag=grounded["tag"], equipment_type=grounded.get("equipment_type"),
             role=grounded.get("role"),
             capacity_value=grounded.get("capacity_value"), capacity_unit=grounded.get("capacity_unit"),
+            capacity_btuh=grounded.get("capacity_btuh"),
+            capacity_corroborated=grounded.get("capacity_corroborated"),
             airflow_cfm=grounded.get("airflow_cfm"),
             basis_of_design_manufacturer=grounded.get("basis_of_design_manufacturer"),
             approved_equals=grounded.get("approved_equals") or [],
