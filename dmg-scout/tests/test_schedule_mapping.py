@@ -24,9 +24,10 @@ from app.schedule_mapping import (
 )
 
 
-def _line(db_session, name, role, firm="DMG", category="air_handling"):
+def _line(db_session, name, role, firm="DMG", category="air_handling", existence_verified=True):
     line = ProductLine(name=name, name_norm=normalize_name(name), firm=firm,
-                       category=category, building_role=role)
+                       category=category, building_role=role,
+                       existence_verified=existence_verified)
     db_session.add(line)
     db_session.commit()
     db_session.refresh(line)
@@ -300,3 +301,77 @@ def test_displacement_flags_unconfirmed_competitor_research(db_session):
     r = resolve_displacement(db_session, p, mappings)[0]
     assert r.competitor_unconfirmed is True
     assert "unconfirmed" in r.competitor_state_label
+
+
+def test_displacement_hawaii_vs_la_heat_rejection(db_session):
+    """The branch filter, exercised on a role where it actually changes the
+    answer -- not a demonstration that happens to hinge on the one line
+    (Scott Springfield) already flagged as having no document behind it.
+    Mirrors real production branch coverage verified 2026-08-21: Marley and
+    Recold (the ONLY two company-wide heat_rejection lines on the whole
+    card) are BOTH confirmed_covered on the LA card and BOTH
+    confirmed_not_covered on the Hawaii card -- Hawaii has no heat-rejection
+    line at all, a fact this whole branch-dimension effort exists to
+    surface rather than silently assume from the SoCal-researched card."""
+    marley = _line(db_session, "Marley", "heat_rejection")
+    recold = _line(db_session, "Recold", "heat_rejection")
+    for line in (marley, recold):
+        db_session.add(ProductLineBranch(
+            product_line_id=line.id, branch="DMG Los Angeles", status="confirmed_covered",
+            verified=True, source_detail="mirrors real LA card, verified 2026-08-21"))
+        db_session.add(ProductLineBranch(
+            product_line_id=line.id, branch="DMG Hawaii", status="confirmed_not_covered",
+            verified=True, source_detail="mirrors real Hawaii card, verified 2026-08-21"))
+    db_session.commit()
+    _competitor(db_session, "Baltimore Aircoil", "heat_rejection", channel="rep_firm",
+               rep_firm_id=_rep_firm(db_session, "Air Treatment Corporation").id)
+
+    p_la = _project(db_session, county="Los Angeles")
+    _entry(db_session, p_la.id, doc_id=1, tag="CT-1", role="heat_rejection",
+          basis_of_design_manufacturer="Baltimore Aircoil")
+    mappings_la = map_project_schedule_to_line_card(db_session, p_la.id)
+    row_la = resolve_displacement(db_session, p_la, mappings_la)[0]
+
+    p_hi = _project(db_session, state="HI")
+    _entry(db_session, p_hi.id, doc_id=2, tag="CT-1", role="heat_rejection",
+          basis_of_design_manufacturer="Baltimore Aircoil")
+    mappings_hi = map_project_schedule_to_line_card(db_session, p_hi.id)
+    row_hi = resolve_displacement(db_session, p_hi, mappings_hi)[0]
+
+    assert row_la.branch == "DMG Los Angeles"
+    assert row_la.role_gap is False
+    assert {l.name for l in row_la.our_lines} == {"Marley", "Recold"}
+
+    assert row_hi.branch == "DMG Hawaii"
+    assert row_hi.role_gap is True
+    assert row_hi.our_lines == []
+
+
+# ---- existence_verified: a line that cannot be recommended ---------------
+
+def test_existence_unverified_line_excluded_from_recommendations(db_session):
+    """VU Flow Environmental, real production data: no company by this name
+    could be located anywhere. our_lines_for_role must never recommend it,
+    even though it's a real row on the card with a real building_role."""
+    _line(db_session, "AAON", "air_handling")
+    _line(db_session, "VU Flow Environmental", "air_handling", existence_verified=False)
+    p = _project(db_session)
+    _entry(db_session, p.id, tag="AH-1", role="air_handling")
+
+    m = map_project_schedule_to_line_card(db_session, p.id)[0]
+    assert [l.name for l in m.our_lines_for_role] == ["AAON"]
+
+
+def test_existence_unverified_line_still_matches_if_document_names_it(db_session):
+    """Excluded from RECOMMENDATIONS, not from matching what a document
+    itself literally names -- that's a fact about the document, independent
+    of whether Scout can confirm the company exists."""
+    unverified = _line(db_session, "VU Flow Environmental", "air_handling", existence_verified=False)
+    p = _project(db_session)
+    _entry(db_session, p.id, tag="AH-1", role="air_handling",
+          basis_of_design_manufacturer="VU Flow Environmental")
+
+    m = map_project_schedule_to_line_card(db_session, p.id)[0]
+    assert m.bod_is_ours is not None
+    assert m.bod_is_ours.id == unverified.id
+    assert m.bod_is_ours.existence_verified is False

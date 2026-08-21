@@ -703,6 +703,23 @@ class ProductLine(SQLModel, table=True):
     category: str = Field(index=True)  # see accounts.adjacency.categories in config.yaml
     subcategory: str = ""
     description: str = ""
+    # True for every line by default -- every OTHER unverified fact on this
+    # model (heat_rejection_mode, oshpd_osp, ...) is a per-FIELD unknown on a
+    # line whose existence itself was never in question. VU Flow
+    # Environmental is different in kind, not degree: none of the field-level
+    # research below is "unconfirmed," it's null because a real company by
+    # this name could not be located at all (no resolving domain, no
+    # LinkedIn, no trade coverage -- see country_of_manufacture_basis and
+    # competes_with_basis on this exact line, researched 2026-08-09, and
+    # app.assumptions's "Line card: existence-unverified lines" entry).
+    # False here means exactly one thing downstream: excluded from
+    # app.schedule_mapping's recommendation lists (our_lines_for_role) --
+    # never named as "consider this line" until confirmed. NOT excluded from
+    # basis-of-design/approved-equal MATCHING against a document's own text:
+    # if a real drawing set names it, that is a fact about the document,
+    # independent of whether Scout can independently confirm the company.
+    existence_verified: bool = Field(default=True, index=True)
+    existence_verified_basis: str | None = None
     value_tier: int = 3  # 1 (highest $/unit) - 5 (lowest); see accounts.value_tier_dollars
     # One of replacement.service_life's 8 equipment keys, or null when this line
     # is not one of the archetypes that table has a service-life band for —

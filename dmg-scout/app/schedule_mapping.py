@@ -42,6 +42,7 @@ class LineRef:
     id: int
     name: str
     firm: str
+    existence_verified: bool = True
 
 
 @dataclass
@@ -71,7 +72,7 @@ class TagMapping:
 
 
 def _line_ref(line: ProductLine) -> LineRef:
-    return LineRef(id=line.id, name=line.name, firm=line.firm)
+    return LineRef(id=line.id, name=line.name, firm=line.firm, existence_verified=line.existence_verified)
 
 
 def _match_manufacturer(name: str | None, lines_by_norm: dict[str, ProductLine]) -> ProductLine | None:
@@ -102,7 +103,16 @@ def map_project_schedule_to_line_card(session: Session, project_id: int) -> list
     lines_by_role: dict[str, list[ProductLine]] = {}
     lines_by_norm: dict[str, ProductLine] = {}
     for line in all_lines:
-        lines_by_role.setdefault(line.building_role, []).append(line)
+        # our_lines_for_role is a RECOMMENDATION ("consider this line") --
+        # a line whose existence itself could not be confirmed (VU Flow
+        # Environmental, 2026-08-09 research) is excluded from it, per
+        # ProductLine.existence_verified's own docstring. lines_by_norm
+        # (matching what a document literally names as its own basis of
+        # design/approved equal) is NOT filtered here: that is a fact about
+        # the document, independent of whether Scout can independently
+        # confirm the company.
+        if line.existence_verified:
+            lines_by_role.setdefault(line.building_role, []).append(line)
         lines_by_norm[line.name_norm] = line
     competing_by_role = competing_lines_by_role(session)
 
