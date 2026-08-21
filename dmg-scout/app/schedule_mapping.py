@@ -104,17 +104,19 @@ def map_project_schedule_to_line_card(session: Session, project_id: int) -> list
     lines_by_norm: dict[str, ProductLine] = {}
     for line in all_lines:
         # our_lines_for_role is a RECOMMENDATION ("consider this line") --
-        # only a line with a CONFIRMED existence (existence_verified is
-        # True, never NULL) is included, per ProductLine.existence_verified's
-        # own docstring: NULL means unresearched, not confirmed, so it is
-        # excluded the same as an explicit False (VU Flow Environmental,
-        # 2026-08-09 research) until someone actually verifies it.
-        # lines_by_norm
+        # excluded only when existence_verified is explicitly False
+        # (researched and NOT found -- VU Flow Environmental, 2026-08-09).
+        # NULL (never researched) is not the same claim and must not be
+        # treated as it: DMG's own line card is itself reasonable evidence
+        # a line exists, and "nobody has specifically confirmed this one"
+        # is not a reason to withhold every other line from every
+        # recommendation until each is individually re-verified. Per
+        # ProductLine.existence_verified's own docstring. lines_by_norm
         # (matching what a document literally names as its own basis of
         # design/approved equal) is NOT filtered here: that is a fact about
         # the document, independent of whether Scout can independently
         # confirm the company.
-        if line.existence_verified:
+        if line.existence_verified is not False:
             lines_by_role.setdefault(line.building_role, []).append(line)
         lines_by_norm[line.name_norm] = line
     competing_by_role = competing_lines_by_role(session)

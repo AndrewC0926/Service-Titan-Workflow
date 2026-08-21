@@ -397,18 +397,20 @@ def test_existence_unverified_line_excluded_from_recommendations(db_session):
     assert [l.name for l in m.our_lines_for_role] == ["AAON"]
 
 
-def test_existence_never_researched_line_excluded_from_recommendations(db_session):
+def test_existence_never_researched_line_still_recommended(db_session):
     """NULL (never researched -- the state 69 of 70 real lines are actually
-    in) must be excluded from recommendations exactly like an explicit
-    False. Only an explicit True, written alongside a basis, belongs in
-    our_lines_for_role -- NULL is not a lesser form of True."""
+    in) is NOT the same claim as False (researched and not found). DMG's own
+    line card is itself reasonable evidence a line exists; withholding every
+    unresearched line from every recommendation would be a worse inference
+    than the True-by-default this replaced. Only an explicit False (VU Flow
+    Environmental, actually researched and not found) is excluded."""
     _line(db_session, "AAON", "air_handling")
     _line(db_session, "Some Unresearched Line", "air_handling", existence_verified=None)
     p = _project(db_session)
     _entry(db_session, p.id, tag="AH-1", role="air_handling")
 
     m = map_project_schedule_to_line_card(db_session, p.id)[0]
-    assert [l.name for l in m.our_lines_for_role] == ["AAON"]
+    assert {l.name for l in m.our_lines_for_role} == {"AAON", "Some Unresearched Line"}
 
 
 def test_existence_unverified_line_still_matches_if_document_names_it(db_session):

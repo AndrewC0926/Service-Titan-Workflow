@@ -3,42 +3,55 @@ name = "dmg-scout"
 version = "0.1.0"
 description = "Early-signal data center project intelligence for HVAC manufacturers' rep sales"
 requires-python = ">=3.11"
+# Every entry below is upper-bounded, not just a floor. 2026-08-20 a bare
+# `anthropic>=0.40` let a routine rebuild silently pick up anthropic 1.0.0 --
+# a major release that dropped the `temperature` kwarg from Messages.create
+# entirely (moved to extra_body, not removed from the API itself) -- and
+# broke schedule extraction in production for 19 hours before anyone
+# noticed, with no code of ours involved. `pip install .` re-resolves every
+# dependency fresh on every image build (see Dockerfile's own note on why),
+# so an unbounded floor is a standing promise that a rebuild can silently
+# change what runs. Bounded at the next major version (or next minor for a
+# 0.x package, since 0.x treats minor bumps as breaking by convention) --
+# not exact-pinned here, so a deliberate `pip install -U` still finds
+# compatible upgrades; requirements.lock.txt is the actual reproducibility
+# guarantee (see Dockerfile), this is the documented intent behind it.
 dependencies = [
-    "fastapi>=0.110",
-    "uvicorn[standard]>=0.29",
-    "sqlmodel>=0.0.16",
-    "sqlalchemy>=2.0",
-    "alembic>=1.13",
-    "psycopg2-binary>=2.9",
-    "httpx>=0.27",
-    "selectolax>=0.3.21",
-    "pdfplumber>=0.11",
-    "anthropic>=0.40",
-    "pydantic>=2.0",  # already a transitive dep via fastapi/sqlmodel; explicit
+    "fastapi>=0.110,<1.0",
+    "uvicorn[standard]>=0.29,<1.0",
+    "sqlmodel>=0.0.16,<0.1",
+    "sqlalchemy>=2.0,<3.0",
+    "alembic>=1.13,<2.0",
+    "psycopg2-binary>=2.9,<3.0",
+    "httpx>=0.27,<1.0",
+    "selectolax>=0.3.21,<1.0",
+    "pdfplumber>=0.11,<1.0",
+    "anthropic>=0.40,<1.0",
+    "pydantic>=2.0,<3.0",  # already a transitive dep via fastapi/sqlmodel; explicit
                       # because app/schemas.py:OutreachCallExtraction depends on
                       # it directly -- see app/pipeline/voice_capture.py
-    "jinja2>=3.1",
-    "pyyaml>=6.0",
-    "typer>=0.12",
-    "python-multipart>=0.0.9",
-    "feedparser>=6.0",
-    "rapidfuzz>=3.6",
-    "python-dateutil>=2.9",
-    "itsdangerous>=2.1",
-    "fastmcp>=3.4.6",
-    "openpyxl>=3.1",
-    "python-docx>=1.1",
+    "jinja2>=3.1,<4.0",
+    "pyyaml>=6.0,<7.0",
+    "typer>=0.12,<1.0",
+    "python-multipart>=0.0.9,<1.0",
+    "feedparser>=6.0,<7.0",
+    "rapidfuzz>=3.6,<4.0",
+    "python-dateutil>=2.9,<3.0",
+    "itsdangerous>=2.1,<3.0",
+    "fastmcp>=3.4.6,<4.0",
+    "openpyxl>=3.1,<4.0",
+    "python-docx>=1.1,<2.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.23",
-    "respx>=0.21",
-    "ruff>=0.4",
+    "pytest>=8.0,<9.0",
+    "pytest-asyncio>=0.23,<1.0",
+    "respx>=0.21,<1.0",
+    "ruff>=0.4,<1.0",
 ]
 playwright = [
-    "playwright>=1.44",
+    "playwright>=1.44,<2.0",
 ]
 
 [project.scripts]
