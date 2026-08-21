@@ -356,11 +356,11 @@ def seed_product_lines(session: Session, cfg: Config) -> int:
         fields = {
             "firm": entry.get("firm", "DMG"), "category": category,
             "subcategory": entry.get("subcategory", ""), "description": entry.get("description", ""),
-            # True unless config.yaml says otherwise -- see ProductLine's own
-            # docstring for why this is a different kind of unknown than
-            # every other *_verified flag on this model, and what False
-            # means downstream (excluded from recommendation lists only).
-            "existence_verified": bool(entry.get("existence_verified", True)),
+            # None unless config.yaml explicitly says true or false -- see
+            # ProductLine's own docstring for what each of the three states
+            # means, and what False means downstream (excluded from
+            # recommendation lists only).
+            "existence_verified": entry.get("existence_verified"),
             "existence_verified_basis": entry.get("existence_verified_basis"),
             "value_tier": int(entry.get("value_tier", 3)), "equipment_type": entry.get("equipment_type"),
             "heat_rejection_mode": entry.get("heat_rejection_mode"),

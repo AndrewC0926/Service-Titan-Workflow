@@ -73,6 +73,21 @@ def test_seed_product_lines_marley_recold_carry_unverified_heat_rejection_mode(d
         assert line.heat_rejection_mode_basis, "an unverified capability must still carry who stated it and when"
 
 
+def test_seed_product_lines_existence_verified_defaults_null_not_true(db_session, cfg):
+    """A line config.yaml never actually researched must land NULL
+    (unresearched), never True -- True is not the default state you get by
+    doing nothing, only VU Flow Environmental's own config entry (an
+    explicit false + basis) may differ."""
+    seed(db_session, cfg)
+    lines = db_session.exec(select(ProductLine)).all()
+    by_ev = {}
+    for line in lines:
+        by_ev.setdefault(line.existence_verified, []).append(line.name)
+    assert by_ev.get(True, []) == []
+    assert by_ev.get(False, []) == ["VU Flow Environmental"]
+    assert len(by_ev.get(None, [])) == len(lines) - 1
+
+
 def test_seed_product_lines_other_lines_have_no_invented_heat_rejection_mode(db_session, cfg):
     """No brand-name inference for lines nobody has actually stated a
     heat-rejection capability for."""

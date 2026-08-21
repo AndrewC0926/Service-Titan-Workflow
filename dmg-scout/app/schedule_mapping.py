@@ -42,7 +42,7 @@ class LineRef:
     id: int
     name: str
     firm: str
-    existence_verified: bool = True
+    existence_verified: bool | None = None
 
 
 @dataclass
@@ -104,9 +104,12 @@ def map_project_schedule_to_line_card(session: Session, project_id: int) -> list
     lines_by_norm: dict[str, ProductLine] = {}
     for line in all_lines:
         # our_lines_for_role is a RECOMMENDATION ("consider this line") --
-        # a line whose existence itself could not be confirmed (VU Flow
-        # Environmental, 2026-08-09 research) is excluded from it, per
-        # ProductLine.existence_verified's own docstring. lines_by_norm
+        # only a line with a CONFIRMED existence (existence_verified is
+        # True, never NULL) is included, per ProductLine.existence_verified's
+        # own docstring: NULL means unresearched, not confirmed, so it is
+        # excluded the same as an explicit False (VU Flow Environmental,
+        # 2026-08-09 research) until someone actually verifies it.
+        # lines_by_norm
         # (matching what a document literally names as its own basis of
         # design/approved equal) is NOT filtered here: that is a fact about
         # the document, independent of whether Scout can independently

@@ -397,6 +397,20 @@ def test_existence_unverified_line_excluded_from_recommendations(db_session):
     assert [l.name for l in m.our_lines_for_role] == ["AAON"]
 
 
+def test_existence_never_researched_line_excluded_from_recommendations(db_session):
+    """NULL (never researched -- the state 69 of 70 real lines are actually
+    in) must be excluded from recommendations exactly like an explicit
+    False. Only an explicit True, written alongside a basis, belongs in
+    our_lines_for_role -- NULL is not a lesser form of True."""
+    _line(db_session, "AAON", "air_handling")
+    _line(db_session, "Some Unresearched Line", "air_handling", existence_verified=None)
+    p = _project(db_session)
+    _entry(db_session, p.id, tag="AH-1", role="air_handling")
+
+    m = map_project_schedule_to_line_card(db_session, p.id)[0]
+    assert [l.name for l in m.our_lines_for_role] == ["AAON"]
+
+
 def test_existence_unverified_line_still_matches_if_document_names_it(db_session):
     """Excluded from RECOMMENDATIONS, not from matching what a document
     itself literally names -- that's a fact about the document, independent
