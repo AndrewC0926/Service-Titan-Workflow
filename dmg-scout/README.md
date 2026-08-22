@@ -99,6 +99,69 @@ matched from many records just means the keyword filter is selective.
 
 Run it after any config or adapter change; `--only <adapter>` scopes it.
 
+## Importing the account roster
+
+`scout import-accounts <path-to-csv>` loads a real account list in one shot.
+Strict and atomic on purpose: if anything in the file is wrong, **nothing is
+written** — you get a full list of every problem, in every row, in one pass,
+so you fix the file once and re-run rather than debugging a half-loaded
+roster. Safe to re-run any time: rows are matched on normalized account name
++ street address, so reloading the same file (or a corrected version of it)
+updates existing accounts in place instead of duplicating them.
+
+**Columns** (exact header text, case/whitespace-insensitive):
+
+| Column | Required | Notes |
+|---|---|---|
+| `Account Name` | yes | |
+| `Street Address` | yes | Part of the matching key — see below. |
+| `City` | yes | |
+| `County` | yes (as a column) | Value may be blank — see "Missing values" below. |
+| `Account Owner` | yes | The rep who owns this account. |
+| `Last Order Date` | no | `YYYY-MM-DD`, `MM/DD/YYYY`, `MM/DD/YY`, or `YYYY/MM/DD`. |
+| `Annual Revenue` | no | Plain number, `$` and `,` are stripped automatically. |
+| `Product Lines Bought` | no | Semicolon-separated line names, e.g. `AAON; Marley; LG`. Must match a real line on the card (case/whitespace-insensitive) — a typo here fails the whole file, the same as any other bad cell, rather than silently dropping the line. |
+
+Extra columns in the file are ignored. Missing a *required* column entirely
+(not just a blank value — the column itself absent from the header row)
+fails the whole file before any row is even read.
+
+**Missing values:**
+
+- **County left blank** on a row: derived from `City` when the city is one
+  of the 201 confirmed territory cities in `app/geo.py`; left `NULL`
+  otherwise. Never guessed from a zip code, never left as an empty string.
+- **`Last Order Date` / `Annual Revenue` blank:** stored as `NULL`, never `0`
+  and never today's date.
+- **`Product Lines Bought` blank:** no coverage rows are marked bought for
+  that account (existing coverage, if any, is untouched).
+- **`Account Name` / `Street Address` / `City` / `Account Owner` blank:**
+  this is a parse failure — the whole file is rejected, not just that row.
+
+**The one command:**
+
+```
+scout import-accounts path/to/roster.csv
+```
+
+Prints `N inserted, N updated, N unchanged`, plus how many counties were
+derived from city vs. left unresolved. On failure, prints every row/column/
+reason and exits non-zero — nothing was written.
+
+To spot-check what Scout's existing data actually resolves against the
+accounts you just loaded (which active projects share an address or name a
+matching account as developer, and how many of the line card's 13 roles
+each account already buys from), run `scout account-join-report`. This is a
+raw join report, not a ranking — see `app.accounts.accounts_matching_projects_by_address`
+et al.
+
+A synthetic 40-row example in the exact expected format, with realistic
+messiness (mixed case, "Inc" vs "Inc.", missing counties, blank optional
+cells, one branch office sharing a name with another at a different
+address), is checked in at `tests/fixtures/account_roster_sample.csv` —
+run it against a local database to see the whole thing work before you're
+standing in front of the real export.
+
 ## Deploy (Render)
 
 `render.yaml` defines web + daily cron (6am PT) + Postgres. Point Render at this

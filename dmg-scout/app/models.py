@@ -973,6 +973,9 @@ class Account(SQLModel, table=True):
     assigned_rep: str | None = Field(default=None, index=True)
     first_order_date: datetime | None = None
     last_order_date: datetime | None = None
+    # Never stated in the source roster -- NULL, not 0. See
+    # app.importers.account_roster_csv, the only writer of this field.
+    annual_revenue: float | None = None
     notes: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
     # federal | state_municipal | private_commercial — matches
     # replacement.service_life.ownership keys, and drives which band this

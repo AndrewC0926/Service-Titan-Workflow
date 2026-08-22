@@ -1390,6 +1390,67 @@ def seed_selection_tools_cmd() -> None:
         typer.echo(f"  {name} ({firm})")
 
 
+@app.command("import-accounts")
+def import_accounts_cmd(
+    path: str = typer.Argument(..., help="Path to the account roster CSV — see README.md's "
+                                          "'Importing the account roster' section for the exact "
+                                          "column schema this expects"),
+) -> None:
+    """Strict, atomic import of a real DMG account roster export. Validates
+    the ENTIRE file first — a single bad cell anywhere aborts the whole
+    file and nothing is written, with every problem listed at once, not
+    just the first. Safe to re-run: keyed on normalized account name +
+    street address, so fixing a typo and reloading updates in place rather
+    than creating a duplicate. See app.importers.account_roster_csv."""
+    from pathlib import Path
+
+    from app.importers.account_roster_csv import AccountRosterInvalid, import_account_roster
+    text = Path(path).read_text(encoding="utf-8-sig")
+    try:
+        with session_scope() as session:
+            stats = import_account_roster(session, text)
+    except AccountRosterInvalid as exc:
+        typer.echo(f"NOTHING IMPORTED — {len(exc.errors)} problem(s) to fix and re-run:")
+        for err in exc.errors:
+            typer.echo(f"  {err}")
+        raise typer.Exit(1) from None
+    typer.echo(f"{stats['inserted']} inserted, {stats['updated']} updated, {stats['skipped']} unchanged")
+    if stats["counties_derived"]:
+        typer.echo(f"  {stats['counties_derived']} county value(s) derived from city (app.geo)")
+    if stats["counties_unresolved"]:
+        typer.echo(f"  {stats['counties_unresolved']} row(s) left with county=NULL "
+                   f"(blank in the file, and city not in app.geo's table — not a guess)")
+
+
+@app.command("account-join-report")
+def account_join_report_cmd(
+    limit: int = typer.Option(25, help="Max accounts to print (report is per-account, can get long)"),
+) -> None:
+    """Raw join quality for every active account against Scout's existing
+    project/coverage data — NOT a ranking or score, just what each join
+    actually resolves to, for spot-checking before anything gets built on
+    top of it. See app.accounts.accounts_matching_projects_by_address/
+    _by_owner_name and account_role_coverage."""
+    from app.accounts import (
+        accounts_matching_projects_by_address,
+        accounts_matching_projects_by_owner_name,
+        account_role_coverage,
+    )
+    from app.models import Account
+    with session_scope() as session:
+        accounts = session.exec(select(Account).where(Account.status == "active")).all()[:limit]
+        for a in accounts:
+            by_addr = accounts_matching_projects_by_address(session, a)
+            by_owner = accounts_matching_projects_by_owner_name(session, a)
+            cov = account_role_coverage(session, a)
+            typer.echo(f"{a.name} ({a.city or 'city?'}, {a.county or 'county?'})")
+            typer.echo(f"  by address: {len(by_addr)} active project(s)"
+                       + (f" — {', '.join(p.name for p in by_addr[:5])}" if by_addr else ""))
+            typer.echo(f"  by owner name: {len(by_owner)} active project(s)"
+                       + (f" — {', '.join(p.name for p in by_owner[:5])}" if by_owner else ""))
+            typer.echo(f"  buys from us in {cov['bought_roles']} of {cov['total_roles']} roles")
+
+
 @app.command("compare-lines")
 def compare_lines_cmd(
     tonnage: float = typer.Option(None, help="Facility tonnage, for context only — no line carries a "

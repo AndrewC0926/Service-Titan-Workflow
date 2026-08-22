@@ -5,10 +5,15 @@ account â€” what they have, what they should have, what is forcing them to buy â
 answered by three functions here: owned_categories/compute_gaps and
 account_replacement_windows.
 
-Deliberately separate from the project pipeline: nothing in this module reads
-or writes Project, Signal, or anything under app/pipeline/. The only bridge is
-Account.firm_id, an optional link to the existing Firm roster, used solely to
-show live Scout projects naming this account on its brief.
+Mostly separate from the project pipeline -- this module never WRITES
+Project, Signal, or anything under app/pipeline/. It does read them in a
+few narrow, named places: matching_projects_for_line and
+project_facility_type (surfacing live board projects an account or line
+might fit), and accounts_matching_projects_by_address/_by_owner_name (raw
+account<->project join quality for the imported roster, see
+app.importers.account_roster_csv). Account.firm_id, an optional link to the
+existing Firm roster, is the only bridge that WRITES anything shared
+between the two sides.
 """
 from __future__ import annotations
 
@@ -37,6 +42,7 @@ from app.models import (
     utcnow,
 )
 from app.normalize import normalize_name
+from app.pipeline.retrofit import normalize_address
 from app.replacement import ServiceLife, UnknownEquipment, replacement_basis, service_life
 
 log = logging.getLogger(__name__)
@@ -1144,3 +1150,74 @@ def line_offering_by_role(session: Session, category: Category, facility_type: F
             osp_required=osp_required, gap=relevant and not covered,
         ))
     return out
+
+
+# ---- account <-> project raw joins ------------------------------------
+#
+# For the imported roster (app.importers.account_roster_csv): what Scout's
+# existing project data actually resolves to, against real accounts, with
+# NO weighting or ranking on top -- see that module's own docstring for why
+# join quality has to be checked directly before anything gets built on it.
+# This is the one place in this module that reads Project/Signal beyond the
+# firm_id bridge described in this file's own header -- both functions
+# below are read-only and change nothing about that module's write surface.
+
+def accounts_matching_projects_by_address(session: Session, account: Account) -> list[Project]:
+    """Active projects (ACTIVE_STATUSES) carrying a linked Signal whose
+    street_address normalizes to this account's own address.
+
+    Project itself has no address column -- county/lat/long only -- so this
+    necessarily goes through whichever of a project's signals happened to
+    state one. That is real, visible noise (a project can carry many
+    signals; a stale or simply different one gets included on equal
+    footing with a fresh one), not something to average away -- report it
+    as what it is, an address match against a signal, not the project's
+    own canonical address."""
+    if not account.address:
+        return []
+    target = normalize_address(account.address)
+    if not target:
+        return []
+    rows = session.exec(
+        select(Project, Signal)
+        .join(ProjectSignal, ProjectSignal.project_id == Project.id)
+        .join(Signal, Signal.id == ProjectSignal.signal_id)
+        .where(Project.status.in_(ACTIVE_STATUSES), Signal.street_address.is_not(None))
+    ).all()
+    matched: dict[int, Project] = {}
+    for project, signal in rows:
+        if normalize_address(signal.street_address) == target:
+            matched[project.id] = project
+    return list(matched.values())
+
+
+def accounts_matching_projects_by_owner_name(session: Session, account: Account) -> list[Project]:
+    """Active projects whose developer field normalizes to this account's
+    own name -- is this account itself the developer/owner of record on a
+    live project, not merely a vendor selling into one."""
+    if not account.name_norm:
+        return []
+    projects = session.exec(
+        select(Project).where(Project.status.in_(ACTIVE_STATUSES), Project.developer.is_not(None))
+    ).all()
+    return [p for p in projects if normalize_name(p.developer) == account.name_norm]
+
+
+def account_role_coverage(session: Session, account: Account) -> dict:
+    """Raw coverage count against the line card's 13-role taxonomy (same
+    ROLE_ORDER /lines and app.schedule_mapping use) -- "buys from us in N
+    of 13 roles." A role counts as bought if this account has AT LEAST ONE
+    line in that role at status='bought'. No weighting, no ranking: this is
+    the join itself, for a human to read directly."""
+    rows = session.exec(
+        select(ProductLine.building_role)
+        .join(AccountCoverage, AccountCoverage.product_line_id == ProductLine.id)
+        .where(AccountCoverage.account_id == account.id, AccountCoverage.status == BOUGHT)
+    ).all()
+    bought_roles = {role for role in rows if role in ROLE_LABELS}
+    return {
+        "bought_roles": len(bought_roles),
+        "total_roles": len(ROLE_ORDER),
+        "roles_bought": [r for r in ROLE_ORDER if r in bought_roles],
+        "roles_missing": [r for r in ROLE_ORDER if r not in bought_roles],
+    }

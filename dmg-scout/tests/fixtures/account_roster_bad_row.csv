@@ -1,0 +1,7 @@
+Account Name,Street Address,City,County,Account Owner,Last Order Date,Annual Revenue,Product Lines Bought
+Good Account One,100 Main St,Riverside,,Jim Torres,2025-03-14,"$500,000",AAON
+Broken Account No City,200 Oak Ave,,,Jim Torres,,,
+Broken Account Bad Date,300 Elm Dr,San Diego,,Maria Chen,not-a-date,,
+Broken Account Bad Revenue,400 Pine Rd,Ontario,,Maria Chen,,not-a-number,
+Broken Account Unknown Line,500 Cedar Ln,Riverside,,Maria Chen,,,Trane; AAON
+Good Account One,100 Main St,Riverside,,Jim Torres,2025-03-14,"$500,000",AAON
