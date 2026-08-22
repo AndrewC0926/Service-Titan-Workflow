@@ -671,6 +671,7 @@ def import_enriched_contacts_cmd(path: str = typer.Argument(
     confirmed-reachable path. Any row DOES supply phone or email goes through
     import_enriched_contact, which still refuses a contact with neither."""
     import json
+
     from app.enrichment import import_enriched_contact, import_pending_contact
     rows = json.loads(open(path).read())
     stored, pending, skipped = 0, 0, []
@@ -712,6 +713,7 @@ def log_outreach_from_fathom_cmd(
     get_meeting_transcript) and save it to a file -- Scout has no Fathom API
     key of its own, same shape as the Apollo/Lusha enrichment bridge."""
     from datetime import datetime
+
     from app.pipeline.fathom_outreach import log_outreach_from_fathom
 
     transcript = open(transcript_file).read()
@@ -795,6 +797,7 @@ def fetch_permits_cmd(
     See app/pipeline/permits.py. Safe to re-run — upserts by permit_nbr.
     --window all pulls all three date-window datasets in one run."""
     from datetime import datetime
+
     from app.http import PoliteClient
     from app.pipeline.permits import DATASETS, fetch_la_mechanical_permits
     parsed_since = datetime.fromisoformat(since) if since else None
@@ -852,6 +855,7 @@ def find_replacement_candidates_cmd(
     from app.pipeline.retrofit import find_replacement_candidates
     codes = [c.strip() for c in use_codes.split(",")] if use_codes else None
     from sqlmodel import select
+
     from app.models import RetrofitBuilding
     with session_scope() as session, PoliteClient() as client:
         stats = find_replacement_candidates(session, load_config(), client,
@@ -1122,7 +1126,10 @@ def backfill(
     from datetime import datetime as dt
 
     from app.pipeline.backfill import (
-        BACKFILLABLE, ConcurrentBackfill, estimate_cost, run_backfill,
+        BACKFILLABLE,
+        ConcurrentBackfill,
+        estimate_cost,
+        run_backfill,
     )
     cfg = load_config()
     if estimate:
@@ -1395,6 +1402,10 @@ def import_accounts_cmd(
     path: str = typer.Argument(..., help="Path to the account roster CSV — see README.md's "
                                           "'Importing the account roster' section for the exact "
                                           "column schema this expects"),
+    dry_run: bool = typer.Option(False, "--dry-run",
+                                 help="Validate and report exactly what would happen — insert/update/"
+                                      "skip per row, and every field that would change on an update — "
+                                      "without writing anything. Run this first."),
 ) -> None:
     """Strict, atomic import of a real DMG account roster export. Validates
     the ENTIRE file first — a single bad cell anywhere aborts the whole
@@ -1404,8 +1415,42 @@ def import_accounts_cmd(
     than creating a duplicate. See app.importers.account_roster_csv."""
     from pathlib import Path
 
-    from app.importers.account_roster_csv import AccountRosterInvalid, import_account_roster
+    from app.importers.account_roster_csv import (
+        AccountRosterInvalid,
+        import_account_roster,
+        preview_account_roster,
+    )
     text = Path(path).read_text(encoding="utf-8-sig")
+
+    if dry_run:
+        try:
+            with session_scope() as session:
+                preview = preview_account_roster(session, text)
+        except AccountRosterInvalid as exc:
+            typer.echo(f"INVALID — {len(exc.errors)} problem(s), fix and re-run:")
+            for err in exc.errors:
+                typer.echo(f"  {err}")
+            raise typer.Exit(1) from None
+        by_action = {"insert": 0, "update": 0, "skip": 0}
+        for row in preview:
+            by_action[row.action] += 1
+        typer.echo(f"DRY RUN — would insert {by_action['insert']}, update {by_action['update']}, "
+                   f"leave {by_action['skip']} unchanged. Nothing written.")
+        for row in preview:
+            if row.action == "insert":
+                typer.echo(f"  row {row.line_no}: INSERT {row.name!r} ({row.address})"
+                           + (f" — mark bought: {', '.join(row.newly_bought_lines)}"
+                              if row.newly_bought_lines else ""))
+            elif row.action == "update":
+                changes = "; ".join(f"{k}: {old!r} -> {new!r}" for k, (old, new) in row.changes.items())
+                typer.echo(f"  row {row.line_no}: UPDATE {row.name!r} (account id={row.account_id}) — {changes}"
+                           + (f"; mark bought: {', '.join(row.newly_bought_lines)}"
+                              if row.newly_bought_lines else ""))
+            elif row.newly_bought_lines:
+                typer.echo(f"  row {row.line_no}: unchanged {row.name!r} (account id={row.account_id}) — "
+                           f"mark bought: {', '.join(row.newly_bought_lines)}")
+        return
+
     try:
         with session_scope() as session:
             stats = import_account_roster(session, text)
@@ -1432,9 +1477,9 @@ def account_join_report_cmd(
     top of it. See app.accounts.accounts_matching_projects_by_address/
     _by_owner_name and account_role_coverage."""
     from app.accounts import (
+        account_role_coverage,
         accounts_matching_projects_by_address,
         accounts_matching_projects_by_owner_name,
-        account_role_coverage,
     )
     from app.models import Account
     with session_scope() as session:
@@ -1646,7 +1691,11 @@ def purge_source(
     from sqlalchemy import delete, func
 
     from app.models import (
-        BackfillCheckpoint, MatchCandidate, ProjectSignal, RawDocument, Signal,
+        BackfillCheckpoint,
+        MatchCandidate,
+        ProjectSignal,
+        RawDocument,
+        Signal,
     )
     with session_scope() as session:
         n_docs = session.exec(select(func.count(RawDocument.id))

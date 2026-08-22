@@ -60,6 +60,16 @@ def _clean_header(h: str) -> str:
     return re.sub(r"\s+", " ", h.strip().lower())
 
 
+def _address_signature(addr: str) -> str:
+    """Case/whitespace-only normalization, deliberately with NO street-suffix
+    truncation -- the lighter check that tells a true duplicate (same
+    address, different formatting) apart from a normalize_address key
+    collision (different addresses that happen to truncate the same way).
+    Not a matching key on its own, only a comparison for two rows that
+    ALREADY share a (name_norm, address_norm) key."""
+    return re.sub(r"\s+", " ", addr.strip().upper())
+
+
 @dataclass
 class RosterError:
     line_no: int  # 0 = whole-file problem (e.g. missing header); else the CSV row number (header row = 1)
@@ -124,7 +134,7 @@ def parse_and_validate(raw_text: str, session: Session) -> list[ParsedRow]:
 
     errors: list[RosterError] = []
     parsed: list[ParsedRow] = []
-    seen_keys: dict[tuple[str, str], int] = {}
+    seen_keys: dict[tuple[str, str], tuple[int, str]] = {}
 
     for line_no, raw_row in enumerate(reader, start=2):
         vals: dict[str, str] = {}
@@ -191,10 +201,31 @@ def parse_and_validate(raw_text: str, session: Session) -> list[ParsedRow]:
         address_norm = normalize_address(address) or address.upper().strip()
         key = (name_norm, address_norm)
         if key in seen_keys:
-            errors.append(RosterError(line_no, "account name + street address",
-                                      f"duplicate of row {seen_keys[key]} (same normalized name + address)"))
+            other_line_no, other_address = seen_keys[key]
+            if _address_signature(address) == _address_signature(other_address):
+                errors.append(RosterError(line_no, "account name + street address",
+                                          f"duplicate of row {other_line_no} (same account, same address)"))
+            else:
+                # Same normalized key, but the RAW addresses actually differ --
+                # normalize_address truncates at the first street-suffix token
+                # (see its own docstring), which collapses two real, different
+                # numbered-avenue addresses ("83-100 Ave 45" and "83-100 Ave
+                # 47", both real Coachella Valley addresses, both normalize to
+                # "83-100 AVE") into the same key. Reported as a distinct
+                # failure from a literal duplicate -- this is NOT necessarily a
+                # mistake in the file, it is a real limitation of reusing
+                # app.pipeline.retrofit.normalize_address (built for permit-
+                # to-parcel matching, not account identity) for this key.
+                # Never silently pick one and drop the other.
+                errors.append(RosterError(
+                    line_no, "account name + street address",
+                    f"same account name and normalizes to the same address key as row {other_line_no} "
+                    f"({address_norm!r}), but the addresses are actually different ({address!r} vs "
+                    f"{other_address!r}) -- likely a numbered-street truncation collision, not a real "
+                    f"duplicate. Resolve by hand before re-running; this importer will not guess which "
+                    f"row is right."))
             continue
-        seen_keys[key] = line_no
+        seen_keys[key] = (line_no, address)
 
         parsed.append(ParsedRow(
             line_no=line_no, name=name, name_norm=name_norm, address=address,
@@ -218,6 +249,75 @@ def _parse_date(value: str) -> datetime | None:
     return None
 
 
+def _target_fields(row: ParsedRow) -> dict:
+    return {
+        "address": row.address, "city": row.city, "county": row.county,
+        "assigned_rep": row.account_owner, "last_order_date": row.last_order_date,
+        "annual_revenue": row.annual_revenue,
+    }
+
+
+def _existing_accounts_by_key(session: Session) -> dict[tuple[str, str], Account]:
+    """ACTIVE accounts only, keyed the same way apply_roster matches rows --
+    a dormant/archived account is not silently revived by a coincidental
+    name+address match on a later reload. Shared by apply_roster and
+    preview_roster so the two can never disagree about what matches what."""
+    existing = session.exec(select(Account).where(Account.status == "active")).all()
+    by_key: dict[tuple[str, str], Account] = {}
+    for a in existing:
+        addr_norm = normalize_address(a.address) if a.address else None
+        if addr_norm:
+            by_key[(a.name_norm, addr_norm)] = a
+    return by_key
+
+
+@dataclass
+class RosterPreviewRow:
+    line_no: int
+    name: str
+    address: str
+    action: str  # "insert" | "update" | "skip"
+    account_id: int | None  # set for update/skip, None for insert
+    changes: dict = dc_field(default_factory=dict)  # field -> (old, new); only set for "update"
+    newly_bought_lines: list[str] = dc_field(default_factory=list)
+
+
+def preview_roster(session: Session, rows: list[ParsedRow]) -> list[RosterPreviewRow]:
+    """Read-only dry run: exactly the matching apply_roster would do, with
+    NO session.add/flush anywhere in this function -- what --dry-run
+    prints. Requires rows already came from parse_and_validate (so the file
+    is already known to be clean); this only decides insert/update/skip and
+    what would change, it does not re-validate."""
+    by_key = _existing_accounts_by_key(session)
+    bought_by_account: dict[int, set[int]] = {}
+
+    out: list[RosterPreviewRow] = []
+    for row in rows:
+        account = by_key.get((row.name_norm, row.address_norm))
+        target = _target_fields(row)
+        if account is None:
+            out.append(RosterPreviewRow(line_no=row.line_no, name=row.name, address=row.address,
+                                        action="insert", account_id=None,
+                                        newly_bought_lines=list(row.product_line_names)))
+            continue
+
+        changes = {k: (getattr(account, k), v) for k, v in target.items() if getattr(account, k) != v}
+        if account.id not in bought_by_account:
+            already = session.exec(
+                select(AccountCoverage.product_line_id).where(
+                    AccountCoverage.account_id == account.id, AccountCoverage.status == "bought")
+            ).all()
+            bought_by_account[account.id] = set(already)
+        newly_bought = [name for line_id, name in zip(row.product_line_ids, row.product_line_names)
+                        if line_id not in bought_by_account[account.id]]
+
+        action = "update" if changes else "skip"
+        out.append(RosterPreviewRow(line_no=row.line_no, name=row.name, address=row.address,
+                                    action=action, account_id=account.id, changes=changes,
+                                    newly_bought_lines=newly_bought))
+    return out
+
+
 def apply_roster(session: Session, rows: list[ParsedRow]) -> dict:
     """Applies an already-validated roster in ONE uncommitted transaction
     (session.add/flush only) -- the caller (see app.cli's session_scope)
@@ -230,23 +330,13 @@ def apply_roster(session: Session, rows: list[ParsedRow]) -> dict:
     a dormant/archived account is not silently revived by a coincidental
     name+address match on a later reload.
     """
-    existing = session.exec(select(Account).where(Account.status == "active")).all()
-    by_key: dict[tuple[str, str], Account] = {}
-    for a in existing:
-        addr_norm = normalize_address(a.address) if a.address else None
-        if addr_norm:
-            by_key[(a.name_norm, addr_norm)] = a
-
+    by_key = _existing_accounts_by_key(session)
     all_lines = session.exec(select(ProductLine)).all()
 
     inserted = updated = skipped = 0
     for row in rows:
         account = by_key.get((row.name_norm, row.address_norm))
-        target = {
-            "address": row.address, "city": row.city, "county": row.county,
-            "assigned_rep": row.account_owner, "last_order_date": row.last_order_date,
-            "annual_revenue": row.annual_revenue,
-        }
+        target = _target_fields(row)
         if account is None:
             account = Account(name=row.name, name_norm=row.name_norm, **target)
             firm = match_firm(session, row.name)
@@ -293,3 +383,12 @@ def import_account_roster(session: Session, raw_text: str) -> dict:
     or apply nothing at all. See parse_and_validate and apply_roster."""
     rows = parse_and_validate(raw_text, session)
     return apply_roster(session, rows)
+
+
+def preview_account_roster(session: Session, raw_text: str) -> list[RosterPreviewRow]:
+    """Validates the whole file (raises AccountRosterInvalid exactly like
+    import_account_roster if anything is wrong -- a dry run still needs a
+    clean file to preview against), then reports exactly what WOULD happen,
+    writing nothing. See preview_roster."""
+    rows = parse_and_validate(raw_text, session)
+    return preview_roster(session, rows)

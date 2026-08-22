@@ -172,6 +172,67 @@ def test_unmatched_product_line_name_is_a_parse_failure_not_a_silent_drop(db_ses
         assert "NotARealLine" in exc.errors[0].message
 
 
+# ---- numbered-avenue address key collisions ----------------------------
+#
+# normalize_address (app.pipeline.retrofit, reused here, NOT modified --
+# retrofit permit matching depends on it) truncates at the first recognized
+# street-suffix token. "83-100 Ave 45" and "83-100 Ave 47" are both real,
+# plausible Coachella Valley addresses (DMG territory) and both truncate to
+# "83-100 AVE" -- two genuinely different physical locations landing on the
+# identical idempotency key. This is not hypothetical; see the test below
+# for direct proof, and the two after it for what the importer does about it.
+
+def test_normalize_address_collides_on_distinct_numbered_avenues():
+    """Direct proof against the shared, unmodified normalizer: two real,
+    different Coachella Valley addresses produce the identical key."""
+    from app.pipeline.retrofit import normalize_address
+    a = normalize_address("83-100 Ave 45")
+    b = normalize_address("83-100 Ave 47")
+    assert a == b == "83-100 AVE"
+
+
+def test_within_file_numbered_avenue_collision_is_caught_and_both_rows_named(db_session, cfg):
+    """Two rows, same account name, two DIFFERENT real numbered-avenue
+    addresses that collide on the same key -- must fail the whole file and
+    name both rows, never silently keep one and drop the other."""
+    _seed_lines(db_session, cfg)
+    csv_text = ("Account Name,Street Address,City,County,Account Owner,"
+               "Last Order Date,Annual Revenue,Product Lines Bought\n"
+               "Coachella Valley Air Corp,83-100 Ave 45,Indio,,Renee Diaz,,,\n"
+               "Coachella Valley Air Corp,83-100 Ave 47,Indio,,Renee Diaz,,,\n")
+    try:
+        import_account_roster(db_session, csv_text)
+        assert False, "should have raised AccountRosterInvalid"
+    except AccountRosterInvalid as exc:
+        assert len(exc.errors) == 1
+        err = exc.errors[0]
+        assert err.line_no == 3
+        assert "row 2" in err.message
+        assert "83-100 Ave 45" in err.message and "83-100 Ave 47" in err.message
+        assert "collision" in err.message
+    assert db_session.exec(select(Account)).all() == []
+
+
+def test_within_file_true_duplicate_is_still_reported_as_a_duplicate_not_a_collision(db_session, cfg):
+    """Same address, just formatted differently (case/whitespace only, no
+    truncation-relevant difference) -- a real duplicate, and the error
+    message must say so plainly rather than raising a false collision
+    alarm on ordinary formatting differences."""
+    _seed_lines(db_session, cfg)
+    csv_text = ("Account Name,Street Address,City,County,Account Owner,"
+               "Last Order Date,Annual Revenue,Product Lines Bought\n"
+               "Acme Mechanical,123 Main St,Riverside,,Jim,,,\n"
+               "Acme Mechanical,  123   main st  ,Riverside,,Jim,,,\n")
+    try:
+        import_account_roster(db_session, csv_text)
+        assert False, "should have raised AccountRosterInvalid"
+    except AccountRosterInvalid as exc:
+        assert len(exc.errors) == 1
+        assert "duplicate" in exc.errors[0].message
+        assert "collision" not in exc.errors[0].message
+    assert db_session.exec(select(Account)).all() == []
+
+
 # ---- join quality (item 4: raw joins, no scoring) --------------------
 
 def _account(db_session, name, address=None, county=None):

@@ -109,6 +109,12 @@ roster. Safe to re-run any time: rows are matched on normalized account name
 + street address, so reloading the same file (or a corrected version of it)
 updates existing accounts in place instead of duplicating them.
 
+**Run `--dry-run` first, always.** `scout import-accounts <csv> --dry-run`
+validates the file and prints exactly what would happen — insert / update /
+skip per row, and for every row that would update an existing account, every
+field that would change (old value → new value) — without writing anything.
+This is the command to run standing in the office, before the real one.
+
 **Columns** (exact header text, case/whitespace-insensitive):
 
 | Column | Required | Notes |
@@ -137,6 +143,19 @@ fails the whole file before any row is even read.
   that account (existing coverage, if any, is untouched).
 - **`Account Name` / `Street Address` / `City` / `Account Owner` blank:**
   this is a parse failure — the whole file is rejected, not just that row.
+
+**Known address-matching limitation — numbered avenues.** The street-address
+half of the matching key truncates at the first recognized suffix word (see
+`app.pipeline.retrofit.normalize_address`'s own docstring — it's shared with
+retrofit permit matching, not something this importer changes). "83-100 Ave
+45" and "83-100 Ave 47" — both real, plausible Coachella Valley addresses —
+normalize to the identical key. If two rows in the *same file* share an
+account name and collide this way, the importer catches it and fails the
+whole file, naming both rows (never silently keeps one and drops the
+other). It does **not** currently check a new row against an *already-
+imported* account from a prior run for this same ambiguity — `--dry-run`'s
+per-row diff is your check for that case: read the address on every
+row it proposes to UPDATE before running for real.
 
 **The one command:**
 
