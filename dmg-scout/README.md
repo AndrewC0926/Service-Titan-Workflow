@@ -170,24 +170,41 @@ reason and exits non-zero — nothing was written.
 
 To spot-check what Scout's existing data actually resolves against the
 accounts you just loaded, run `scout account-join-report`. Raw joins, not a
-ranking — see `app.accounts` for all four:
+ranking — two PRIMARY (name-based) joins, two secondary:
 
+- **By firm** (`app.accounts.accounts_matching_firm`, PRIMARY) — matches the
+  account name against Scout's own firm roster (the same data `search_firms`
+  reads) by normalized name, and reports every active project that firm is
+  tied to, with role and stage. **Its ceiling depends on how many
+  contractors/GCs are on the firm roster at all** — check
+  `scout firm-type-counts` before expecting much; only 23 of Scout's 432
+  firms are `mech_contractor`/`gc`.
+- **By CSLB license** (`app.contractors.match_account_to_cslb`, PRIMARY) —
+  the join most likely to actually fire on a real, contractor-heavy roster:
+  California's Contractors State License Board publishes ~48,870 licenses in
+  Scout's territory (see `app.pipeline.cslb`), dwarfing the firm roster's 23.
+  Fuzzy-matches the account name against every in-territory license's
+  business name, reusing `app.pipeline.local250`'s own name-cleaning and
+  threshold discipline (95/100 on name alone, 90/100 when the account's city
+  also agrees with the license's own business/mailing city — real
+  corroboration here, unlike a project job-site address). **A tie — more
+  than one license clearing the threshold at the same top score — is
+  reported as `ambiguous` and left unresolved, never guessed**: CSLB
+  genuinely carries unrelated licenses under near-identical trade names
+  (a common name reused by different owners in different counties), and
+  picking one would fabricate precision this pipeline doesn't have. A
+  resolved match surfaces license number, status, classifications,
+  expiration, bond, workers' comp, UA Local 250 signatory status, and the
+  count of *overdue* (not just any) retrofit candidate buildings within
+  `default_radius_miles` (15mi, the same "what's realistically reachable"
+  radius a contractor's own detail page uses) of the license's geocoded
+  address.
 - **By address / by owner name** (`accounts_matching_projects_by_address`/
-  `_by_owner_name`): is this account itself a live project's site or its
-  developer of record. Real, but mostly answers a question about *owner*/
-  *developer*-type accounts, not contractors — expect close to nothing on a
-  contractor/GC-heavy roster, and that's a real limit of what's connected in
-  Scout's schema today, not a bug in the import.
-- **By firm** (`accounts_matching_firm`) — the one that actually fits a
-  contractor/GC roster: matches the account name against Scout's own firm
-  roster (the same data `search_firms` reads) by normalized name, and reports
-  every active project that firm is tied to, with role and stage. This is
-  the join that answers "which of my accounts are on live projects right
-  now." **Its ceiling depends on how many contractors/GCs are on the firm
-  roster at all** — check `scout firm-type-counts` (or query
-  `firms.firm_type`) before expecting much; a roster that's mostly
-  `developer`/`consultant` firms will make this join look empty regardless
-  of how good your account list is.
+  `_by_owner_name`, secondary): is this account itself a live project's site
+  or its developer of record. Real, but mostly answers a question about
+  *owner*/*developer*-type accounts, not contractors — expect close to
+  nothing on a contractor/GC-heavy roster, and that's a real limit of what's
+  connected in Scout's schema today, not a bug in the import.
 - **Role coverage** (`account_role_coverage`): "buys from us in N of 13
   roles," from `Product Lines Bought` on import.
 

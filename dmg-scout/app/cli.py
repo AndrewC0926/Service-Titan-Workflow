@@ -1472,14 +1472,17 @@ def account_join_report_cmd(
     limit: int = typer.Option(25, help="Max accounts to print (report is per-account, can get long)"),
 ) -> None:
     """Raw join quality for every active account against Scout's existing
-    project/coverage/firm data — NOT a ranking or score, just what each join
-    actually resolves to, for spot-checking before anything gets built on
-    top of it. The firm join (accounts_matching_firm) is PRIMARY -- name
-    against the same firm roster search_firms reads, the join that actually
-    fits a contractor/GC account list. By-address/by-owner-name are printed
-    as secondary signal only: they answer "is this account itself a
-    project's site or its developer of record," which is real but rare for
-    a rep's account list (mostly contractors and GCs, not owners) -- see
+    project/coverage/firm/CSLB data — NOT a ranking or score, just what each
+    join actually resolves to, for spot-checking before anything gets built
+    on top of it. Two PRIMARY joins, both by name: accounts_matching_firm
+    (Scout's own firm roster, the same data search_firms reads) and
+    match_account_to_cslb (CSLB's ~48,870-in-territory contractor license
+    roster — see app.contractors — the join most likely to actually fire
+    for a contractor-heavy roster, since only 23 of Scout's 432 firms are
+    mech_contractor/gc). By-address/by-owner-name are printed as secondary
+    signal only: they answer "is this account itself a project's site or
+    its developer of record," which is real but rare for a rep's account
+    list (mostly contractors and GCs, not owners) -- see
     app.accounts.accounts_matching_firm, accounts_matching_projects_by_address/
     _by_owner_name, and account_role_coverage."""
     from app.accounts import (
@@ -1488,11 +1491,21 @@ def account_join_report_cmd(
         accounts_matching_projects_by_address,
         accounts_matching_projects_by_owner_name,
     )
+    from app.contractors import (
+        build_cslb_match_candidates,
+        default_radius_miles,
+        match_account_to_cslb,
+        overdue_buildings_near_contractor,
+    )
     from app.models import Account
+    cfg = load_config()
+    radius = default_radius_miles(cfg)
     with session_scope() as session:
         accounts = session.exec(select(Account).where(Account.status == "active")).all()[:limit]
+        cslb_candidates = build_cslb_match_candidates(session)
         for a in accounts:
             firm_match = accounts_matching_firm(session, a)
+            cslb_match = match_account_to_cslb(a.name, a.city, cslb_candidates)
             by_addr = accounts_matching_projects_by_address(session, a)
             by_owner = accounts_matching_projects_by_owner_name(session, a)
             cov = account_role_coverage(session, a)
@@ -1506,6 +1519,24 @@ def account_join_report_cmd(
                            f"{len(projects)} active project(s)"
                            + (": " + "; ".join(f"{p.name} ({role}, stage={stage.value})"
                                                 for p, role, stage in projects[:5]) if projects else ""))
+            if cslb_match["ambiguous"]:
+                typer.echo("  CSLB match (primary): ambiguous -- multiple licenses tied on name, none applied")
+            elif cslb_match["contractor"] is None:
+                typer.echo("  CSLB match (primary): none")
+            else:
+                c = cslb_match["contractor"]
+                overdue = overdue_buildings_near_contractor(session, c, radius)
+                bonded = "bonded" if c.bond_number and not c.bond_cancellation_date else "not bonded"
+                typer.echo(f"  CSLB match (primary): #{c.license_no} {c.business_name} — "
+                           f"{c.primary_status or 'status?'}, {c.classifications or 'no classifications on file'}, "
+                           f"exp {c.expiration_date.date() if c.expiration_date else 'unknown'}")
+                typer.echo(f"    bond: {bonded}"
+                           + (f" (${c.bond_amount:,.0f}, {c.bond_company})" if c.bond_amount else "")
+                           + f" — workers comp: {c.workers_comp_coverage_type or 'unknown'}"
+                           + f" — Local 250: {'yes' if c.ua_local_250_signatory else 'no'}")
+                typer.echo(f"    {overdue} overdue retrofit building(s) within {radius:.0f}mi of this license's "
+                           f"geocoded address" if c.latitude is not None else
+                           "    not geocoded -- no radius count available")
             typer.echo(f"  by address (secondary): {len(by_addr)} active project(s)"
                        + (f" — {', '.join(p.name for p in by_addr[:5])}" if by_addr else ""))
             typer.echo(f"  by owner name (secondary): {len(by_owner)} active project(s)"

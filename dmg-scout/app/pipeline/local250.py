@@ -92,7 +92,7 @@ NAME_WITH_CITY_THRESHOLD = 90.0
 # for fuzzy matching (CSLB's own roster has real short/coded business names
 # like "DB1", "M C M") -- excluded as a candidate entirely rather than risk
 # a coincidental high score against an unrelated short name.
-_MIN_NAME_LEN = 4
+MIN_NAME_LEN = 4
 
 
 def _parse_contractors(html: str) -> list[dict]:
@@ -132,7 +132,7 @@ def _parse_contractors(html: str) -> list[dict]:
     return records
 
 
-def _clean_name(name: str) -> str:
+def clean_contractor_name(name: str) -> str:
     """Lowercase, strip parenthetical aliasing notes ("(Formerly THERMA
     LLC)"), punctuation, and legal suffixes only -- see the module-level
     comment on why this does NOT reuse app.normalize.normalize_name."""
@@ -164,8 +164,8 @@ def match_local250(session: Session, records: list[dict]) -> dict:
         for candidate_name in (c.business_name, c.full_business_name):
             if not candidate_name:
                 continue
-            norm_candidate = _clean_name(candidate_name)
-            if len(norm_candidate) >= _MIN_NAME_LEN:
+            norm_candidate = clean_contractor_name(candidate_name)
+            if len(norm_candidate) >= MIN_NAME_LEN:
                 candidates.append((c, norm_candidate))
         c.ua_local_250_signatory = False
         c.ua_local_250_matched_name = None
@@ -174,8 +174,8 @@ def match_local250(session: Session, records: list[dict]) -> dict:
     checked_at = utcnow()
     matched, ambiguous, unmatched = 0, 0, 0
     for rec in records:
-        norm = _clean_name(rec["name"])
-        if len(norm) < _MIN_NAME_LEN:
+        norm = clean_contractor_name(rec["name"])
+        if len(norm) < MIN_NAME_LEN:
             unmatched += 1
             continue
         rec_city = (rec.get("city") or "").strip().lower()

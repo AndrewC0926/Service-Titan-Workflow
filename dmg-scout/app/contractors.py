@@ -24,8 +24,16 @@ import math
 from sqlalchemy import func, text
 from sqlmodel import Session, select
 
+from rapidfuzz import fuzz
+
 from app.config import Config
 from app.models import Contractor, RetrofitBuilding, utcnow
+from app.pipeline.local250 import (
+    MIN_NAME_LEN,
+    NAME_ONLY_THRESHOLD,
+    NAME_WITH_CITY_THRESHOLD,
+    clean_contractor_name,
+)
 
 # The two CSLB classifications that are actually mechanical (HVAC /
 # refrigeration) -- see app.pipeline.cslb.CLASSIFICATIONS for the full
@@ -371,3 +379,99 @@ def nearest_mechanical_contractor_bulk(session: Session, buildings: list[Retrofi
             out[b.id] = {"contractor_name": best_name, "contractor_phone": best_phone,
                         "distance_miles": round(best_dist, 1)}
     return out
+
+
+# ---- account roster <-> CSLB join --------------------------------------
+#
+# The join most likely to actually fire for a rep's roster: Jason's list is
+# contractors, and CSLB carries ~48,870 of them in territory (see
+# app.pipeline.cslb), against only 23 mech_contractor/gc rows on Scout's own
+# firm roster (app.accounts.accounts_matching_firm) -- see `firm-type-counts`.
+#
+# Reuses app.pipeline.local250's name-cleaning and ambiguity discipline
+# verbatim (clean_contractor_name/MIN_NAME_LEN/NAME_ONLY_THRESHOLD/
+# NAME_WITH_CITY_THRESHOLD, promoted out of that module for this second
+# caller) rather than a new implementation: it is the SAME problem --
+# fuzzy-match a freeform business name against this same CSLB roster -- and
+# that module already earned its threshold/tie-handling the hard way (see
+# its own docstring on "Building Aire Inc." silently reducing to empty
+# under app.normalize.normalize_name). A tie (more than one CSLB license
+# clearing the threshold at the same top score) is reported as ambiguous
+# and left unresolved, never guessed -- CSLB's own roster genuinely
+# contains multiple, unrelated licenses under near-identical names (a
+# common trade name reused by different owners in different counties), and
+# picking one would be exactly the kind of fabricated precision this
+# pipeline is built to refuse elsewhere.
+
+
+def build_cslb_match_candidates(session: Session) -> list[tuple[Contractor, str]]:
+    """Every (contractor, cleaned_name) pair worth fuzzy-matching against --
+    built ONCE per report run, not once per account (a live per-account
+    scan of all ~48,870 in-territory contractors is the same N x M shape
+    match_local250 already solves this way). A contractor with both
+    business_name and full_business_name appears twice, each cleaned name
+    matched independently, same as match_local250's own candidate list."""
+    out: list[tuple[Contractor, str]] = []
+    for c in session.exec(select(Contractor)).all():
+        for candidate_name in (c.business_name, c.full_business_name):
+            if not candidate_name:
+                continue
+            norm = clean_contractor_name(candidate_name)
+            if len(norm) >= MIN_NAME_LEN:
+                out.append((c, norm))
+    return out
+
+
+def match_account_to_cslb(account_name: str, account_city: str | None,
+                          candidates: list[tuple[Contractor, str]]) -> dict:
+    """Fuzzy-match one imported account's name against the CSLB candidate
+    list from build_cslb_match_candidates. account_city, when it agrees
+    with the candidate's own CSLB business (mailing) address city, is real
+    corroboration -- unlike a project's job-site address, a contractor's
+    own office/mailing city has every reason to match the same account's
+    city in a rep's CRM, so agreement earns the lower NAME_WITH_CITY_THRESHOLD
+    the same way match_local250 already uses it.
+
+    Returns {'contractor': Contractor | None, 'ambiguous': bool}: exactly
+    one candidate clearing the threshold at the top score is a match;
+    zero is no match; more than one tied at the top score is 'ambiguous'
+    (contractor is None) -- never picked at random, and never silently
+    resolved by taking the first row back from the database."""
+    norm = clean_contractor_name(account_name)
+    if len(norm) < MIN_NAME_LEN:
+        return {"contractor": None, "ambiguous": False}
+    acct_city = (account_city or "").strip().lower()
+
+    best_score = 0.0
+    best_by_id: dict[int, Contractor] = {}
+    for c, norm_candidate in candidates:
+        score = fuzz.token_sort_ratio(norm, norm_candidate)
+        same_city = bool(acct_city and c.city and acct_city == c.city.strip().lower())
+        threshold = NAME_WITH_CITY_THRESHOLD if same_city else NAME_ONLY_THRESHOLD
+        if score < threshold:
+            continue
+        if score > best_score:
+            best_score, best_by_id = score, {c.id: c}
+        elif score == best_score:
+            best_by_id[c.id] = c
+
+    best = list(best_by_id.values())
+    if len(best) == 1:
+        return {"contractor": best[0], "ambiguous": False}
+    if len(best) > 1:
+        return {"contractor": None, "ambiguous": True}
+    return {"contractor": None, "ambiguous": False}
+
+
+def overdue_buildings_near_contractor(session: Session, contractor: Contractor,
+                                      radius_miles: float) -> int:
+    """Count of retrofit candidates within radius_miles whose own
+    service_life_status is specifically 'overdue' -- NOT the broader
+    replacement_candidate population nearby_replacement_candidates returns
+    (that population is ~95% overdue but also carries a due/approaching/
+    not_due tail; see RetrofitBuilding.service_life_status). Filters the
+    same live query rather than adding a second bounding-box/haversine
+    path, since this is a per-contractor lookup (one row on an account
+    report), not a bulk precompute."""
+    return sum(1 for b in nearby_replacement_candidates(session, contractor, radius_miles)
+              if b.service_life_status == "overdue")

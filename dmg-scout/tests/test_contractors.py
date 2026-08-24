@@ -367,3 +367,104 @@ def test_nearest_mechanical_contractors_empty_for_ungeocoded_building(db_session
     db_session.commit()
     db_session.refresh(b)
     assert contractors.nearest_mechanical_contractors(db_session, b, radius_miles=15) == []
+
+
+# ---- account roster <-> CSLB join (the one most likely to fire on a real,
+# contractor-heavy account list) -------------------------------------------
+
+def test_no_close_candidate_is_unmatched_not_guessed(db_session):
+    db_session.add(Contractor(license_no="1", business_name="Totally Different Company"))
+    db_session.commit()
+    candidates = contractors.build_cslb_match_candidates(db_session)
+
+    result = contractors.match_account_to_cslb("Southland Air Systems LLC", None, candidates)
+    assert result == {"contractor": None, "ambiguous": False}
+
+
+def test_single_clearing_candidate_matches(db_session):
+    c = Contractor(license_no="1", business_name="Southland Air Systems Inc.")
+    db_session.add(c)
+    db_session.commit()
+    db_session.refresh(c)
+    candidates = contractors.build_cslb_match_candidates(db_session)
+
+    result = contractors.match_account_to_cslb("Southland Air Systems LLC", None, candidates)
+    assert result["ambiguous"] is False
+    assert result["contractor"].id == c.id
+
+
+def test_below_threshold_without_city_agreement_is_unmatched(db_session):
+    # "Southland Air Systems CA Inc." scores ~93 against "Southland Air
+    # Systems LLC" -- above NAME_WITH_CITY_THRESHOLD (90) but below
+    # NAME_ONLY_THRESHOLD (95). No account_city given, so the lower
+    # threshold never applies -- must not match on a name-only near-miss.
+    c = Contractor(license_no="1", business_name="Southland Air Systems CA Inc.", city="Ontario")
+    db_session.add(c)
+    db_session.commit()
+    candidates = contractors.build_cslb_match_candidates(db_session)
+
+    result = contractors.match_account_to_cslb("Southland Air Systems LLC", None, candidates)
+    assert result == {"contractor": None, "ambiguous": False}
+
+
+def test_city_agreement_clears_a_name_only_near_miss(db_session):
+    # Same near-miss as above (~93, between the two thresholds), but this
+    # time the account's own city agrees with the CSLB business (mailing)
+    # address city -- real corroboration, unlike a project job-site
+    # address, so the lower threshold applies and this one clears.
+    c = Contractor(license_no="1", business_name="Southland Air Systems CA Inc.", city="Ontario")
+    db_session.add(c)
+    db_session.commit()
+    db_session.refresh(c)
+    candidates = contractors.build_cslb_match_candidates(db_session)
+
+    result = contractors.match_account_to_cslb("Southland Air Systems LLC", "Ontario", candidates)
+    assert result["ambiguous"] is False
+    assert result["contractor"].id == c.id
+
+
+def test_multiple_tied_licenses_are_ambiguous_not_picked(db_session):
+    # CSLB genuinely carries unrelated licenses under near-identical trade
+    # names -- a tie at the top score must be reported, never guessed.
+    db_session.add(Contractor(license_no="1", business_name="Southland Air Systems Inc."))
+    db_session.add(Contractor(license_no="2", business_name="Southland Air Systems LLC"))
+    db_session.commit()
+    candidates = contractors.build_cslb_match_candidates(db_session)
+
+    result = contractors.match_account_to_cslb("Southland Air Systems Corp", None, candidates)
+    assert result == {"contractor": None, "ambiguous": True}
+
+
+def test_short_degenerate_account_names_are_never_matched(db_session):
+    db_session.add(Contractor(license_no="1", business_name="AC"))
+    db_session.commit()
+    candidates = contractors.build_cslb_match_candidates(db_session)
+
+    assert contractors.match_account_to_cslb("AC", None, candidates) == {
+        "contractor": None, "ambiguous": False}
+
+
+def test_overdue_buildings_near_contractor_counts_only_overdue_status(db_session):
+    c = _contractor()
+    db_session.add(c)
+    db_session.add(_building(apn="overdue", lat=34.06, lon=-118.26))
+    db_session.add(_building(apn="approaching", lat=34.06, lon=-118.26))
+    db_session.commit()
+    db_session.refresh(c)
+    overdue = db_session.exec(select(RetrofitBuilding).where(RetrofitBuilding.apn == "overdue")).one()
+    overdue.service_life_status = "overdue"
+    approaching = db_session.exec(select(RetrofitBuilding).where(RetrofitBuilding.apn == "approaching")).one()
+    approaching.service_life_status = "approaching"
+    db_session.add(overdue)
+    db_session.add(approaching)
+    db_session.commit()
+    db_session.refresh(c)
+
+    assert contractors.overdue_buildings_near_contractor(db_session, c, radius_miles=15) == 1
+
+
+def test_overdue_buildings_near_contractor_empty_for_ungeocoded_contractor(db_session):
+    c = Contractor(license_no="1", business_name="Test", latitude=None, longitude=None)
+    db_session.add(c)
+    db_session.commit()
+    assert contractors.overdue_buildings_near_contractor(db_session, c, radius_miles=15) == 0

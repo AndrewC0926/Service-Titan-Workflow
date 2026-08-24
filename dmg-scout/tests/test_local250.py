@@ -14,7 +14,7 @@ from sqlmodel import select
 from app.http import PoliteClient
 from app.models import Contractor, SourceRun
 from app.pipeline.local250 import (
-    CONTRACTORS_URL, _clean_name, _parse_contractors, fetch_and_match_local250, match_local250,
+    CONTRACTORS_URL, _parse_contractors, clean_contractor_name, fetch_and_match_local250, match_local250,
 )
 
 
@@ -88,23 +88,23 @@ def test_empty_page_parses_to_no_records():
     assert _parse_contractors(_page()) == []
 
 
-# --- _clean_name --------------------------------------------------------------
+# --- clean_contractor_name --------------------------------------------------------------
 
-def test_clean_name_strips_legal_suffixes_and_punctuation():
-    assert _clean_name("Advanced Centrifugal Systems, Inc.") == "advanced centrifugal systems"
-    assert _clean_name("D. Burke Mechanical Corp.") == "d burke mechanical"
-
-
-def test_clean_name_strips_parenthetical_aliasing_notes():
-    assert _clean_name("AO REED (Formerly THERMA LLC)") == "ao reed"
+def test_clean_contractor_name_strips_legal_suffixes_and_punctuation():
+    assert clean_contractor_name("Advanced Centrifugal Systems, Inc.") == "advanced centrifugal systems"
+    assert clean_contractor_name("D. Burke Mechanical Corp.") == "d burke mechanical"
 
 
-def test_clean_name_does_not_eat_real_company_names():
+def test_clean_contractor_name_strips_parenthetical_aliasing_notes():
+    assert clean_contractor_name("AO REED (Formerly THERMA LLC)") == "ao reed"
+
+
+def test_clean_contractor_name_does_not_eat_real_company_names():
     # Regression: app.normalize.normalize_name's project/SPE-name stripping
     # (built for "Building A", "Site 3", trailing codes like NV11) silently
     # reduced this real company name to an empty string, 2026-08-16 -- see
     # the module-level comment on why this function does NOT reuse it.
-    assert _clean_name("BUILDING AIRE INC.") == "building aire"
+    assert clean_contractor_name("BUILDING AIRE INC.") == "building aire"
 
 
 # --- match_local250: the join -------------------------------------------------
