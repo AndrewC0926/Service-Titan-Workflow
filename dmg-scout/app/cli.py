@@ -1472,12 +1472,19 @@ def account_join_report_cmd(
     limit: int = typer.Option(25, help="Max accounts to print (report is per-account, can get long)"),
 ) -> None:
     """Raw join quality for every active account against Scout's existing
-    project/coverage data — NOT a ranking or score, just what each join
+    project/coverage/firm data — NOT a ranking or score, just what each join
     actually resolves to, for spot-checking before anything gets built on
-    top of it. See app.accounts.accounts_matching_projects_by_address/
-    _by_owner_name and account_role_coverage."""
+    top of it. The firm join (accounts_matching_firm) is PRIMARY -- name
+    against the same firm roster search_firms reads, the join that actually
+    fits a contractor/GC account list. By-address/by-owner-name are printed
+    as secondary signal only: they answer "is this account itself a
+    project's site or its developer of record," which is real but rare for
+    a rep's account list (mostly contractors and GCs, not owners) -- see
+    app.accounts.accounts_matching_firm, accounts_matching_projects_by_address/
+    _by_owner_name, and account_role_coverage."""
     from app.accounts import (
         account_role_coverage,
+        accounts_matching_firm,
         accounts_matching_projects_by_address,
         accounts_matching_projects_by_owner_name,
     )
@@ -1485,15 +1492,42 @@ def account_join_report_cmd(
     with session_scope() as session:
         accounts = session.exec(select(Account).where(Account.status == "active")).all()[:limit]
         for a in accounts:
+            firm_match = accounts_matching_firm(session, a)
             by_addr = accounts_matching_projects_by_address(session, a)
             by_owner = accounts_matching_projects_by_owner_name(session, a)
             cov = account_role_coverage(session, a)
-            typer.echo(f"{a.name} ({a.city or 'city?'}, {a.county or 'county?'})")
-            typer.echo(f"  by address: {len(by_addr)} active project(s)"
+            typer.echo(f"{a.name} ({a.account_type}, {a.city or 'city?'}, {a.county or 'county?'})")
+            firm = firm_match["firm"]
+            if firm is None:
+                typer.echo("  firm match (primary): none (not on Scout's firm roster)")
+            else:
+                projects = firm_match["active_projects"]
+                typer.echo(f"  firm match (primary): {firm.name} ({firm.firm_type}) — "
+                           f"{len(projects)} active project(s)"
+                           + (": " + "; ".join(f"{p.name} ({role}, stage={stage.value})"
+                                                for p, role, stage in projects[:5]) if projects else ""))
+            typer.echo(f"  by address (secondary): {len(by_addr)} active project(s)"
                        + (f" — {', '.join(p.name for p in by_addr[:5])}" if by_addr else ""))
-            typer.echo(f"  by owner name: {len(by_owner)} active project(s)"
+            typer.echo(f"  by owner name (secondary): {len(by_owner)} active project(s)"
                        + (f" — {', '.join(p.name for p in by_owner[:5])}" if by_owner else ""))
             typer.echo(f"  buys from us in {cov['bought_roles']} of {cov['total_roles']} roles")
+
+
+@app.command("firm-type-counts")
+def firm_type_counts_cmd() -> None:
+    """How many of Scout's firms are each firm_type -- check this before
+    expecting much from account-join-report's firm join. A roster that's
+    mostly developer/consultant firms means that join will look empty
+    almost regardless of how good the imported account list is."""
+    from app.models import Firm
+    with session_scope() as session:
+        firms = session.exec(select(Firm)).all()
+    counts: dict[str, int] = {}
+    for f in firms:
+        counts[f.firm_type] = counts.get(f.firm_type, 0) + 1
+    typer.echo(f"{len(firms)} firms total")
+    for firm_type, n in sorted(counts.items(), key=lambda kv: -kv[1]):
+        typer.echo(f"  {firm_type}: {n}")
 
 
 @app.command("compare-lines")

@@ -1,0 +1,30 @@
+{
+  "_comment": "Synthetic Firm/Project/ProjectFirm rows keyed to specific accounts in account_roster_sample.csv, so accounts_matching_firm has something real to find. Deliberately covers all three real outcomes: a firm match with an active project, a firm match with only a dead project (present on the roster, but nothing live right now), and -- by leaving the other 38 accounts alone -- no firm match at all, the realistic majority case for a rep's contractor roster.",
+  "firms": [
+    {
+      "account_name": "Pacific Coast Mechanical Inc.",
+      "firm_name": "Pacific Coast Mechanical",
+      "firm_type": "mech_contractor",
+      "projects": [
+        {"name": "Vantage Campus Expansion", "status": "active", "stage": "construction", "role": "mech_contractor"}
+      ]
+    },
+    {
+      "account_name": "OC Mechanical Contractors",
+      "firm_name": "OC Mechanical Contractors",
+      "firm_type": "mech_contractor",
+      "projects": [
+        {"name": "Cancelled Irvine Build-Out", "status": "dead", "stage": "concept", "role": "mech_contractor"}
+      ]
+    },
+    {
+      "account_name": "Southbay Mechanical Group",
+      "firm_name": "Southbay Mechanical Group",
+      "firm_type": "gc",
+      "projects": [
+        {"name": "South Bay Data Center", "status": "active", "stage": "permitting", "role": "gc"},
+        {"name": "Torrance Industrial Park", "status": "bidding", "stage": "design", "role": "gc"}
+      ]
+    }
+  ]
+}

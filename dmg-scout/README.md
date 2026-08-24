@@ -124,6 +124,7 @@ This is the command to run standing in the office, before the real one.
 | `City` | yes | |
 | `County` | yes (as a column) | Value may be blank — see "Missing values" below. |
 | `Account Owner` | yes | The rep who owns this account. |
+| `Account Type` | yes, no default | One of `mechanical_contractor`, `service_contractor`, `gc`, `owner`, `developer`, `distributor`, `engineer` (case/spacing-insensitive — `"General Contractor"` won't match; use the value itself, e.g. `gc`). Blank or unrecognized fails the whole file — this never silently becomes `mechanical_contractor`, so re-running with a corrected value overwrites whatever was there before, same as any other column. |
 | `Last Order Date` | no | `YYYY-MM-DD`, `MM/DD/YYYY`, `MM/DD/YY`, or `YYYY/MM/DD`. |
 | `Annual Revenue` | no | Plain number, `$` and `,` are stripped automatically. |
 | `Product Lines Bought` | no | Semicolon-separated line names, e.g. `AAON; Marley; LG`. Must match a real line on the card (case/whitespace-insensitive) — a typo here fails the whole file, the same as any other bad cell, rather than silently dropping the line. |
@@ -168,18 +169,39 @@ derived from city vs. left unresolved. On failure, prints every row/column/
 reason and exits non-zero — nothing was written.
 
 To spot-check what Scout's existing data actually resolves against the
-accounts you just loaded (which active projects share an address or name a
-matching account as developer, and how many of the line card's 13 roles
-each account already buys from), run `scout account-join-report`. This is a
-raw join report, not a ranking — see `app.accounts.accounts_matching_projects_by_address`
-et al.
+accounts you just loaded, run `scout account-join-report`. Raw joins, not a
+ranking — see `app.accounts` for all four:
+
+- **By address / by owner name** (`accounts_matching_projects_by_address`/
+  `_by_owner_name`): is this account itself a live project's site or its
+  developer of record. Real, but mostly answers a question about *owner*/
+  *developer*-type accounts, not contractors — expect close to nothing on a
+  contractor/GC-heavy roster, and that's a real limit of what's connected in
+  Scout's schema today, not a bug in the import.
+- **By firm** (`accounts_matching_firm`) — the one that actually fits a
+  contractor/GC roster: matches the account name against Scout's own firm
+  roster (the same data `search_firms` reads) by normalized name, and reports
+  every active project that firm is tied to, with role and stage. This is
+  the join that answers "which of my accounts are on live projects right
+  now." **Its ceiling depends on how many contractors/GCs are on the firm
+  roster at all** — check `scout firm-type-counts` (or query
+  `firms.firm_type`) before expecting much; a roster that's mostly
+  `developer`/`consultant` firms will make this join look empty regardless
+  of how good your account list is.
+- **Role coverage** (`account_role_coverage`): "buys from us in N of 13
+  roles," from `Product Lines Bought` on import.
 
 A synthetic 40-row example in the exact expected format, with realistic
 messiness (mixed case, "Inc" vs "Inc.", missing counties, blank optional
 cells, one branch office sharing a name with another at a different
 address), is checked in at `tests/fixtures/account_roster_sample.csv` —
 run it against a local database to see the whole thing work before you're
-standing in front of the real export.
+standing in front of the real export. `tests/fixtures/account_roster_sample_firms.json`
+adds synthetic firm/project data for three of those 40 accounts so the firm
+join has something real to find when you try it locally — without it,
+`account-join-report` against the sample roster alone will show zero
+matches on every join, which is a fact about the fixture having no project
+data next to it, not a finding about join quality.
 
 ## Deploy (Render)
 

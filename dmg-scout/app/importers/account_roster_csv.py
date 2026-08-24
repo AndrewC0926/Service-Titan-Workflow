@@ -30,6 +30,7 @@ from datetime import datetime
 
 from sqlmodel import Session, select
 
+from app.accounts import ACCOUNT_TYPES
 from app.firms import match_firm
 from app.geo import city_to_county
 from app.models import Account, AccountCoverage, ProductLine
@@ -44,6 +45,10 @@ REQUIRED_HEADERS: dict[str, str] = {
     "city": "city",
     "county": "county",
     "account owner": "account_owner",
+    # Required per row, no default -- a row without it is a parse failure,
+    # never silently mechanical_contractor. See app.accounts.ACCOUNT_TYPES
+    # for the accepted values (same set the rest of the app uses).
+    "account type": "account_type",
 }
 OPTIONAL_HEADERS: dict[str, str] = {
     "last order date": "last_order_date",
@@ -103,6 +108,7 @@ class ParsedRow:
     county: str | None
     county_source: str  # "csv" | "derived_from_city" | "unresolved"
     account_owner: str
+    account_type: str
     last_order_date: datetime | None
     annual_revenue: float | None
     product_line_ids: list[int] = dc_field(default_factory=list)
@@ -145,6 +151,7 @@ def parse_and_validate(raw_text: str, session: Session) -> list[ParsedRow]:
         address = vals.get("address", "")
         city = vals.get("city", "")
         account_owner = vals.get("account_owner", "")
+        account_type_raw = vals.get("account_type", "")
         if not name:
             errors.append(RosterError(line_no, "account name", "required, blank"))
         if not address:
@@ -153,9 +160,18 @@ def parse_and_validate(raw_text: str, session: Session) -> list[ParsedRow]:
             errors.append(RosterError(line_no, "city", "required, blank"))
         if not account_owner:
             errors.append(RosterError(line_no, "account owner", "required, blank"))
+        account_type = None
+        if not account_type_raw:
+            errors.append(RosterError(line_no, "account type", "required, blank -- must be one of "
+                                      f"{', '.join(ACCOUNT_TYPES)}"))
+        else:
+            account_type = re.sub(r"[\s-]+", "_", account_type_raw.strip().lower())
+            if account_type not in ACCOUNT_TYPES:
+                errors.append(RosterError(line_no, "account type",
+                                          f"{account_type_raw!r} is not one of {', '.join(ACCOUNT_TYPES)}"))
         # Downstream fields depend on name/address parsing cleanly -- skip
         # them for this row rather than compound one error into three.
-        if not name or not address or not city or not account_owner:
+        if not name or not address or not city or not account_owner or account_type not in ACCOUNT_TYPES:
             continue
 
         county_raw = vals.get("county", "")
@@ -230,7 +246,7 @@ def parse_and_validate(raw_text: str, session: Session) -> list[ParsedRow]:
         parsed.append(ParsedRow(
             line_no=line_no, name=name, name_norm=name_norm, address=address,
             address_norm=address_norm, city=city, county=county, county_source=county_source,
-            account_owner=account_owner, last_order_date=last_order_date,
+            account_owner=account_owner, account_type=account_type, last_order_date=last_order_date,
             annual_revenue=annual_revenue, product_line_ids=product_line_ids,
             product_line_names=product_line_names,
         ))
@@ -252,8 +268,8 @@ def _parse_date(value: str) -> datetime | None:
 def _target_fields(row: ParsedRow) -> dict:
     return {
         "address": row.address, "city": row.city, "county": row.county,
-        "assigned_rep": row.account_owner, "last_order_date": row.last_order_date,
-        "annual_revenue": row.annual_revenue,
+        "assigned_rep": row.account_owner, "account_type": row.account_type,
+        "last_order_date": row.last_order_date, "annual_revenue": row.annual_revenue,
     }
 
 

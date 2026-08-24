@@ -1221,3 +1221,31 @@ def account_role_coverage(session: Session, account: Account) -> dict:
         "roles_bought": [r for r in ROLE_ORDER if r in bought_roles],
         "roles_missing": [r for r in ROLE_ORDER if r not in bought_roles],
     }
+
+
+def accounts_matching_firm(session: Session, account: Account) -> dict:
+    """The join that actually fits a contractor/GC roster (unlike
+    accounts_matching_projects_by_address/_by_owner_name above, which
+    answer "is this account itself a project's developer" -- rare for a
+    rep's account list, which is mostly contractors and GCs, not owners).
+
+    Matches account.name_norm against Firm.name_norm -- the SAME roster
+    app.mcp_tools.search_firms reads, extracted named_firms resolve
+    against (see Firm's own docstring) -- exact normalized match, not the
+    substring ilike search_firms uses for interactive lookup. Firm.name_norm
+    carries a UNIQUE constraint, so at most one firm can match.
+
+    {'firm': Firm | None, 'active_projects': [(Project, role, stage), ...]}
+    -- raw join, no weighting, no ranking. A firm match with an empty
+    active_projects list is a real, distinct answer (this company IS on
+    Scout's roster, just not tied to anything live right now), not the
+    same as no firm match at all."""
+    firm = session.exec(select(Firm).where(Firm.name_norm == account.name_norm)).first()
+    if firm is None:
+        return {"firm": None, "active_projects": []}
+    links = session.exec(
+        select(ProjectFirm, Project).where(
+            ProjectFirm.firm_id == firm.id, Project.id == ProjectFirm.project_id,
+            Project.status.in_(ACTIVE_STATUSES))
+    ).all()
+    return {"firm": firm, "active_projects": [(p, pf.role, p.stage) for pf, p in links]}
