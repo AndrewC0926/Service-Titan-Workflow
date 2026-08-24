@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% from "_icon.html" import icon %}
+{% block title %}{{ account.name }} — pre-meeting{% endblock %}
+{% block content %}
+{% set cslb = page.cslb_match %}
+{% set contractor = cslb.contractor %}
+<h2>{{ account.name }}
+  {%- if contractor and contractor.ua_local_250_signatory %}&nbsp;<span class="stamp stamp-quiet" title="Matched UA Local 250's signatory list as {{ contractor.ua_local_250_matched_name }}.">UA 250</span>{% endif -%}
+  <a href="/accounts/{{ account.id }}" style="float:right;font-size:12px">← back to accounts</a>
+</h2>
+<p class="note">{{ account.account_type.replace('_', ' ') }} · {{ account.city or '?' }}{% if account.county %}, {{ account.county }} County{% endif %}
+  · rep: {{ account.assigned_rep or 'unassigned' }}
+  · <a href="/accounts/{{ account.id }}">coverage editor</a> · <a href="/accounts/{{ account.id }}/brief">printable brief</a></p>
+
+<h2>Who they are</h2>
+{% if cslb.ambiguous %}
+<p class="warn">{{ cslb.candidates|length }} CSLB licenses tied on this account's name — none applied.
+  CSLB genuinely carries unrelated licenses under near-identical trade names; pick the right one by hand.</p>
+<table class="tbl">
+<thead><tr><th>License</th><th>Business name</th><th>City</th><th>Status</th></tr></thead>
+<tbody>
+{% for c in cslb.candidates %}
+<tr><td class="mono"><a href="/contractor/{{ c.id }}">{{ c.license_no }}</a></td><td>{{ c.business_name }}</td>
+    <td>{{ c.city or '—' }}</td>
+    <td>{% if c.primary_status == 'CLEAR' %}<span class="ok">{{ c.primary_status }}</span>{% else %}<span class="warn">{{ c.primary_status or 'unknown' }}</span>{% endif %}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% elif not contractor %}
+<p class="note">No CSLB license matched this account's name{% if page.cslb_county_scoped %} in {{ account.county }} County{% endif %} —
+  not on Scout's CSLB import under this name{% if page.cslb_county_scoped %}, or licensed under a different county's
+  mailing address (this page narrows to the account's own county for page-load speed; the unscoped, exhaustive search
+  is <span class="mono">scout account-join-report</span>){% endif %}.</p>
+{% else %}
+<p class="note"><a href="/contractor/{{ contractor.id }}">CSLB license {{ contractor.license_no }}</a> ·
+  {{ contractor.business_address or '—' }}{% if contractor.city %}, {{ contractor.city }}{% endif %}
+  {%- if contractor.business_phone %} · <a class="cite" href="tel:{{ contractor.business_phone }}">{{ contractor.business_phone }}</a>{% endif %}</p>
+<table style="max-width:900px">
+<tr><th>Status</th><td>{% if contractor.primary_status == 'CLEAR' %}<span class="ok">{{ contractor.primary_status }}</span>{% else %}<span class="warn">{{ contractor.primary_status or 'unknown' }}</span>{% endif %}
+    {% if contractor.secondary_status %}<div class="note">{{ contractor.secondary_status }}</div>{% endif %}</td>
+    <th>Classifications</th><td>{{ contractor.classifications or '—' }}</td></tr>
+<tr><th>License expires</th><td>{{ contractor.expiration_date.strftime('%Y-%m-%d') if contractor.expiration_date else '—' }}</td>
+    <th>Bond</th><td>{{ contractor.bond_company or '—' }}{% if contractor.bond_amount %} (${{ '{:,.0f}'.format(contractor.bond_amount) }}){% endif %}
+      {%- if contractor.bond_cancellation_date %} <span class="warn">cancelled {{ contractor.bond_cancellation_date.strftime('%Y-%m-%d') }}</span>{% endif %}</td></tr>
+<tr><th>Workers' comp</th><td>{{ contractor.workers_comp_coverage_type or '—' }}</td>
+    <th>UA Local 250</th><td>{{ 'Signatory' if contractor.ua_local_250_signatory else 'Not on current list' }}</td></tr>
+</table>
+{% endif %}
+
+<h2>What we've sold them</h2>
+<p class="note">{{ page.role_coverage.bought_roles }} of {{ page.role_coverage.total_roles }} building roles bought at least one line in.</p>
+<table class="tbl" style="max-width:700px">
+<thead><tr><th>Role</th><th>Status</th></tr></thead>
+<tbody>
+{% for role in role_order %}
+<tr><td>{{ role_labels[role] }}</td>
+    <td>{% if role in page.role_coverage.roles_bought %}<span class="ok">bought</span>{% else %}<span class="dim">never bought</span>{% endif %}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+<h2>What I could hand them</h2>
+{% if not contractor %}
+<p class="note">No CSLB match, so there's no geocoded address to search retrofit candidates from.</p>
+{% elif contractor.latitude is none %}
+<p class="note">Matched license #{{ contractor.license_no }} has not been geocoded yet — run <span class="mono">scout cslb</span>.</p>
+{% elif not page.overdue_buildings %}
+<p class="note"><strong>0</strong> overdue retrofit buildings within {{ '%.0f'|format(page.overdue_radius_miles) }} miles of
+  license #{{ contractor.license_no }}'s geocoded address. A real zero, not a missing search — reflects
+  geocoding/import coverage as of now, not necessarily an absence of aging buildings nearby.</p>
+{% else %}
+<div style="display:flex;gap:0.85rem;align-items:baseline;margin:0.75rem 0">
+  <span class="stamp-post" style="font-size:2rem;font-weight:600;line-height:1">{{ page.overdue_buildings|length }}</span>
+  <span class="note">overdue retrofit building(s) within {{ '%.0f'|format(page.overdue_radius_miles) }} miles of
+    license #{{ contractor.license_no }}'s geocoded address — the reason to take this meeting.</span>
+</div>
+<table class="tbl">
+<thead><tr><th class="num">Distance</th><th>Building</th><th>County</th><th class="num">Years overdue</th><th class="num">Est. tonnage</th></tr></thead>
+<tbody>
+{% for row in page.overdue_buildings[:8] %}
+{% set b = row.building %}
+<tr>
+  <td class="num">{{ row.distance_miles }}mi</td>
+  <td><a href="/retrofit/building/{{ b.id }}">{{ b.address or 'APN ' + b.apn }}</a></td>
+  <td>{{ b.county }}, {{ b.state }}</td>
+  <td class="num">{{ '%.0f'|format(b.service_life_years_past) if b.service_life_years_past is not none else '—' }}</td>
+  <td class="num">{% if b.estimated_tons_low %}~{{ b.estimated_tons_low|int }}–{{ b.estimated_tons_high|int }}t{% else %}—{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% if page.overdue_buildings|length > 8 %}<p class="note">{{ page.overdue_buildings|length - 8 }} more not shown.</p>{% endif %}
+{% endif %}
+
+<h2>Where they already show up</h2>
+{% set firm = page.firm_match.firm %}
+{% if not firm %}
+<p class="note">Not on Scout's own firm roster (the data <span class="mono">search_firms</span> reads) under this account name —
+  this is the expected, common case for most accounts, not a gap in the import.</p>
+{% elif not page.firm_match.active_projects %}
+<p class="note">On Scout's firm roster as <strong>{{ firm.name }}</strong> ({{ firm.firm_type }}), but no active Scout project names them right now.</p>
+{% else %}
+<table class="tbl">
+<thead><tr><th>Project</th><th>Role</th><th>Stage</th><th class="num">Score</th></tr></thead>
+<tbody>
+{% for p, role, stage in page.firm_match.active_projects %}
+<tr><td><a href="/project/{{ p.id }}">{{ p.name }}</a></td><td>{{ role.replace('_', ' ') }}</td>
+    <td>{{ stage.value.replace('_', ' ') }}</td><td class="num">{{ '%.2f'|format(p.score) }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endif %}
+
+<h2>What we've said to each other</h2>
+<form method="post" action="/account/{{ account.id }}/outreach" class="grid" style="max-width:900px;margin-bottom:10px">
+  <select name="channel"><option>call</option><option>email</option><option>meeting</option><option>text</option><option>other</option></select>
+  <input name="notes" placeholder="What happened" required>
+  <input name="next_action" placeholder="Next action">
+  <button>Log</button>
+</form>
+<table class="tbl" style="max-width:900px">
+<thead><tr><th>Date</th><th>Channel</th><th>Notes</th><th>Next action</th></tr></thead>
+<tbody>
+{% for o in page.outreach %}
+<tr><td class="num">{{ o.date.strftime('%Y-%m-%d') }}</td><td>{{ o.channel }}</td>
+    <td>{{ o.notes }}</td><td>{{ o.next_action or '' }}</td></tr>
+{% else %}
+<tr><td colspan="4" class="dim">No outreach logged for this account yet.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}

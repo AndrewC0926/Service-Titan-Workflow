@@ -1520,7 +1520,9 @@ def account_join_report_cmd(
                            + (": " + "; ".join(f"{p.name} ({role}, stage={stage.value})"
                                                 for p, role, stage in projects[:5]) if projects else ""))
             if cslb_match["ambiguous"]:
-                typer.echo("  CSLB match (primary): ambiguous -- multiple licenses tied on name, none applied")
+                tied = ", ".join(f"#{c.license_no} ({c.city or 'city?'})" for c in cslb_match["candidates"])
+                typer.echo(f"  CSLB match (primary): ambiguous -- {len(cslb_match['candidates'])} licenses "
+                           f"tied on name, none applied: {tied}")
             elif cslb_match["contractor"] is None:
                 typer.echo("  CSLB match (primary): none")
             else:

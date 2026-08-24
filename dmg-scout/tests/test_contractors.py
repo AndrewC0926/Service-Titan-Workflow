@@ -378,7 +378,7 @@ def test_no_close_candidate_is_unmatched_not_guessed(db_session):
     candidates = contractors.build_cslb_match_candidates(db_session)
 
     result = contractors.match_account_to_cslb("Southland Air Systems LLC", None, candidates)
-    assert result == {"contractor": None, "ambiguous": False}
+    assert result == {"contractor": None, "ambiguous": False, "candidates": []}
 
 
 def test_single_clearing_candidate_matches(db_session):
@@ -391,6 +391,7 @@ def test_single_clearing_candidate_matches(db_session):
     result = contractors.match_account_to_cslb("Southland Air Systems LLC", None, candidates)
     assert result["ambiguous"] is False
     assert result["contractor"].id == c.id
+    assert [cand.id for cand in result["candidates"]] == [c.id]
 
 
 def test_below_threshold_without_city_agreement_is_unmatched(db_session):
@@ -404,7 +405,7 @@ def test_below_threshold_without_city_agreement_is_unmatched(db_session):
     candidates = contractors.build_cslb_match_candidates(db_session)
 
     result = contractors.match_account_to_cslb("Southland Air Systems LLC", None, candidates)
-    assert result == {"contractor": None, "ambiguous": False}
+    assert result == {"contractor": None, "ambiguous": False, "candidates": []}
 
 
 def test_city_agreement_clears_a_name_only_near_miss(db_session):
@@ -432,7 +433,9 @@ def test_multiple_tied_licenses_are_ambiguous_not_picked(db_session):
     candidates = contractors.build_cslb_match_candidates(db_session)
 
     result = contractors.match_account_to_cslb("Southland Air Systems Corp", None, candidates)
-    assert result == {"contractor": None, "ambiguous": True}
+    assert result["contractor"] is None
+    assert result["ambiguous"] is True
+    assert sorted(c.license_no for c in result["candidates"]) == ["1", "2"]
 
 
 def test_short_degenerate_account_names_are_never_matched(db_session):
@@ -441,7 +444,7 @@ def test_short_degenerate_account_names_are_never_matched(db_session):
     candidates = contractors.build_cslb_match_candidates(db_session)
 
     assert contractors.match_account_to_cslb("AC", None, candidates) == {
-        "contractor": None, "ambiguous": False}
+        "contractor": None, "ambiguous": False, "candidates": []}
 
 
 def test_overdue_buildings_near_contractor_counts_only_overdue_status(db_session):
@@ -468,3 +471,75 @@ def test_overdue_buildings_near_contractor_empty_for_ungeocoded_contractor(db_se
     db_session.add(c)
     db_session.commit()
     assert contractors.overdue_buildings_near_contractor(db_session, c, radius_miles=15) == 0
+
+
+def test_overdue_buildings_near_contractor_detail_sorts_by_distance_not_urgency(db_session):
+    # Deliberately the opposite of nearby_replacement_candidates' own
+    # urgency-first order: the far building is more urgent (higher
+    # rank_score) but the near one must still come first here.
+    c = _contractor()
+    db_session.add(c)
+    db_session.add(_building(apn="near", lat=34.06, lon=-118.26, rank_score=1.0))    # ~0.9mi
+    db_session.add(_building(apn="far", lat=34.15, lon=-118.35, rank_score=9.0))     # further, more urgent
+    db_session.commit()
+    for apn in ("near", "far"):
+        b = db_session.exec(select(RetrofitBuilding).where(RetrofitBuilding.apn == apn)).one()
+        b.service_life_status = "overdue"
+        db_session.add(b)
+    db_session.commit()
+    db_session.refresh(c)
+
+    detail = contractors.overdue_buildings_near_contractor_detail(db_session, c, radius_miles=15)
+    assert [row["building"].apn for row in detail] == ["near", "far"]
+    assert detail[0]["distance_miles"] < detail[1]["distance_miles"]
+
+
+def test_overdue_buildings_near_contractor_detail_excludes_non_overdue(db_session):
+    c = _contractor()
+    db_session.add(c)
+    db_session.add(_building(apn="approaching", lat=34.06, lon=-118.26))
+    db_session.commit()
+    b = db_session.exec(select(RetrofitBuilding).where(RetrofitBuilding.apn == "approaching")).one()
+    b.service_life_status = "approaching"
+    db_session.add(b)
+    db_session.commit()
+    db_session.refresh(c)
+
+    assert contractors.overdue_buildings_near_contractor_detail(db_session, c, radius_miles=15) == []
+
+
+def test_overdue_buildings_near_contractor_detail_empty_for_ungeocoded_contractor(db_session):
+    c = Contractor(license_no="1", business_name="Test", latitude=None, longitude=None)
+    db_session.add(c)
+    db_session.commit()
+    assert contractors.overdue_buildings_near_contractor_detail(db_session, c, radius_miles=15) == []
+
+
+def test_overdue_buildings_near_contractor_detail_returns_full_list_not_capped(db_session):
+    c = _contractor()
+    db_session.add(c)
+    for i in range(7):
+        db_session.add(_building(apn=f"b{i}", lat=34.05 + i * 0.001, lon=-118.25))
+    db_session.commit()
+    for i in range(7):
+        b = db_session.exec(select(RetrofitBuilding).where(RetrofitBuilding.apn == f"b{i}")).one()
+        b.service_life_status = "overdue"
+        db_session.add(b)
+    db_session.commit()
+    db_session.refresh(c)
+
+    assert len(contractors.overdue_buildings_near_contractor_detail(db_session, c, radius_miles=15)) == 7
+
+
+# ---- build_cslb_match_candidates: county narrowing ----------------------
+
+def test_build_cslb_match_candidates_county_narrows_the_scan(db_session):
+    db_session.add(Contractor(license_no="1", business_name="In County Co", county="Los Angeles"))
+    db_session.add(Contractor(license_no="2", business_name="Other County Co", county="Orange"))
+    db_session.commit()
+
+    la_only = contractors.build_cslb_match_candidates(db_session, county="Los Angeles")
+    assert [c.license_no for c, _ in la_only] == ["1"]
+
+    everyone = contractors.build_cslb_match_candidates(db_session)
+    assert sorted(c.license_no for c, _ in everyone) == ["1", "2"]

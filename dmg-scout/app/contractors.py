@@ -404,15 +404,30 @@ def nearest_mechanical_contractor_bulk(session: Session, buildings: list[Retrofi
 # pipeline is built to refuse elsewhere.
 
 
-def build_cslb_match_candidates(session: Session) -> list[tuple[Contractor, str]]:
+def build_cslb_match_candidates(session: Session, county: str | None = None) -> list[tuple[Contractor, str]]:
     """Every (contractor, cleaned_name) pair worth fuzzy-matching against --
     built ONCE per report run, not once per account (a live per-account
     scan of all ~48,870 in-territory contractors is the same N x M shape
     match_local250 already solves this way). A contractor with both
     business_name and full_business_name appears twice, each cleaned name
-    matched independently, same as match_local250's own candidate list."""
+    matched independently, same as match_local250's own candidate list.
+
+    county, when given, prefilters to Contractor.county == county before
+    cleaning -- a single-account page load (app.accounts.build_account_page)
+    cannot afford to clean+fuzzy-match all ~48,870 in-territory contractors
+    on every request (measured ~5.6s to build the full candidate list), so
+    it narrows to the account's own county first. This is a real recall
+    trade-off, not a free optimization: a contractor whose CSLB business
+    (mailing) address sits in a NEIGHBORING county from the account's own
+    would be missed here even though the batched, unfiltered
+    account-join-report CLI (which amortizes the full build across every
+    account in one run) would still find it. Leave county=None for that
+    batched, exhaustive case."""
+    q = select(Contractor)
+    if county:
+        q = q.where(Contractor.county == county)
     out: list[tuple[Contractor, str]] = []
-    for c in session.exec(select(Contractor)).all():
+    for c in session.exec(q).all():
         for candidate_name in (c.business_name, c.full_business_name):
             if not candidate_name:
                 continue
@@ -432,14 +447,17 @@ def match_account_to_cslb(account_name: str, account_city: str | None,
     city in a rep's CRM, so agreement earns the lower NAME_WITH_CITY_THRESHOLD
     the same way match_local250 already uses it.
 
-    Returns {'contractor': Contractor | None, 'ambiguous': bool}: exactly
-    one candidate clearing the threshold at the top score is a match;
-    zero is no match; more than one tied at the top score is 'ambiguous'
-    (contractor is None) -- never picked at random, and never silently
-    resolved by taking the first row back from the database."""
+    Returns {'contractor': Contractor | None, 'ambiguous': bool,
+    'candidates': list[Contractor]}: exactly one candidate clearing the
+    threshold at the top score is a match (candidates has that one row);
+    zero is no match (candidates is empty); more than one tied at the top
+    score is 'ambiguous' (contractor is None, candidates carries every tied
+    row so a caller can show them rather than picking one) -- never picked
+    at random, and never silently resolved by taking the first row back
+    from the database."""
     norm = clean_contractor_name(account_name)
     if len(norm) < MIN_NAME_LEN:
-        return {"contractor": None, "ambiguous": False}
+        return {"contractor": None, "ambiguous": False, "candidates": []}
     acct_city = (account_city or "").strip().lower()
 
     best_score = 0.0
@@ -457,10 +475,10 @@ def match_account_to_cslb(account_name: str, account_city: str | None,
 
     best = list(best_by_id.values())
     if len(best) == 1:
-        return {"contractor": best[0], "ambiguous": False}
+        return {"contractor": best[0], "ambiguous": False, "candidates": best}
     if len(best) > 1:
-        return {"contractor": None, "ambiguous": True}
-    return {"contractor": None, "ambiguous": False}
+        return {"contractor": None, "ambiguous": True, "candidates": best}
+    return {"contractor": None, "ambiguous": False, "candidates": []}
 
 
 def overdue_buildings_near_contractor(session: Session, contractor: Contractor,
@@ -475,3 +493,30 @@ def overdue_buildings_near_contractor(session: Session, contractor: Contractor,
     report), not a bulk precompute."""
     return sum(1 for b in nearby_replacement_candidates(session, contractor, radius_miles)
               if b.service_life_status == "overdue")
+
+
+def overdue_buildings_near_contractor_detail(session: Session, contractor: Contractor,
+                                             radius_miles: float) -> list[dict]:
+    """Every overdue building within radius_miles, BY DISTANCE -- deliberately
+    a different sort than nearby_replacement_candidates' own urgency-first
+    order (right for /contractors' cross-contractor ranking, wrong here:
+    "what's closest to drive to" is the question a rep taking a meeting
+    actually has, not "what's most overdue somewhere in a 15mi circle").
+    Returns the FULL sorted list, nearest first -- like
+    nearby_replacement_candidates itself, callers slice for a top-N display
+    and use len() for the true count (see /contractor/{id}'s own
+    nearby[:10]/nearby_total pattern) rather than this function silently
+    deciding how many are worth showing. Empty (never an error) if the
+    contractor has no geocode -- same discipline nearby_replacement_candidates
+    itself uses."""
+    if contractor.latitude is None or contractor.longitude is None:
+        return []
+    overdue = [b for b in nearby_replacement_candidates(session, contractor, radius_miles)
+              if b.service_life_status == "overdue"]
+    with_distance = [
+        {"building": b, "distance_miles": round(
+            haversine_miles(contractor.latitude, contractor.longitude, b.latitude, b.longitude), 1)}
+        for b in overdue
+    ]
+    with_distance.sort(key=lambda row: row["distance_miles"])
+    return with_distance

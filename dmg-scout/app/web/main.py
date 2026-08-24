@@ -27,6 +27,7 @@ from app.accounts import (
     MARKETS,
     ROLE_LABELS,
     ROLE_ORDER,
+    build_account_page,
 )
 from app.access_log import (
     access_logging_middleware,
@@ -2025,6 +2026,37 @@ def account_brief_view(account_id: int, request: Request,
     return templates.TemplateResponse(request, "account_brief.html", {
         "b": b, "account": b.account, "tb": _title_block(session), "active": "accounts",
     })
+
+
+@app.get("/account/{account_id}", response_class=HTMLResponse)
+def account_page_view(account_id: int, request: Request,
+                      session: Session = Depends(get_session), _: str = Depends(auth)):
+    """The pre-meeting page -- see app.accounts.build_account_page/AccountPage
+    for what it assembles and why it's a different shape than
+    /accounts/{id} (coverage editor) or /accounts/{id}/brief (printable
+    one-pager)."""
+    try:
+        page = build_account_page(session, load_config(), account_id)
+    except ValueError:
+        raise HTTPException(404)
+    return templates.TemplateResponse(request, "account_page.html", {
+        "page": page, "account": page.account,
+        "role_labels": ROLE_LABELS, "role_order": ROLE_ORDER,
+        "tb": _title_block(session), "active": "accounts",
+    })
+
+
+@app.post("/account/{account_id}/outreach")
+def account_outreach_form(account_id: int, request: Request, channel: str = Form("call"),
+                          notes: str = Form(""), next_action: str = Form(""),
+                          session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.outreach import log_outreach
+    account = session.get(Account, account_id)
+    if not account:
+        raise HTTPException(404)
+    log_outreach(session, account_id=account_id, channel=channel, notes=notes,
+                next_action=next_action or None)
+    return RedirectResponse(f"/account/{account_id}", status_code=303)
 
 
 @app.get("/assumptions", response_class=HTMLResponse)

@@ -1,5 +1,8 @@
 """Accounts module: line-card seeding, adjacency gap ranking, replacement
-windows, and the CSV importer. Nothing here touches the project pipeline."""
+windows, and the CSV importer. Mostly separate from the project pipeline --
+the exception is build_account_page's own named crossovers (CSLB, firm/
+project, outreach), same narrow exception list app/accounts.py's own module
+docstring already carries for accounts_matching_firm et al."""
 import base64
 
 import pytest
@@ -9,6 +12,7 @@ from sqlmodel import select
 from app.accounts import (
     account_replacement_windows,
     account_type_modifier,
+    build_account_page,
     category_affinity,
     compute_gaps,
     create_account,
@@ -23,7 +27,18 @@ from app.importers.accounts_csv import (
     parse_csv,
     preview_import,
 )
-from app.models import Account, AccountCoverage, ProductLine
+from app.models import (
+    Account,
+    AccountCoverage,
+    Contractor,
+    Firm,
+    Outreach,
+    ProductLine,
+    Project,
+    ProjectFirm,
+    RetrofitBuilding,
+)
+from app.normalize import normalize_name
 from app.web.main import app
 
 
@@ -256,6 +271,151 @@ def test_ensure_coverage_rows_picks_up_new_line(db_session, cfg):
     assert len(rows) == 71
 
 
+# ---- build_account_page: the pre-meeting assembly -----------------------
+#
+# One AccountPage per test, checking each join's real state (matched /
+# ambiguous / no-match / empty-but-present) is wired through unchanged --
+# the "why is this empty" text itself is a template concern (account_page.html
+# branches on these same fields), not asserted here.
+
+def _cslb_contractor(license_no="1", business_name="Test Contractor Inc.",
+                     lat=34.05, lon=-118.25, county=None, city=None):
+    c = Contractor(license_no=license_no, business_name=business_name,
+                   latitude=lat, longitude=lon, county=county, city=city)
+    return c
+
+
+def _overdue_building(apn, lat=34.06, lon=-118.26):
+    return RetrofitBuilding(apn=apn, population="replacement_candidate",
+                            latitude=lat, longitude=lon, service_life_status="overdue")
+
+
+def _firm(name, firm_type="mech_contractor"):
+    return Firm(name=name, name_norm=normalize_name(name), firm_type=firm_type)
+
+
+def test_build_account_page_no_cslb_no_firm_reports_absence(db_session, cfg):
+    seed(db_session, cfg)
+    account = create_account(db_session, name="Nobody Matches This Co")
+
+    page = build_account_page(db_session, cfg, account.id)
+    assert page.cslb_match == {"contractor": None, "ambiguous": False, "candidates": []}
+    assert page.cslb_county_scoped is False
+    assert page.overdue_buildings == []
+    assert page.firm_match == {"firm": None, "active_projects": []}
+    assert page.outreach == []
+    assert page.role_coverage["total_roles"] == 13
+
+
+def test_build_account_page_is_county_scoped_when_account_has_one(db_session, cfg):
+    seed(db_session, cfg)
+    account = create_account(db_session, name="Riverside Air Systems Inc.", county="Riverside")
+    db_session.add(_cslb_contractor(business_name="Riverside Air Systems", county="Riverside"))
+    db_session.add(_cslb_contractor(license_no="2", business_name="Riverside Air Systems", county="Orange"))
+    db_session.commit()
+
+    page = build_account_page(db_session, cfg, account.id)
+    assert page.cslb_county_scoped is True
+    # Only the same-county license was even a candidate -- the other-county
+    # one, though an identical name, was never in scope to match at all.
+    assert page.cslb_match["contractor"].county == "Riverside"
+
+
+def test_build_account_page_resolves_cslb_match_and_overdue_buildings(db_session, cfg):
+    seed(db_session, cfg)
+    account = create_account(db_session, name="Southland Air Systems LLC")
+    c = _cslb_contractor(business_name="Southland Air Systems Inc.")
+    db_session.add(c)
+    db_session.add(_overdue_building("near"))
+    db_session.commit()
+
+    page = build_account_page(db_session, cfg, account.id)
+    assert page.cslb_match["contractor"].license_no == "1"
+    assert len(page.overdue_buildings) == 1
+    assert page.overdue_buildings[0]["building"].apn == "near"
+    assert page.overdue_radius_miles > 0
+
+
+def test_build_account_page_reports_ambiguous_cslb_candidates(db_session, cfg):
+    seed(db_session, cfg)
+    account = create_account(db_session, name="Southland Air Systems Corp")
+    db_session.add(_cslb_contractor(license_no="1", business_name="Southland Air Systems Inc."))
+    db_session.add(_cslb_contractor(license_no="2", business_name="Southland Air Systems LLC"))
+    db_session.commit()
+
+    page = build_account_page(db_session, cfg, account.id)
+    assert page.cslb_match["contractor"] is None
+    assert page.cslb_match["ambiguous"] is True
+    assert sorted(c.license_no for c in page.cslb_match["candidates"]) == ["1", "2"]
+    # No resolved license -- nothing to geocode-search from.
+    assert page.overdue_buildings == []
+
+
+def test_build_account_page_firm_match_with_active_project(db_session, cfg):
+    seed(db_session, cfg)
+    account = create_account(db_session, name="Pacific Coast Mechanical Inc.")
+    firm = _firm("Pacific Coast Mechanical")
+    db_session.add(firm)
+    db_session.commit()
+    db_session.refresh(firm)
+    project = Project(name="Vantage Campus Expansion", status="active", stage="construction")
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+    db_session.add(ProjectFirm(project_id=project.id, firm_id=firm.id, role="mech_contractor"))
+    db_session.commit()
+
+    page = build_account_page(db_session, cfg, account.id)
+    assert page.firm_match["firm"].id == firm.id
+    assert len(page.firm_match["active_projects"]) == 1
+    p, role, stage = page.firm_match["active_projects"][0]
+    assert p.id == project.id and role == "mech_contractor"
+
+
+def test_build_account_page_includes_only_this_accounts_outreach_newest_first(db_session, cfg):
+    from datetime import timedelta
+
+    from app.models import utcnow
+    from app.outreach import log_outreach
+
+    seed(db_session, cfg)
+    account = create_account(db_session, name="Outreach Test Co")
+    other = create_account(db_session, name="Different Account Co")
+    now = utcnow()
+    first = log_outreach(db_session, account_id=account.id, notes="first call")
+    second = log_outreach(db_session, account_id=account.id, notes="second call")
+    log_outreach(db_session, account_id=other.id, notes="not this account")
+    # Set explicit, unambiguous timestamps -- two log_outreach() calls a few
+    # instructions apart could otherwise land in the same microsecond and
+    # make this assertion's ordering a coin flip.
+    first.date, second.date = now, now + timedelta(minutes=1)
+    db_session.add(first)
+    db_session.add(second)
+    db_session.commit()
+
+    page = build_account_page(db_session, cfg, account.id)
+    assert [o.notes for o in page.outreach] == ["second call", "first call"]
+
+
+def test_build_account_page_unknown_account_raises(db_session, cfg):
+    seed(db_session, cfg)
+    with pytest.raises(ValueError):
+        build_account_page(db_session, cfg, 999999)
+
+
+def test_log_outreach_requires_project_or_account(db_session, cfg):
+    from app.outreach import log_outreach
+    with pytest.raises(ValueError):
+        log_outreach(db_session, notes="x")
+
+
+def test_log_outreach_account_only_writes_a_row_with_no_project(db_session, cfg):
+    from app.outreach import log_outreach
+    account = create_account(db_session, name="Writer Test Co")
+    o = log_outreach(db_session, account_id=account.id, notes="called")
+    assert o.account_id == account.id and o.project_id is None
+
+
 # ---- CSV importer -----------------------------------------------------------
 
 SAMPLE_CSV = (
@@ -403,6 +563,74 @@ def test_account_brief_renders(client, db_session, cfg):
     assert r.status_code == 200
     assert "account brief" in r.text
     assert "AAON" in r.text
+
+
+def test_accounts_list_links_to_account_page(client, db_session, cfg):
+    seed(db_session, cfg)
+    account = create_account(db_session, name="Link Test Co")
+    r = client.get("/accounts", headers=AUTH)
+    assert f"/account/{account.id}" in r.text
+
+
+def test_account_page_requires_auth(client, db_session, cfg):
+    seed(db_session, cfg)
+    account = create_account(db_session, name="Auth Test Co")
+    assert client.get(f"/account/{account.id}").status_code == 401
+
+
+def test_account_page_404_for_unknown_account(client, db_session, cfg):
+    assert client.get("/account/999999", headers=AUTH).status_code == 404
+
+
+def test_account_page_states_why_each_join_is_empty(client, db_session, cfg):
+    seed(db_session, cfg)
+    account = create_account(db_session, name="No Joins Yet Co")
+    r = client.get(f"/account/{account.id}", headers=AUTH)
+    assert r.status_code == 200
+    assert "No CSLB license matched" in r.text
+    assert "No CSLB match, so there" in r.text
+    assert "Not on Scout's own firm roster" in r.text
+    assert "No outreach logged for this account yet." in r.text
+
+
+def test_account_page_shows_cslb_detail_and_overdue_buildings_prominently(client, db_session, cfg):
+    seed(db_session, cfg)
+    account = create_account(db_session, name="Southland Air Systems LLC")
+    db_session.add(Contractor(license_no="55555", business_name="Southland Air Systems Inc.",
+                              latitude=34.05, longitude=-118.25, primary_status="CLEAR"))
+    db_session.add(RetrofitBuilding(apn="overdue-1", population="replacement_candidate",
+                                    latitude=34.06, longitude=-118.26, service_life_status="overdue",
+                                    address="123 Test Ave", county="Los Angeles", state="CA"))
+    db_session.commit()
+
+    r = client.get(f"/account/{account.id}", headers=AUTH)
+    assert r.status_code == 200
+    assert "55555" in r.text
+    assert "123 Test Ave" in r.text
+    assert "the reason to take this meeting" in r.text
+
+
+def test_account_page_shows_ambiguous_cslb_candidates_not_a_pick(client, db_session, cfg):
+    seed(db_session, cfg)
+    account = create_account(db_session, name="Southland Air Systems Corp")
+    db_session.add(Contractor(license_no="1", business_name="Southland Air Systems Inc."))
+    db_session.add(Contractor(license_no="2", business_name="Southland Air Systems LLC"))
+    db_session.commit()
+
+    r = client.get(f"/account/{account.id}", headers=AUTH)
+    assert r.status_code == 200
+    assert "tied on this account" in r.text
+    assert "Southland Air Systems Inc." in r.text and "Southland Air Systems LLC" in r.text
+
+
+def test_account_page_outreach_form_logs_and_redirects(client, db_session, cfg):
+    seed(db_session, cfg)
+    account = create_account(db_session, name="Outreach Form Co")
+    r = client.post(f"/account/{account.id}/outreach", headers=AUTH,
+                    data={"channel": "call", "notes": "left VM"}, follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/account/{account.id}"
+    assert "left VM" in client.get(f"/account/{account.id}", headers=AUTH).text
 
 
 def test_import_upload_and_preview_flow(client, db_session, cfg):

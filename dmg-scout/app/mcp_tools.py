@@ -391,6 +391,122 @@ def get_account(account_id: int | None = None, name: str | None = None) -> str:
 
 
 @mcp.tool
+def get_account_page(account_id: int | None = None, name: str | None = None) -> str:
+    """The pre-meeting page, for the phone: CSLB license detail (status,
+    classifications, expiration, bond, workers comp, Local 250 -- ambiguous
+    matches show every tied candidate, never a guess), the 13-role
+    whitespace view, overdue retrofit buildings near the license's
+    geocoded address (the reason to take the meeting), any active Scout
+    project naming them, and outreach history. Different from get_account
+    (the dollar-ranked-gaps printable brief) -- this is what to pull up
+    walking into a call. Pass either account_id or name (a substring match
+    — if more than one account matches, none is guessed; you get the
+    candidate list back instead)."""
+    from sqlmodel import select
+
+    from app.accounts import build_account_page
+    from app.config import load_config
+    from app.db import session_scope
+    from app.models import Account
+    from app.normalize import normalize_name
+
+    with session_scope() as session:
+        if account_id is None and not name:
+            return "Give either account_id or name."
+        if account_id is None:
+            norm = normalize_name(name)
+            candidates = (session.exec(
+                select(Account).where(Account.name_norm.contains(norm))).all() if norm else [])
+            if not candidates:
+                return f"No account matching {name!r}."
+            if len(candidates) > 1:
+                lines = [f"{len(candidates)} accounts match {name!r} — say which one:"]
+                for a in candidates[:15]:
+                    lines.append(f"  #{a.id} {a.name} ({a.account_type})")
+                if len(candidates) > 15:
+                    lines.append(f"  ... {len(candidates) - 15} more not shown.")
+                return "\n".join(lines)
+            account_id = candidates[0].id
+
+        try:
+            page = build_account_page(session, load_config(), account_id)
+        except ValueError:
+            return f"No account #{account_id}."
+        a = page.account
+
+        lines = [f"#{a.id} {a.name} — {a.account_type}"
+                + (f" — rep: {a.assigned_rep}" if a.assigned_rep else "")]
+        if a.county or a.state:
+            lines.append(f"{a.county or '?'} Co, {a.state or '?'}")
+        lines.append("")
+
+        lines.append("Who they are:")
+        cslb, contractor = page.cslb_match, page.cslb_match["contractor"]
+        if cslb["ambiguous"]:
+            lines.append(f"  {len(cslb['candidates'])} CSLB licenses tied on this name — none applied:")
+            for c in cslb["candidates"]:
+                lines.append(f"    #{c.license_no} {c.business_name} ({c.city or 'city?'}), "
+                            f"{c.primary_status or 'status unknown'}")
+        elif contractor is None:
+            scope = f" in {a.county} County" if page.cslb_county_scoped else ""
+            lines.append(f"  No CSLB license matched this account's name{scope}.")
+        else:
+            lines.append(f"  CSLB #{contractor.license_no} {contractor.business_name} — "
+                        f"{contractor.primary_status or 'status unknown'}, "
+                        f"{contractor.classifications or 'no classifications'}, "
+                        f"exp {contractor.expiration_date.date() if contractor.expiration_date else 'unknown'}")
+            bonded = "bonded" if contractor.bond_number and not contractor.bond_cancellation_date else "not bonded"
+            lines.append(f"  {bonded}"
+                        + (f" (${contractor.bond_amount:,.0f})" if contractor.bond_amount else "")
+                        + f" — workers comp: {contractor.workers_comp_coverage_type or 'unknown'}"
+                        + f" — Local 250: {'yes' if contractor.ua_local_250_signatory else 'no'}")
+        lines.append("")
+
+        cov = page.role_coverage
+        lines.append(f"What we've sold them: {cov['bought_roles']} of {cov['total_roles']} building roles bought.")
+        lines.append("")
+
+        lines.append("What I could hand them:")
+        if contractor is None:
+            lines.append("  No CSLB match, so no geocoded address to search from.")
+        elif contractor.latitude is None:
+            lines.append(f"  License #{contractor.license_no} has not been geocoded yet.")
+        elif not page.overdue_buildings:
+            lines.append(f"  0 overdue retrofit buildings within {page.overdue_radius_miles:.0f}mi — a real zero.")
+        else:
+            lines.append(f"  {len(page.overdue_buildings)} overdue retrofit building(s) within "
+                        f"{page.overdue_radius_miles:.0f}mi — this is the reason to take the meeting. Nearest:")
+            for row in page.overdue_buildings[:5]:
+                b = row["building"]
+                lines.append(f"    {row['distance_miles']}mi — {b.address or 'APN ' + b.apn} "
+                            f"({b.county} Co) — {b.service_life_years_past:+.0f}yr overdue"
+                            if b.service_life_years_past is not None else
+                            f"    {row['distance_miles']}mi — {b.address or 'APN ' + b.apn} ({b.county} Co)")
+        lines.append("")
+
+        firm = page.firm_match["firm"]
+        lines.append("Where they already show up:")
+        if firm is None:
+            lines.append("  Not on Scout's own firm roster under this name — the common case.")
+        elif not page.firm_match["active_projects"]:
+            lines.append(f"  On Scout's firm roster as {firm.name} ({firm.firm_type}), no active project right now.")
+        else:
+            for p, role, stage in page.firm_match["active_projects"]:
+                lines.append(f"  #{p.id} {p.name} ({role}, {stage.value}) — score {p.score:.2f}")
+        lines.append("")
+
+        lines.append("What we've said to each other:")
+        if page.outreach:
+            for o in page.outreach[:5]:
+                lines.append(f"  {o.date:%Y-%m-%d} {o.channel}: {o.notes}"
+                            + (f" — next: {o.next_action}" if o.next_action else ""))
+        else:
+            lines.append("  No outreach logged for this account yet. Use log_outreach(account_id=...) to add one.")
+
+        return "\n".join(lines)
+
+
+@mcp.tool
 def search_firms(query: str) -> str:
     """Look up a firm by name (substring match): its type, every active Scout
     project it appears on and in what role, and — if it's also a sales
@@ -435,18 +551,25 @@ def search_firms(query: str) -> str:
 
 
 @mcp.tool
-def log_outreach(project_id: int, notes: str, channel: str = "call",
-                 next_action: str | None = None, next_action_date: str | None = None) -> str:
-    """Record that you talked to someone about a project — the one write tool.
-    channel: call | email | meeting | text | other. next_action_date is an
-    ISO date (YYYY-MM-DD) if you have one. Writes to the same Outreach log
-    the dashboard's own outreach form writes to; nothing here touches the
-    pipeline's tables."""
+def log_outreach(project_id: int | None = None, account_id: int | None = None, notes: str = "",
+                 channel: str = "call", next_action: str | None = None,
+                 next_action_date: str | None = None) -> str:
+    """Record that you talked to someone — the one write tool. Give exactly
+    one of project_id (outreach about a specific live Scout project) or
+    account_id (outreach about a contractor/GC account generally — most
+    accounts have no live project to attach this to at all, see
+    get_account_page). channel: call | email | meeting | text | other.
+    next_action_date is an ISO date (YYYY-MM-DD) if you have one. Writes to
+    the same Outreach log the dashboard's own outreach forms write to;
+    nothing here touches the pipeline's tables."""
     from datetime import datetime
 
     from app.db import session_scope
-    from app.models import Project
+    from app.models import Account, Project
     from app.outreach import log_outreach as _log_outreach
+
+    if (project_id is None) == (account_id is None):
+        return "Give exactly one of project_id or account_id, not both and not neither."
 
     parsed_date = None
     if next_action_date:
@@ -456,12 +579,20 @@ def log_outreach(project_id: int, notes: str, channel: str = "call",
             return f"Could not parse next_action_date {next_action_date!r} — use YYYY-MM-DD."
 
     with session_scope() as session:
-        project = session.get(Project, project_id)
-        if project is None:
-            return f"No project #{project_id}."
-        _log_outreach(session, project_id=project_id, channel=channel, notes=notes,
-                     next_action=next_action, next_action_date=parsed_date)
-        confirmation = f"Logged: {channel} on #{project.id} {project.name} — {notes}"
+        if project_id is not None:
+            entity = session.get(Project, project_id)
+            if entity is None:
+                return f"No project #{project_id}."
+            label = f"#{entity.id} {entity.name}"
+        else:
+            entity = session.get(Account, account_id)
+            if entity is None:
+                return f"No account #{account_id}."
+            label = f"#{entity.id} {entity.name}"
+
+        _log_outreach(session, project_id=project_id, account_id=account_id, channel=channel,
+                     notes=notes, next_action=next_action, next_action_date=parsed_date)
+        confirmation = f"Logged: {channel} on {label} — {notes}"
         if next_action:
             confirmation += f" — next: {next_action}"
             if parsed_date:

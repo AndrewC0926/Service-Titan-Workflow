@@ -11,6 +11,7 @@ from app.manual import add_manual_signal
 from app.mcp_tools import (
     board_summary,
     get_account,
+    get_account_page,
     get_project,
     get_selection_tool,
     log_outreach,
@@ -20,7 +21,7 @@ from app.mcp_tools import (
     who_to_call,
 )
 from app.models import (
-    AccountCoverage, Category, Firm, Outreach, Project, ProductLine, Signal,
+    AccountCoverage, Category, Contractor, Firm, Outreach, Project, ProductLine, Signal,
     SignalType, Stage,
 )
 from app.pipeline.resolve import run_resolve
@@ -144,6 +145,53 @@ def test_get_account_no_args(db_session, cfg):
     assert get_account() == "Give either account_id or name."
 
 
+def test_get_account_page_no_args(db_session, cfg):
+    assert get_account_page() == "Give either account_id or name."
+
+
+def test_get_account_page_by_name_and_disambiguation(db_session, cfg):
+    create_account(db_session, name="Acme Mechanical", account_type="mechanical_contractor")
+    create_account(db_session, name="Acme Service Co", account_type="service_contractor")
+
+    ambiguous = get_account_page(name="Acme")
+    assert "2 accounts match" in ambiguous
+
+    exact = get_account_page(name="Acme Mechanical")
+    assert "Acme Mechanical" in exact and "Who they are:" in exact
+
+
+def test_get_account_page_unknown_id(db_session, cfg):
+    assert get_account_page(account_id=999999) == "No account #999999."
+
+
+def test_get_account_page_reports_every_section(db_session, cfg):
+    account = create_account(db_session, name="Southland Air Systems LLC")
+    db_session.add(Contractor(license_no="55555", business_name="Southland Air Systems Inc.",
+                              latitude=34.05, longitude=-118.25, primary_status="CLEAR"))
+    db_session.commit()
+
+    out = get_account_page(account_id=account.id)
+    assert "Who they are:" in out and "55555" in out
+    assert "What we've sold them:" in out
+    assert "What I could hand them:" in out
+    assert "0 overdue retrofit buildings" in out
+    assert "Where they already show up:" in out
+    assert "Not on Scout's own firm roster" in out
+    assert "What we've said to each other:" in out
+    assert "log_outreach(account_id=...)" in out
+
+
+def test_get_account_page_ambiguous_cslb_lists_candidates(db_session, cfg):
+    account = create_account(db_session, name="Southland Air Systems Corp")
+    db_session.add(Contractor(license_no="1", business_name="Southland Air Systems Inc."))
+    db_session.add(Contractor(license_no="2", business_name="Southland Air Systems LLC"))
+    db_session.commit()
+
+    out = get_account_page(account_id=account.id)
+    assert "2 CSLB licenses tied" in out
+    assert "Southland Air Systems Inc." in out and "Southland Air Systems LLC" in out
+
+
 def test_search_firms_shows_active_projects_and_account_link(db_session, cfg):
     firm = Firm(name="Test Mech Contractor", name_norm="test mech contractor",
                firm_type="mech_contractor")
@@ -179,6 +227,25 @@ def test_log_outreach_bad_date(db_session, cfg):
 
 def test_log_outreach_missing_project(db_session, cfg):
     assert log_outreach(project_id=99999, notes="x") == "No project #99999."
+
+
+def test_log_outreach_account_writes_and_confirms(db_session, cfg):
+    account = create_account(db_session, name="Outreach Tool Co")
+    out = log_outreach(account_id=account.id, notes="talked shop", channel="meeting")
+    assert "Outreach Tool Co" in out and "talked shop" in out
+    row = db_session.exec(select(Outreach).where(Outreach.account_id == account.id)).one()
+    assert row.channel == "meeting" and row.project_id is None
+
+
+def test_log_outreach_missing_account(db_session, cfg):
+    assert log_outreach(account_id=99999, notes="x") == "No account #99999."
+
+
+def test_log_outreach_requires_exactly_one_of_project_or_account(db_session, cfg):
+    p = _seed_project(db_session, cfg)
+    account = create_account(db_session, name="Both Given Co")
+    assert "exactly one" in log_outreach(notes="x")
+    assert "exactly one" in log_outreach(project_id=p.id, account_id=account.id, notes="x")
 
 
 def test_source_health_reports_budget_and_sources(db_session, cfg):

@@ -1249,3 +1249,85 @@ def accounts_matching_firm(session: Session, account: Account) -> dict:
             Project.status.in_(ACTIVE_STATUSES))
     ).all()
     return {"firm": firm, "active_projects": [(p, pf.role, p.stage) for pf, p in links]}
+
+
+# ---- account detail page: one pre-meeting assembly ----------------------
+
+@dataclass
+class AccountPage:
+    """Everything for app.web.main:/account/{id} and the get_account_page
+    MCP tool -- ONE assembly shared by both, so the phone and the browser
+    never drift. Deliberately not AccountBrief: that is the printable
+    one-pager (dollar-ranked gaps, replacement windows); this is CSLB
+    license detail, the 13-role whitespace view, overdue retrofit
+    buildings near the license's own geocoded address, the firm/project
+    join, and outreach -- built for a rep about to get in the car, not to
+    print and file.
+
+    Every "why is this section empty" case is a real, distinct state on
+    this object (cslb_match['ambiguous'], cslb_match['contractor'] is
+    None, overdue_buildings == [] with a geocoded vs. ungeocoded
+    contractor, firm_match['firm'] is None vs. an empty active_projects
+    list) -- the template branches on these directly rather than this
+    function collapsing them into a single precomputed string, the same
+    way account_brief.html and contractor.html already render their own
+    "nothing here, and here is why" cases."""
+    account: Account
+    role_coverage: dict
+    cslb_match: dict          # {'contractor', 'ambiguous', 'candidates'} -- see match_account_to_cslb
+    cslb_county_scoped: bool  # True if the candidate search was narrowed to account.county
+    overdue_radius_miles: float
+    overdue_buildings: list   # full distance-sorted list from overdue_buildings_near_contractor_detail
+    firm_match: dict          # {'firm', 'active_projects'} -- see accounts_matching_firm
+    outreach: list
+    generated_at: object = field(default_factory=utcnow)
+
+
+def build_account_page(session: Session, cfg: Config, account_id: int) -> AccountPage:
+    """Assembles AccountPage. See that dataclass's own docstring for what
+    each section is and why it differs from build_account_brief.
+
+    CSLB candidates are narrowed to the account's own county when known
+    (build_cslb_match_candidates' own docstring on why a full ~48,870-
+    contractor scan is too slow for a single page load, and the real
+    recall trade-off that narrowing makes) -- cslb_county_scoped records
+    which search actually ran, so the page can disclose it rather than
+    silently presenting a county-narrowed miss as if it were exhaustive.
+    """
+    from app.contractors import (
+        build_cslb_match_candidates,
+        default_radius_miles,
+        match_account_to_cslb,
+        overdue_buildings_near_contractor_detail,
+    )
+    from app.models import Outreach
+
+    account = session.get(Account, account_id)
+    if account is None:
+        raise ValueError(f"no account {account_id}")
+    ensure_coverage_rows(session, account)
+
+    county_scoped = bool(account.county)
+    candidates = build_cslb_match_candidates(session, county=account.county if county_scoped else None)
+    cslb_match = match_account_to_cslb(account.name, account.city, candidates)
+
+    radius = default_radius_miles(cfg)
+    contractor = cslb_match["contractor"]
+    overdue_buildings = (overdue_buildings_near_contractor_detail(session, contractor, radius)
+                        if contractor is not None else [])
+
+    outreach = session.exec(
+        select(Outreach).where(Outreach.account_id == account_id)
+        .order_by(Outreach.date.desc())
+    ).all()
+
+    return AccountPage(
+        account=account,
+        role_coverage=account_role_coverage(session, account),
+        cslb_match=cslb_match,
+        cslb_county_scoped=county_scoped,
+        overdue_radius_miles=radius,
+        overdue_buildings=overdue_buildings,
+        firm_match=accounts_matching_firm(session, account),
+        outreach=outreach,
+    )

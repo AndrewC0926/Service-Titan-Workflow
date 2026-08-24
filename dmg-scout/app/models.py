@@ -401,10 +401,21 @@ class ProjectContact(SQLModel, table=True):
 
 
 class Outreach(SQLModel, table=True):
+    """Logged contact with a human, about EITHER a project or an account --
+    app.outreach.log_outreach (the one writer) enforces at least one of
+    project_id/account_id is set; there is no unresolved-entity concept
+    (see app/web/main.py:capture_confirm). Most rows so far are
+    project-scoped (voice capture, Fathom sync, the project page's own
+    log); account_id exists for the account detail page
+    (app.web.main:/account/{id}), where a rep calls a contractor/GC
+    account about their business generally, not about one specific job --
+    and most accounts have no live Scout project to attach outreach to at
+    all (see app.contractors.match_account_to_cslb)."""
     __tablename__ = "outreach"
 
     id: int | None = Field(default=None, primary_key=True)
-    project_id: int = Field(foreign_key="projects.id", index=True)
+    project_id: int | None = Field(default=None, foreign_key="projects.id", index=True)
+    account_id: int | None = Field(default=None, foreign_key="accounts.id", index=True)
     contact_id: int | None = Field(default=None, foreign_key="contacts.id")
     date: datetime = Field(default_factory=utcnow)
     channel: str = "call"  # call | email | meeting | text | other
