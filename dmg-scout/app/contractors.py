@@ -279,6 +279,125 @@ def _is_mechanical_classification(classifications: str | None) -> bool:
     return bool(tokens & MECHANICAL_CLASSIFICATIONS)
 
 
+# ---- owner-direct replacement-lead board: overdue count per contractor ----
+#
+# A separate precompute from match_contractors above, not a second radius
+# option bolted onto it: match_contractors' own nearby_urgency_score is
+# already the right ranking field (sum of service-life urgency, tuned at
+# ranking_radius_miles specifically because it discriminates in dense
+# areas -- see that field's docstring). What match_contractors does NOT
+# give the lead board is an OVERDUE-only count -- the general
+# replacement_candidate population it counts also carries a due/
+# approaching/not_due tail -- at a radius actually worth handing a
+# contractor a list at.
+#
+# default_radius_miles (15mi, the single-contractor account-page radius)
+# was tried first and rejected on two measured grounds against production
+# 2026-08-24: (1) a dense-area contractor's "nearby" overdue count came
+# back at 13,000+ -- not a curated list, effectively "every overdue
+# building in the region," and (2) the batched query itself took over 5
+# minutes against ~5,400 mechanical contractors at that radius (vs ~100s
+# at ranking_radius_miles). Both problems are the same root cause
+# ranking_radius_miles' own docstring already names: at wide radii, one
+# dense metro pocket's contractors all see nearly the same building set.
+# ranking_radius_miles is therefore the default here too, not a separate
+# invented "board radius."
+MECHANICAL_OVERDUE_BATCH_SQL = text("""
+    WITH overdue AS (
+        SELECT id, latitude, longitude
+        FROM retrofit_buildings
+        WHERE population = 'replacement_candidate'
+          AND service_life_status = 'overdue'
+          AND latitude IS NOT NULL
+          AND longitude IS NOT NULL
+    ),
+    agg AS (
+        SELECT c.id AS contractor_id, COUNT(b.id) AS cnt
+        FROM contractors c
+        LEFT JOIN overdue b
+          ON b.latitude  BETWEEN c.latitude  - (:radius / 69.0)
+                              AND c.latitude  + (:radius / 69.0)
+         AND b.longitude BETWEEN c.longitude - (:radius / (69.0 * GREATEST(COS(RADIANS(c.latitude)), 0.01)))
+                              AND c.longitude + (:radius / (69.0 * GREATEST(COS(RADIANS(c.latitude)), 0.01)))
+         AND 2 * 3958.8 * ASIN(LEAST(1.0, SQRT(
+                POWER(SIN(RADIANS(b.latitude - c.latitude) / 2), 2)
+                + COS(RADIANS(c.latitude)) * COS(RADIANS(b.latitude))
+                  * POWER(SIN(RADIANS(b.longitude - c.longitude) / 2), 2)
+             ))) <= :radius
+        WHERE c.id = ANY(:ids)
+        GROUP BY c.id
+    )
+    UPDATE contractors AS c
+    SET nearby_overdue_count = agg.cnt,
+        nearby_overdue_radius_miles = :radius,
+        nearby_overdue_computed_at = :now
+    FROM agg
+    WHERE c.id = agg.contractor_id
+""")
+
+
+def _mechanical_geocoded_contractor_ids(session: Session) -> list[int]:
+    rows = session.exec(
+        select(Contractor.id, Contractor.classifications).where(Contractor.latitude.is_not(None))
+    ).all()
+    return sorted(c.id for c in rows if _is_mechanical_classification(c.classifications))
+
+
+def match_contractors_overdue(session: Session, cfg: Config, *, radius_miles: float | None = None,
+                              batch_size: int = 500) -> dict:
+    """Precomputes Contractor.nearby_overdue_count for every geocoded
+    MECHANICAL (C-20/C-38) contractor -- see that field's own docstring in
+    app/models.py for why this is a separate field/radius from
+    match_contractors' own nearby_replacement_candidates, and why the
+    default radius is ranking_radius_miles, not default_radius_miles.
+    Restricted to mechanical contractors (unlike match_contractors, which
+    covers every contractor): this count only means something for who a
+    rep would actually hand an HVAC replacement lead to, and mechanical-
+    only cuts the compute set roughly 9x (~5,400 of ~47,600 contractors in
+    production, 2026-08-24), which matters -- this is still a multi-minute
+    batch operation, run this from a periodic job, never on page load.
+
+    ids-batched (WHERE c.id = ANY(:ids)), not the id-range BETWEEN
+    match_contractors uses: mechanical contractor ids are scattered
+    through the full table, not contiguous. batch_size is smaller than
+    match_contractors' default (500 vs 5000) because each id here is
+    guaranteed to actually do work (a full haversine join), where
+    match_contractors' range batches mostly skip non-mechanical ids for
+    free -- a same-sized batch here costs more."""
+    radius_miles = radius_miles if radius_miles is not None else ranking_radius_miles(cfg)
+    now = utcnow()
+    if session.get_bind().dialect.name != "postgresql":
+        return _match_contractors_overdue_python(session, radius_miles, now)
+
+    ids = _mechanical_geocoded_contractor_ids(session)
+    matched = 0
+    for i in range(0, len(ids), batch_size):
+        batch = ids[i:i + batch_size]
+        result = session.execute(MECHANICAL_OVERDUE_BATCH_SQL,
+                                 {"radius": radius_miles, "ids": batch, "now": now})
+        matched += result.rowcount
+        session.commit()
+    return {"contractors_matched": matched, "mechanical_geocoded_total": len(ids)}
+
+
+def _match_contractors_overdue_python(session: Session, radius_miles: float, now) -> dict:
+    """SQLite fallback -- see _match_contractors_python, the same reason
+    this exists: never runs against production (Postgres-only), kept so
+    tests cover this without a live Postgres instance."""
+    ids = _mechanical_geocoded_contractor_ids(session)
+    matched = 0
+    for cid in ids:
+        contractor = session.get(Contractor, cid)
+        nearby = nearby_replacement_candidates(session, contractor, radius_miles)
+        contractor.nearby_overdue_count = sum(1 for b in nearby if b.service_life_status == "overdue")
+        contractor.nearby_overdue_radius_miles = radius_miles
+        contractor.nearby_overdue_computed_at = now
+        session.add(contractor)
+        matched += 1
+    session.commit()
+    return {"contractors_matched": matched, "mechanical_geocoded_total": len(ids)}
+
+
 def nearest_mechanical_contractors(session: Session, building: RetrofitBuilding, *,
                                    radius_miles: float, limit: int = 10) -> list[dict]:
     """Nearest C-20/C-38 (mechanical) contractors to this building, within
@@ -520,3 +639,53 @@ def overdue_buildings_near_contractor_detail(session: Session, contractor: Contr
     ]
     with_distance.sort(key=lambda row: row["distance_miles"])
     return with_distance
+
+
+def replacement_leads(session: Session, *, min_overdue: int = 1, limit: int = 200) -> list[dict]:
+    """The owner-direct replacement-lead board's own ranking: mechanical
+    contractors with at least min_overdue overdue buildings within
+    nearby_overdue_radius_miles (see match_contractors_overdue), ordered by
+    nearby_urgency_score DESC -- the SAME field/radius match_contractors
+    already established for cross-contractor ranking, reused rather than a
+    second, competing definition of "worth calling first." Raw proximity
+    count is NOT the sort key (see that field's own docstring: it doesn't
+    discriminate in dense areas).
+
+    Reads two independently-computed cached fields (match_contractors'
+    nearby_urgency_score, match_contractors_overdue's nearby_overdue_count)
+    -- a contractor whose overdue count was refreshed more recently than
+    its urgency score (or vice versa) still ranks and displays correctly,
+    since each stat is dated by its own *_computed_at field; this function
+    does not attempt to reconcile the two into one timestamp. Excludes any
+    contractor missing EITHER value (never run, or not mechanical/
+    geocoded) rather than guessing a rank for it."""
+    rows = session.exec(
+        select(Contractor)
+        .where(Contractor.nearby_overdue_count >= min_overdue,
+              Contractor.nearby_urgency_score.is_not(None))
+        .order_by(Contractor.nearby_urgency_score.desc())
+        .limit(limit)
+    ).all()
+    return rows
+
+
+REPLACEMENT_LEAD_THRESHOLDS = (1, 3, 5, 10, 20)
+
+
+def replacement_lead_distribution(session: Session) -> dict:
+    """How many scored mechanical contractors clear each of
+    REPLACEMENT_LEAD_THRESHOLDS -- the honest answer to "is this a broad
+    play or a handful of conversations," shown on the board itself rather
+    than left as a one-off analysis. total is every mechanical contractor
+    match_contractors_overdue has scored (0 included), so the thresholds
+    are readable as a real distribution, not just a count of survivors."""
+    total = session.exec(
+        select(func.count()).where(Contractor.nearby_overdue_count.is_not(None))
+    ).one()
+    at_threshold = {
+        n: session.exec(
+            select(func.count()).where(Contractor.nearby_overdue_count >= n)
+        ).one()
+        for n in REPLACEMENT_LEAD_THRESHOLDS
+    }
+    return {"total_scored": total, "at_threshold": at_threshold}

@@ -1,6 +1,7 @@
 """Dashboard smoke tests: auth enforcement and each view renders with data."""
 import base64
 import re
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -146,6 +147,91 @@ def test_contractors_list_defaults_to_mechanical_only(client, db_session, cfg):
 
 def test_contractors_list_requires_auth(client, db_session, cfg):
     assert client.get("/contractors").status_code == 401
+
+
+def _scored_contractor(license_no, lat=34.05, lon=-118.25, overdue_count=6,
+                       urgency=300.0, radius=3.0):
+    return Contractor(license_no=license_no, business_name=f"Lead Co {license_no}",
+                      classifications="C20", primary_status="CLEAR", latitude=lat, longitude=lon,
+                      nearby_overdue_count=overdue_count, nearby_overdue_radius_miles=radius,
+                      nearby_overdue_computed_at=datetime(2026, 8, 24),
+                      nearby_urgency_score=urgency, nearby_radius_miles=radius,
+                      nearby_computed_at=datetime(2026, 8, 24))
+
+
+def test_replacement_leads_requires_auth(client, db_session, cfg):
+    assert client.get("/replacement-leads").status_code == 401
+
+
+def test_replacement_leads_renders_ranked_by_urgency_not_count(client, db_session, cfg):
+    high_urgency = _scored_contractor("hi", overdue_count=6, urgency=900.0)
+    high_count = _scored_contractor("lots", lat=35.0, lon=-119.0, overdue_count=40, urgency=50.0)
+    db_session.add_all([high_urgency, high_count])
+    db_session.add(RetrofitBuilding(apn="b1", population="replacement_candidate",
+                                    latitude=34.06, longitude=-118.26, service_life_status="overdue",
+                                    address="123 Test Ave", county="Los Angeles", state="CA"))
+    db_session.commit()
+
+    r = client.get("/replacement-leads?min_overdue=1", headers=AUTH)
+    assert r.status_code == 200
+    hi_pos = r.text.find("Lead Co hi")
+    lots_pos = r.text.find("Lead Co lots")
+    assert hi_pos != -1 and lots_pos != -1 and hi_pos < lots_pos
+    assert "123 Test Ave" in r.text
+
+
+def test_replacement_leads_excludes_below_min_overdue_threshold(client, db_session, cfg):
+    db_session.add(_scored_contractor("thin", overdue_count=2))
+    db_session.commit()
+    r = client.get("/replacement-leads?min_overdue=5", headers=AUTH)
+    assert "Lead Co thin" not in r.text
+    assert "No mechanical contractor clears 5" in r.text
+
+
+def test_replacement_leads_discloses_no_permit_is_an_inference(client, db_session, cfg):
+    r = client.get("/replacement-leads", headers=AUTH)
+    assert r.status_code == 200
+    assert "inference, not a fact" in r.text
+
+
+def test_replacement_lead_handout_requires_auth(client, db_session, cfg):
+    c = _scored_contractor("1")
+    db_session.add(c)
+    db_session.commit()
+    db_session.refresh(c)
+    assert client.get(f"/replacement-leads/{c.id}/handout").status_code == 401
+
+
+def test_replacement_lead_handout_404_for_unknown_contractor(client, db_session, cfg):
+    assert client.get("/replacement-leads/99999/handout", headers=AUTH).status_code == 404
+
+
+def test_replacement_lead_handout_lists_nearby_overdue_buildings(client, db_session, cfg):
+    c = _scored_contractor("42")
+    db_session.add(c)
+    db_session.add(RetrofitBuilding(apn="b1", population="replacement_candidate",
+                                    latitude=34.06, longitude=-118.26, service_life_status="overdue",
+                                    address="123 Test Ave", county="Los Angeles", state="CA",
+                                    service_life_years_past=22.0, estimated_tons_low=10, estimated_tons_high=15))
+    db_session.commit()
+    db_session.refresh(c)
+
+    r = client.get(f"/replacement-leads/{c.id}/handout", headers=AUTH)
+    assert r.status_code == 200
+    assert "Lead Co 42" in r.text
+    assert "123 Test Ave" in r.text
+    assert "22" in r.text
+    assert "INFERRED" in r.text
+
+
+def test_replacement_lead_handout_ungeocoded_contractor_says_why(client, db_session, cfg):
+    c = Contractor(license_no="1", business_name="No Geo Co", latitude=None, longitude=None)
+    db_session.add(c)
+    db_session.commit()
+    db_session.refresh(c)
+    r = client.get(f"/replacement-leads/{c.id}/handout", headers=AUTH)
+    assert r.status_code == 200
+    assert "has not been geocoded" in r.text
 
 
 def test_retrofit_building_detail_renders(client, db_session, cfg):

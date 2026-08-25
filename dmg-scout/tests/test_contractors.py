@@ -531,6 +531,134 @@ def test_overdue_buildings_near_contractor_detail_returns_full_list_not_capped(d
     assert len(contractors.overdue_buildings_near_contractor_detail(db_session, c, radius_miles=15)) == 7
 
 
+# ---- match_contractors_overdue: the replacement-lead board's own count --
+
+def test_match_contractors_overdue_precomputes_mechanical_only(db_session, cfg):
+    mech = _contractor(license_no="mech", classifications="C20")
+    gc = _contractor(license_no="gc", classifications="B")
+    db_session.add_all([mech, gc])
+    db_session.add(_overdue_building("near"))
+    db_session.commit()
+
+    stats = contractors.match_contractors_overdue(db_session, cfg, radius_miles=15)
+    assert stats["mechanical_geocoded_total"] == 1
+    assert stats["contractors_matched"] == 1
+
+    db_session.refresh(mech)
+    db_session.refresh(gc)
+    assert mech.nearby_overdue_count == 1
+    assert mech.nearby_overdue_radius_miles == 15
+    assert mech.nearby_overdue_computed_at is not None
+    # A B-only (GC) license is never scored for this board at all -- not
+    # zero, which would look like "checked, found nothing."
+    assert gc.nearby_overdue_count is None
+
+
+def test_match_contractors_overdue_defaults_to_ranking_radius_not_default_radius(db_session, cfg):
+    c = _contractor(license_no="1")
+    db_session.add(c)
+    db_session.commit()
+
+    contractors.match_contractors_overdue(db_session, cfg)
+
+    db_session.refresh(c)
+    assert c.nearby_overdue_radius_miles == contractors.ranking_radius_miles(cfg)
+    assert c.nearby_overdue_radius_miles != contractors.default_radius_miles(cfg)
+
+
+def test_match_contractors_overdue_counts_only_overdue_not_the_broader_population(db_session, cfg):
+    c = _contractor(license_no="1")
+    db_session.add(c)
+    db_session.add(_building(apn="overdue", lat=34.06, lon=-118.26))
+    db_session.add(_building(apn="approaching", lat=34.06, lon=-118.26))
+    db_session.commit()
+    overdue = db_session.exec(select(RetrofitBuilding).where(RetrofitBuilding.apn == "overdue")).one()
+    overdue.service_life_status = "overdue"
+    approaching = db_session.exec(select(RetrofitBuilding).where(RetrofitBuilding.apn == "approaching")).one()
+    approaching.service_life_status = "approaching"
+    db_session.add(overdue)
+    db_session.add(approaching)
+    db_session.commit()
+
+    contractors.match_contractors_overdue(db_session, cfg, radius_miles=15)
+
+    db_session.refresh(c)
+    assert c.nearby_overdue_count == 1
+
+
+def _overdue_building(apn, lat=34.06, lon=-118.26):
+    return RetrofitBuilding(apn=apn, population="replacement_candidate",
+                            latitude=lat, longitude=lon, service_life_status="overdue")
+
+
+# ---- replacement_leads: ranked by urgency, not raw count -----------------
+
+def test_replacement_leads_orders_by_urgency_score_not_overdue_count(db_session, cfg):
+    # volume_rep has MORE overdue buildings nearby, but they're barely past
+    # due; urgent_rep has fewer, severely overdue -- urgency must win.
+    urgent_rep = _contractor(license_no="urgent", lat=34.05, lon=-118.25)
+    volume_rep = _contractor(license_no="volume", lat=35.00, lon=-119.00)
+    db_session.add_all([urgent_rep, volume_rep])
+    for i in range(3):
+        db_session.add(RetrofitBuilding(apn=f"severe{i}", population="replacement_candidate",
+                                        latitude=34.051, longitude=-118.251,
+                                        service_life_status="overdue", service_life_years_past=95.0))
+    for i in range(10):
+        db_session.add(RetrofitBuilding(apn=f"barely{i}", population="replacement_candidate",
+                                        latitude=35.001, longitude=-119.001,
+                                        service_life_status="overdue", service_life_years_past=1.0))
+    db_session.commit()
+
+    contractors.match_contractors(db_session, cfg, radius_miles=15)
+    contractors.match_contractors_overdue(db_session, cfg, radius_miles=15)
+
+    leads = contractors.replacement_leads(db_session, min_overdue=1)
+    assert [c.license_no for c in leads] == ["urgent", "volume"]
+    db_session.refresh(volume_rep)
+    db_session.refresh(urgent_rep)
+    assert volume_rep.nearby_overdue_count > urgent_rep.nearby_overdue_count
+
+
+def test_replacement_leads_excludes_below_min_overdue(db_session, cfg):
+    thin = _contractor(license_no="thin")
+    db_session.add(thin)
+    db_session.add(_overdue_building("only-one"))
+    db_session.commit()
+    contractors.match_contractors(db_session, cfg, radius_miles=15)
+    contractors.match_contractors_overdue(db_session, cfg, radius_miles=15)
+
+    assert contractors.replacement_leads(db_session, min_overdue=1) != []
+    assert contractors.replacement_leads(db_session, min_overdue=5) == []
+
+
+def test_replacement_leads_excludes_contractors_never_scored(db_session, cfg):
+    # Never run through either precompute -- must not appear ranked as if
+    # it had zero, since zero and never-checked are different states.
+    db_session.add(_contractor(license_no="1"))
+    db_session.commit()
+    assert contractors.replacement_leads(db_session, min_overdue=0) == []
+
+
+def test_replacement_lead_distribution_counts_at_each_threshold(db_session, cfg):
+    heavy = _contractor(license_no="heavy")
+    light = _contractor(license_no="light", lat=35.0, lon=-119.0)
+    unscored = _contractor(license_no="unscored", lat=36.0, lon=-120.0)
+    db_session.add_all([heavy, light, unscored])
+    db_session.commit()
+    heavy.nearby_overdue_count = 12
+    light.nearby_overdue_count = 2
+    db_session.add(heavy)
+    db_session.add(light)
+    db_session.commit()
+
+    dist = contractors.replacement_lead_distribution(db_session)
+    assert dist["total_scored"] == 2  # unscored excluded
+    assert dist["at_threshold"][1] == 2
+    assert dist["at_threshold"][3] == 1
+    assert dist["at_threshold"][10] == 1
+    assert dist["at_threshold"][20] == 0
+
+
 # ---- build_cslb_match_candidates: county narrowing ----------------------
 
 def test_build_cslb_match_candidates_county_narrows_the_scan(db_session):

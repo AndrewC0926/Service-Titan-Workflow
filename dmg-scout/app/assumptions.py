@@ -719,6 +719,42 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "board.",
     ))
 
+    # ---- Replacement leads (owner-direct lane) -------------------------------
+
+    out.append(Assumption(
+        group="Replacement leads", name="Overdue-count radius",
+        config_path=None,
+        value=f"{ranking_radius_miles(cfg):.0f} miles -- same radius Contractor ranking uses, not "
+             f"contractors.default_radius_miles",
+        source_type=MEASURED,
+        source_detail="default_radius_miles (15mi, the single-contractor account-page radius) was "
+                      "tried first for this board and rejected on two measured grounds against "
+                      "production 2026-08-24: it returned 13,000+ 'nearby' overdue buildings for a "
+                      "dense-area contractor (not a curated list anyone could hand over -- effectively "
+                      "'every overdue building in the region'), and the batched query itself took over "
+                      "5 minutes against ~5,400 mechanical contractors, vs ~100s at ranking_radius_miles. "
+                      "Both are the same root cause Contractor ranking's own 'Ranking radius' entry "
+                      "already documents: at wide radii, one dense metro pocket's contractors all see "
+                      "nearly the same building set. Reusing ranking_radius_miles rather than adding a "
+                      "third radius option keeps the board's displayed count and its ranking field "
+                      "(nearby_urgency_score) computed over the same neighborhood.",
+        verified=True,
+        last_reviewed="Measured 2026-08-24 against real production CSLB/retrofit data.",
+    ))
+    out.append(Assumption(
+        group="Replacement leads", name="Minimum overdue buildings to list a contractor",
+        config_path=None,
+        value="5",
+        source_type=PLACEHOLDER,
+        source_detail="A judgment call about what's worth handing a rep, not a measured conversion "
+                      "threshold -- no booked/lost outcome data exists yet for this board to fit "
+                      "against. Set low enough not to hide a real, thin-but-real opportunity, high "
+                      "enough that 'the list' means more than a couple of addresses. See "
+                      "/replacement-leads' own distribution disclosure for how many contractors clear "
+                      "this bar vs. lower ones -- if that distribution is thin, this number should move, "
+                      "not be trusted as calibrated.",
+    ))
+
     # ---- Competitor line card map --------------------------------------------
 
     from app.competitors import COMPETITOR_LINES, REP_FIRMS

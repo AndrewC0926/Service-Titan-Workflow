@@ -1876,6 +1876,25 @@ class Contractor(SQLModel, table=True):
     nearby_radius_miles: float | None = None
     nearby_computed_at: datetime | None = None
 
+    # Precomputed by app.contractors.match_contractors_overdue -- the
+    # owner-direct replacement-lead board's own count, and deliberately a
+    # SEPARATE field from nearby_replacement_candidates above rather than a
+    # second meaning for it: this is OVERDUE-only (service_life_status ==
+    # 'overdue', not the broader replacement_candidate population, which
+    # also carries a due/approaching/not_due tail), computed at whatever
+    # radius the lead board itself uses (contractors.ranking_radius_miles
+    # by default -- see match_contractors_overdue's own docstring for why
+    # the WIDER default_radius_miles a single contractor's account-page
+    # detail view uses is the wrong choice for a board ranking many
+    # contractors: measured against production 2026-08-24, it produces
+    # 13,000+ "nearby" buildings for a dense-area contractor -- not a list
+    # anyone could hand over -- and the batched query itself took 5+
+    # minutes at that radius against ~5,400 mechanical contractors, vs
+    # ~100s at the tighter radius).
+    nearby_overdue_count: int | None = None
+    nearby_overdue_radius_miles: float | None = None
+    nearby_overdue_computed_at: datetime | None = None
+
     source_url: str = Field(default="https://www.cslb.ca.gov/onlineservices/dataportal/")
     retrieved_at: datetime = Field(default_factory=utcnow, index=True)
     last_update: datetime | None = None  # CSLB's own "LastUpdate" field on the license record itself

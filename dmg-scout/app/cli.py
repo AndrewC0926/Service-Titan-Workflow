@@ -583,6 +583,25 @@ def match_contractors_cmd(
     typer.echo(json.dumps(stats))
 
 
+@app.command("match-contractors-overdue")
+def match_contractors_overdue_cmd(
+    radius_miles: float = typer.Option(None, help="Override contractors.ranking_radius_miles"),
+) -> None:
+    """Precompute Contractor.nearby_overdue_count for every geocoded
+    mechanical (C-20/C-38) contractor -- the owner-direct replacement-lead
+    board (/replacement-leads) reads this cached value; see
+    app.contractors.match_contractors_overdue for why it's a separate
+    field/radius from match-contractors' own nearby_replacement_candidates.
+    A multi-minute batch operation (measured ~100s against ~5,400
+    mechanical contractors in production, 2026-08-24) -- run this
+    periodically, never expect it to finish inside a page request."""
+    from app.contractors import match_contractors_overdue
+    cfg = load_config()
+    with session_scope() as session:
+        stats = match_contractors_overdue(session, cfg, radius_miles=radius_miles)
+    typer.echo(json.dumps(stats))
+
+
 @app.command("access-summary")
 def access_summary_cmd(days: int = typer.Option(7, help="Look-back window")) -> None:
     """Distinct dashboard usernames seen in the last N days, first/last seen,

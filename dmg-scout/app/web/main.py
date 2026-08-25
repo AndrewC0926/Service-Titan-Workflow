@@ -947,6 +947,61 @@ def contractor_detail(contractor_id: int, request: Request,
     })
 
 
+@app.get("/replacement-leads", response_class=HTMLResponse)
+def replacement_leads_view(request: Request, min_overdue: int = 5, limit: int = 100,
+                           session: Session = Depends(get_session), _: str = Depends(auth)):
+    """The owner-direct lane: mechanical contractors ranked by
+    nearby_urgency_score (see app.contractors.replacement_leads for why —
+    raw overdue count doesn't discriminate any more than raw proximity
+    count did on /contractors), each with the nearest few overdue buildings
+    a rep could actually hand over. Precomputed by `scout match-contractors`
+    and `scout match-contractors-overdue`; never live."""
+    from app.contractors import (
+        overdue_buildings_near_contractor_detail,
+        ranking_radius_miles,
+        replacement_lead_distribution,
+        replacement_leads,
+    )
+    cfg = load_config()
+    leads = replacement_leads(session, min_overdue=min_overdue, limit=limit)
+    rows = []
+    for c in leads:
+        nearby = overdue_buildings_near_contractor_detail(session, c, c.nearby_overdue_radius_miles)
+        rows.append({"contractor": c, "nearby": nearby[:5]})
+    distribution = replacement_lead_distribution(session)
+    never_scored = session.exec(
+        select(func.count()).where(Contractor.latitude.is_not(None),
+                                   Contractor.nearby_overdue_count.is_(None))).one()
+    return templates.TemplateResponse(request, "replacement_leads.html", {
+        "rows": rows, "min_overdue": min_overdue, "limit": limit,
+        "radius_miles": ranking_radius_miles(cfg), "mechanical_total": distribution["total_scored"],
+        "distribution": distribution["at_threshold"], "never_scored": never_scored,
+        "tb": _title_block(session), "active": "replacement-leads",
+    })
+
+
+@app.get("/replacement-leads/{contractor_id}/handout", response_class=HTMLResponse)
+def replacement_lead_handout(contractor_id: int, request: Request,
+                             session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Printable per-contractor handout -- see replacement_lead_handout.html
+    for the print stylesheet, same discipline account_brief.html's already
+    uses. Uses the radius this contractor's OWN cached nearby_overdue_count
+    was computed at, not necessarily the current config default, so the
+    list here always matches the count shown on /replacement-leads for the
+    same contractor even if the config changes between precompute runs."""
+    from app.contractors import overdue_buildings_near_contractor_detail, ranking_radius_miles
+    contractor = session.get(Contractor, contractor_id)
+    if not contractor:
+        raise HTTPException(404)
+    radius = contractor.nearby_overdue_radius_miles or ranking_radius_miles(load_config())
+    nearby = (overdue_buildings_near_contractor_detail(session, contractor, radius)
+             if contractor.latitude is not None else [])
+    return templates.TemplateResponse(request, "replacement_lead_handout.html", {
+        "c": contractor, "nearby": nearby, "radius_miles": radius,
+        "tb": _title_block(session), "active": "replacement-leads",
+    })
+
+
 @app.get("/contractor/{contractor_id}/precall", response_class=HTMLResponse)
 def contractor_precall(contractor_id: int, request: Request, refresh: bool = False,
                        session: Session = Depends(get_session), _: str = Depends(auth)):

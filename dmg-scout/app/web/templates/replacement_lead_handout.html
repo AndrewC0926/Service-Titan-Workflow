@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "_icon.html" import icon %}
+{% block title %}Handout: {{ c.business_name }}{% endblock %}
+{% block content %}
+<style>
+@media print {
+  body { background: #fff; color: #000; font-size: 11pt; }
+  .masthead, nav, .noprint { display: none !important; }
+  main { border: none; background: #fff; margin: 0; padding: 0; }
+  a { color: #000; }
+  th, td { border-color: #999 !important; }
+  h2 { color: #000; }
+  .tag, .stamp { border: 1px solid #000; background: none !important; color: #000 !important; }
+}
+</style>
+<p class="noprint"><button onclick="window.print()">{{ icon('printer') }} Print / save PDF</button>
+  <a href="/replacement-leads" style="margin-left:12px">← back to replacement leads</a></p>
+
+<h2 style="font-size:18px">{{ c.business_name }}</h2>
+<p class="dim">CSLB license {{ c.license_no }} · {{ c.business_address }}, {{ c.city }}, {{ c.state }} {{ c.zip_code }}
+  {%- if c.business_phone %} · {{ c.business_phone }}{% endif %}
+  · {% if c.primary_status == 'CLEAR' %}status: CLEAR{% else %}status: {{ c.primary_status or 'unknown' }}{% endif %}
+  {%- if c.ua_local_250_signatory %} · UA Local 250 signatory{% endif %}</p>
+
+<p class="dim">DMG Scout — generated for a hand-off meeting or email. Every building below is a
+  replacement CANDIDATE, not a confirmed lead: no permit was found for it, so its equipment age is
+  INFERRED from the county assessor's YearBuilt and a service-life band, not observed. Some of
+  these buildings were genuinely replaced without ever pulling a permit — a building on this list
+  is undocumented, not proven to still need work.</p>
+
+{% if c.latitude is none %}
+<p class="note">This license has not been geocoded — no distance-based list can be built yet.</p>
+{% elif not nearby %}
+<p class="note">No overdue replacement-candidate building with a geocoded address was found within
+  {{ radius_miles }} miles of this license's own geocoded address. Reflects import/geocoding
+  coverage as of now, not necessarily an absence of aging buildings nearby.</p>
+{% else %}
+<p class="dim">{{ nearby|length }} overdue building{{ 's' if nearby|length != 1 }} within {{ radius_miles }}
+  miles, nearest first.</p>
+<table style="max-width:900px">
+<thead><tr><th class="num">Distance</th><th>Address</th><th>County</th><th class="num">Years overdue (inferred)</th><th class="num">Est. tonnage</th></tr></thead>
+<tbody>
+{% for r in nearby %}
+{% set b = r.building %}
+<tr>
+  <td class="num">{{ r.distance_miles }}mi</td>
+  <td>{{ b.address or 'APN ' + b.apn + ' (no address on file)' }}</td>
+  <td>{{ b.county }}, {{ b.state }}</td>
+  <td class="num">{{ '%.0f'|format(b.service_life_years_past) if b.service_life_years_past is not none else '—' }}</td>
+  <td class="num">{% if b.estimated_tons_low %}~{{ b.estimated_tons_low|int }}–{{ b.estimated_tons_high|int }}t{% else %}—{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% endif %}
+{% endblock %}
