@@ -953,27 +953,25 @@ def replacement_leads_view(request: Request, min_overdue: int = 5, limit: int = 
     """The owner-direct lane: mechanical contractors ranked by
     nearby_urgency_score (see app.contractors.replacement_leads for why —
     raw overdue count doesn't discriminate any more than raw proximity
-    count did on /contractors), each with the nearest few overdue buildings
-    a rep could actually hand over. Precomputed by `scout match-contractors`
-    and `scout match-contractors-overdue`; never live."""
-    from app.contractors import (
-        overdue_buildings_near_contractor_detail,
-        ranking_radius_miles,
-        replacement_lead_distribution,
-        replacement_leads,
-    )
+    count did on /contractors). Shows only precomputed, cached stats per
+    row (overdue count, urgency, Local 250, CSLB status) — deliberately
+    NOT the nearest-few building list live, per row, for up to `limit`
+    contractors at once: a dense-area contractor's candidate set is large
+    enough (1,000+ buildings within radius, measured against production
+    2026-08-24) that even a batched single-query version of that lookup
+    ran over a minute for 100 rows. That detail lives one click away, on
+    the per-contractor printable handout, the same way /contractors keeps
+    its own board to cached aggregates and defers live detail to
+    /contractor/{id}."""
+    from app.contractors import ranking_radius_miles, replacement_lead_distribution, replacement_leads
     cfg = load_config()
     leads = replacement_leads(session, min_overdue=min_overdue, limit=limit)
-    rows = []
-    for c in leads:
-        nearby = overdue_buildings_near_contractor_detail(session, c, c.nearby_overdue_radius_miles)
-        rows.append({"contractor": c, "nearby": nearby[:5]})
     distribution = replacement_lead_distribution(session)
     never_scored = session.exec(
         select(func.count()).where(Contractor.latitude.is_not(None),
                                    Contractor.nearby_overdue_count.is_(None))).one()
     return templates.TemplateResponse(request, "replacement_leads.html", {
-        "rows": rows, "min_overdue": min_overdue, "limit": limit,
+        "leads": leads, "min_overdue": min_overdue, "limit": limit,
         "radius_miles": ranking_radius_miles(cfg), "mechanical_total": distribution["total_scored"],
         "distribution": distribution["at_threshold"], "never_scored": never_scored,
         "tb": _title_block(session), "active": "replacement-leads",

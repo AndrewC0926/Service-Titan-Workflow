@@ -62,7 +62,7 @@
 {% endif %}
 
 <p class="note">{{ '{:,}'.format(mechanical_total) }} mechanical contractor{{ 's' if mechanical_total != 1 }}
-  scored; showing {{ rows|length }} with at least {{ min_overdue }} overdue building{{ 's' if min_overdue != 1 }}
+  scored; showing {{ leads|length }} with at least {{ min_overdue }} overdue building{{ 's' if min_overdue != 1 }}
   within {{ radius_miles }}mi. <a href="/replacement-leads?min_overdue=1&limit={{ limit }}">Show any with ≥1</a>
   · <a href="/replacement-leads?min_overdue={{ min_overdue }}&limit=300">Show more rows</a></p>
 
@@ -72,42 +72,31 @@
 {% endfor %}
 </p>
 
-{% for row in rows %}
-{% set c = row.contractor %}
-<div style="border-left:3px solid var(--color-rule, currentColor); padding:0.6rem 0 0.6rem 0.9rem; margin:1rem 0">
-  <div class="sec-head" style="margin-bottom:0.3rem">
-    <span style="font-weight:600">
-      <a href="/contractor/{{ c.id }}">{{ c.business_name }}</a>
-      {%- if c.ua_local_250_signatory %}&nbsp;<span class="stamp stamp-quiet" title="Matched UA Local 250's signatory list as {{ c.ua_local_250_matched_name }}.">UA 250</span>{% endif -%}
-    </span>
-    <a href="/replacement-leads/{{ c.id }}/handout" style="float:right;font-size:12px">{{ icon('printer') }} Printable handout</a>
-  </div>
-  <p class="note">CSLB {{ c.license_no }} —
-    {% if c.primary_status == 'CLEAR' %}<span class="ok">{{ c.primary_status }}</span>{% else %}<span class="warn">{{ c.primary_status or 'unknown' }}</span>{% endif %}
-    · {{ c.business_address }}, {{ c.city }}
-    {%- if c.business_phone %} · <a class="cite" href="tel:{{ c.business_phone }}">{{ c.business_phone }}</a>{% endif %}
-    · urgency <a class="cite" href="/assumptions#{{ assumption_slug('Urgency weighting formula') }}" title="Σ clip(service_life_years_past, 0, 100yr) over buildings within {{ c.nearby_radius_miles }}mi, as of {{ c.nearby_computed_at.strftime('%Y-%m-%d') if c.nearby_computed_at else 'unknown' }}.">{{ '%.0f'|format(c.nearby_urgency_score) }}</a>
-    · <strong>{{ c.nearby_overdue_count }}</strong> overdue within {{ c.nearby_overdue_radius_miles }}mi
-    (as of {{ c.nearby_overdue_computed_at.strftime('%Y-%m-%d') if c.nearby_overdue_computed_at else 'unknown' }})</p>
-  <table class="tbl" style="max-width:900px">
-  <thead><tr><th class="num">Distance</th><th>Building</th><th class="num">Years overdue</th><th class="num">Est. tonnage</th></tr></thead>
-  <tbody>
-  {% for r in row.nearby %}
-  {% set b = r.building %}
-  <tr>
-    <td class="num">{{ r.distance_miles }}mi</td>
-    <td>{{ b.address or 'APN ' + b.apn }} <span class="note">({{ b.county }})</span></td>
-    <td class="num">{{ '%.0f'|format(b.service_life_years_past) if b.service_life_years_past is not none else '—' }}</td>
-    <td class="num">{% if b.estimated_tons_low %}~{{ b.estimated_tons_low|int }}–{{ b.estimated_tons_high|int }}t{% else %}—{% endif %}</td>
-  </tr>
-  {% endfor %}
-  </tbody>
-  </table>
-  {% if c.nearby_overdue_count > row.nearby|length %}
-  <p class="note">{{ c.nearby_overdue_count - row.nearby|length }} more not shown — see the
-    <a href="/replacement-leads/{{ c.id }}/handout">printable handout</a> for the full list.</p>
-  {% endif %}
-</div>
+{% if leads %}
+<table class="tbl">
+<thead><tr><th>Contractor</th><th>Status</th><th class="num" title="Σ clip(service_life_years_past, 0, 100yr) over buildings within the ranking radius — not a count, see the disclosure above.">Urgency</th>
+  <th class="num">Overdue nearby</th><th>UA Local 250</th><th></th></tr></thead>
+<tbody>
+{% for c in leads %}
+<tr>
+  <td><a href="/contractor/{{ c.id }}">{{ c.business_name }}</a>
+    <div class="note">CSLB {{ c.license_no }} · {{ c.business_address }}, {{ c.city }}
+      {%- if c.business_phone %} · <a class="cite" href="tel:{{ c.business_phone }}">{{ c.business_phone }}</a>{% endif %}</div></td>
+  <td>{% if c.primary_status == 'CLEAR' %}<span class="ok">{{ c.primary_status }}</span>{% else %}<span class="warn">{{ c.primary_status or 'unknown' }}</span>{% endif %}</td>
+  <td class="num nowrap">
+    <a class="cite" href="/assumptions#{{ assumption_slug('Urgency weighting formula') }}" title="As of {{ c.nearby_computed_at.strftime('%Y-%m-%d') if c.nearby_computed_at else 'unknown' }}.">{{ '%.0f'|format(c.nearby_urgency_score) }}</a></td>
+  <td class="num nowrap"><strong>{{ c.nearby_overdue_count }}</strong>
+    <div class="note">within {{ c.nearby_overdue_radius_miles }}mi, as of {{ c.nearby_overdue_computed_at.strftime('%Y-%m-%d') if c.nearby_overdue_computed_at else 'unknown' }}</div></td>
+  <td>{% if c.ua_local_250_signatory %}<span class="stamp stamp-quiet" title="Matched as {{ c.ua_local_250_matched_name }}.">Signatory</span>{% else %}<span class="dim">—</span>{% endif %}</td>
+  <td><a href="/replacement-leads/{{ c.id }}/handout">{{ icon('printer') }} Handout</a></td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+<p class="note">The nearest overdue buildings by address, years past service life, and estimated tonnage
+  band are on each contractor's own printable handout (linked above), not eagerly loaded here for every
+  row — a dense-area contractor's candidate set is too large to compute live for a whole page of
+  contractors at once. See "How this is built" above.</p>
 {% else %}
 <div class="empty">
   {{ icon('file-text') }}
@@ -115,5 +104,5 @@
     {{ radius_miles }}mi. Try <a href="/replacement-leads?min_overdue=1">min_overdue=1</a>, or run
     <span class="mono">scout match-contractors-overdue</span> if this looks stale.</p>
 </div>
-{% endfor %}
+{% endif %}
 {% endblock %}

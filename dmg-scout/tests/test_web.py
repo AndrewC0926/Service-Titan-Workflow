@@ -167,9 +167,6 @@ def test_replacement_leads_renders_ranked_by_urgency_not_count(client, db_sessio
     high_urgency = _scored_contractor("hi", overdue_count=6, urgency=900.0)
     high_count = _scored_contractor("lots", lat=35.0, lon=-119.0, overdue_count=40, urgency=50.0)
     db_session.add_all([high_urgency, high_count])
-    db_session.add(RetrofitBuilding(apn="b1", population="replacement_candidate",
-                                    latitude=34.06, longitude=-118.26, service_life_status="overdue",
-                                    address="123 Test Ave", county="Los Angeles", state="CA"))
     db_session.commit()
 
     r = client.get("/replacement-leads?min_overdue=1", headers=AUTH)
@@ -177,7 +174,6 @@ def test_replacement_leads_renders_ranked_by_urgency_not_count(client, db_sessio
     hi_pos = r.text.find("Lead Co hi")
     lots_pos = r.text.find("Lead Co lots")
     assert hi_pos != -1 and lots_pos != -1 and hi_pos < lots_pos
-    assert "123 Test Ave" in r.text
 
 
 def test_replacement_leads_excludes_below_min_overdue_threshold(client, db_session, cfg):
