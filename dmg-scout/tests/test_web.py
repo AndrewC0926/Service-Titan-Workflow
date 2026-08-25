@@ -190,6 +190,41 @@ def test_replacement_leads_discloses_no_permit_is_an_inference(client, db_sessio
     assert "inference, not a fact" in r.text
 
 
+def test_replacement_leads_warns_when_ranking_and_count_are_both_stale(client, db_session, cfg):
+    # No SourceRun of either kind exists -- both must read stale.
+    r = client.get("/replacement-leads", headers=AUTH)
+    assert "Ranking and overdue counts are both stale" in r.text
+
+
+def test_replacement_leads_no_stale_warning_once_both_jobs_have_run(client, db_session, cfg):
+    from app.contractors import MATCH_CONTRACTORS_OVERDUE_SOURCE, MATCH_CONTRACTORS_SOURCE
+    from app.models import SourceRun
+
+    db_session.add(SourceRun(source=MATCH_CONTRACTORS_SOURCE, ok=True))
+    db_session.add(SourceRun(source=MATCH_CONTRACTORS_OVERDUE_SOURCE, ok=True))
+    db_session.commit()
+
+    r = client.get("/replacement-leads", headers=AUTH)
+    assert "are both stale" not in r.text
+    assert "Ranking is stale" not in r.text
+    assert "Overdue counts are stale" not in r.text
+
+
+def test_contractors_list_warns_when_ranking_is_stale(client, db_session, cfg):
+    r = client.get("/contractors", headers=AUTH)
+    assert "Ranking is stale" in r.text
+
+
+def test_contractors_list_no_stale_warning_once_match_contractors_has_run(client, db_session, cfg):
+    from app.contractors import MATCH_CONTRACTORS_SOURCE
+    from app.models import SourceRun
+
+    db_session.add(SourceRun(source=MATCH_CONTRACTORS_SOURCE, ok=True))
+    db_session.commit()
+    r = client.get("/contractors", headers=AUTH)
+    assert "Ranking is stale" not in r.text
+
+
 def test_replacement_lead_handout_requires_auth(client, db_session, cfg):
     c = _scored_contractor("1")
     db_session.add(c)

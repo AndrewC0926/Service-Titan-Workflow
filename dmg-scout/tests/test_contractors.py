@@ -554,7 +554,11 @@ def test_match_contractors_overdue_precomputes_mechanical_only(db_session, cfg):
     assert gc.nearby_overdue_count is None
 
 
-def test_match_contractors_overdue_defaults_to_ranking_radius_not_default_radius(db_session, cfg):
+def test_match_contractors_overdue_defaults_to_default_radius_not_ranking_radius(db_session, cfg):
+    # Counting (how many buildings could realistically be handed over) uses
+    # the wide dispatch radius; ranking (which contractor to call first)
+    # stays at the tight radius in the SEPARATE match_contractors job --
+    # this precompute must not reuse ranking_radius_miles for counting.
     c = _contractor(license_no="1")
     db_session.add(c)
     db_session.commit()
@@ -562,8 +566,8 @@ def test_match_contractors_overdue_defaults_to_ranking_radius_not_default_radius
     contractors.match_contractors_overdue(db_session, cfg)
 
     db_session.refresh(c)
-    assert c.nearby_overdue_radius_miles == contractors.ranking_radius_miles(cfg)
-    assert c.nearby_overdue_radius_miles != contractors.default_radius_miles(cfg)
+    assert c.nearby_overdue_radius_miles == contractors.default_radius_miles(cfg)
+    assert c.nearby_overdue_radius_miles != contractors.ranking_radius_miles(cfg)
 
 
 def test_match_contractors_overdue_counts_only_overdue_not_the_broader_population(db_session, cfg):
@@ -657,6 +661,89 @@ def test_replacement_lead_distribution_counts_at_each_threshold(db_session, cfg)
     assert dist["at_threshold"][3] == 1
     assert dist["at_threshold"][10] == 1
     assert dist["at_threshold"][20] == 0
+
+
+# ---- fetch_and_match_contractors(_overdue): SourceRun + doctor() wiring --
+# The actual fix for "never scheduled, went 9 days stale, nothing noticed":
+# these are the ONLY entry points the CLI command and the weekly pipeline
+# step call -- confirms a run is visible to source health, not just that
+# the underlying compute is correct (already covered above).
+
+def test_fetch_and_match_contractors_writes_a_successful_source_run(db_session, cfg):
+    from app.models import SourceRun
+
+    c = _contractor(license_no="1")
+    db_session.add(c)
+    db_session.commit()
+
+    stats = contractors.fetch_and_match_contractors(db_session, cfg, radius_miles=15)
+    assert stats["ok"] is True and stats["error"] is None
+
+    run = db_session.exec(select(SourceRun).where(
+        SourceRun.source == contractors.MATCH_CONTRACTORS_SOURCE)).one()
+    assert run.ok is True
+    assert run.finished_at is not None
+    assert run.records_new == stats["contractors_matched"]
+
+
+def test_fetch_and_match_contractors_overdue_writes_a_successful_source_run(db_session, cfg):
+    from app.models import SourceRun
+
+    c = _contractor(license_no="1")
+    db_session.add(c)
+    db_session.commit()
+
+    stats = contractors.fetch_and_match_contractors_overdue(db_session, cfg, radius_miles=15)
+    assert stats["ok"] is True and stats["error"] is None
+
+    run = db_session.exec(select(SourceRun).where(
+        SourceRun.source == contractors.MATCH_CONTRACTORS_OVERDUE_SOURCE)).one()
+    assert run.ok is True
+    assert run.records_new == stats["contractors_matched"]
+
+
+def test_fetch_and_match_contractors_records_a_failed_run_not_a_crash(db_session, cfg, monkeypatch):
+    from app.models import SourceRun
+
+    def _boom(*a, **kw):
+        raise RuntimeError("simulated failure")
+    monkeypatch.setattr(contractors, "match_contractors", _boom)
+
+    stats = contractors.fetch_and_match_contractors(db_session, cfg)
+    assert stats["ok"] is False
+    assert "simulated failure" in stats["error"]
+
+    run = db_session.exec(select(SourceRun).where(
+        SourceRun.source == contractors.MATCH_CONTRACTORS_SOURCE)).one()
+    assert run.ok is False
+    assert "simulated failure" in run.error
+
+
+def test_a_fresh_fetch_and_match_run_reads_healthy_in_doctor(db_session, cfg):
+    """End to end: run the real wrapper, then confirm app.ops.doctor (the
+    same check /health and source_health render from) reports it healthy
+    -- the actual chain that was silently broken before this fix existed
+    at all."""
+    from app.ops import doctor
+
+    c = _contractor(license_no="1")
+    db_session.add(c)
+    db_session.commit()
+    contractors.fetch_and_match_contractors(db_session, cfg, radius_miles=15)
+    contractors.fetch_and_match_contractors_overdue(db_session, cfg, radius_miles=15)
+
+    checks = {name: ok for name, ok, _ in doctor()}
+    assert checks["source:match_contractors"] is True
+    assert checks["source:match_contractors_overdue"] is True
+
+
+def test_doctor_flags_match_contractors_as_stale_with_no_run(db_session, cfg):
+    """The exact failure mode this whole fix exists for: nothing has ever
+    run, and that must be visible, not silently green."""
+    from app.ops import doctor
+    checks = {name: ok for name, ok, _ in doctor()}
+    assert checks["source:match_contractors"] is False
+    assert checks["source:match_contractors_overdue"] is False
 
 
 # ---- build_cslb_match_candidates: county narrowing ----------------------

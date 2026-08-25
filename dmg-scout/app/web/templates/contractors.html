@@ -4,6 +4,18 @@
 {% block sheet_no %}S-15{% endblock %}
 {% block content %}
 
+{% if ranking_stale %}
+<div class="callout callout-bad">
+  {{ icon('triangle-alert') }}
+  <span><strong>Ranking is stale</strong>
+    <span class="body">`scout match-contractors` has not completed successfully within its
+      staleness window (see /health) — the urgency/count numbers below may be well out of
+      date, not just old. Run <span class="mono">scout match-contractors</span> before trusting
+      who's ranked where.</span>
+  </span>
+</div>
+{% endif %}
+
 <details class="callout callout-warn">
   <summary>How this is built</summary>
   <div class="callout-content">

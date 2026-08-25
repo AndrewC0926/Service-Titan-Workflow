@@ -678,7 +678,7 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
     ))
 
     # ---- Contractor ranking --------------------------------------------------
-    from app.contractors import URGENCY_YEARS_PAST_CAP, ranking_radius_miles
+    from app.contractors import URGENCY_YEARS_PAST_CAP, default_radius_miles, ranking_radius_miles
 
     out.append(Assumption(
         group="Contractor ranking", name="Ranking radius",
@@ -724,22 +724,29 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
     out.append(Assumption(
         group="Replacement leads", name="Overdue-count radius",
         config_path=None,
-        value=f"{ranking_radius_miles(cfg):.0f} miles -- same radius Contractor ranking uses, not "
-             f"contractors.default_radius_miles",
+        value=f"{default_radius_miles(cfg):.0f} miles for the COUNT (contractors.default_radius_miles) "
+             f"-- deliberately NOT {ranking_radius_miles(cfg):.0f}mi, the radius the RANKING "
+             f"(nearby_urgency_score) uses",
         source_type=MEASURED,
-        source_detail="default_radius_miles (15mi, the single-contractor account-page radius) was "
-                      "tried first for this board and rejected on two measured grounds against "
-                      "production 2026-08-24: it returned 13,000+ 'nearby' overdue buildings for a "
-                      "dense-area contractor (not a curated list anyone could hand over -- effectively "
-                      "'every overdue building in the region'), and the batched query itself took over "
-                      "5 minutes against ~5,400 mechanical contractors, vs ~100s at ranking_radius_miles. "
-                      "Both are the same root cause Contractor ranking's own 'Ranking radius' entry "
-                      "already documents: at wide radii, one dense metro pocket's contractors all see "
-                      "nearly the same building set. Reusing ranking_radius_miles rather than adding a "
-                      "third radius option keeps the board's displayed count and its ranking field "
-                      "(nearby_urgency_score) computed over the same neighborhood.",
+        source_detail="First version of this board used ranking_radius_miles (3mi) for the overdue "
+                      "count too, on the reasoning that a wider radius makes cross-contractor "
+                      "aggregates stop discriminating (the same problem Contractor ranking's own "
+                      "'Ranking radius' entry documents) -- true for RANKING, but counting is a "
+                      "different question: measured against production 2026-08-24 at 3mi, 53% of "
+                      "5,429 mechanical contractors showed zero overdue buildings nearby. Re-measured "
+                      "2026-08-25 at 15mi (default_radius_miles, the same 'realistically reachable' "
+                      "radius a building's own nearest-contractors list already uses): see this "
+                      "session's own measured before/after -- reported in the session record, not "
+                      "duplicated here, since this field only carries the CURRENT config value, not a "
+                      "point-in-time comparison. Ranking stays at ranking_radius_miles regardless (see "
+                      "app.contractors.replacement_leads) -- only the count and the printable "
+                      "handout's building list moved. A real cost: a dense-area contractor's count at "
+                      "15mi can run into the thousands, and the batched precompute takes several "
+                      "minutes against the mechanical-only set -- acceptable now that it runs on a "
+                      "schedule (see 'match_contractors' in config.yaml's sources: block) rather than "
+                      "inside a page request, which is what blocked 15mi in the first draft.",
         verified=True,
-        last_reviewed="Measured 2026-08-24 against real production CSLB/retrofit data.",
+        last_reviewed="Measured 2026-08-24 (3mi) and 2026-08-25 (15mi) against real production data.",
     ))
     out.append(Assumption(
         group="Replacement leads", name="Minimum overdue buildings to list a contractor",

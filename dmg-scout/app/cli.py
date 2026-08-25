@@ -348,11 +348,24 @@ def pipeline(force: bool = typer.Option(
         # app/pipeline/ownership.py) the fetch itself reads
         # RetrofitBuilding.apn, so it needs a population already on disk --
         # positioned right before the rebuild it feeds, same as the other two.
+        #
+        # match_contractors_cmd/match_contractors_overdue_cmd run weekly too,
+        # LAST -- right after find_replacement_candidates_cmd, which is what
+        # refreshes retrofit_buildings.population='replacement_candidate' for
+        # the week. Both jobs join against that population, so running them
+        # any earlier in the week's cycle would rank/count against last
+        # week's buildings. Cost is the other reason this is weekly, not
+        # daily: match_contractors measured 47min against the full ~42.6k
+        # geocoded contractors 2026-08-25 (the same order of cost as the
+        # retrofit rebuild itself, hence the same cadence), and
+        # match_contractors_overdue ~5min against the mechanical-only subset.
         for step in (fetch, triage, extract, grounding, resolve, score, notify,
                     fetch_ebewe_benchmarks_cmd, fetch_local250_cmd, fetch_ownership_recency_cmd,
-                    build_retrofit_buildings_cmd, find_replacement_candidates_cmd):
+                    build_retrofit_buildings_cmd, find_replacement_candidates_cmd,
+                    match_contractors_cmd, match_contractors_overdue_cmd):
             if (step in (find_replacement_candidates_cmd, fetch_ebewe_benchmarks_cmd,
-                        fetch_local250_cmd, fetch_ownership_recency_cmd)
+                        fetch_local250_cmd, fetch_ownership_recency_cmd,
+                        match_contractors_cmd, match_contractors_overdue_cmd)
                     and utcnow().weekday() != RETROFIT_WEEKLY_WEEKDAY):
                 typer.echo(f"--- {step.__name__} (skipped -- weekly, Sundays only) ---")
                 continue
@@ -388,6 +401,12 @@ def pipeline(force: bool = typer.Option(
                     # OptionInfo objects unresolved (same reason fetch/resolve/
                     # grounding above pass explicit values instead of calling bare).
                     step(year_built_before=2010, use_codes=None, min_sqft=None, top=50)
+                elif step in (match_contractors_cmd, match_contractors_overdue_cmd):
+                    # Same OptionInfo-unresolved reason as find_replacement_candidates_cmd
+                    # above -- radius_miles=None resolves to each job's own
+                    # config default (ranking_radius_miles / default_radius_miles)
+                    # inside the underlying function, not an unresolved typer.Option sentinel.
+                    step(radius_miles=None)
                 else:
                     step()
             except BudgetExceeded as exc:
@@ -575,30 +594,41 @@ def match_contractors_cmd(
     """Precompute each geocoded contractor's nearby replacement-candidate
     count -- see app.contractors.match_contractors for why this is cached
     rather than computed per page view, and /contractors, which sorts on
-    this cached value."""
-    from app.contractors import match_contractors
+    this cached value. Runs weekly in the pipeline (Sundays, right after
+    find_replacement_candidates_cmd -- see app.cli:pipeline); this command
+    is for a manual, out-of-band refresh. Always goes through
+    fetch_and_match_contractors, never the bare match_contractors(), so a
+    manual run is just as visible to `scout doctor`/source health as the
+    scheduled one."""
+    from app.contractors import fetch_and_match_contractors
     cfg = load_config()
     with session_scope() as session:
-        stats = match_contractors(session, cfg, radius_miles=radius_miles)
+        stats = fetch_and_match_contractors(session, cfg, radius_miles=radius_miles)
     typer.echo(json.dumps(stats))
 
 
 @app.command("match-contractors-overdue")
 def match_contractors_overdue_cmd(
-    radius_miles: float = typer.Option(None, help="Override contractors.ranking_radius_miles"),
+    radius_miles: float = typer.Option(None, help="Override contractors.default_radius_miles"),
 ) -> None:
     """Precompute Contractor.nearby_overdue_count for every geocoded
     mechanical (C-20/C-38) contractor -- the owner-direct replacement-lead
     board (/replacement-leads) reads this cached value; see
     app.contractors.match_contractors_overdue for why it's a separate
-    field/radius from match-contractors' own nearby_replacement_candidates.
-    A multi-minute batch operation (measured ~100s against ~5,400
-    mechanical contractors in production, 2026-08-24) -- run this
-    periodically, never expect it to finish inside a page request."""
-    from app.contractors import match_contractors_overdue
+    field/radius from match-contractors' own nearby_replacement_candidates
+    (counting at the wide dispatch radius, not the tight ranking one).
+    A multi-minute batch operation (measured ~5min at 15mi against ~5,400
+    mechanical contractors in production, 2026-08-25) -- run this
+    periodically, never expect it to finish inside a page request. Runs
+    weekly in the pipeline (Sundays, right after match-contractors -- see
+    app.cli:pipeline); this command is for a manual, out-of-band refresh.
+    Always goes through fetch_and_match_contractors_overdue, never the
+    bare function, so a manual run is just as visible to `scout doctor`/
+    source health as the scheduled one."""
+    from app.contractors import fetch_and_match_contractors_overdue
     cfg = load_config()
     with session_scope() as session:
-        stats = match_contractors_overdue(session, cfg, radius_miles=radius_miles)
+        stats = fetch_and_match_contractors_overdue(session, cfg, radius_miles=radius_miles)
     typer.echo(json.dumps(stats))
 
 

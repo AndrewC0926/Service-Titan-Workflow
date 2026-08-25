@@ -9,25 +9,43 @@
     calling owners cold — so this is organized by contractor, not by building.</span>
 </div>
 
+{% if ranking_stale or count_stale %}
+<div class="callout callout-bad">
+  {{ icon('triangle-alert') }}
+  <span><strong>{% if ranking_stale and count_stale %}Ranking and overdue counts are both stale
+      {% elif ranking_stale %}Ranking is stale{% else %}Overdue counts are stale{% endif %}</strong>
+    <span class="body">
+      {%- if ranking_stale %}`scout match-contractors` has not completed successfully within its
+      staleness window — the urgency score this board sorts on may be well out of date.{% endif %}
+      {%- if ranking_stale and count_stale %} {% endif %}
+      {%- if count_stale %} `scout match-contractors-overdue` has not completed successfully within
+      its staleness window — the overdue counts below may be well out of date.{% endif %}
+      See /health before handing this list to anyone.</span>
+  </span>
+</div>
+{% endif %}
+
 <details class="callout callout-warn">
   <summary>How this is built</summary>
   <div class="callout-content">
     <span>
-    <strong>Ranked by urgency, not by how many buildings are nearby</strong>
+    <strong>Two radii for two questions: ranking vs. counting</strong>
     <span class="body">Sort key is <span class="mono">nearby_urgency_score</span> — the SAME
       cross-contractor ranking field <a href="/contractors">/contractors</a> already uses (sum of
       each nearby building's service-life years-past-due, capped 100yr each), at
-      <span class="mono">contractors.ranking_radius_miles</span> ({{ radius_miles }}mi) — not the
-      wider {{ '%.0f'|format(15) }}mi single-contractor radius the account detail page uses.
-      That wider radius was tried first for this board and rejected: measured against production
-      2026-08-24, it returned 13,000+ "nearby" overdue buildings for a dense-area contractor
-      (not a list anyone could hand over) and the batched query itself took over 5 minutes against
-      ~5,400 mechanical contractors, vs ~100s at this tighter radius — the same dense-area
-      discrimination problem <a href="/assumptions#{{ assumption_slug('Urgency weighting formula') }}">/assumptions</a>
-      already documents for the general ranking. Precomputed by <span class="mono">scout
-      match-contractors</span> and <span class="mono">scout match-contractors-overdue</span> —
-      not live, and the two can be refreshed at different times (each row shows its own
-      as-of date).</span>
+      <span class="mono">contractors.ranking_radius_miles</span> ({{ ranking_radius_miles }}mi) —
+      tight on purpose, because that's what discriminates between contractors in dense areas; see
+      <a href="/assumptions#{{ assumption_slug('Ranking radius') }}">/assumptions</a>. The overdue
+      count each contractor shows, and the buildings on their printable handout, use a DIFFERENT,
+      wider radius instead — <span class="mono">contractors.default_radius_miles</span>
+      ({{ count_radius_miles }}mi), "realistically reachable" — because ranking and counting are
+      different questions. An earlier version used the tight radius for both and measured 53% of
+      mechanical contractors at zero; see
+      <a href="/assumptions#{{ assumption_slug('Overdue-count radius') }}">/assumptions</a> for how
+      much of that was the radius, not a genuine absence of nearby buildings. Precomputed by
+      <span class="mono">scout match-contractors</span> and <span class="mono">scout
+      match-contractors-overdue</span> — not live, and the two run on the same weekly schedule but
+      can still show different as-of dates if one fails (each row states its own).</span>
     </span>
   </div>
 </details>
@@ -63,7 +81,7 @@
 
 <p class="note">{{ '{:,}'.format(mechanical_total) }} mechanical contractor{{ 's' if mechanical_total != 1 }}
   scored; showing {{ leads|length }} with at least {{ min_overdue }} overdue building{{ 's' if min_overdue != 1 }}
-  within {{ radius_miles }}mi. <a href="/replacement-leads?min_overdue=1&limit={{ limit }}">Show any with ≥1</a>
+  within {{ count_radius_miles }}mi. <a href="/replacement-leads?min_overdue=1&limit={{ limit }}">Show any with ≥1</a>
   · <a href="/replacement-leads?min_overdue={{ min_overdue }}&limit=300">Show more rows</a></p>
 
 <p class="note">Is this broad or narrow? Contractors clearing each bar, of {{ '{:,}'.format(mechanical_total) }} scored:
@@ -74,8 +92,8 @@
 
 {% if leads %}
 <table class="tbl">
-<thead><tr><th>Contractor</th><th>Status</th><th class="num" title="Σ clip(service_life_years_past, 0, 100yr) over buildings within the ranking radius — not a count, see the disclosure above.">Urgency</th>
-  <th class="num">Overdue nearby</th><th>UA Local 250</th><th></th></tr></thead>
+<thead><tr><th>Contractor</th><th>Status</th><th class="num" title="Σ clip(service_life_years_past, 0, 100yr) over buildings within the ranking radius ({{ ranking_radius_miles }}mi) — not a count, see the disclosure above.">Urgency</th>
+  <th class="num" title="Overdue buildings within the wider dispatch radius ({{ count_radius_miles }}mi) — a different radius than urgency, see the disclosure above.">Overdue nearby</th><th>UA Local 250</th><th></th></tr></thead>
 <tbody>
 {% for c in leads %}
 <tr>
@@ -84,7 +102,7 @@
       {%- if c.business_phone %} · <a class="cite" href="tel:{{ c.business_phone }}">{{ c.business_phone }}</a>{% endif %}</div></td>
   <td>{% if c.primary_status == 'CLEAR' %}<span class="ok">{{ c.primary_status }}</span>{% else %}<span class="warn">{{ c.primary_status or 'unknown' }}</span>{% endif %}</td>
   <td class="num nowrap">
-    <a class="cite" href="/assumptions#{{ assumption_slug('Urgency weighting formula') }}" title="As of {{ c.nearby_computed_at.strftime('%Y-%m-%d') if c.nearby_computed_at else 'unknown' }}.">{{ '%.0f'|format(c.nearby_urgency_score) }}</a></td>
+    <a class="cite" href="/assumptions#{{ assumption_slug('Urgency weighting formula') }}" title="At {{ c.nearby_radius_miles }}mi, as of {{ c.nearby_computed_at.strftime('%Y-%m-%d') if c.nearby_computed_at else 'unknown' }}.">{{ '%.0f'|format(c.nearby_urgency_score) }}</a></td>
   <td class="num nowrap"><strong>{{ c.nearby_overdue_count }}</strong>
     <div class="note">within {{ c.nearby_overdue_radius_miles }}mi, as of {{ c.nearby_overdue_computed_at.strftime('%Y-%m-%d') if c.nearby_overdue_computed_at else 'unknown' }}</div></td>
   <td>{% if c.ua_local_250_signatory %}<span class="stamp stamp-quiet" title="Matched as {{ c.ua_local_250_matched_name }}.">Signatory</span>{% else %}<span class="dim">—</span>{% endif %}</td>
@@ -101,7 +119,7 @@
 <div class="empty">
   {{ icon('file-text') }}
   <p>No mechanical contractor clears {{ min_overdue }} overdue building{{ 's' if min_overdue != 1 }} within
-    {{ radius_miles }}mi. Try <a href="/replacement-leads?min_overdue=1">min_overdue=1</a>, or run
+    {{ count_radius_miles }}mi. Try <a href="/replacement-leads?min_overdue=1">min_overdue=1</a>, or run
     <span class="mono">scout match-contractors-overdue</span> if this looks stale.</p>
 </div>
 {% endif %}

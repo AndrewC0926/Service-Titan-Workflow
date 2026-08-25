@@ -21,7 +21,8 @@ def _patch_stages(monkeypatch, calls, *, boom: str | None = None):
     names one stage to raise instead of recording success."""
     for name in ("fetch", "triage", "extract", "grounding", "resolve", "score", "notify",
                 "fetch_ebewe_benchmarks_cmd", "build_retrofit_buildings_cmd",
-                "find_replacement_candidates_cmd"):
+                "find_replacement_candidates_cmd", "match_contractors_cmd",
+                "match_contractors_overdue_cmd"):
         if name == boom:
             def _raiser(*a, _name=name, **k):
                 calls.append(_name)
@@ -73,6 +74,39 @@ def test_find_replacement_candidates_runs_on_a_matching_weekly_day(db_session, m
     result = CliRunner().invoke(cli_app, ["pipeline"])
 
     assert "find_replacement_candidates_cmd" in calls
+    assert result.exit_code == 0
+
+
+def test_match_contractors_steps_only_run_on_the_weekly_day(db_session, monkeypatch):
+    """Same weekly gate as find_replacement_candidates_cmd, and for the
+    same reason: both jobs join against retrofit_buildings, which is only
+    refreshed on this day -- running them any other day would rank/count
+    against last week's population."""
+    calls = []
+    _patch_stages(monkeypatch, calls)
+    other_day = (utcnow().weekday() + 1) % 7
+    monkeypatch.setattr(cli_mod, "RETROFIT_WEEKLY_WEEKDAY", other_day)
+
+    result = CliRunner().invoke(cli_app, ["pipeline"])
+
+    assert "match_contractors_cmd" not in calls
+    assert "match_contractors_overdue_cmd" not in calls
+    assert result.exit_code == 0
+
+
+def test_match_contractors_steps_run_on_a_matching_weekly_day_after_the_rebuild(db_session, monkeypatch):
+    calls = []
+    _patch_stages(monkeypatch, calls)
+    monkeypatch.setattr(cli_mod, "RETROFIT_WEEKLY_WEEKDAY", utcnow().weekday())
+
+    result = CliRunner().invoke(cli_app, ["pipeline"])
+
+    assert "match_contractors_cmd" in calls
+    assert "match_contractors_overdue_cmd" in calls
+    # Both run AFTER find_replacement_candidates_cmd -- they must see that
+    # day's rebuilt retrofit_buildings, not the population from before it.
+    assert calls.index("find_replacement_candidates_cmd") < calls.index("match_contractors_cmd")
+    assert calls.index("match_contractors_cmd") < calls.index("match_contractors_overdue_cmd")
     assert result.exit_code == 0
 
 

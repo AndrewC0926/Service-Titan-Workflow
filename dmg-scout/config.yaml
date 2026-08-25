@@ -671,6 +671,33 @@ sources:
     # (successful) run for the identical reason: no override, 36h default.
     # See app/assumptions.py's "Weekly-fetch staleness threshold" entry.
     stale_hours: 216
+  # Contractor <-> retrofit-building geographic join, precomputed rather
+  # than computed per page view -- see app/contractors.py's module
+  # docstring and Contractor.nearby_urgency_score's own field docstring.
+  # Never wired to a schedule or a SourceRun before 2026-08-25: went 9 days
+  # stale with nothing anywhere reporting it (one contractor's cached
+  # nearby_replacement_candidates read 318 against a live 1,823 at the same
+  # radius). Now runs weekly, same day as the retrofit rebuild it depends
+  # on (right after find_replacement_candidates_cmd -- see app.cli:pipeline)
+  # -- match_contractors measured 47min against the full ~42.6k geocoded
+  # contractors 2026-08-25, the same cost class as the retrofit rebuild
+  # itself, so the same weekly cadence, same 216h (168h cycle + 1.5 day
+  # slack) staleness math as ua_local_250/la_ebewe_benchmarking above.
+  match_contractors:
+    enabled: true
+    stale_hours: 216
+  # The owner-direct replacement-lead board's own count (/replacement-leads)
+  # -- mechanical-only, a separate field/radius from match_contractors
+  # above (counts overdue buildings at the wide dispatch radius, not the
+  # tight ranking one; see app.contractors.match_contractors_overdue).
+  # Same weekly cadence as match_contractors, run immediately after it in
+  # the pipeline: measured ~5min against the ~5,400 mechanical geocoded
+  # contractors 2026-08-25, cheap enough to run more often, but there is
+  # no reason to -- it depends on the same weekly retrofit rebuild
+  # match_contractors does.
+  match_contractors_overdue:
+    enabled: true
+    stale_hours: 216
   # Competitor line-card map -- see app/competitors.py's module docstring
   # for the research method (each rep firm's own published line card only)
   # and the two kinds of "unconfirmed" it records. Not a live scraper --

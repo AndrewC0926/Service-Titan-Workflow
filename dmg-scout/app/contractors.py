@@ -19,6 +19,7 @@ filtered out by a judgment call this project was told not to make.
 """
 from __future__ import annotations
 
+import logging
 import math
 
 from sqlalchemy import func, text
@@ -27,13 +28,22 @@ from sqlmodel import Session, select
 from rapidfuzz import fuzz
 
 from app.config import Config
-from app.models import Contractor, RetrofitBuilding, utcnow
+from app.models import Contractor, RetrofitBuilding, SourceRun, utcnow
 from app.pipeline.local250 import (
     MIN_NAME_LEN,
     NAME_ONLY_THRESHOLD,
     NAME_WITH_CITY_THRESHOLD,
     clean_contractor_name,
 )
+
+log = logging.getLogger(__name__)
+
+# source_runs.source values -- see config.yaml's sources: block (both
+# entries there must use these exact strings, or app.ops.doctor's
+# "source_run_names" check flags every run as unattributable) and
+# app.models.source_run_name/run_name_source.
+MATCH_CONTRACTORS_SOURCE = "match_contractors"
+MATCH_CONTRACTORS_OVERDUE_SOURCE = "match_contractors_overdue"
 
 # The two CSLB classifications that are actually mechanical (HVAC /
 # refrigeration) -- see app.pipeline.cslb.CLASSIFICATIONS for the full
@@ -273,6 +283,42 @@ def match_contractors(session: Session, cfg: Config, *, radius_miles: float | No
     return _match_contractors_sql(session, radius_miles, now, batch_size=batch_size)
 
 
+def fetch_and_match_contractors(session: Session, cfg: Config, *,
+                                radius_miles: float | None = None, batch_size: int = 5000) -> dict:
+    """match_contractors, wrapped to write a SourceRun -- see
+    app.pipeline.local250.fetch_and_match_local250 for the exact pattern
+    this mirrors. Without this, nothing recorded that the job ran at all:
+    confirmed 2026-08-25 that match_contractors had never written a
+    SourceRun, was never on any schedule, and the cached
+    nearby_urgency_score /contractors and /replacement-leads both rank on
+    had gone 9 days stale -- undercounting one contractor 318 (cached)
+    vs. 1,823 (live) at the same radius, with nothing anywhere reporting
+    it. `scout doctor` / /health now see this the same way every other
+    source does (see config.yaml's `sources.match_contractors` entry) --
+    this is the one and only place that can ever be true, in this or any
+    future call, scheduled or by hand: the CLI command and the weekly
+    pipeline step both call this, never the bare match_contractors()."""
+    run = SourceRun(source=MATCH_CONTRACTORS_SOURCE)
+    session.add(run)
+    session.commit()
+    error = None
+    stats = {"contractors_matched": 0, "contractors_skipped_ungeocoded": 0}
+    try:
+        stats = match_contractors(session, cfg, radius_miles=radius_miles, batch_size=batch_size)
+    except Exception as exc:  # noqa: BLE001 — recorded on the SourceRun, not raised past this stage
+        session.rollback()
+        error = f"{type(exc).__name__}: {exc}"
+        log.error("match_contractors failed: %s", error)
+    run.finished_at = utcnow()
+    run.records_fetched = stats["contractors_matched"] + stats["contractors_skipped_ungeocoded"]
+    run.records_new = stats["contractors_matched"]
+    run.ok = error is None
+    run.error = error
+    session.add(run)
+    session.commit()
+    return {**stats, "ok": error is None, "error": error}
+
+
 def _is_mechanical_classification(classifications: str | None) -> bool:
     raw = (classifications or "").upper()
     tokens = {t.replace("-", "") for t in raw.replace(",", " ").split()}
@@ -282,26 +328,37 @@ def _is_mechanical_classification(classifications: str | None) -> bool:
 # ---- owner-direct replacement-lead board: overdue count per contractor ----
 #
 # A separate precompute from match_contractors above, not a second radius
-# option bolted onto it: match_contractors' own nearby_urgency_score is
-# already the right ranking field (sum of service-life urgency, tuned at
-# ranking_radius_miles specifically because it discriminates in dense
-# areas -- see that field's docstring). What match_contractors does NOT
-# give the lead board is an OVERDUE-only count -- the general
-# replacement_candidate population it counts also carries a due/
-# approaching/not_due tail -- at a radius actually worth handing a
-# contractor a list at.
+# option bolted onto it -- and deliberately at a DIFFERENT radius than
+# match_contractors' own nearby_urgency_score, because ranking and counting
+# are different questions:
+#   - RANKING ("which contractor is worth calling first") stays at
+#     ranking_radius_miles (3mi) -- match_contractors' own field, tuned
+#     specifically because raw counts/sums don't discriminate between
+#     contractors in dense areas at wider radii (see that field's docstring).
+#     This precompute does not touch ranking at all.
+#   - COUNTING ("how many buildings could this contractor realistically be
+#     handed") is answered at default_radius_miles (15mi) -- the same
+#     "what's realistically reachable" dispatch radius a building's own
+#     "nearest contractors" list already uses, not the tight radius chosen
+#     to make cross-contractor comparison discriminate. A first version of
+#     this board used ranking_radius_miles for the count too and measured
+#     53% of mechanical contractors at zero -- some genuinely have nothing
+#     nearby, but the 3mi ring is also known (from ranking_radius_miles'
+#     own tuning notes) to undercount real service areas in less-dense
+#     territory, hiding real prospects at 5-10mi. 15mi is a real cost (a
+#     dense-area contractor's count can run into the thousands, and the
+#     batched query itself takes several minutes against the mechanical-
+#     only set) but that cost is now paid by a scheduled job (see
+#     app.ops.doctor's "match_contractors_overdue" check), not a page
+#     load -- the objection that blocked 15mi in the first draft was
+#     "too slow for one HTTP request," which no longer applies once this
+#     runs on its own schedule.
 #
-# default_radius_miles (15mi, the single-contractor account-page radius)
-# was tried first and rejected on two measured grounds against production
-# 2026-08-24: (1) a dense-area contractor's "nearby" overdue count came
-# back at 13,000+ -- not a curated list, effectively "every overdue
-# building in the region," and (2) the batched query itself took over 5
-# minutes against ~5,400 mechanical contractors at that radius (vs ~100s
-# at ranking_radius_miles). Both problems are the same root cause
-# ranking_radius_miles' own docstring already names: at wide radii, one
-# dense metro pocket's contractors all see nearly the same building set.
-# ranking_radius_miles is therefore the default here too, not a separate
-# invented "board radius."
+# What match_contractors does NOT give the lead board at either radius is
+# an OVERDUE-only count -- the general replacement_candidate population it
+# counts also carries a due/approaching/not_due tail -- which is the other
+# reason this stays a separate field rather than a second meaning for
+# nearby_replacement_candidates.
 MECHANICAL_OVERDUE_BATCH_SQL = text("""
     WITH overdue AS (
         SELECT id, latitude, longitude
@@ -348,14 +405,20 @@ def match_contractors_overdue(session: Session, cfg: Config, *, radius_miles: fl
     """Precomputes Contractor.nearby_overdue_count for every geocoded
     MECHANICAL (C-20/C-38) contractor -- see that field's own docstring in
     app/models.py for why this is a separate field/radius from
-    match_contractors' own nearby_replacement_candidates, and why the
-    default radius is ranking_radius_miles, not default_radius_miles.
+    match_contractors' own nearby_replacement_candidates/nearby_urgency_score,
+    and why the default radius is default_radius_miles (the 15mi "realistically
+    reachable" dispatch radius), NOT ranking_radius_miles -- ranking (which
+    contractor to call first) and counting (what could realistically be
+    handed to them) are different questions answered at different radii;
+    see app.contractors.replacement_leads for the ranking side, which stays
+    at ranking_radius_miles regardless of this field's own radius.
     Restricted to mechanical contractors (unlike match_contractors, which
     covers every contractor): this count only means something for who a
     rep would actually hand an HVAC replacement lead to, and mechanical-
     only cuts the compute set roughly 9x (~5,400 of ~47,600 contractors in
     production, 2026-08-24), which matters -- this is still a multi-minute
-    batch operation, run this from a periodic job, never on page load.
+    batch operation (measured ~5min at 15mi against the mechanical-only
+    set), run this from a periodic job, never on page load.
 
     ids-batched (WHERE c.id = ANY(:ids)), not the id-range BETWEEN
     match_contractors uses: mechanical contractor ids are scattered
@@ -364,7 +427,7 @@ def match_contractors_overdue(session: Session, cfg: Config, *, radius_miles: fl
     guaranteed to actually do work (a full haversine join), where
     match_contractors' range batches mostly skip non-mechanical ids for
     free -- a same-sized batch here costs more."""
-    radius_miles = radius_miles if radius_miles is not None else ranking_radius_miles(cfg)
+    radius_miles = radius_miles if radius_miles is not None else default_radius_miles(cfg)
     now = utcnow()
     if session.get_bind().dialect.name != "postgresql":
         return _match_contractors_overdue_python(session, radius_miles, now)
@@ -378,6 +441,34 @@ def match_contractors_overdue(session: Session, cfg: Config, *, radius_miles: fl
         matched += result.rowcount
         session.commit()
     return {"contractors_matched": matched, "mechanical_geocoded_total": len(ids)}
+
+
+def fetch_and_match_contractors_overdue(session: Session, cfg: Config, *,
+                                        radius_miles: float | None = None,
+                                        batch_size: int = 500) -> dict:
+    """match_contractors_overdue, wrapped to write a SourceRun -- see
+    fetch_and_match_contractors's own docstring for why this wrapper (not
+    the bare function) is the only thing the CLI command and the weekly
+    pipeline step ever call."""
+    run = SourceRun(source=MATCH_CONTRACTORS_OVERDUE_SOURCE)
+    session.add(run)
+    session.commit()
+    error = None
+    stats = {"contractors_matched": 0, "mechanical_geocoded_total": 0}
+    try:
+        stats = match_contractors_overdue(session, cfg, radius_miles=radius_miles, batch_size=batch_size)
+    except Exception as exc:  # noqa: BLE001 — recorded on the SourceRun, not raised past this stage
+        session.rollback()
+        error = f"{type(exc).__name__}: {exc}"
+        log.error("match_contractors_overdue failed: %s", error)
+    run.finished_at = utcnow()
+    run.records_fetched = stats["mechanical_geocoded_total"]
+    run.records_new = stats["contractors_matched"]
+    run.ok = error is None
+    run.error = error
+    session.add(run)
+    session.commit()
+    return {**stats, "ok": error is None, "error": error}
 
 
 def _match_contractors_overdue_python(session: Session, radius_miles: float, now) -> dict:

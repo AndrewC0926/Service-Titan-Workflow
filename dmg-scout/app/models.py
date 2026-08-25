@@ -1881,16 +1881,19 @@ class Contractor(SQLModel, table=True):
     # SEPARATE field from nearby_replacement_candidates above rather than a
     # second meaning for it: this is OVERDUE-only (service_life_status ==
     # 'overdue', not the broader replacement_candidate population, which
-    # also carries a due/approaching/not_due tail), computed at whatever
-    # radius the lead board itself uses (contractors.ranking_radius_miles
-    # by default -- see match_contractors_overdue's own docstring for why
-    # the WIDER default_radius_miles a single contractor's account-page
-    # detail view uses is the wrong choice for a board ranking many
-    # contractors: measured against production 2026-08-24, it produces
-    # 13,000+ "nearby" buildings for a dense-area contractor -- not a list
-    # anyone could hand over -- and the batched query itself took 5+
-    # minutes at that radius against ~5,400 mechanical contractors, vs
-    # ~100s at the tighter radius).
+    # also carries a due/approaching/not_due tail), computed at
+    # contractors.default_radius_miles (15mi, "realistically reachable" --
+    # see that field's own docstring) -- deliberately NOT
+    # ranking_radius_miles (3mi), the radius nearby_urgency_score below
+    # uses for cross-contractor ranking. Ranking and counting are different
+    # questions: which contractor is worth calling first (needs a tight
+    # radius to discriminate at all in dense areas) vs. how many buildings
+    # could realistically be handed to them (needs the wide dispatch
+    # radius, or a real-but-sparse territory looks like zero opportunity
+    # when it has plenty at 5-10mi). A first version used the tight radius
+    # for both and measured 53% of mechanical contractors at zero -- see
+    # /assumptions' "Overdue-count radius" entry for how much of that was
+    # the radius rather than a genuine absence of nearby buildings.
     nearby_overdue_count: int | None = None
     nearby_overdue_radius_miles: float | None = None
     nearby_overdue_computed_at: datetime | None = None

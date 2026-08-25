@@ -155,6 +155,69 @@ def test_stale_cutoff_uses_a_sources_own_override(cfg):
     assert abs((now - cutoff).total_seconds() - 2160 * 3600) < 1
 
 
+def test_source_is_stale_true_when_no_run_ever_recorded(db_session, cfg):
+    """Different from _stale_sources' own skip-if-never-run behavior on
+    purpose -- a page showing cached numbers has nothing to trust yet if
+    the source has never once succeeded, and must say so rather than stay
+    silent the way the digest deliberately does for an unconfigured
+    source. See source_is_stale's own docstring for why the two differ."""
+    from app.ops import source_is_stale
+    assert source_is_stale(db_session, cfg, "match_contractors") is True
+
+
+def test_source_is_stale_false_for_a_recent_success(db_session, cfg):
+    from app.ops import source_is_stale
+    from app.models import SourceRun, utcnow
+
+    db_session.add(SourceRun(source="match_contractors", ok=True, started_at=utcnow()))
+    db_session.commit()
+    assert source_is_stale(db_session, cfg, "match_contractors") is False
+
+
+def test_source_is_stale_true_past_the_configured_window(db_session, cfg):
+    from datetime import timedelta
+
+    from app.ops import source_is_stale
+    from app.models import SourceRun, utcnow
+
+    db_session.add(SourceRun(source="match_contractors", ok=True,
+                             started_at=utcnow() - timedelta(hours=217)))  # past the 216h weekly window
+    db_session.commit()
+    assert source_is_stale(db_session, cfg, "match_contractors") is True
+
+
+def test_source_is_stale_ignores_a_failed_run_with_no_prior_success(db_session, cfg):
+    from app.ops import source_is_stale
+    from app.models import SourceRun, utcnow
+
+    db_session.add(SourceRun(source="match_contractors", ok=False, started_at=utcnow(),
+                             error="boom"))
+    db_session.commit()
+    assert source_is_stale(db_session, cfg, "match_contractors") is True
+
+
+def test_source_is_stale_does_not_confuse_a_name_that_prefixes_another(db_session, cfg):
+    """match_contractors is a literal string-prefix of match_contractors_overdue
+    -- a naive substring/LIKE match would let a fresh overdue-job run mask
+    a stale general one, or vice versa."""
+    from app.ops import source_is_stale
+    from app.models import SourceRun, utcnow
+
+    db_session.add(SourceRun(source="match_contractors_overdue", ok=True, started_at=utcnow()))
+    db_session.commit()
+    assert source_is_stale(db_session, cfg, "match_contractors") is True
+    assert source_is_stale(db_session, cfg, "match_contractors_overdue") is False
+
+
+def test_source_is_stale_counts_a_mode_suffixed_run(db_session, cfg):
+    from app.ops import source_is_stale
+    from app.models import SourceRun, utcnow
+
+    db_session.add(SourceRun(source="match_contractors:backfill", ok=True, started_at=utcnow()))
+    db_session.commit()
+    assert source_is_stale(db_session, cfg, "match_contractors") is False
+
+
 def test_doctor_and_digest_staleness_agree_on_the_same_source(db_session, cfg):
     """The actual bug: doctor() and _stale_sources() used to implement
     staleness independently and could disagree about the same source.

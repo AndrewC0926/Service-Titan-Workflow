@@ -8,6 +8,7 @@ import shutil
 from datetime import datetime, timedelta
 
 import httpx
+from sqlalchemy import or_
 from sqlmodel import select
 
 from app.config import anthropic_api_key, load_config
@@ -43,6 +44,37 @@ def stale_cutoff(cfg, name: str, now: datetime | None = None) -> datetime:
         now = utcnow()
     hours = cfg.get(f"sources.{name}.stale_hours", DEFAULT_STALE_HOURS)
     return now - timedelta(hours=hours)
+
+
+def source_is_stale(session: Session, cfg, name: str, now: datetime | None = None) -> bool:
+    """Whether `name`'s last successful run (if any) is older than
+    stale_cutoff -- for an on-page staleness banner over cached numbers a
+    rep is about to act on (e.g. /contractors, /replacement-leads), which
+    needs a stricter answer than app.pipeline.notify._stale_sources'
+    digest-nag check: that one deliberately SKIPS (never flags) a source
+    with no run recorded at all, since an unconfigured source is a setup
+    question, not a daily nag. A ranking page showing cached numbers has
+    the opposite concern -- "no successful run ever" is the SAME "don't
+    trust this" state as "ran 9 days ago," not something to stay silent
+    about -- so this returns True (stale) for that case rather than
+    reusing _stale_sources' skip. Both still call the SAME stale_cutoff
+    underneath, so the *threshold* for what counts as stale never drifts
+    between the two call sites, only what happens when nothing has run yet.
+
+    `name:mode`-suffixed runs (e.g. a backfill) count toward `name`, same
+    as app.models.run_name_source already establishes elsewhere -- matched
+    by an anchored `name:` prefix, not a bare substring, so
+    "match_contractors" runs can never be counted as "match_contractors_overdue"
+    runs just because one name prefixes the other."""
+    now = now or utcnow()
+    runs = session.exec(
+        select(SourceRun).where(
+            or_(SourceRun.source == name, SourceRun.source.like(f"{name}:%")))
+    ).all()
+    oks = [r for r in runs if r.ok]
+    if not oks:
+        return True
+    return max(r.started_at for r in oks) < stale_cutoff(cfg, name, now)
 
 
 def ping_healthcheck(success: bool = True) -> bool:

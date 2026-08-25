@@ -899,7 +899,10 @@ def contractors_list(request: Request, county: str = None, classification: str =
     classification CSLB scope covers; anything else (e.g. "B", "C10")
     substring-filters same as before, for a link naming one specific
     classification."""
-    from app.contractors import MECHANICAL_CLASSIFICATIONS, ranking_radius_miles
+    from app.contractors import MATCH_CONTRACTORS_SOURCE, MECHANICAL_CLASSIFICATIONS, ranking_radius_miles
+    from app.ops import source_is_stale
+    cfg = load_config()
+    ranking_stale = source_is_stale(session, cfg, MATCH_CONTRACTORS_SOURCE)
     q = select(Contractor)
     if county:
         q = q.where(Contractor.county == county)
@@ -924,8 +927,9 @@ def contractors_list(request: Request, county: str = None, classification: str =
     return templates.TemplateResponse(request, "contractors.html", {
         "contractors": contractors, "total": total, "counties": counties,
         "county": county, "classification": classification, "signatory": signatory, "limit": limit,
-        "never_matched": never_matched, "ranking_radius": ranking_radius_miles(load_config()),
+        "never_matched": never_matched, "ranking_radius": ranking_radius_miles(cfg),
         "signatory_total": signatory_total, "signatory_checked_at": signatory_checked_at,
+        "ranking_stale": ranking_stale,
         "tb": _title_block(session), "active": "contractors",
     })
 
@@ -951,29 +955,45 @@ def contractor_detail(contractor_id: int, request: Request,
 def replacement_leads_view(request: Request, min_overdue: int = 5, limit: int = 100,
                            session: Session = Depends(get_session), _: str = Depends(auth)):
     """The owner-direct lane: mechanical contractors ranked by
-    nearby_urgency_score (see app.contractors.replacement_leads for why —
-    raw overdue count doesn't discriminate any more than raw proximity
-    count did on /contractors). Shows only precomputed, cached stats per
-    row (overdue count, urgency, Local 250, CSLB status) — deliberately
-    NOT the nearest-few building list live, per row, for up to `limit`
-    contractors at once: a dense-area contractor's candidate set is large
-    enough (1,000+ buildings within radius, measured against production
+    nearby_urgency_score at ranking_radius_miles (see
+    app.contractors.replacement_leads for why — raw overdue count doesn't
+    discriminate any more than raw proximity count did on /contractors),
+    each showing an overdue count at the WIDER default_radius_miles (15mi,
+    "realistically reachable") — two different radii for two different
+    questions, see app.contractors.match_contractors_overdue's own
+    docstring. Shows only precomputed, cached stats per row (overdue
+    count, urgency, Local 250, CSLB status) — deliberately NOT the
+    nearest-few building list live, per row, for up to `limit` contractors
+    at once: a dense-area contractor's candidate set is large enough
+    (1,000+ buildings within radius, measured against production
     2026-08-24) that even a batched single-query version of that lookup
     ran over a minute for 100 rows. That detail lives one click away, on
     the per-contractor printable handout, the same way /contractors keeps
     its own board to cached aggregates and defers live detail to
     /contractor/{id}."""
-    from app.contractors import ranking_radius_miles, replacement_lead_distribution, replacement_leads
+    from app.contractors import (
+        MATCH_CONTRACTORS_OVERDUE_SOURCE,
+        MATCH_CONTRACTORS_SOURCE,
+        default_radius_miles,
+        ranking_radius_miles,
+        replacement_lead_distribution,
+        replacement_leads,
+    )
+    from app.ops import source_is_stale
     cfg = load_config()
     leads = replacement_leads(session, min_overdue=min_overdue, limit=limit)
     distribution = replacement_lead_distribution(session)
     never_scored = session.exec(
         select(func.count()).where(Contractor.latitude.is_not(None),
                                    Contractor.nearby_overdue_count.is_(None))).one()
+    ranking_stale = source_is_stale(session, cfg, MATCH_CONTRACTORS_SOURCE)
+    count_stale = source_is_stale(session, cfg, MATCH_CONTRACTORS_OVERDUE_SOURCE)
     return templates.TemplateResponse(request, "replacement_leads.html", {
         "leads": leads, "min_overdue": min_overdue, "limit": limit,
-        "radius_miles": ranking_radius_miles(cfg), "mechanical_total": distribution["total_scored"],
+        "ranking_radius_miles": ranking_radius_miles(cfg), "count_radius_miles": default_radius_miles(cfg),
+        "mechanical_total": distribution["total_scored"],
         "distribution": distribution["at_threshold"], "never_scored": never_scored,
+        "ranking_stale": ranking_stale, "count_stale": count_stale,
         "tb": _title_block(session), "active": "replacement-leads",
     })
 
@@ -987,11 +1007,11 @@ def replacement_lead_handout(contractor_id: int, request: Request,
     was computed at, not necessarily the current config default, so the
     list here always matches the count shown on /replacement-leads for the
     same contractor even if the config changes between precompute runs."""
-    from app.contractors import overdue_buildings_near_contractor_detail, ranking_radius_miles
+    from app.contractors import default_radius_miles, overdue_buildings_near_contractor_detail
     contractor = session.get(Contractor, contractor_id)
     if not contractor:
         raise HTTPException(404)
-    radius = contractor.nearby_overdue_radius_miles or ranking_radius_miles(load_config())
+    radius = contractor.nearby_overdue_radius_miles or default_radius_miles(load_config())
     nearby = (overdue_buildings_near_contractor_detail(session, contractor, radius)
              if contractor.latitude is not None else [])
     return templates.TemplateResponse(request, "replacement_lead_handout.html", {
