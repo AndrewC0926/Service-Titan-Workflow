@@ -51,7 +51,7 @@ from sqlmodel import Session, select
 from app.config import Config
 from app.ladder import build_ladders, contact_status
 from app.models import (
-    ACTIVE_STATUSES, DigestLog, Outreach, Project, SourceRun, run_name_source, utcnow,
+    ACTIVE_STATUSES, DigestLog, FieldIntel, Outreach, Project, SourceRun, run_name_source, utcnow,
 )
 
 log = logging.getLogger(__name__)
@@ -500,6 +500,47 @@ def narrate_or_fallback(cfg: Config, calls: list[dict], change_lines: list[str],
     return body.strip() + "\n", {"narrated": True, "cost_usd": cost}
 
 
+# ---- postscript: field intel (NOT one of the four core sections above) ----
+#
+# Human-sourced, unverified -- deliberately appended AFTER narration runs,
+# never handed to narrate_or_fallback, and never reworded. Narration's own
+# safeguards (app.llm.NARRATE_DIGEST_SYSTEM, _numbers_grounded) exist to
+# keep an LLM from introducing a fact past what the four core sections
+# already ground -- the right answer for a person's exact quote is not "let
+# the model paraphrase it more grounded," it's "never let the model touch
+# it at all." Appending here means it survives whether narration succeeds
+# or falls back.
+
+def _new_field_intel(session: Session) -> list[FieldIntel]:
+    """Reported in roughly the last digest cycle -- a flat 24h window, not
+    DigestLog-tracked like the four core sections: this is a small, low-
+    volume table, and repeating a row once if a digest cycle is missed is
+    a fair trade against the state a precise "since last digest" check
+    would need. Newest first."""
+    cutoff = utcnow() - timedelta(hours=24)
+    return session.exec(
+        select(FieldIntel).where(FieldIntel.created_at >= cutoff)
+        .order_by(FieldIntel.reported_at.desc())
+    ).all()
+
+
+def _render_field_intel(rows: list[FieldIntel]) -> str | None:
+    if not rows:
+        return None
+    lines = ["FIELD INTEL — UNVERIFIED, human-sourced"]
+    for fi in rows:
+        who = f"{fi.owner or 'unnamed owner'}" + (f", {fi.location}" if fi.location else "")
+        lines.append(f"  {who} — from {fi.reported_by} ({fi.reported_at:%Y-%m-%d})")
+        if fi.engineer_name or fi.mech_contractor_name:
+            named = ", ".join(x for x in (
+                f"engineer: {fi.engineer_name}" if fi.engineer_name else None,
+                f"mech sub: {fi.mech_contractor_name}" if fi.mech_contractor_name else None,
+            ) if x)
+            lines.append(f"    {named}")
+    lines.append(f"  See /intel — {len(rows)} logged this cycle.")
+    return "\n".join(lines)
+
+
 # ---- assembly ---------------------------------------------------------------
 
 def build_digest(session: Session, cfg: Config) -> tuple[str, dict] | None:
@@ -515,11 +556,12 @@ def build_digest(session: Session, cfg: Config) -> tuple[str, dict] | None:
     change_lines = _changes_since_last_digest(session, cfg, projects=projects, ladders=ladders)
     overdue_lines = _overdue_and_due(session, cfg, projects=projects)
     one_thing = _one_thing_worth_knowing(session, cfg, len(change_lines))
+    field_intel_rows = _new_field_intel(session)
 
     # A quiet day with nothing to call and nothing due is a genuinely empty
     # digest — everything else always has SOMETHING to say (even "nothing
     # changed"), so this is the one case worth skipping the send entirely.
-    if not calls and not change_lines and not overdue_lines and not one_thing:
+    if not calls and not change_lines and not overdue_lines and not one_thing and not field_intel_rows:
         return None
 
     sections = [_render_calls(calls), _render_changes(change_lines)]
@@ -531,8 +573,14 @@ def build_digest(session: Session, cfg: Config) -> tuple[str, dict] | None:
 
     plain_body = f"DMG Scout — {utcnow():%a %b %d}\n\n" + "\n\n".join(sections) + "\n"
     body, narration_stats = narrate_or_fallback(cfg, calls, change_lines, overdue_lines, one_thing, plain_body)
+
+    field_intel_section = _render_field_intel(field_intel_rows)
+    if field_intel_section:
+        body = body.rstrip("\n") + "\n\n" + field_intel_section + "\n"
+
     stats = {
         "calls": len(calls), "changes": len(change_lines), "overdue": len(overdue_lines),
+        "field_intel": len(field_intel_rows),
         **narration_stats,
     }
     return body, stats

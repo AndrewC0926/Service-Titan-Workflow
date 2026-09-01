@@ -34,6 +34,22 @@ Every figure below traces to the public source URL in the timeline.</p>
     <th>Status</th><td>{{ p.status }}</td></tr>
 </table>
 
+{% if b.field_intel %}
+<h2>Known before it was public <span class="stamp stamp-post">UNVERIFIED — human-sourced</span></h2>
+<table style="max-width:1000px">
+<thead><tr><th>Reported</th><th>By</th><th>What they said</th><th>Named engineer / mech sub</th><th>Confirmed</th></tr></thead>
+<tbody>
+{% for fi in b.field_intel %}
+<tr><td class="num">{{ fi.reported_at.strftime('%Y-%m-%d') }}</td><td>{{ fi.reported_by }}</td>
+    <td>{{ fi.source_notes }}</td>
+    <td>{{ fi.engineer_name or '—' }}{% if fi.mech_contractor_name %} / {{ fi.mech_contractor_name }}{% endif %}</td>
+    <td class="num">{{ fi.confirmed_at.strftime('%Y-%m-%d') if fi.confirmed_at else '—' }} by {{ fi.confirmed_by or '—' }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+<p class="note">See <a href="/intel">field intel</a> for the full record{{ 's' if b.field_intel|length != 1 }}.</p>
+{% endif %}
+
 <h2>Signal timeline</h2>
 <table style="max-width:1000px">
 <thead><tr><th>Date</th><th>Type</th><th>Summary</th><th>Source URL</th></tr></thead>

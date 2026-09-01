@@ -106,6 +106,33 @@
 </div>
 {% endif %}
 
+{% if field_intel is defined and field_intel %}
+<div style="border-left:3px solid var(--color-rule, currentColor); padding:0.6rem 0 0.6rem 0.9rem; margin:0 0 1.1rem 0">
+  <div class="sec-head" style="margin-bottom:0.3rem">
+    <span style="font-weight:600">{{ icon('triangle-alert') }} Field intel <span class="stamp stamp-post">UNVERIFIED — human-sourced</span></span>
+    <a href="/intel" style="float:right;font-size:12px">See all →</a>
+  </div>
+  <p class="note">Pre-award knowledge from a conversation, not yet in any public filing — none of
+    this is scored or ranked above, and it isn't extracted/grounded the way the register is.</p>
+  <table class="tbl">
+  <thead><tr><th>Reported</th><th>By</th><th>Owner</th><th>Location</th><th>Engineer</th><th>Mech sub</th><th></th></tr></thead>
+  <tbody>
+  {% for i in field_intel %}
+  <tr>
+    <td class="num">{{ i.reported_at.strftime('%Y-%m-%d') }}</td>
+    <td>{{ i.reported_by }}</td>
+    <td>{{ i.owner or '—' }}</td>
+    <td>{{ i.location or '—' }}</td>
+    <td>{{ i.engineer_name or '—' }}</td>
+    <td>{{ i.mech_contractor_name or '—' }}</td>
+    <td><a href="/intel/{{ i.id }}">{{ icon('external-link') }}</a></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+  </table>
+</div>
+{% endif %}
+
 {# ── Mobile card view (<640px, see .card-list/.tbl in app.css) — a
      different layout, not a squeezed table. Every field a rep needs to
      decide whether to call survives here: who to call as a tel: link

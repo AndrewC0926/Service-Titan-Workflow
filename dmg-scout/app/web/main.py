@@ -53,6 +53,7 @@ from app.models import (
     Category,
     Contact,
     Contractor,
+    FieldIntel,
     Firm,
     MatchCandidate,
     Outreach,
@@ -358,11 +359,13 @@ def board(request: Request, category: str = "data_center", territory: str = "min
     has_pre_bod = any(p.window.value == "PRE_BOD" for p in projects)
     from app.coverage import pipeline_completeness
     completeness = pipeline_completeness(session, load_config())
+    from app.field_intel import active_field_intel
     return templates.TemplateResponse(request, "board.html", {
         "projects": projects, "days_since": days_since, "review_count": review_count,
         "has_pre_bod": has_pre_bod, "watch_count": watch_count, "is_watchlist": False,
         "completeness": completeness, "category": category, "cat_counts": counts,
         "territory": territory, "territory_hidden_count": territory_hidden_count,
+        "field_intel": active_field_intel(session)[:5],
         "tb": _title_block(session), "active": "board",
         **_board_extras(session, projects),
     })
@@ -2293,6 +2296,93 @@ def add_signal_submit(
     # Land on the board the entry actually went to, not the default one.
     return RedirectResponse(f"/?category={category or Category.data_center.value}",
                             status_code=303)
+
+
+# --- Field intel: human-sourced project intelligence, deliberately NOT     -
+# --- add-signal's path -- no RawDocument, no resolve/size_score/grounding. -
+# --- See app/field_intel.py's own module docstring for why.                -
+
+@app.get("/intel", response_class=HTMLResponse)
+def field_intel_list(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.field_intel import active_field_intel
+    confirmed = session.exec(
+        select(FieldIntel).where(FieldIntel.status == "confirmed")
+        .order_by(FieldIntel.confirmed_at.desc())).all()
+    return templates.TemplateResponse(request, "intel_list.html", {
+        "active_records": active_field_intel(session), "confirmed": confirmed,
+        "tb": _title_block(session), "active": "intel",
+    })
+
+
+@app.get("/intel/new", response_class=HTMLResponse)
+def field_intel_new(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
+    return templates.TemplateResponse(request, "intel_form.html", {
+        "stages": [s.value for s in Stage],
+        "tb": _title_block(session), "active": "intel",
+    })
+
+
+@app.post("/intel")
+def field_intel_create(
+    request: Request,
+    reported_by: str = Form(...), reported_at: str = Form(...), source_notes: str = Form(...),
+    owner: str = Form(""), location: str = Form(""), size_scope: str = Form(""),
+    stage: str = Form("unknown"), expected_timing: str = Form(""),
+    engineer_name: str = Form(""), mech_contractor_name: str = Form(""),
+    session: Session = Depends(get_session), _: str = Depends(auth),
+):
+    from app.field_intel import create_field_intel
+    try:
+        reported_at_dt = datetime.strptime(reported_at, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, detail=f"reported_at must be YYYY-MM-DD, got {reported_at!r}")
+    try:
+        intel = create_field_intel(
+            session, reported_by=reported_by, reported_at=reported_at_dt, source_notes=source_notes,
+            owner=owner or None, location=location or None, size_scope=size_scope or None,
+            stage=stage or "unknown", expected_timing=expected_timing or None,
+            engineer_name=engineer_name or None, mech_contractor_name=mech_contractor_name or None,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc))
+    return RedirectResponse(f"/intel/{intel.id}", status_code=303)
+
+
+@app.get("/intel/{intel_id}", response_class=HTMLResponse)
+def field_intel_detail(intel_id: int, request: Request,
+                       session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.field_intel import confirmation_candidates, firm_active_projects
+    intel = session.get(FieldIntel, intel_id)
+    if not intel:
+        raise HTTPException(404)
+    engineer_firm = session.get(Firm, intel.engineer_firm_id) if intel.engineer_firm_id else None
+    engineer_account = session.get(Account, intel.engineer_account_id) if intel.engineer_account_id else None
+    mech_firm = session.get(Firm, intel.mech_contractor_firm_id) if intel.mech_contractor_firm_id else None
+    mech_account = (session.get(Account, intel.mech_contractor_account_id)
+                    if intel.mech_contractor_account_id else None)
+    confirmed_project = session.get(Project, intel.confirmed_project_id) if intel.confirmed_project_id else None
+    return templates.TemplateResponse(request, "intel_detail.html", {
+        "intel": intel,
+        "engineer_firm": engineer_firm, "engineer_account": engineer_account,
+        "mech_firm": mech_firm, "mech_account": mech_account,
+        "engineer_firm_projects": firm_active_projects(session, engineer_firm.id) if engineer_firm else [],
+        "mech_firm_projects": firm_active_projects(session, mech_firm.id) if mech_firm else [],
+        "confirmed_project": confirmed_project,
+        "candidates": confirmation_candidates(session, intel),
+        "tb": _title_block(session), "active": "intel",
+    })
+
+
+@app.post("/intel/{intel_id}/confirm")
+def field_intel_confirm(intel_id: int, request: Request, project_id: int = Form(...),
+                        confirmed_by: str = Form(...),
+                        session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.field_intel import confirm_field_intel
+    try:
+        confirm_field_intel(session, intel_id, project_id, confirmed_by=confirmed_by)
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc))
+    return RedirectResponse(f"/intel/{intel_id}", status_code=303)
 
 
 # --- Voice capture: iOS Shortcut -> transcribe -> extract -> resolve ->     -

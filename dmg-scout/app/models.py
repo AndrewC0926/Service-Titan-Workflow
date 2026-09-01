@@ -579,6 +579,73 @@ class ProjectFirm(SQLModel, table=True):
     linked_at: datetime = Field(default_factory=utcnow)
 
 
+class FieldIntel(SQLModel, table=True):
+    """Human-sourced project intelligence: what a GC, engineer, or owner
+    told a rep in conversation, before any of it exists as a public
+    document -- a GC naming the engineer and mechanical sub on a job he's
+    pursuing, weeks or months before a filing would ever surface it.
+
+    Deliberately a separate table from Project, not a Project row with a
+    provenance flag. Every existing Project invariant assumes a document
+    chain this record never has: app.ops.doctor's project_evidence check
+    requires >=1 linked Signal for any ACTIVE_STATUSES project;
+    app.pipeline.resolve's auto-merge and app.duplicates' dedup both treat
+    two Projects converging on the same name/location as the same
+    real-world thing needing a merge; app.brief.build_brief's timeline is
+    built exclusively from ProjectSignal->Signal->RawDocument links, so a
+    signal-less Project would render as "nothing found," not "sourced from
+    a conversation." None of those are safe to inherit silently, so this
+    is its own table with its own page, its own board section, and its own
+    (verbatim, never LLM-narrated -- see app.pipeline.notify) digest line.
+
+    reported_by/reported_at/source_notes ARE the source -- required,
+    because unlike everything else in this schema there is no document
+    behind this to fall back on. Every other field is optional and never
+    inferred: empty means the person didn't address it, not "unknown" or
+    a guessed default. engineer_/mech_contractor_*_id are populated once,
+    at creation, by an EXACT normalized-name match against the same
+    Firm/Account rosters app.firms.match_firm and the account-roster CSLB/
+    firm joins already use -- never fuzzy, never guessed, same discipline
+    as every other join this session has built. confirmed_project_id is
+    set ONLY by a human explicit action (app.field_intel.confirm_field_intel)
+    when a later public filing turns out to be the same job -- never by an
+    automated match, which is exactly the "silent merge" this table exists
+    to avoid."""
+    __tablename__ = "field_intel"
+
+    id: int | None = Field(default=None, primary_key=True)
+
+    # The source. Required -- this table's whole reason to exist.
+    reported_by: str = Field(index=True)          # named person, e.g. "Dave Kim, ACME GC's PM"
+    reported_at: datetime = Field(index=True)     # when the conversation happened, not when typed in
+    source_notes: str = Field(sa_column=Column(Text, nullable=False))  # what they said, their words
+
+    # The pipe. Every field optional; absence means unaddressed, never guessed.
+    owner: str | None = None
+    location: str | None = None
+    size_scope: str | None = None
+    stage: Stage = Field(default=Stage.unknown)   # same enum/vocabulary the board uses elsewhere
+    expected_timing: str | None = None
+
+    engineer_name: str | None = None
+    engineer_firm_id: int | None = Field(default=None, foreign_key="firms.id")
+    engineer_account_id: int | None = Field(default=None, foreign_key="accounts.id")
+
+    mech_contractor_name: str | None = None
+    mech_contractor_firm_id: int | None = Field(default=None, foreign_key="firms.id")
+    mech_contractor_account_id: int | None = Field(default=None, foreign_key="accounts.id")
+
+    # Confirmation -- see confirm_field_intel. Never set by anything but an
+    # explicit human action naming the project it turned out to be.
+    confirmed_project_id: int | None = Field(default=None, foreign_key="projects.id", index=True)
+    confirmed_at: datetime | None = None
+    confirmed_by: str | None = None
+
+    status: str = Field(default="active", index=True)  # active | confirmed | stale
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
 class OutcomeEvent(SQLModel, table=True):
     """Outcome feedback: what actually happened. Future scoring weights get
     tuned from this, not from assumptions."""

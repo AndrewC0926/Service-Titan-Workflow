@@ -11,10 +11,13 @@ then fails repeats a few items next time, which a human notices and shrugs at.
 Losing the lead is silent, and this system's entire value is that somebody hears
 about the project.
 """
+from datetime import timedelta
+
 import pytest
 from sqlmodel import select
 
-from app.models import Category, DigestLog, Project, Stage, Window
+from app.field_intel import create_field_intel
+from app.models import Category, DigestLog, FieldIntel, Project, Stage, Window, utcnow
 from app.pipeline.notify import build_digest, run_notify
 
 
@@ -93,6 +96,54 @@ def test_build_digest_leaves_its_marks_uncommitted(board, cfg):
     assert stats["changes"] == 3
     board.rollback()
     assert _sent(board) == []
+
+
+# ---- field intel: appended verbatim, never through narration --------------
+
+def test_field_intel_appears_in_digest_body(board, cfg):
+    create_field_intel(board, reported_by="Dave Kim", reported_at=utcnow(),
+                       source_notes="Pursuing a job in Fontana.", owner="Fontana Cold Co",
+                       engineer_name="Some Engineer")
+    body, stats = build_digest(board, cfg)
+    assert "FIELD INTEL" in body
+    assert "UNVERIFIED" in body
+    assert "Fontana Cold Co" in body
+    assert "Dave Kim" in body
+    assert stats["field_intel"] == 1
+
+
+def test_field_intel_alone_is_enough_to_avoid_an_empty_digest(db_session, cfg):
+    """No projects, no calls, no changes, no overdue, no one-thing -- new
+    field intel by itself must still be worth sending, not treated as a
+    quiet day."""
+    create_field_intel(db_session, reported_by="Dave Kim", reported_at=utcnow(),
+                       source_notes="Only new thing today.")
+    built = build_digest(db_session, cfg)
+    assert built is not None
+    body, stats = built
+    assert stats["calls"] == 0 and stats["changes"] == 0 and stats["overdue"] == 0
+    assert stats["field_intel"] == 1
+    assert "FIELD INTEL" in body
+
+
+def test_old_field_intel_does_not_repeat_forever(board, cfg):
+    """Reported outside the ~24h window this section uses -- must not show
+    up every single day indefinitely."""
+    old = create_field_intel(board, reported_by="Dave Kim", reported_at=utcnow() - timedelta(days=10),
+                             source_notes="Old news by now.")
+    old.created_at = utcnow() - timedelta(hours=48)
+    board.add(old)
+    board.commit()
+
+    body, stats = build_digest(board, cfg)
+    assert "FIELD INTEL" not in body
+    assert stats["field_intel"] == 0
+
+
+def test_no_field_intel_no_section_in_digest(board, cfg):
+    body, stats = build_digest(board, cfg)
+    assert "FIELD INTEL" not in body
+    assert stats["field_intel"] == 0
 
 
 def test_empty_digest_keeps_its_stage_observations(board, cfg, monkeypatch):

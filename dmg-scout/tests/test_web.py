@@ -512,10 +512,170 @@ def test_other_views_render(client, db_session, cfg):
     seed(db_session, cfg)
     db_session.add(SourceRun(source="ceqanet", ok=False, error="boom"))
     db_session.commit()
-    for path in ("/review", "/contacts", "/map", "/health", "/add-signal"):
+    for path in ("/review", "/contacts", "/map", "/health", "/add-signal", "/intel", "/intel/new"):
         r = client.get(path, headers=AUTH)
         assert r.status_code == 200, path
     assert "boom" in client.get("/health", headers=AUTH).text
+
+
+# ---- field intel: human-sourced, unverified, separate from the pipeline ---
+
+def test_field_intel_create_requires_auth(client, db_session, cfg):
+    assert client.get("/intel").status_code == 401
+    assert client.get("/intel/new").status_code == 401
+
+
+def test_field_intel_create_and_detail_flow(client, db_session, cfg):
+    r = client.post("/intel", headers=AUTH, data={
+        "reported_by": "Dave Kim (ACME GC)", "reported_at": "2026-08-20",
+        "source_notes": "Pursuing a cold storage job in Fontana for a private owner.",
+        "owner": "Fontana Cold Co", "location": "Fontana", "size_scope": "~150k sqft",
+        "stage": "design", "expected_timing": "bidding Q1 2027",
+        "engineer_name": "", "mech_contractor_name": "",
+    }, follow_redirects=False)
+    assert r.status_code == 303
+    intel_id = int(r.headers["location"].rsplit("/", 1)[-1])
+
+    detail = client.get(f"/intel/{intel_id}", headers=AUTH)
+    assert detail.status_code == 200
+    assert "Fontana Cold Co" in detail.text
+    assert "Dave Kim (ACME GC)" in detail.text
+    assert "UNVERIFIED" in detail.text
+    assert "Pursuing a cold storage job" in detail.text
+
+    listing = client.get("/intel", headers=AUTH)
+    assert "Fontana Cold Co" in listing.text
+
+
+def test_field_intel_create_requires_reported_by_and_notes(client, db_session, cfg):
+    # Blank values for a required Form(...) field are treated as missing by
+    # this app's FastAPI/Starlette version -- same 422 every other required
+    # Form field in this app gets (add_firm, add_signal, ...); the blank-string
+    # ValueError guards in create_field_intel exist for non-HTTP callers
+    # (the MCP tool, direct calls) that can pass "" straight through.
+    r = client.post("/intel", headers=AUTH, data={
+        "reported_by": "", "reported_at": "2026-08-20", "source_notes": "",
+    })
+    assert r.status_code == 422
+
+
+def test_field_intel_create_rejects_bad_date(client, db_session, cfg):
+    r = client.post("/intel", headers=AUTH, data={
+        "reported_by": "Dave Kim", "reported_at": "not-a-date", "source_notes": "x",
+    })
+    assert r.status_code == 400
+
+
+def test_field_intel_detail_shows_resolved_firm_and_what_else_theyre_on(client, db_session, cfg):
+    from app.models import Firm, ProjectFirm
+    firm = Firm(name="Critchfield Mechanical Engineering", name_norm="critchfield mechanical engineering",
+               firm_type="mep")
+    db_session.add(firm)
+    db_session.commit()
+    db_session.refresh(firm)
+    seed(db_session, cfg)  # creates project #1, status active
+    db_session.add(ProjectFirm(project_id=1, firm_id=firm.id, role="engineer_of_record"))
+    db_session.commit()
+
+    r = client.post("/intel", headers=AUTH, data={
+        "reported_by": "Dave Kim", "reported_at": "2026-08-20", "source_notes": "Named the engineer.",
+        "engineer_name": "Critchfield Mechanical Engineering",
+    }, follow_redirects=False)
+    intel_id = int(r.headers["location"].rsplit("/", 1)[-1])
+
+    detail = client.get(f"/intel/{intel_id}", headers=AUTH)
+    assert "Matches firm roster" in detail.text
+    assert "Meridian DC" in detail.text  # the seeded project's name, via firm_active_projects
+
+
+def test_field_intel_detail_says_why_when_nothing_resolves(client, db_session, cfg):
+    r = client.post("/intel", headers=AUTH, data={
+        "reported_by": "Dave Kim", "reported_at": "2026-08-20", "source_notes": "Named nobody Scout knows.",
+        "engineer_name": "Totally Unknown Engineering LLC",
+    }, follow_redirects=False)
+    intel_id = int(r.headers["location"].rsplit("/", 1)[-1])
+    detail = client.get(f"/intel/{intel_id}", headers=AUTH)
+    assert "Not on Scout&#39;s firm roster" in detail.text or "Not on Scout's firm roster" in detail.text
+
+
+def test_field_intel_confirm_flow(client, db_session, cfg):
+    seed(db_session, cfg)  # project #1
+    r = client.post("/intel", headers=AUTH, data={
+        "reported_by": "Dave Kim", "reported_at": "2026-08-20",
+        "source_notes": "Said Vantage was pursuing this.", "owner": "Vantage Data Centers",
+    }, follow_redirects=False)
+    intel_id = int(r.headers["location"].rsplit("/", 1)[-1])
+
+    detail = client.get(f"/intel/{intel_id}", headers=AUTH)
+    assert "Meridian DC" in detail.text  # surfaced as a candidate by owner-name match
+
+    confirm = client.post(f"/intel/{intel_id}/confirm", headers=AUTH,
+                          data={"project_id": "1", "confirmed_by": "Andrew Crane"},
+                          follow_redirects=False)
+    assert confirm.status_code == 303
+
+    after = client.get(f"/intel/{intel_id}", headers=AUTH)
+    assert "Confirmed as" in after.text
+    assert "Andrew Crane" in after.text
+
+    listing = client.get("/intel", headers=AUTH)
+    assert "Confirmed — a later filing" in listing.text
+
+
+def test_field_intel_confirm_unknown_ids_return_400(client, db_session, cfg):
+    r = client.post("/intel", headers=AUTH, data={
+        "reported_by": "Dave Kim", "reported_at": "2026-08-20", "source_notes": "x",
+    }, follow_redirects=False)
+    intel_id = int(r.headers["location"].rsplit("/", 1)[-1])
+    r = client.post(f"/intel/{intel_id}/confirm", headers=AUTH,
+                    data={"project_id": "999999", "confirmed_by": "Andrew"})
+    assert r.status_code == 400
+
+
+def test_board_shows_active_field_intel_prominently(client, db_session, cfg):
+    seed(db_session, cfg)
+    client.post("/intel", headers=AUTH, data={
+        "reported_by": "Dave Kim", "reported_at": "2026-08-20",
+        "source_notes": "Pursuing a job.", "owner": "Some New Owner Co",
+    })
+    r = client.get("/board", headers=AUTH)
+    assert r.status_code == 200
+    assert "Some New Owner Co" in r.text
+    assert "UNVERIFIED — human-sourced" in r.text
+
+
+def test_board_omits_field_intel_section_when_none_logged(client, db_session, cfg):
+    seed(db_session, cfg)
+    r = client.get("/board", headers=AUTH)
+    assert "UNVERIFIED — human-sourced" not in r.text
+
+
+def test_confirmed_field_intel_appears_in_project_brief(client, db_session, cfg):
+    seed(db_session, cfg)  # project #1
+    r = client.post("/intel", headers=AUTH, data={
+        "reported_by": "Dave Kim", "reported_at": "2026-08-20",
+        "source_notes": "Heard about this one first from Dave.",
+        "engineer_name": "Some Engineer",
+    }, follow_redirects=False)
+    intel_id = int(r.headers["location"].rsplit("/", 1)[-1])
+    client.post(f"/intel/{intel_id}/confirm", headers=AUTH,
+               data={"project_id": "1", "confirmed_by": "Andrew"})
+
+    brief = client.get("/project/1/brief", headers=AUTH)
+    assert brief.status_code == 200
+    assert "Known before it was public" in brief.text
+    assert "Dave Kim" in brief.text
+    assert "Heard about this one first from Dave." in brief.text
+    assert "UNVERIFIED" in brief.text
+
+
+def test_unconfirmed_field_intel_does_not_appear_in_any_brief(client, db_session, cfg):
+    seed(db_session, cfg)
+    client.post("/intel", headers=AUTH, data={
+        "reported_by": "Dave Kim", "reported_at": "2026-08-20", "source_notes": "Not linked to anything.",
+    })
+    brief = client.get("/project/1/brief", headers=AUTH)
+    assert "Known before it was public" not in brief.text
 
 
 def test_add_signal_form_creates_project(client, db_session, cfg):

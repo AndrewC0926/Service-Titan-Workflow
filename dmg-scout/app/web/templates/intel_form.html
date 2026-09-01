@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Log field intel{% endblock %}
+{% block content %}
+<h2>Log field intel — a person told you this, not a filing</h2>
+<p class="note">For pre-award, pre-filing knowledge: a GC, engineer, or owner naming a job in
+  conversation before any document exists. This does NOT go through triage/extract/resolve —
+  it stays clearly marked unverified until a real filing confirms it. See <a href="/intel">field intel</a>
+  for what's already logged.</p>
+
+<form method="post" action="/intel" class="grid" style="max-width:1000px">
+  <h3 style="grid-column:1/-1;margin-bottom:0">The source — required</h3>
+  <input name="reported_by" placeholder="Who told you (name, their firm/role) *" required style="grid-column:1/-1">
+  <input name="reported_at" type="date" required title="When the conversation happened">
+  <span></span>
+  <textarea name="source_notes" placeholder="What they said, in their words *" required
+           style="grid-column:1/-1;min-height:5rem"></textarea>
+
+  <h3 style="grid-column:1/-1;margin-bottom:0">The pipe — leave anything they didn't address blank</h3>
+  <input name="owner" placeholder="Owner">
+  <input name="location" placeholder="Location">
+  <input name="size_scope" placeholder="Size or scope (however they described it)">
+  <select name="stage">
+    <option value="unknown" selected>Stage — unknown/not stated</option>
+    {% for s in stages %}{% if s != 'unknown' %}<option value="{{ s }}">{{ s }}</option>{% endif %}{% endfor %}
+  </select>
+  <input name="expected_timing" placeholder="Expected timing">
+  <span></span>
+  <input name="engineer_name" placeholder="Engineer named">
+  <input name="mech_contractor_name" placeholder="Mechanical subcontractor named">
+  <button style="grid-column:1/-1">Log it</button>
+</form>
+<p class="dim">Engineer and mechanical-sub names are checked against the existing firm and account
+  rosters by exact name match when you save — no guessing, no partial matches. If either name is
+  already on Scout's roster, the next page shows what else they're on.</p>
+{% endblock %}

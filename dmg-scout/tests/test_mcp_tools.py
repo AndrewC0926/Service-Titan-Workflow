@@ -14,6 +14,7 @@ from app.mcp_tools import (
     get_account_page,
     get_project,
     get_selection_tool,
+    log_field_intel,
     log_outreach,
     search_firms,
     search_projects,
@@ -21,8 +22,8 @@ from app.mcp_tools import (
     who_to_call,
 )
 from app.models import (
-    AccountCoverage, Category, Contractor, Firm, Outreach, Project, ProductLine, Signal,
-    SignalType, Stage,
+    AccountCoverage, Category, Contractor, Firm, FieldIntel, Outreach, Project, ProductLine,
+    Signal, SignalType, Stage,
 )
 from app.pipeline.resolve import run_resolve
 from app.pipeline.size_score import run_size_score
@@ -246,6 +247,38 @@ def test_log_outreach_requires_exactly_one_of_project_or_account(db_session, cfg
     account = create_account(db_session, name="Both Given Co")
     assert "exactly one" in log_outreach(notes="x")
     assert "exactly one" in log_outreach(project_id=p.id, account_id=account.id, notes="x")
+
+
+def test_log_field_intel_writes_and_confirms(db_session, cfg):
+    out = log_field_intel(reported_by="Dave Kim", reported_at="2026-08-20",
+                          source_notes="Pursuing a job in Fontana, early design.",
+                          owner="Fontana Cold Co", engineer_name="Some Engineer")
+    assert "UNVERIFIED" in out
+    assert "Dave Kim" in out and "Fontana Cold Co" in out
+    row = db_session.exec(select(FieldIntel)).one()
+    assert row.reported_by == "Dave Kim" and row.owner == "Fontana Cold Co"
+    assert row.engineer_name == "Some Engineer"
+    assert "not on Scout's roster yet" in out
+
+
+def test_log_field_intel_flags_roster_match(db_session, cfg):
+    account = create_account(db_session, name="Known Mech Sub")
+    out = log_field_intel(reported_by="Dave Kim", reported_at="2026-08-20",
+                          source_notes="Same GC, different job.",
+                          mech_contractor_name="Known Mech Sub")
+    assert "ALREADY on Scout's roster" in out
+    row = db_session.exec(select(FieldIntel)).one()
+    assert row.mech_contractor_account_id == account.id
+
+
+def test_log_field_intel_bad_date(db_session, cfg):
+    out = log_field_intel(reported_by="Dave Kim", reported_at="not-a-date", source_notes="x")
+    assert "YYYY-MM-DD" in out
+
+
+def test_log_field_intel_requires_reported_by(db_session, cfg):
+    out = log_field_intel(reported_by="", reported_at="2026-08-20", source_notes="x")
+    assert out and "reported_by" in out.lower()
 
 
 def test_source_health_reports_budget_and_sources(db_session, cfg):

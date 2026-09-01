@@ -775,3 +775,65 @@ def pre_call_brief(entity_type: str, entity_id: int, force_refresh: bool = False
     header = f"Pre-call brief: {entry['name']} ({entity_type} #{entity_id}) — {status}"
     generated = f"Generated {entry['generated_at_display']}"
     return f"{header}\n{generated}\n\n{entry['text']}"
+
+
+@mcp.tool
+def log_field_intel(reported_by: str, reported_at: str, source_notes: str,
+                    owner: str = "", location: str = "", size_scope: str = "",
+                    stage: str = "unknown", expected_timing: str = "",
+                    engineer_name: str = "", mech_contractor_name: str = "") -> str:
+    """Record human-sourced project intelligence -- a GC, engineer, or owner
+    naming a job in conversation, before it's any kind of public document.
+    Separate from everything else this tool set writes: no triage, no
+    extraction, no grounding, because there is no document behind it to
+    check. Stays clearly marked unverified until a real filing confirms it
+    (see get_field_intel / /intel).
+
+    reported_by (who told you), reported_at (YYYY-MM-DD, when the
+    conversation happened), and source_notes (what they said, their words)
+    are the only required fields -- that's the source, the same way a URL
+    is for everything else. Every other field: leave blank if they didn't
+    address it, never guess a value to fill it in.
+
+    engineer_name and mech_contractor_name are checked against Scout's own
+    firm and account rosters by exact name match the moment you save --
+    the confirmation reply tells you immediately if either name is already
+    on Scout's board or your account roster, and what else they're linked
+    to."""
+    from datetime import datetime
+
+    from app.db import session_scope
+    from app.field_intel import create_field_intel
+
+    try:
+        reported_at_dt = datetime.strptime(reported_at, "%Y-%m-%d")
+    except ValueError:
+        return f"reported_at must be YYYY-MM-DD, got {reported_at!r}."
+
+    with session_scope() as session:
+        try:
+            intel = create_field_intel(
+                session, reported_by=reported_by, reported_at=reported_at_dt, source_notes=source_notes,
+                owner=owner or None, location=location or None, size_scope=size_scope or None,
+                stage=stage or "unknown", expected_timing=expected_timing or None,
+                engineer_name=engineer_name or None, mech_contractor_name=mech_contractor_name or None,
+            )
+        except ValueError as exc:
+            return str(exc)
+
+        lines = [f"Logged field intel #{intel.id} — UNVERIFIED, human-sourced.",
+                f"  From {intel.reported_by}, {intel.reported_at:%Y-%m-%d}: {intel.source_notes}"]
+        if intel.owner or intel.location:
+            lines.append(f"  {intel.owner or 'owner?'} — {intel.location or 'location?'}")
+        if intel.engineer_name:
+            if intel.engineer_firm_id or intel.engineer_account_id:
+                lines.append(f"  Engineer {intel.engineer_name} — ALREADY on Scout's roster.")
+            else:
+                lines.append(f"  Engineer {intel.engineer_name} — not on Scout's roster yet.")
+        if intel.mech_contractor_name:
+            if intel.mech_contractor_firm_id or intel.mech_contractor_account_id:
+                lines.append(f"  Mech sub {intel.mech_contractor_name} — ALREADY on Scout's roster "
+                            f"— see get_account_page or /intel/{intel.id} for what else they're on.")
+            else:
+                lines.append(f"  Mech sub {intel.mech_contractor_name} — not on Scout's roster yet.")
+        return "\n".join(lines)

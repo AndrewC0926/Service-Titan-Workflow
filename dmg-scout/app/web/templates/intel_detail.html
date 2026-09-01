@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% from "_icon.html" import icon %}
+{% block title %}Field intel #{{ intel.id }}{% endblock %}
+{% block content %}
+<h2>{{ intel.owner or 'Field intel' }}{% if intel.location %} — {{ intel.location }}{% endif %}
+  <span class="stamp stamp-post" title="Sourced from a conversation, not a public filing — see below.">UNVERIFIED — human-sourced</span>
+  <a href="/intel" style="float:right;font-size:12px">← back to field intel</a>
+</h2>
+
+<div class="callout callout-warn">
+  {{ icon('triangle-alert') }}
+  <span><strong>This is a person's word, not a filing</strong>
+    <span class="body">Reported by <strong>{{ intel.reported_by }}</strong> on
+      {{ intel.reported_at.strftime('%Y-%m-%d') }}. Nothing here has gone through triage, extraction,
+      or grounding — there is no document behind it to check. What they said, verbatim:</span>
+  </span>
+</div>
+<blockquote style="margin:0 0 1rem 0;padding:0.5rem 0.9rem;border-left:3px solid var(--color-rule, currentColor)">
+  {{ intel.source_notes }}
+</blockquote>
+
+<h3>The pipe</h3>
+<table style="max-width:820px">
+<tr><th>Owner</th><td>{{ intel.owner or '—' }}</td>
+    <th>Location</th><td>{{ intel.location or '—' }}</td></tr>
+<tr><th>Size / scope</th><td>{{ intel.size_scope or '—' }}</td>
+    <th>Stage</th><td>{% if intel.stage.value != 'unknown' %}<span class="stamp stamp-quiet">{{ intel.stage.value }}</span>{% else %}<span class="dim">not stated</span>{% endif %}</td></tr>
+<tr><th>Expected timing</th><td colspan="3">{{ intel.expected_timing or '—' }}</td></tr>
+</table>
+
+<h3>Engineer</h3>
+{% if not intel.engineer_name %}
+<p class="note">Not named.</p>
+{% else %}
+<p><strong>{{ intel.engineer_name }}</strong></p>
+{% if engineer_firm %}
+<p class="note">Matches firm roster: <a href="/firm/{{ engineer_firm.id }}">{{ engineer_firm.name }}</a> ({{ engineer_firm.firm_type }}).</p>
+{% if engineer_firm_projects %}
+<table class="tbl" style="max-width:820px">
+<thead><tr><th>Active project</th><th>Role</th><th>Stage</th></tr></thead>
+<tbody>
+{% for r in engineer_firm_projects %}
+<tr><td><a href="/project/{{ r.project.id }}">{{ r.project.name }}</a></td><td>{{ r.role.replace('_',' ') }}</td><td>{{ r.stage.value }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="note">On Scout's firm roster, but not linked to any active project right now.</p>
+{% endif %}
+{% endif %}
+{% if engineer_account %}
+<p class="note">Also an account on your roster: <a href="/account/{{ engineer_account.id }}">{{ engineer_account.name }}</a>.</p>
+{% endif %}
+{% if not engineer_firm and not engineer_account %}
+<p class="note">Not on Scout's firm roster or your account roster under this name.</p>
+{% endif %}
+{% endif %}
+
+<h3>Mechanical subcontractor</h3>
+{% if not intel.mech_contractor_name %}
+<p class="note">Not named.</p>
+{% else %}
+<p><strong>{{ intel.mech_contractor_name }}</strong></p>
+{% if mech_firm %}
+<p class="note">Matches firm roster: <a href="/firm/{{ mech_firm.id }}">{{ mech_firm.name }}</a> ({{ mech_firm.firm_type }}).</p>
+{% if mech_firm_projects %}
+<table class="tbl" style="max-width:820px">
+<thead><tr><th>Active project</th><th>Role</th><th>Stage</th></tr></thead>
+<tbody>
+{% for r in mech_firm_projects %}
+<tr><td><a href="/project/{{ r.project.id }}">{{ r.project.name }}</a></td><td>{{ r.role.replace('_',' ') }}</td><td>{{ r.stage.value }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="note">On Scout's firm roster, but not linked to any active project right now.</p>
+{% endif %}
+{% endif %}
+{% if mech_account %}
+<p class="note">Also an account on your roster: <a href="/account/{{ mech_account.id }}">{{ mech_account.name }}</a> — pre-meeting page has their CSLB status, coverage, and overdue-building leads.</p>
+{% endif %}
+{% if not mech_firm and not mech_account %}
+<p class="note">Not on Scout's firm roster or your account roster under this name.</p>
+{% endif %}
+{% endif %}
+
+<h3>Confirmation</h3>
+{% if confirmed_project %}
+<p class="ok">Confirmed as <a href="/project/{{ confirmed_project.id }}">#{{ confirmed_project.id }} {{ confirmed_project.name }}</a>,
+  by {{ intel.confirmed_by }} on {{ intel.confirmed_at.strftime('%Y-%m-%d') if intel.confirmed_at else '?' }}.
+  Both records stand — this one is not merged into the project, only linked to it.</p>
+{% elif candidates %}
+<p class="note">{{ candidates|length }} active project{{ 's' if candidates|length != 1 }} share a name or a
+  named firm with this record — worth a look before assuming this is still unconfirmed. Confirming does
+  NOT merge or alter the project; it only records that this report matched it.</p>
+<table class="tbl" style="max-width:900px">
+<thead><tr><th>Project</th><th>Developer</th><th>County</th><th>Stage</th><th></th></tr></thead>
+<tbody>
+{% for p in candidates %}
+<tr>
+  <td><a href="/project/{{ p.id }}">{{ p.name }}</a></td>
+  <td>{{ p.developer or '—' }}</td>
+  <td>{{ p.county or '—' }}</td>
+  <td>{{ p.stage.value }}</td>
+  <td>
+    <form method="post" action="/intel/{{ intel.id }}/confirm" style="display:flex;gap:6px">
+      <input type="hidden" name="project_id" value="{{ p.id }}">
+      <input name="confirmed_by" placeholder="Your name" required style="width:8rem">
+      <button>Confirm match</button>
+    </form>
+  </td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="note">No active project shares this record's owner name or named firms — nothing to confirm
+  against yet. If you already know which project this became, confirm it by number below.</p>
+<form method="post" action="/intel/{{ intel.id }}/confirm" class="grid" style="max-width:500px">
+  <input name="project_id" type="number" placeholder="Project #" required>
+  <input name="confirmed_by" placeholder="Your name" required>
+  <button>Confirm match</button>
+</form>
+{% endif %}
+{% endblock %}

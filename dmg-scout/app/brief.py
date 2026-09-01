@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlmodel import Session, select
 
 from app.models import (
-    Firm, Outreach, Project, ProjectFirm, ProjectSignal, RawDocument, Signal, utcnow,
+    FieldIntel, Firm, Outreach, Project, ProjectFirm, ProjectSignal, RawDocument, Signal, utcnow,
 )
 
 
@@ -45,6 +45,16 @@ def build_brief(session: Session, project_id: int) -> dict:
         select(Outreach).where(Outreach.project_id == project_id)
         .order_by(Outreach.date.desc())).all()
 
+    # Human-sourced intel someone confirmed WAS this project -- see
+    # app.field_intel's own module docstring for why this is a pointer,
+    # never a merge: the FieldIntel row still lives entirely on its own,
+    # this project's own fields are untouched by it. Surfaced here because
+    # "we knew about this before it was public, and from whom" is exactly
+    # the kind of thing worth carrying into a meeting.
+    field_intel = session.exec(
+        select(FieldIntel).where(FieldIntel.confirmed_project_id == project_id)
+        .order_by(FieldIntel.reported_at)).all()
+
     return {
         "generated_at": utcnow(),
         "project": project,
@@ -54,6 +64,7 @@ def build_brief(session: Session, project_id: int) -> dict:
         "engineer_of_record": eor,
         "gc": gc,
         "outreach": outreach,
+        "field_intel": field_intel,
     }
 
 
@@ -88,6 +99,21 @@ def brief_markdown(b: dict) -> str:
         f"| General contractor | {b['gc'] or 'not yet identified'} |",
         f"| Status | {p.status} |",
         "",
+    ]
+    if b["field_intel"]:
+        lines += ["## Known before it was public", ""]
+        for fi in b["field_intel"]:
+            lines.append(f"- **UNVERIFIED, human-sourced** — {fi.reported_by} said on "
+                         f"{fi.reported_at:%Y-%m-%d}: \"{fi.source_notes}\"")
+            if fi.engineer_name:
+                lines.append(f"  - Named engineer: {fi.engineer_name}")
+            if fi.mech_contractor_name:
+                lines.append(f"  - Named mechanical sub: {fi.mech_contractor_name}")
+            if fi.confirmed_at:
+                lines.append(f"  - Confirmed as this project by {fi.confirmed_by} on "
+                            f"{fi.confirmed_at:%Y-%m-%d}.")
+        lines.append("")
+    lines += [
         "## Signal timeline",
         "",
     ]
