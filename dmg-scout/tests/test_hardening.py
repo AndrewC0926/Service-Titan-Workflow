@@ -333,6 +333,19 @@ def test_failed_runs_are_not_never_ran(db_session, monkeypatch):
     assert "no run of any kind recorded" in _doctor_checks(monkeypatch)["source:rss"][1]
 
 
+def test_field_intel_is_not_a_source_health_check(db_session, monkeypatch):
+    """field_intel is human-entered with no scheduled run -- it must never
+    gain a source:field_intel doctor check or a staleness banner, which
+    would fire on any week nobody happened to talk to a GC and teach the
+    same red-banner signal that means something real broke elsewhere to
+    mean nothing here. See app.field_intel.field_intel_activity, the
+    plain activity counter this uses instead."""
+    from app.config import load_config
+    assert "field_intel" not in load_config().data.get("sources", {})
+    checks = _doctor_checks(monkeypatch)
+    assert "source:field_intel" not in checks
+
+
 def test_unattributable_run_name_fails_loudly(db_session, monkeypatch):
     """The invariant: no source_runs row may be invisible to the health check.
 

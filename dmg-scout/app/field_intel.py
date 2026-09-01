@@ -14,9 +14,9 @@ as every other join built this session.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from app.firms import match_firm
 from app.models import (
@@ -175,6 +175,26 @@ def confirm_field_intel(session: Session, intel_id: int, project_id: int, confir
     session.commit()
     session.refresh(intel)
     return intel
+
+
+def field_intel_activity(session: Session) -> dict:
+    """Total records, the most recent one's date, and how many landed in
+    the trailing 30 days -- a plain activity counter, not a source-health
+    check. This table has no scheduled run to go stale: it only ever
+    updates when a rep types something in after a conversation, so a quiet
+    week means nobody talked to a GC, not a broken pipeline. Deliberately
+    NOT registered under config.yaml's sources: block and NOT wired into
+    app.ops.doctor/stale_cutoff -- a staleness banner here would fire on
+    every week with no conversation to log, which is normal, and would
+    train the same "red banner" signal that means something real broke
+    everywhere else on the board to mean nothing here."""
+    total = session.exec(select(func.count(FieldIntel.id))).one()
+    most_recent = session.exec(select(func.max(FieldIntel.reported_at))).one()
+    cutoff = utcnow() - timedelta(days=30)
+    last_30 = session.exec(
+        select(func.count(FieldIntel.id)).where(FieldIntel.reported_at >= cutoff)
+    ).one()
+    return {"total": total, "most_recent": most_recent, "last_30_days": last_30}
 
 
 def active_field_intel(session: Session) -> list[FieldIntel]:

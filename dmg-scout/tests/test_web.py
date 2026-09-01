@@ -76,6 +76,22 @@ def test_today_is_the_landing_page(client, db_session, cfg):
     assert "NEW: Meridian DC" in r2.text
 
 
+def test_today_shows_field_intel_activity_as_a_plain_counter(client, db_session, cfg):
+    """Not a health check -- no callout, no staleness class, just a count
+    of what's been logged. See app.field_intel.field_intel_activity."""
+    from app.field_intel import create_field_intel
+
+    r_empty = client.get("/", headers=AUTH)
+    assert "Field intel: 0 logged" in r_empty.text
+
+    create_field_intel(db_session, reported_by="Dave Kim", reported_at=datetime.utcnow(),
+                       source_notes="Pursuing a job in Fontana.")
+    r = client.get("/", headers=AUTH)
+    assert "Field intel: 1 logged" in r.text
+    assert "in the last 30 days" in r.text
+    assert '<p class="dim mt-2">' in r.text  # a plain line, not a callout/alert
+
+
 def test_today_called_them_logs_outreach_without_navigating(client, db_session, cfg):
     seed_callable(db_session, cfg)
     r = client.get("/", headers=AUTH)

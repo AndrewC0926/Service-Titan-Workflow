@@ -112,5 +112,16 @@
   </section>
   {% endif %}
 
+  {# Plain activity counter, not a health check -- field_intel is human-
+     entered with no scheduled run, so it can't go "stale" the way a fetch
+     source can, and a quiet week isn't a failure worth a banner. See
+     app.field_intel.field_intel_activity. #}
+  <p class="dim mt-2">
+    Field intel: {{ '{:,}'.format(field_intel_activity.total) }} logged
+    {%- if field_intel_activity.most_recent %}, most recent {{ field_intel_activity.most_recent.strftime('%Y-%m-%d') }}{% endif %}
+    {%- if field_intel_activity.last_30_days %}, {{ field_intel_activity.last_30_days }} in the last 30 days{% endif %}.
+    <a href="/intel">See all</a>
+  </p>
+
 </div>
 {% endblock %}

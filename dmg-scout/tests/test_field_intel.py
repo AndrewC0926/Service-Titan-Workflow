@@ -2,7 +2,7 @@
 join, confirmation-candidate surfacing, and confirmation itself. Nothing
 here touches app.pipeline.resolve/size_score/grounding -- see
 app.field_intel's own module docstring for why."""
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from sqlmodel import select
@@ -12,10 +12,11 @@ from app.field_intel import (
     confirm_field_intel,
     confirmation_candidates,
     create_field_intel,
+    field_intel_activity,
     firm_active_projects,
     resolve_named_entity,
 )
-from app.models import FieldIntel, Firm, Project, ProjectFirm
+from app.models import FieldIntel, Firm, Project, ProjectFirm, utcnow
 from app.normalize import normalize_name
 
 
@@ -258,3 +259,37 @@ def test_active_field_intel_excludes_confirmed_orders_by_reported_at_desc(db_ses
 
     rows = active_field_intel(db_session)
     assert [r.id for r in rows] == [new.id, old.id]
+
+
+# ---- field_intel_activity: a plain counter, not a health check -------------
+
+def test_field_intel_activity_on_empty_table(db_session):
+    activity = field_intel_activity(db_session)
+    assert activity == {"total": 0, "most_recent": None, "last_30_days": 0}
+
+
+def test_field_intel_activity_counts_total_and_recency(db_session):
+    create_field_intel(db_session, reported_by="A", reported_at=utcnow() - timedelta(days=45),
+                       source_notes="old one, outside the 30-day window")
+    create_field_intel(db_session, reported_by="B", reported_at=utcnow() - timedelta(days=5),
+                       source_notes="recent one, inside the window")
+    most_recent_time = utcnow() - timedelta(days=1)
+    create_field_intel(db_session, reported_by="C", reported_at=most_recent_time,
+                       source_notes="the newest one")
+
+    activity = field_intel_activity(db_session)
+    assert activity["total"] == 3
+    assert activity["last_30_days"] == 2
+    assert abs((activity["most_recent"] - most_recent_time).total_seconds()) < 1
+
+
+def test_field_intel_activity_ignores_confirmed_status(db_session):
+    """Confirmed records are still field intel that was logged -- this is
+    an activity count, not active_field_intel's board-listing filter."""
+    intel = create_field_intel(db_session, reported_by="A", reported_at=utcnow() - timedelta(days=2),
+                               source_notes="will be confirmed")
+    project = _project(db_session, "Now Public DC")
+    confirm_field_intel(db_session, intel.id, project.id, confirmed_by="Andrew")
+
+    assert field_intel_activity(db_session)["total"] == 1
+    assert field_intel_activity(db_session)["last_30_days"] == 1

@@ -601,7 +601,9 @@ def today_brief(session: Session, cfg: Config) -> dict:
     changes = changes_preview(session, cfg, projects=projects, ladders=ladders)
     overdue = _overdue_and_due(session, cfg, projects=projects)
     one_thing = _one_thing_worth_knowing(session, cfg, len(changes))
-    return {"calls": calls, "changes": changes, "overdue": overdue, "one_thing": one_thing}
+    from app.field_intel import field_intel_activity
+    return {"calls": calls, "changes": changes, "overdue": overdue, "one_thing": one_thing,
+           "field_intel_activity": field_intel_activity(session)}
 
 
 def send_digest(cfg: Config, body: str) -> str:
