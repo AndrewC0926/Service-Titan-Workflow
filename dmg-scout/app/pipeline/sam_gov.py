@@ -67,6 +67,17 @@ attachment download, per the explicit "skip rather than store empty rows"
 rule. Every solicitation actually looked at (skipped or attempted) gets
 exactly one SamSolicitationCheck row, so a re-run never re-spends quota or
 LLM budget on a notice already resolved either way.
+
+Grounding: every manufacturer_name extract_division_23_mentions returns is
+checked against ufgs_text (the exact text handed to the LLM for that
+notice) via app.grounding.name_grounded before a SpecMention is ever
+written -- this is the field the whole "who names DMG's line" conclusion
+rests on, and it had NO grounding check at all until 2026-09 (confirmed
+zero SpecMention rows existed in production at the time this was added, so
+nothing already-persisted needed correction). A name that fails grounding
+is dropped, not stored, and recorded via the ungrounded_mentions_only
+outcome rather than silently folded into no_ufgs_23_series_found -- see
+SamSolicitationCheck's own docstring.
 """
 from __future__ import annotations
 
@@ -79,6 +90,7 @@ import httpx
 from sqlmodel import Session, func, select
 
 from app.config import Config
+from app.grounding import name_grounded
 from app.llm import LLMUnavailable, extract_division_23_mentions
 from app.models import SamGovSearchCall, SamSolicitationCheck, SpecMention, utcnow
 from app.normalize import normalize_name
@@ -286,6 +298,7 @@ def run_sam_gov(session: Session, cfg: Config, *, posted_from: str, posted_to: s
              "design_build_skipped": 0, "no_ufgs_23_series_found": 0,
              "performance_spec_only": 0, "fetch_failed": 0,
              "spec_mentions_found": 0, "spec_mentions_written": 0, "on_line_card": 0,
+             "manufacturer_mentions_rejected_ungrounded": 0, "ungrounded_mentions_only": 0,
              "search_budget_stopped_early": False}
     if not api_key:
         log.warning("%s is not set -- SAM.gov source disarmed", SAM_GOV_ENV)
@@ -414,6 +427,7 @@ def run_sam_gov(session: Session, cfg: Config, *, posted_from: str, posted_to: s
 
         specifying_firm = result.get("specifying_firm")
         written_any = False
+        rejected_ungrounded: list[str] = []
         for section in result.get("sections", []):
             mentions = []
             if section.get("basis_of_design_manufacturer"):
@@ -421,6 +435,15 @@ def run_sam_gov(session: Session, cfg: Config, *, posted_from: str, posted_to: s
             for m in section.get("or_equal_manufacturers", []):
                 mentions.append((m, "or_equal"))
             for manufacturer_name, mention_type in mentions:
+                # This is the field the whole competitive-intelligence conclusion
+                # rests on -- an ungrounded name is dropped, not stored, same
+                # reject-not-downgrade discipline as app.grounding's other checks.
+                # ufgs_text is the exact text handed to the LLM for this notice.
+                if not name_grounded(manufacturer_name, ufgs_text):
+                    stats["manufacturer_mentions_rejected_ungrounded"] += 1
+                    rejected_ungrounded.append(
+                        f"{manufacturer_name!r} ({mention_type}, section {section.get('spec_section')})")
+                    continue
                 matched = line_card_names.get(normalize_name(manufacturer_name))
                 session.add(SpecMention(
                     notice_id=notice_id, solicitation_number=notice.get("solicitationNumber"),
@@ -447,6 +470,17 @@ def run_sam_gov(session: Session, cfg: Config, *, posted_from: str, posted_to: s
                 **common, outcome="performance_spec_only",
                 detail="23-series UFGS text found; specifies by performance/salient "
                        "characteristics only, per FAR 11.104/11.105 -- no manufacturer named"))
+        elif rejected_ungrounded:
+            # Distinct from no_ufgs_23_series_found: the model DID assert
+            # manufacturer names, they just don't appear anywhere in the
+            # document text it was given -- a fabrication catch, not an
+            # absence. Recorded, not silently folded into "nothing found".
+            stats["ungrounded_mentions_only"] += 1
+            session.add(SamSolicitationCheck(
+                **common, outcome="ungrounded_mentions_only",
+                detail=f"model named {len(rejected_ungrounded)} manufacturer mention(s) not "
+                       f"found in the extracted 23-series text -- rejected, none written: "
+                       + "; ".join(rejected_ungrounded)[:2000]))
         else:
             stats["no_ufgs_23_series_found"] += 1
             session.add(SamSolicitationCheck(

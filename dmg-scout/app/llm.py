@@ -303,12 +303,66 @@ def extract_division_23_mentions(division_23_text: str, *, title: str = "", url:
     """Returns {specifying_firm, performance_spec_only, sections: [...]}. See
     SAM_GOV_SPEC_SYSTEM/TOOL. Caller (app.pipeline.sam_gov) is responsible for
     having already located and trimmed the 23-series UFGS portion of the
-    document -- this function does not search a full spec book."""
+    document -- this function does not search a full spec book.
+
+    Also reused as-is by app.pipeline.specs_pilot (the school-district
+    pilot): a Division 23 section is a Division 23 section regardless of
+    whether it arrived via a federal SAM.gov solicitation or a hand-supplied
+    school bid package -- nothing about this schema or prompt is federal-
+    specific except the FAR 11.104/11.105 citation, which is offered as
+    context for the model, not a hard requirement of the extraction task."""
     cfg = load_config()
     model = cfg.get("llm.extract_model")
     content = f"URL: {url}\nTitle: {title}\n\n23-series UFGS text:\n{division_23_text}"
     return _tool_call(model, SAM_GOV_SPEC_SYSTEM, SAM_GOV_SPEC_TOOL, content,
                       max_tokens=4096, stage="sam_gov_extract")
+
+
+SCHOOL_BID_METADATA_SYSTEM = """You extract identifying information from the front matter (cover sheet, title
+block, bid form) of a construction bid package or specification book. You are given the document's own text --
+extract ONLY what is literally written there.
+
+Record:
+  - district: the school district's name, exactly as written (e.g. "Fontana Unified School District"). Null if
+    not stated anywhere in the given text.
+  - project_name: the project's own name or title, as written. Null if not stated.
+  - bid_number: the bid, solicitation, or RFP number, as written (e.g. "Bid No. 24-25-07"). Null if not stated.
+  - bid_date: the bid due date or bid opening date, EXACTLY as written in the document -- do not reformat it,
+    do not convert it to a different calendar notation, do not guess a year or a month that is not stated. Null
+    if no bid date is stated in the given text.
+
+Never infer any of these four from context, project type, general knowledge, or the filename. A null is the
+correct answer whenever the document does not literally state the field. Do not confuse the design engineer's
+or architect's own firm name with the district's name -- the district is the OWNER/AGENCY issuing the bid, not
+the firm that designed the project."""
+
+SCHOOL_BID_METADATA_TOOL = {
+    "name": "record_school_bid_metadata",
+    "description": "Record identifying information for a school district bid package.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "district": {"type": ["string", "null"]},
+            "project_name": {"type": ["string", "null"]},
+            "bid_number": {"type": ["string", "null"]},
+            "bid_date": {"type": ["string", "null"]},
+        },
+        "required": ["district", "project_name", "bid_number", "bid_date"],
+    },
+}
+
+
+def extract_school_bid_metadata(text: str, *, filename: str = "") -> dict:
+    """Returns {district, project_name, bid_number, bid_date} -- bid_date is
+    the verbatim string as written in the document, never parsed or
+    reformatted (see SCHOOL_BID_METADATA_SYSTEM). Callers should pass the
+    document's own front matter/head text, not necessarily the full body --
+    see app.pipeline.specs_pilot's HEAD_CHARS."""
+    cfg = load_config()
+    model = cfg.get("llm.extract_model")
+    content = f"Filename: {filename}\n\nDocument text:\n{text}"
+    return _tool_call(model, SCHOOL_BID_METADATA_SYSTEM, SCHOOL_BID_METADATA_TOOL, content,
+                      max_tokens=1024, stage="specs_pilot_metadata")
 
 
 ADJUDICATE_SYSTEM = """You decide whether two records describe the SAME physical data center

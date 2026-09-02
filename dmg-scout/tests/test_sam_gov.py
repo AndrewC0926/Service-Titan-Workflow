@@ -204,8 +204,14 @@ def test_full_run_writes_spec_mentions_and_matches_line_card(db_session, cfg, mo
     monkeypatch.setenv("SAM_GOV_API_KEY", "test-key")
     monkeypatch.setattr(sam_gov, "_download_attachment",
                         lambda url, api_key: (b"fake-bytes", "spec.pdf"))
+    # Both manufacturer names must actually appear in this text -- the
+    # extraction below is checked against it via name_grounded before
+    # either SpecMention row is written (see test_sam_gov.py's grounding
+    # tests below for the case where they don't).
     monkeypatch.setattr(sam_gov, "pdf_to_text",
-                        lambda data, max_pages=600: "SECTION 23 74 00\n...")
+                        lambda data, max_pages=600: (
+                            "SECTION 23 74 00 -- PACKAGED OUTDOOR HVAC EQUIPMENT\n"
+                            "Basis of Design: AAON. Or equal: Some Unrelated Vendor LLC."))
     monkeypatch.setattr(sam_gov, "extract_division_23_mentions", lambda text, **kw: {
         "specifying_firm": "Acme Engineering",
         "performance_spec_only": False,
@@ -267,6 +273,80 @@ def test_performance_spec_only_is_a_distinct_outcome_not_a_miss(db_session, cfg,
     assert check.outcome == "performance_spec_only"
     assert "FAR 11.104" in check.detail
     assert db_session.exec(select(SpecMention)).all() == []
+
+
+# ---- manufacturer-name grounding: the field the whole conclusion rests on --
+
+def test_ungrounded_manufacturer_name_is_rejected_not_written(db_session, cfg, monkeypatch):
+    """The bug: extract_division_23_mentions had no grounding check at all.
+    A manufacturer name the model asserts but that never appears in the
+    document text it was given must be dropped, not stored."""
+    monkeypatch.setenv("SAM_GOV_API_KEY", "test-key")
+    monkeypatch.setattr(sam_gov, "_download_attachment",
+                        lambda url, api_key: (b"fake-bytes", "spec.pdf"))
+    monkeypatch.setattr(sam_gov, "pdf_to_text",
+                        lambda data, max_pages=600: "SECTION 23 74 00 -- PACKAGED OUTDOOR HVAC EQUIPMENT\n"
+                                                    "This section specifies by performance only.")
+    monkeypatch.setattr(sam_gov, "extract_division_23_mentions", lambda text, **kw: {
+        "specifying_firm": None,
+        "performance_spec_only": False,
+        "sections": [{
+            "spec_section": "23 74 00", "spec_section_title": "Packaged Outdoor HVAC Equipment",
+            "basis_of_design_manufacturer": "Fabricated Manufacturer Inc",
+            "or_equal_manufacturers": [],
+        }],
+    })
+
+    with respx.mock:
+        respx.get(SEARCH_URL).mock(
+            return_value=_search_response([_notice(resource_links=["https://sam.gov/x/download"])]))
+        stats = sam_gov.run_sam_gov(db_session, cfg, posted_from="01/01/2026", posted_to="12/31/2026")
+
+    assert stats["manufacturer_mentions_rejected_ungrounded"] == 1
+    assert stats["spec_mentions_written"] == 0
+    assert stats["spec_mentions_found"] == 0
+    assert stats["ungrounded_mentions_only"] == 1
+    assert db_session.exec(select(SpecMention)).all() == []
+
+    check = db_session.exec(select(SamSolicitationCheck)).one()
+    assert check.outcome == "ungrounded_mentions_only"
+    assert "Fabricated Manufacturer Inc" in check.detail
+    assert "basis_of_design" in check.detail
+
+
+def test_grounded_and_ungrounded_mentions_in_the_same_notice_are_separated(db_session, cfg, monkeypatch):
+    """A partial hallucination must not sink the real mention next to it,
+    and must not let the fabricated one ride along either."""
+    monkeypatch.setenv("SAM_GOV_API_KEY", "test-key")
+    monkeypatch.setattr(sam_gov, "_download_attachment",
+                        lambda url, api_key: (b"fake-bytes", "spec.pdf"))
+    monkeypatch.setattr(sam_gov, "pdf_to_text",
+                        lambda data, max_pages=600: "SECTION 23 74 00\nBasis of Design: AAON.")
+    monkeypatch.setattr(sam_gov, "extract_division_23_mentions", lambda text, **kw: {
+        "specifying_firm": None,
+        "performance_spec_only": False,
+        "sections": [{
+            "spec_section": "23 74 00", "spec_section_title": "Packaged Outdoor HVAC Equipment",
+            "basis_of_design_manufacturer": "AAON",
+            "or_equal_manufacturers": ["Invented Vendor That Is Not In The Text"],
+        }],
+    })
+
+    with respx.mock:
+        respx.get(SEARCH_URL).mock(
+            return_value=_search_response([_notice(resource_links=["https://sam.gov/x/download"])]))
+        stats = sam_gov.run_sam_gov(db_session, cfg, posted_from="01/01/2026", posted_to="12/31/2026")
+
+    assert stats["spec_mentions_written"] == 1
+    assert stats["manufacturer_mentions_rejected_ungrounded"] == 1
+    # A real, grounded mention was written -- the outcome is a genuine find,
+    # not "ungrounded_mentions_only" (that outcome is only for a notice
+    # where NOTHING survived grounding).
+    assert stats["spec_mentions_found"] == 1
+    mention = db_session.exec(select(SpecMention)).one()
+    assert mention.manufacturer_name == "AAON"
+    check = db_session.exec(select(SamSolicitationCheck)).one()
+    assert check.outcome == "spec_mentions_found"
 
 
 def test_docx_attachment_is_parsed_end_to_end(db_session, cfg, monkeypatch):

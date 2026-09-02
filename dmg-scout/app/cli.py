@@ -537,6 +537,27 @@ def sam_gov_cmd(
     typer.echo(json.dumps(stats))
 
 
+@app.command("specs-pilot")
+def specs_pilot_cmd(
+    directory: str = typer.Option("docs/specs-pilot", help="Directory of hand-placed PDF/.docx/.xlsx documents"),
+) -> None:
+    """Division 23 spec parser for the school-district pilot -- reads every
+    PDF/.docx/.xlsx file in `directory` (hand-placed only; there is no
+    fetcher here and nothing here is scraped -- see
+    app.pipeline.specs_pilot's module docstring), extracts district/bid
+    metadata and Division 23 manufacturer mentions, grounds every
+    manufacturer name against the document's own text before trusting it,
+    and reports outcome counts plus manufacturer frequency. No DB writes --
+    a disposable pilot analysis, not a Scout pipeline stage; NOT registered
+    under config.yaml's sources: block and NOT part of `scout doctor`."""
+    from app.pipeline.specs_pilot import report_text, run_specs_pilot
+    from app.spend import run_budget
+    cfg = load_config()
+    with run_budget("specs_pilot"):
+        result = run_specs_pilot(directory, cfg)
+    typer.echo(report_text(result))
+
+
 @app.command("cslb")
 def cslb_cmd(
     geocode_batch_limit: int = typer.Option(

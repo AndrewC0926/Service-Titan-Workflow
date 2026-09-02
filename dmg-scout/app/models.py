@@ -1747,7 +1747,8 @@ class SamSolicitationCheck(SQLModel, table=True):
        SpecMention only ever holds the hits.
 
     outcome is one of: spec_mentions_found | performance_spec_only |
-    no_ufgs_23_series_found | design_build_skipped | fetch_failed.
+    ungrounded_mentions_only | no_ufgs_23_series_found |
+    design_build_skipped | fetch_failed.
     design_build_skipped is a title/description keyword match (see
     DESIGN_BUILD_KEYWORDS), checked before ever spending an attachment
     download on a notice that was never going to carry a spec book.
@@ -1755,11 +1756,16 @@ class SamSolicitationCheck(SQLModel, table=True):
     and read, but it specifies by performance/salient characteristics only
     (the FAR 11.104/11.105-encouraged norm for federal work) with no
     manufacturer named anywhere -- a real, informative result, distinct
-    from finding nothing. no_ufgs_23_series_found covers every other reason
-    no mechanical spec section turned up -- genuinely no HVAC scope in this
-    solicitation, an attachment that didn't parse, or a design-build notice
-    the keyword check missed -- deliberately not split further, since Scout
-    cannot always tell those apart from the outside.
+    from finding nothing. ungrounded_mentions_only means the model named one
+    or more manufacturers but NONE of them appear anywhere in the 23-series
+    text it was given (see app.grounding.name_grounded) -- a fabrication
+    catch, kept distinct from no_ufgs_23_series_found so a rejected
+    hallucination is never silently read as "nothing was there at all."
+    no_ufgs_23_series_found covers every other reason no mechanical spec
+    section turned up -- genuinely no HVAC scope in this solicitation, an
+    attachment that didn't parse, or a design-build notice the keyword check
+    missed -- deliberately not split further, since Scout cannot always tell
+    those apart from the outside.
     """
     __tablename__ = "sam_solicitation_checks"
 
