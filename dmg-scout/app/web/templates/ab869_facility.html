@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% from "_icon.html" import icon %}
+{% block title %}{{ facility_name or perm_id }} — AB 869{% endblock %}
+{% block content %}
+<h2>{{ facility_name or perm_id }} <a href="/ab869" style="float:right;font-size:12px">← back to AB 869</a></h2>
+<p class="note">Perm ID {{ perm_id }} · as reported by the hospital to HCAI, not verified by Scout
+  {% if plan %} · imported {{ plan.imported_at.strftime('%Y-%m-%d %H:%M') }}Z{% endif %} ·
+  <a href="{{ tableau_url }}" target="_blank" rel="noopener">HCAI Tableau page for this facility ↗</a></p>
+
+{% if not plan %}
+<div class="callout callout-warn">
+  {{ icon('triangle-alert') }}
+  <span><strong>No plan on file</strong>
+  <span class="body">HCAI's own compliance-plan roster returned no match for this facility name --
+    either it never filed, or the name string didn't match exactly. Not something Scout can
+    distinguish from here.</span></span>
+</div>
+{% else %}
+
+<table style="max-width:900px">
+<tr><th>Plan status</th>
+    <td>{{ plan.plan_status if plan.plan_status else '<span class="note">not parsed</span>'|safe }}
+      {%- if plan.plan_status_source == 'pdf_header' %} <span class="stamp stamp-quiet">from PDF header, not the crosstab</span>{% endif -%}</td>
+    <th>Delay requested</th>
+    <td>{% if plan.delay_requested is true %}True{% elif plan.delay_requested is false %}False{% else %}<span class="note">blank -- not parsed</span>{% endif %}</td></tr>
+<tr><th>Financially responsible</th><td colspan="3">{{ plan.financially_responsible_party or '<span class="note">not parsed</span>'|safe }}</td></tr>
+<tr><th>Owner</th><td>{{ plan.owner_name or '<span class="note">not parsed</span>'|safe }} <span class="note">({{ plan.owner_type or '—' }})</span></td>
+    <th>Manager</th><td>{{ plan.manager_name or '<span class="note">not parsed</span>'|safe }} <span class="note">({{ plan.manager_type or '—' }})</span></td></tr>
+<tr><th>Other financial contact</th><td colspan="3">
+    {% if plan.other_financial_contact %}{{ plan.other_financial_contact }}
+    {% else %}<span class="note">not parsed{% if plan.other_financial_contact_reason %} — {{ plan.other_financial_contact_reason }}{% endif %}</span>{% endif %}</td></tr>
+</table>
+
+{% if plan.plan_status_paragraph %}
+<h2>Status, in HCAI's own words</h2>
+<p style="max-width:720px">{{ plan.plan_status_paragraph }}</p>
+{% if plan.plan_status_paragraph_reason %}<p class="note">Partial -- {{ plan.plan_status_paragraph_reason }}.</p>{% endif %}
+{% else %}
+<h2>Status, in HCAI's own words</h2>
+<p class="note">Not parsed{% if plan.plan_status_paragraph_reason %} — {{ plan.plan_status_paragraph_reason }}{% endif %}.</p>
+{% endif %}
+
+<h2>Facility's request for delay</h2>
+{% if plan.delay_text %}
+<p style="max-width:720px">{{ plan.delay_text }}</p>
+{% if plan.delay_text_reason %}<p class="note">Partial -- {{ plan.delay_text_reason }}.</p>{% endif %}
+{% else %}
+<p class="note">Not parsed{% if plan.delay_text_reason %} — {{ plan.delay_text_reason }}{% endif %}.</p>
+{% endif %}
+{% if plan.ab869_letter_url %}<p><a href="{{ plan.ab869_letter_url }}" target="_blank" rel="noopener">AB 869 letter ↗</a></p>{% endif %}
+{% endif %}
+
+<h2>Buildings</h2>
+<div style="overflow-x:auto">
+<table class="tbl" style="width:100%">
+<thead><tr><th>BLD</th><th>Name</th><th>SPC</th><th>NPC</th><th>Compliance type</th><th>Narrative</th><th>Missed milestone</th></tr></thead>
+<tbody>
+{% for b in buildings %}
+{% set hb = hospital_buildings.get(b.building_nbr) %}
+<tr>
+  <td>{% if hb %}<a href="/hospitals/building/{{ hb.id }}">{{ b.building_nbr }}</a>{% else %}{{ b.building_nbr }}{% endif %}</td>
+  <td>{{ hb.building_name if hb and hb.building_name else '<span class="note">not parsed</span>'|safe }}</td>
+  <td class="mono">{{ hb.spc_rating if hb and hb.spc_rating else '<span class="note">not parsed</span>'|safe }}</td>
+  <td class="mono">{{ hb.npc_rating if hb and hb.npc_rating else '<span class="note">not parsed</span>'|safe }}</td>
+  <td>{{ b.compliance_type or '<span class="note">not parsed</span>'|safe }}</td>
+  <td>{{ b.narrative or '<span class="note">not parsed' + (' — ' + b.narrative_reason if b.narrative_reason else '') + '</span>'|safe }}</td>
+  <td>{% if b.has_missed_milestone %}<span class="warn">yes</span>{% else %}—{% endif %}</td>
+</tr>
+{% for m in milestones_by_building.get(b.building_nbr, []) %}
+<tr class="note">
+  <td colspan="2" style="padding-left:24px">↳ {{ m.milestone_type or '<span class="note">not parsed</span>'|safe }}</td>
+  <td colspan="2">{{ m.completion_date_text or '<span class="note">not parsed</span>'|safe }}</td>
+  <td colspan="2">{{ m.description or '<span class="note">not parsed</span>'|safe }}</td>
+  <td>{{ m.met_by_hcai or '<span class="note">not parsed</span>'|safe }}</td>
+</tr>
+{% endfor %}
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% if not buildings %}<p class="empty">No buildings parsed for this facility.</p>{% endif %}
+
+<h2>Mechanical contractors within {{ proximity_radius }} miles</h2>
+<p class="note">The C-lane call list for this hospital -- same CSLB proximity join used on /contractors.
+  Not evidence of hospital/OSHPD experience, only general mechanical licensure and distance.</p>
+{% if nearby_contractors %}
+<table class="tbl">
+<thead><tr><th>Contractor</th><th class="num">Distance (mi)</th><th>Local 250 signatory</th></tr></thead>
+<tbody>
+{% for nc in nearby_contractors %}
+<tr><td><a href="/contractor/{{ nc.contractor.id }}">{{ nc.contractor.business_name }}</a></td>
+    <td class="num">{{ nc.distance_miles }}</td>
+    <td>{{ 'yes' if nc.contractor.ua_local_250_signatory else '—' }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="empty">No geocoded building for this facility, or none within {{ proximity_radius }} miles.</p>
+{% endif %}
+{% endblock %}

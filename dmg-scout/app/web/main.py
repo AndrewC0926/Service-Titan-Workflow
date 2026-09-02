@@ -881,6 +881,88 @@ def hospital_building_detail(building_id: int, request: Request,
     })
 
 
+@app.get("/ab869", response_class=HTMLResponse)
+def ab869_board(request: Request, county: str = None, plan_status: str = None,
+                has_missed: bool = False, upcoming_12mo: bool = False, owner: str = "",
+                session: Session = Depends(get_session), _: str = Depends(auth)):
+    """One row per in-territory facility -- the AB 869 seismic compliance
+    plan roster. See app.pipeline.ab869's module docstring for the access/
+    parsing investigation this rests on. Filtered in Python against
+    ab869_board_rows' own small (~200-row) list, not pushed into SQL --
+    see that function's own docstring for why."""
+    from datetime import timedelta
+
+    from app.pipeline.ab869 import ab869_board_rows
+    cfg = load_config()
+    rows = ab869_board_rows(session, cfg)
+
+    counties = sorted({r["county"] for r in rows if r["county"]})
+    plan_statuses = sorted({r["plan_status"] for r in rows if r["plan_status"]})
+
+    if county:
+        rows = [r for r in rows if r["county"] == county]
+    if plan_status:
+        rows = [r for r in rows if r["plan_status"] == plan_status]
+    if has_missed:
+        rows = [r for r in rows if r["missed_milestone_count"] > 0]
+    if upcoming_12mo:
+        cutoff = utcnow() + timedelta(days=365)
+        rows = [r for r in rows if r["next_upcoming_date"] and r["next_upcoming_date"] <= cutoff]
+    if owner:
+        # Case-insensitive SUBSTRING match, deliberately -- "kaiser" must
+        # find every real spelling HCAI's own crosstab carries ("Kaiser
+        # Permanente Foundation", "Kaiser Permanente Foundation Hospital",
+        # "KAISER PERMANENTE FOUNDATION", "Kaiser Foundation Hospital"),
+        # since merging those spellings into one canonical entity would be
+        # exactly the kind of inference this whole feature avoids.
+        needle = owner.lower()
+        rows = [r for r in rows if r["financially_responsible_party"]
+               and needle in r["financially_responsible_party"].lower()]
+
+    return templates.TemplateResponse(request, "ab869_board.html", {
+        "rows": rows, "counties": counties, "plan_statuses": plan_statuses,
+        "county": county, "plan_status": plan_status, "has_missed": has_missed,
+        "upcoming_12mo": upcoming_12mo, "owner": owner,
+        "tb": _title_block(session), "active": "hospitals",
+    })
+
+
+@app.get("/ab869/{perm_id}", response_class=HTMLResponse)
+def ab869_facility(perm_id: str, request: Request,
+                   session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.contractors import default_radius_miles, nearest_mechanical_contractors
+    from app.pipeline.ab869 import ab869_facility_detail, hcai_tableau_url
+
+    detail = ab869_facility_detail(session, perm_id)
+    if detail["plan"] is None and not detail["buildings"] and not detail["hospital_buildings"]:
+        raise HTTPException(404)
+
+    cfg = load_config()
+    geocoded = [hb for hb in detail["hospital_buildings"].values()
+               if hb.latitude is not None and hb.longitude is not None]
+    nearby_contractors = []
+    if geocoded:
+        # A synthetic point at the facility's own average lat/lon -- a
+        # hospital campus is a tiny fraction of the 15-mile radius, so any
+        # one of its buildings (or their average) is a fine stand-in for
+        # "the facility's location". nearest_mechanical_contractors only
+        # ever reads .latitude/.longitude off what it's given.
+        from types import SimpleNamespace
+        avg_lat = sum(hb.latitude for hb in geocoded) / len(geocoded)
+        avg_lon = sum(hb.longitude for hb in geocoded) / len(geocoded)
+        fake_point = SimpleNamespace(latitude=avg_lat, longitude=avg_lon)
+        nearby_contractors = nearest_mechanical_contractors(
+            session, fake_point, radius_miles=default_radius_miles(cfg))
+
+    return templates.TemplateResponse(request, "ab869_facility.html", {
+        **detail,
+        "tableau_url": hcai_tableau_url(perm_id, detail["facility_name"]),
+        "nearby_contractors": nearby_contractors,
+        "proximity_radius": default_radius_miles(cfg),
+        "tb": _title_block(session), "active": "hospitals",
+    })
+
+
 @app.get("/contractors", response_class=HTMLResponse)
 def contractors_list(request: Request, county: str = None, classification: str = "mechanical",
                      signatory: str = "", limit: int = 200,

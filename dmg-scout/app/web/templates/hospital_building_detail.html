@@ -6,6 +6,7 @@
 <h2>{{ b.facility_name }}
   <a href="/hospitals" style="float:right;font-size:12px">← back to hospitals</a>
 </h2>
+<p class="noprint"><a href="/ab869/{{ b.perm_id }}">AB 869 compliance plan for this facility →</a></p>
 <p class="note">{{ b.building_name or 'Building ' + b.building_nbr }} (HCAI Building Nbr {{ b.building_nbr }})
   · Perm ID {{ b.perm_id }} · {{ b.city or '?' }}, {{ b.county }} County, {{ b.state }}
   {% if b.latitude %} · <a href="https://www.google.com/maps?q={{ b.latitude }},{{ b.longitude }}" target="_blank" rel="noopener">map ↗</a>{% endif %}</p>

@@ -760,3 +760,120 @@ def import_ab869(session: Session, raw_dir: str = "docs/hcai/ab869/raw") -> dict
     if error:
         raise RuntimeError(error)
     return stats
+
+
+# ---- /ab869 board + facility drill-down --------------------------------
+
+NO_PLAN_ON_FILE = "No plan on file"
+
+# milestone_type substrings this board treats as "the next thing that
+# matters" -- both carry a real regulatory deadline (see PIN 80's own NPC
+# schedule: permits by 3/1/2028, construction commencement implied by the
+# same schedule), unlike a generic "Construction Milestone" progress note.
+UPCOMING_MILESTONE_KEYWORDS = ("permit issuance", "construction commencement")
+
+
+def ab869_board_rows(session: Session, cfg) -> list[dict]:
+    """One row per in-territory facility -- small enough (~200 facilities,
+    ~1,500 buildings, ~550 milestones) that this is plain Python over three
+    cheap queries, not pushed into SQL; filtering happens in the web layer
+    against this same list. Includes a facility with NO Ab869Plan row at
+    all (plan_status becomes the literal NO_PLAN_ON_FILE, not hidden) --
+    the 11 facilities HCAI's own crosstab filter matched nothing for."""
+    territory_counties = set(cfg.get("territories.california.counties", []))
+
+    facilities: dict[str, dict] = {}
+    for perm_id, facility_name, county in session.exec(
+        select(HospitalBuilding.perm_id, HospitalBuilding.facility_name, HospitalBuilding.county)
+    ).all():
+        if county not in territory_counties:
+            continue
+        facilities.setdefault(perm_id, {"perm_id": perm_id, "facility_name": facility_name, "county": county})
+
+    plans = {p.perm_id: p for p in session.exec(select(Ab869Plan)).all() if p.perm_id in facilities}
+
+    buildings_by_perm: dict[str, list] = {}
+    for b in session.exec(select(Ab869Building)).all():
+        if b.perm_id in facilities:
+            buildings_by_perm.setdefault(b.perm_id, []).append(b)
+
+    milestones_by_perm: dict[str, list] = {}
+    for m in session.exec(select(Ab869Milestone).where(Ab869Milestone.completion_date.is_not(None))).all():
+        if m.perm_id in facilities:
+            milestones_by_perm.setdefault(m.perm_id, []).append(m)
+
+    now = utcnow()
+    rows = []
+    for perm_id, base in facilities.items():
+        plan = plans.get(perm_id)
+        buildings = buildings_by_perm.get(perm_id, [])
+        npc_count = sum(1 for b in buildings if b.compliance_type in ("NPC Retrofit", "SPC and NPC Retrofit"))
+        missed_count = sum(1 for b in buildings if b.has_missed_milestone)
+
+        next_date = None
+        for m in milestones_by_perm.get(perm_id, []):
+            mtype = (m.milestone_type or "").lower()
+            if (any(k in mtype for k in UPCOMING_MILESTONE_KEYWORDS)
+                    and m.completion_date and m.completion_date > now):
+                if next_date is None or m.completion_date < next_date:
+                    next_date = m.completion_date
+
+        rows.append({
+            "perm_id": perm_id,
+            "facility_name": base["facility_name"],
+            "county": base["county"],
+            "npc_building_count": npc_count,
+            "plan_status": plan.plan_status if plan and plan.plan_status else (NO_PLAN_ON_FILE if plan is None else None),
+            "has_plan": plan is not None,
+            "no_pdf_on_disk": bool(plan and plan.plan_status_paragraph_reason
+                                   and "no PDF on disk" in plan.plan_status_paragraph_reason),
+            "missed_milestone_count": missed_count,
+            "delay_requested": plan.delay_requested if plan else None,
+            "next_upcoming_date": next_date,
+            "financially_responsible_party": plan.financially_responsible_party if plan else None,
+        })
+    rows.sort(key=lambda r: r["npc_building_count"], reverse=True)
+    return rows
+
+
+def ab869_facility_detail(session: Session, perm_id: str) -> dict:
+    """Everything the facility drill-down page needs: the plan row (if
+    any), every Ab869Building joined to its own HospitalBuilding row (for
+    SPC/NPC/building name -- see module docstring on why those come from
+    HospitalBuilding, not the PDF), and every milestone grouped by
+    building, sorted by date (undated last, never dropped)."""
+    plan = session.exec(select(Ab869Plan).where(Ab869Plan.perm_id == perm_id)).first()
+    buildings = session.exec(
+        select(Ab869Building).where(Ab869Building.perm_id == perm_id)
+        .order_by(Ab869Building.building_nbr)
+    ).all()
+    milestones = session.exec(
+        select(Ab869Milestone).where(Ab869Milestone.perm_id == perm_id)
+        .order_by(Ab869Milestone.completion_date.asc().nulls_last())
+    ).all()
+    milestones_by_building: dict[str, list] = {}
+    for m in milestones:
+        milestones_by_building.setdefault(m.building_nbr, []).append(m)
+    hospital_buildings = {
+        hb.building_nbr: hb for hb in session.exec(
+            select(HospitalBuilding).where(HospitalBuilding.perm_id == perm_id)).all()
+    }
+    facility_name = next(iter(hospital_buildings.values())).facility_name if hospital_buildings else None
+    return {
+        "perm_id": perm_id, "plan": plan, "buildings": buildings,
+        "milestones_by_building": milestones_by_building, "hospital_buildings": hospital_buildings,
+        "facility_name": facility_name,
+    }
+
+
+def hcai_tableau_url(perm_id: str, facility_name: str | None) -> str:
+    """The exact filtered-view URL confirmed live during this feature's own
+    access investigation -- 'Facility Number and Name' is the real
+    Tableau parameter name (found from the compliance-plan page's own
+    instruction text: 'Use the "Facility Number and Name" filter in the
+    upper right corner'), value is '{perm_id} {facility_name}', matching
+    the exact format confirmed against real facility 10049."""
+    import urllib.parse
+    value = f"{perm_id} {facility_name}" if facility_name else perm_id
+    params = urllib.parse.urlencode({"Facility Number and Name": value})
+    return f"https://tab.hcai.ca.gov/t/OSHPD_PUBLIC/views/CompliancePlanWebsite/CompliancePlan?{params}"

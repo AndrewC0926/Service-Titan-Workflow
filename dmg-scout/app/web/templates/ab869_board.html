@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% from "_icon.html" import icon %}
+{% block title %}AB 869 compliance plans{% endblock %}
+{% block content %}
+<h2>AB 869 seismic compliance plans <a href="/hospitals" style="float:right;font-size:12px">← back to hospitals</a></h2>
+<p class="note">{{ rows|length }} in-territory facilit{{ 'y' if rows|length == 1 else 'ies' }} · distinct buildings
+  only, never the crosstab's own repeated progress-bucket rows · source: HCAI's AB 869 compliance-plan
+  roster (hand-pulled, see <a href="/assumptions#{{ assumption_slug('AB 869 seismic compliance plan roster') if assumption_slug is defined else '' }}">/assumptions</a>).
+  Sorted by NPC building count, descending. See
+  <a href="/assumptions#{{ assumption_slug('hcai.ca.gov / tab.hcai.ca.gov — robots.txt, X-Robots-Tag, meta robots') }}">/assumptions</a>
+  for the full access/parsing writeup.</p>
+
+<form method="get" class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;align-items:end;margin-bottom:12px">
+  <div>
+    <label class="note">County</label>
+    <select name="county" onchange="this.form.submit()">
+      <option value="">All counties</option>
+      {% for c in counties %}<option value="{{ c }}" {{ 'selected' if c == county }}>{{ c }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="note">Plan status</label>
+    <select name="plan_status" onchange="this.form.submit()">
+      <option value="">All statuses</option>
+      {% for s in plan_statuses %}<option value="{{ s }}" {{ 'selected' if s == plan_status }}>{{ s }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="note">Financially responsible (substring)</label>
+    <input type="text" name="owner" value="{{ owner }}" placeholder="e.g. kaiser">
+  </div>
+  <div>
+    <label><input type="checkbox" name="has_missed" value="true" {{ 'checked' if has_missed }} onchange="this.form.submit()"> Has missed milestone(s)</label>
+  </div>
+  <div>
+    <label><input type="checkbox" name="upcoming_12mo" value="true" {{ 'checked' if upcoming_12mo }} onchange="this.form.submit()"> Upcoming milestone in next 12mo</label>
+  </div>
+  <div><button type="submit">Apply</button> <a href="/ab869" style="margin-left:8px">Reset</a></div>
+</form>
+
+<div style="overflow-x:auto">
+<table class="tbl" style="width:100%">
+<thead><tr>
+  <th>Facility</th><th>County</th><th class="num">NPC buildings</th><th>Plan status</th>
+  <th class="num">Missed milestones</th><th>Delay requested</th><th>Next Permit/Commencement</th>
+  <th>Financially responsible</th>
+</tr></thead>
+<tbody>
+{% for r in rows %}
+<tr>
+  <td><a href="/ab869/{{ r.perm_id }}">{{ r.facility_name or r.perm_id }}</a>
+      {% if r.no_pdf_on_disk %}<span class="stamp stamp-post" title="Crosstab data only -- the Playwright pull for this facility's PDF failed">no PDF</span>{% endif %}</td>
+  <td>{{ r.county or '—' }}</td>
+  <td class="num">{{ r.npc_building_count }}</td>
+  <td>{% if r.has_plan %}{{ r.plan_status or '<span class="note">not parsed</span>'|safe }}{% else %}<span class="stamp stamp-quiet">{{ r.plan_status }}</span>{% endif %}</td>
+  <td class="num">{% if r.missed_milestone_count %}<span class="warn">{{ r.missed_milestone_count }}</span>{% else %}0{% endif %}</td>
+  <td>{% if r.delay_requested is true %}True{% else %}<span class="note">blank</span>{% endif %}</td>
+  <td class="nowrap">{{ r.next_upcoming_date.strftime('%Y-%m-%d') if r.next_upcoming_date else '<span class="note">blank</span>'|safe }}</td>
+  <td>{{ r.financially_responsible_party or '<span class="note">not parsed</span>'|safe }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% if not rows %}<p class="empty">No facilities match this filter.</p>{% endif %}
+{% endblock %}
