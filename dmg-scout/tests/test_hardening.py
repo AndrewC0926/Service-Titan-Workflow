@@ -155,6 +155,34 @@ def test_stale_cutoff_uses_a_sources_own_override(cfg):
     assert abs((now - cutoff).total_seconds() - 2160 * 3600) < 1
 
 
+def test_stale_cutoff_uses_ab869_compliance_plans_override(cfg):
+    """Same discipline as hcai_seismic_ratings' own override test -- AB 869
+    is a manual, Playwright-pulled import with no fetch schedule at all
+    (see app/pipeline/ab869.py), so the default 36-hour staleness window
+    would flag it within two days of any realistic re-import cadence. This
+    breaks if config.yaml's sources.ab869_compliance_plans.stale_hours is
+    ever accidentally removed or the source silently drops back to the
+    36-hour default."""
+    from app.ops import stale_cutoff
+    from app.models import utcnow
+
+    now = utcnow()
+    cutoff = stale_cutoff(cfg, "ab869_compliance_plans", now)
+    assert abs((now - cutoff).total_seconds() - 2160 * 3600) < 1
+
+
+def test_ab869_is_not_scheduled_in_the_pipeline_command(cfg):
+    """A human runs the Playwright pull and `scout import-ab869` by hand --
+    confirm the pipeline() command's own source code never calls
+    import_ab869, the same way hcai_seismic_ratings/IEPR are never called
+    from there either."""
+    import inspect
+
+    from app.cli import pipeline
+    source = inspect.getsource(pipeline)
+    assert "import_ab869" not in source
+
+
 def test_source_is_stale_true_when_no_run_ever_recorded(db_session, cfg):
     """Different from _stale_sources' own skip-if-never-run behavior on
     purpose -- a page showing cached numbers has nothing to trust yet if

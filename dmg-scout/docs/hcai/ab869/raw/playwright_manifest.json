@@ -1,0 +1,2012 @@
+[
+  {
+    "perm_id": "10028",
+    "facility_name": "Kaiser Foundation Hospital - San Marcos",
+    "value_sent": "10028 Kaiser Foundation Hospital - San Marcos",
+    "retrieved_at": "2026-09-02T03:53:57.286645+00:00",
+    "out_path": "docs/hcai/ab869/raw/10028/compliance_plan_expanded.pdf",
+    "byte_size": 323831,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10036",
+    "facility_name": "City of Hope Orange County Cancer Specialty Hospital",
+    "value_sent": "10036 City of Hope Orange County Cancer Specialty Hospital",
+    "retrieved_at": "2026-09-02T03:54:27.804987+00:00",
+    "out_path": "docs/hcai/ab869/raw/10036/compliance_plan_expanded.pdf",
+    "byte_size": 329594,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10039",
+    "facility_name": "UCI Health - Irvine",
+    "value_sent": "10039 UCI Health - Irvine",
+    "retrieved_at": "2026-09-02T03:54:58.427245+00:00",
+    "out_path": "docs/hcai/ab869/raw/10039/compliance_plan_expanded.pdf",
+    "byte_size": 324066,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10192",
+    "facility_name": "Pioneers Memorial Hospital",
+    "value_sent": "10192 Pioneers Memorial Hospital",
+    "retrieved_at": "2026-09-02T03:55:28.054161+00:00",
+    "out_path": "docs/hcai/ab869/raw/10192/compliance_plan_expanded.pdf",
+    "byte_size": 375557,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10207",
+    "facility_name": "Bakersfield Memorial Hospital",
+    "value_sent": "10207 Bakersfield Memorial Hospital",
+    "retrieved_at": "2026-09-02T03:55:59.106536+00:00",
+    "out_path": "docs/hcai/ab869/raw/10207/compliance_plan_expanded.pdf",
+    "byte_size": 392622,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10208",
+    "facility_name": "Kern Medical Center",
+    "value_sent": "10208 Kern Medical Center",
+    "retrieved_at": "2026-09-02T03:56:29.598576+00:00",
+    "out_path": "docs/hcai/ab869/raw/10208/compliance_plan_expanded.pdf",
+    "byte_size": 360959,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10210",
+    "facility_name": "Kern Valley Healthcare District",
+    "value_sent": "10210 Kern Valley Healthcare District",
+    "retrieved_at": "2026-09-02T03:58:48.476732+00:00",
+    "out_path": "docs/hcai/ab869/raw/10210/compliance_plan_expanded.pdf",
+    "byte_size": 329644,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10214",
+    "facility_name": "Mercy Hospital",
+    "value_sent": "10214 Mercy Hospital",
+    "retrieved_at": "2026-09-02T03:57:28.148037+00:00",
+    "out_path": "docs/hcai/ab869/raw/10214/compliance_plan_expanded.pdf",
+    "byte_size": 378136,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10219",
+    "facility_name": "Good Samaritan Hospital",
+    "value_sent": "10219 Good Samaritan Hospital",
+    "retrieved_at": "2026-09-02T03:57:59.043024+00:00",
+    "out_path": "docs/hcai/ab869/raw/10219/compliance_plan_expanded.pdf",
+    "byte_size": 356341,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10220",
+    "facility_name": "Ridgecrest Regional Hospital",
+    "value_sent": "10220 Ridgecrest Regional Hospital",
+    "retrieved_at": "2026-09-02T03:58:28.505841+00:00",
+    "out_path": "docs/hcai/ab869/raw/10220/compliance_plan_expanded.pdf",
+    "byte_size": 376528,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10382",
+    "facility_name": "AHMC Anaheim Regional Medical Center",
+    "value_sent": "10382 AHMC Anaheim Regional Medical Center",
+    "retrieved_at": "2026-09-02T03:59:00.012927+00:00",
+    "out_path": "docs/hcai/ab869/raw/10382/compliance_plan_expanded.pdf",
+    "byte_size": 330728,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10400",
+    "facility_name": "Chapman Global Medical Center",
+    "value_sent": "10400 Chapman Global Medical Center",
+    "retrieved_at": "2026-09-02T03:59:29.348060+00:00",
+    "out_path": "docs/hcai/ab869/raw/10400/compliance_plan_expanded.pdf",
+    "byte_size": 328262,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10405",
+    "facility_name": "College Hospital Costa Mesa",
+    "value_sent": "10405 College Hospital Costa Mesa",
+    "retrieved_at": "2026-09-02T04:00:00.084752+00:00",
+    "out_path": "docs/hcai/ab869/raw/10405/compliance_plan_expanded.pdf",
+    "byte_size": 357174,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10407",
+    "facility_name": "Kindred Hospital - Santa Ana",
+    "value_sent": "10407 Kindred Hospital - Santa Ana",
+    "retrieved_at": "2026-09-02T04:00:29.813090+00:00",
+    "out_path": "docs/hcai/ab869/raw/10407/compliance_plan_expanded.pdf",
+    "byte_size": 359377,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10428",
+    "facility_name": "Hoag Memorial Hospital Presbyterian",
+    "value_sent": "10428 Hoag Memorial Hospital Presbyterian",
+    "retrieved_at": "2026-09-02T04:01:00.988649+00:00",
+    "out_path": "docs/hcai/ab869/raw/10428/compliance_plan_expanded.pdf",
+    "byte_size": 388661,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10431",
+    "facility_name": "Huntington Beach Hospital",
+    "value_sent": "10431 Huntington Beach Hospital",
+    "retrieved_at": "2026-09-02T04:01:34.686202+00:00",
+    "out_path": "docs/hcai/ab869/raw/10431/compliance_plan_expanded.pdf",
+    "byte_size": 359309,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10440",
+    "facility_name": "UCI Health-Los Alamitos",
+    "value_sent": "10440 UCI Health-Los Alamitos",
+    "retrieved_at": "2026-09-02T04:02:05.261215+00:00",
+    "out_path": "docs/hcai/ab869/raw/10440/compliance_plan_expanded.pdf",
+    "byte_size": 356947,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10446",
+    "facility_name": "UCI Health-Orange",
+    "value_sent": "10446 UCI Health-Orange",
+    "retrieved_at": "2026-09-02T04:02:34.914568+00:00",
+    "out_path": "docs/hcai/ab869/raw/10446/compliance_plan_expanded.pdf",
+    "byte_size": 376873,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10450",
+    "facility_name": "Garden Grove Hospital and Medical Center",
+    "value_sent": "10450 Garden Grove Hospital and Medical Center",
+    "retrieved_at": "2026-09-02T04:03:06.596269+00:00",
+    "out_path": "docs/hcai/ab869/raw/10450/compliance_plan_expanded.pdf",
+    "byte_size": 353179,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10457",
+    "facility_name": "Providence St. Joseph Hospital",
+    "value_sent": "10457 Providence St. Joseph Hospital",
+    "retrieved_at": "2026-09-02T04:03:35.764324+00:00",
+    "out_path": "docs/hcai/ab869/raw/10457/compliance_plan_expanded.pdf",
+    "byte_size": 383632,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10458",
+    "facility_name": "Providence St. Jude Medical Center",
+    "value_sent": "10458 Providence St. Jude Medical Center",
+    "retrieved_at": "2026-09-02T04:04:07.861530+00:00",
+    "out_path": "docs/hcai/ab869/raw/10458/compliance_plan_expanded.pdf",
+    "byte_size": 391139,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10468",
+    "facility_name": "Providence Mission Hospital - Laguna Beach",
+    "value_sent": "10468 Providence Mission Hospital - Laguna Beach",
+    "retrieved_at": "2026-09-02T04:04:37.682369+00:00",
+    "out_path": "docs/hcai/ab869/raw/10468/compliance_plan_expanded.pdf",
+    "byte_size": 355764,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10475",
+    "facility_name": "West Anaheim Medical Center",
+    "value_sent": "10475 West Anaheim Medical Center",
+    "retrieved_at": "2026-09-02T04:05:08.253057+00:00",
+    "out_path": "docs/hcai/ab869/raw/10475/compliance_plan_expanded.pdf",
+    "byte_size": 355930,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10476",
+    "facility_name": "Kindred Hospital Westminster",
+    "value_sent": "10476 Kindred Hospital Westminster",
+    "retrieved_at": "2026-09-02T04:05:37.046278+00:00",
+    "out_path": "docs/hcai/ab869/raw/10476/compliance_plan_expanded.pdf",
+    "byte_size": 355690,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10529",
+    "facility_name": "Corona Regional Medical Center",
+    "value_sent": "10529 Corona Regional Medical Center",
+    "retrieved_at": "2026-09-02T04:06:09.008002+00:00",
+    "out_path": "docs/hcai/ab869/raw/10529/compliance_plan_expanded.pdf",
+    "byte_size": 329920,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10537",
+    "facility_name": "Desert Regional Medical Center",
+    "value_sent": "10537 Desert Regional Medical Center",
+    "retrieved_at": "2026-09-02T04:06:39.260617+00:00",
+    "out_path": "docs/hcai/ab869/raw/10537/compliance_plan_expanded.pdf",
+    "byte_size": 389220,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10541",
+    "facility_name": "Hemet Global Medical Center",
+    "value_sent": "10541 Hemet Global Medical Center",
+    "retrieved_at": "2026-09-02T04:07:10.962444+00:00",
+    "out_path": "docs/hcai/ab869/raw/10541/compliance_plan_expanded.pdf",
+    "byte_size": 372753,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10545",
+    "facility_name": "John F. Kennedy Memorial Hospital",
+    "value_sent": "10545 John F. Kennedy Memorial Hospital",
+    "retrieved_at": "2026-09-02T04:07:41.303136+00:00",
+    "out_path": "docs/hcai/ab869/raw/10545/compliance_plan_expanded.pdf",
+    "byte_size": 365012,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10553",
+    "facility_name": "Palo Verde Hospital",
+    "value_sent": "10553 Palo Verde Hospital",
+    "retrieved_at": "2026-09-02T04:08:13.152756+00:00",
+    "out_path": "docs/hcai/ab869/raw/10553/compliance_plan_expanded.pdf",
+    "byte_size": 350432,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10554",
+    "facility_name": "Doctors Hospital Of Riverside",
+    "value_sent": "10554 Doctors Hospital Of Riverside",
+    "retrieved_at": "2026-09-02T04:08:43.296120+00:00",
+    "out_path": "docs/hcai/ab869/raw/10554/compliance_plan_expanded.pdf",
+    "byte_size": 351831,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10556",
+    "facility_name": "Riverside Community Hospital",
+    "value_sent": "10556 Riverside Community Hospital",
+    "retrieved_at": "2026-09-02T04:09:14.264150+00:00",
+    "out_path": "docs/hcai/ab869/raw/10556/compliance_plan_expanded.pdf",
+    "byte_size": 363246,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10559",
+    "facility_name": "San Gorgonio Memorial Hospital",
+    "value_sent": "10559 San Gorgonio Memorial Hospital",
+    "retrieved_at": "2026-09-02T04:09:45.806052+00:00",
+    "out_path": "docs/hcai/ab869/raw/10559/compliance_plan_expanded.pdf",
+    "byte_size": 369511,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10670",
+    "facility_name": "Kaiser Foundation Hospital - Fontana",
+    "value_sent": "10670 Kaiser Foundation Hospital - Fontana",
+    "retrieved_at": "2026-09-02T04:10:31.612853+00:00",
+    "out_path": "docs/hcai/ab869/raw/10670/compliance_plan_expanded.pdf",
+    "byte_size": 379465,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10677",
+    "facility_name": "Loma Linda University Medical Center",
+    "value_sent": "10677 Loma Linda University Medical Center",
+    "retrieved_at": "2026-09-02T04:11:04.173706+00:00",
+    "out_path": "docs/hcai/ab869/raw/10677/compliance_plan_expanded.pdf",
+    "byte_size": 387090,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10681",
+    "facility_name": "Mountains Community Hospital",
+    "value_sent": "10681 Mountains Community Hospital",
+    "retrieved_at": "2026-09-02T04:11:35.669940+00:00",
+    "out_path": "docs/hcai/ab869/raw/10681/compliance_plan_expanded.pdf",
+    "byte_size": 357368,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10684",
+    "facility_name": "Colorado River Medical Center",
+    "value_sent": "10684 Colorado River Medical Center",
+    "retrieved_at": "2026-09-02T04:12:07.166831+00:00",
+    "out_path": "docs/hcai/ab869/raw/10684/compliance_plan_expanded.pdf",
+    "byte_size": 356050,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10691",
+    "facility_name": "Redlands Community Hospital",
+    "value_sent": "10691 Redlands Community Hospital",
+    "retrieved_at": "2026-09-02T04:13:11.951600+00:00",
+    "out_path": "docs/hcai/ab869/raw/10691/compliance_plan_expanded.pdf",
+    "byte_size": 384239,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10694",
+    "facility_name": "St. Bernardine Medical Center",
+    "value_sent": "10694 St. Bernardine Medical Center",
+    "retrieved_at": "2026-09-02T04:13:44.503914+00:00",
+    "out_path": "docs/hcai/ab869/raw/10694/compliance_plan_expanded.pdf",
+    "byte_size": 368007,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10695",
+    "facility_name": "Providence St. Mary Medical Center",
+    "value_sent": "10695 Providence St. Mary Medical Center",
+    "retrieved_at": "2026-09-02T04:14:16.181996+00:00",
+    "out_path": "docs/hcai/ab869/raw/10695/compliance_plan_expanded.pdf",
+    "byte_size": 385311,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10696",
+    "facility_name": "San Antonio Regional Hospital",
+    "value_sent": "10696 San Antonio Regional Hospital",
+    "retrieved_at": "2026-09-02T04:14:49.014981+00:00",
+    "out_path": "docs/hcai/ab869/raw/10696/compliance_plan_expanded.pdf",
+    "byte_size": 391070,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10697",
+    "facility_name": "Community Hospital of San Bernardino",
+    "value_sent": "10697 Community Hospital of San Bernardino",
+    "retrieved_at": "2026-09-02T04:15:22.028156+00:00",
+    "out_path": "docs/hcai/ab869/raw/10697/compliance_plan_expanded.pdf",
+    "byte_size": 362758,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10707",
+    "facility_name": "Victor Valley Global Medical Center",
+    "value_sent": "10707 Victor Valley Global Medical Center",
+    "retrieved_at": "2026-09-02T04:15:54.267498+00:00",
+    "out_path": "docs/hcai/ab869/raw/10707/compliance_plan_expanded.pdf",
+    "byte_size": 328698,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10820",
+    "facility_name": "Central California Rehabilitation Hospital",
+    "value_sent": "10820 Central California Rehabilitation Hospital",
+    "retrieved_at": "2026-09-02T04:16:27.211302+00:00",
+    "out_path": "docs/hcai/ab869/raw/10820/compliance_plan_expanded.pdf",
+    "byte_size": 323711,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11386",
+    "facility_name": "Alhambra Hospital Medical Center",
+    "value_sent": "11386 Alhambra Hospital Medical Center",
+    "retrieved_at": "2026-09-02T04:16:59.727712+00:00",
+    "out_path": "docs/hcai/ab869/raw/11386/compliance_plan_expanded.pdf",
+    "byte_size": 347705,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11399",
+    "facility_name": "Antelope Valley Medical Center",
+    "value_sent": "11399 Antelope Valley Medical Center",
+    "retrieved_at": "2026-09-02T04:17:31.623811+00:00",
+    "out_path": "docs/hcai/ab869/raw/11399/compliance_plan_expanded.pdf",
+    "byte_size": 329570,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11410",
+    "facility_name": "Catalina Island Medical Center",
+    "value_sent": "11410 Catalina Island Medical Center",
+    "retrieved_at": "2026-09-02T04:18:03.697552+00:00",
+    "out_path": "docs/hcai/ab869/raw/11410/compliance_plan_expanded.pdf",
+    "byte_size": 352181,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11414",
+    "facility_name": "Kindred Hospital - Los Angeles",
+    "value_sent": "11414 Kindred Hospital - Los Angeles",
+    "retrieved_at": "2026-09-02T04:18:36.154419+00:00",
+    "out_path": "docs/hcai/ab869/raw/11414/compliance_plan_expanded.pdf",
+    "byte_size": 359507,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11417",
+    "facility_name": "Barlow Respiratory Hospital",
+    "value_sent": "11417 Barlow Respiratory Hospital",
+    "retrieved_at": "2026-09-02T04:19:07.899221+00:00",
+    "out_path": "docs/hcai/ab869/raw/11417/compliance_plan_expanded.pdf",
+    "byte_size": 361943,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11441",
+    "facility_name": "Adventist Health White Memorial Montebello",
+    "value_sent": "11441 Adventist Health White Memorial Montebello",
+    "retrieved_at": "2026-09-02T04:19:40.018982+00:00",
+    "out_path": "docs/hcai/ab869/raw/11441/compliance_plan_expanded.pdf",
+    "byte_size": 359542,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11480",
+    "facility_name": "California Hospital Medical Center - Los Angeles",
+    "value_sent": "11480 California Hospital Medical Center - Los Angeles",
+    "retrieved_at": "2026-09-02T04:20:11.484556+00:00",
+    "out_path": "docs/hcai/ab869/raw/11480/compliance_plan_expanded.pdf",
+    "byte_size": 363116,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11496",
+    "facility_name": "Casa Colina Hospital",
+    "value_sent": "11496 Casa Colina Hospital",
+    "retrieved_at": "2026-09-02T04:20:44.810738+00:00",
+    "out_path": "docs/hcai/ab869/raw/11496/compliance_plan_expanded.pdf",
+    "byte_size": 353743,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11510",
+    "facility_name": "Centinela Hospital Medical Center",
+    "value_sent": "11510 Centinela Hospital Medical Center",
+    "retrieved_at": "2026-09-02T04:21:16.544556+00:00",
+    "out_path": "docs/hcai/ab869/raw/11510/compliance_plan_expanded.pdf",
+    "byte_size": 380694,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11525",
+    "facility_name": "Children's Hospital Los Angeles",
+    "value_sent": "11525 Children's Hospital Los Angeles",
+    "retrieved_at": "2026-09-02T04:21:49.715372+00:00",
+    "out_path": "docs/hcai/ab869/raw/11525/compliance_plan_expanded.pdf",
+    "byte_size": 377264,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11527",
+    "facility_name": "City Of Hope Helford Clinical Research Hospital",
+    "value_sent": "11527 City Of Hope Helford Clinical Research Hospital",
+    "retrieved_at": "2026-09-02T04:24:12.010901+00:00",
+    "out_path": "docs/hcai/ab869/raw/11527/compliance_plan_expanded.pdf",
+    "byte_size": 373951,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11545",
+    "facility_name": "Los Angeles Community Hospital",
+    "value_sent": "11545 Los Angeles Community Hospital",
+    "retrieved_at": "2026-09-02T04:22:54.060013+00:00",
+    "out_path": "docs/hcai/ab869/raw/11545/compliance_plan_expanded.pdf",
+    "byte_size": 327639,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11547",
+    "facility_name": "Kindred Hospital South Bay",
+    "value_sent": "11547 Kindred Hospital South Bay",
+    "retrieved_at": "2026-09-02T04:23:26.657233+00:00",
+    "out_path": "docs/hcai/ab869/raw/11547/compliance_plan_expanded.pdf",
+    "byte_size": 359050,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11548",
+    "facility_name": "San Gabriel Valley Medical Center",
+    "value_sent": "11548 San Gabriel Valley Medical Center",
+    "retrieved_at": "2026-09-02T04:23:58.312302+00:00",
+    "out_path": "docs/hcai/ab869/raw/11548/compliance_plan_expanded.pdf",
+    "byte_size": 364661,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11549",
+    "facility_name": "Community Hospital Of Huntington Park",
+    "value_sent": "11549 Community Hospital Of Huntington Park",
+    "retrieved_at": "2026-09-02T04:24:30.273613+00:00",
+    "out_path": "docs/hcai/ab869/raw/11549/compliance_plan_expanded.pdf",
+    "byte_size": 329690,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11598",
+    "facility_name": "East Los Angeles Doctors Hospital",
+    "value_sent": "11598 East Los Angeles Doctors Hospital",
+    "retrieved_at": "2026-09-02T04:25:02.804474+00:00",
+    "out_path": "docs/hcai/ab869/raw/11598/compliance_plan_expanded.pdf",
+    "byte_size": 329415,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11621",
+    "facility_name": "Encino Hospital Medical Center",
+    "value_sent": "11621 Encino Hospital Medical Center",
+    "retrieved_at": "2026-09-02T04:25:35.091769+00:00",
+    "out_path": "docs/hcai/ab869/raw/11621/compliance_plan_expanded.pdf",
+    "byte_size": 355719,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11658",
+    "facility_name": "Garfield Medical Center",
+    "value_sent": "11658 Garfield Medical Center",
+    "retrieved_at": "2026-09-02T04:26:06.995076+00:00",
+    "out_path": "docs/hcai/ab869/raw/11658/compliance_plan_expanded.pdf",
+    "byte_size": 367596,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11659",
+    "facility_name": "UC San Diego Health La Jolla - Jacobs Medical Center & Sulpizio Cardiovascular Center",
+    "value_sent": "11659 UC San Diego Health La Jolla - Jacobs Medical Center & Sulpizio Cardiovascular Center",
+    "retrieved_at": "2026-09-02T04:26:38.367400+00:00",
+    "out_path": "docs/hcai/ab869/raw/11659/compliance_plan_expanded.pdf",
+    "byte_size": 358666,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11668",
+    "facility_name": "Adventist Health Glendale",
+    "value_sent": "11668 Adventist Health Glendale",
+    "retrieved_at": "2026-09-02T04:27:10.498720+00:00",
+    "out_path": "docs/hcai/ab869/raw/11668/compliance_plan_expanded.pdf",
+    "byte_size": 394595,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11704",
+    "facility_name": "Kindred Hospital Baldwin Park",
+    "value_sent": "11704 Kindred Hospital Baldwin Park",
+    "retrieved_at": "2026-09-02T04:27:43.717097+00:00",
+    "out_path": "docs/hcai/ab869/raw/11704/compliance_plan_expanded.pdf",
+    "byte_size": 353846,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11718",
+    "facility_name": "Southern California Hospital at Hollywood",
+    "value_sent": "11718 Southern California Hospital at Hollywood",
+    "retrieved_at": "2026-09-02T04:28:16.062430+00:00",
+    "out_path": "docs/hcai/ab869/raw/11718/compliance_plan_expanded.pdf",
+    "byte_size": 329532,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11722",
+    "facility_name": "Hollywood Presbyterian Medical Center",
+    "value_sent": "11722 Hollywood Presbyterian Medical Center",
+    "retrieved_at": "2026-09-02T04:28:49.626907+00:00",
+    "out_path": "docs/hcai/ab869/raw/11722/compliance_plan_expanded.pdf",
+    "byte_size": 329958,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11726",
+    "facility_name": "Providence Holy Cross Medical Center",
+    "value_sent": "11726 Providence Holy Cross Medical Center",
+    "retrieved_at": "2026-09-02T04:29:21.663493+00:00",
+    "out_path": "docs/hcai/ab869/raw/11726/compliance_plan_expanded.pdf",
+    "byte_size": 376028,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11731",
+    "facility_name": "PIH Health Good Samaritan Hospital",
+    "value_sent": "11731 PIH Health Good Samaritan Hospital",
+    "retrieved_at": "2026-09-02T04:29:54.551947+00:00",
+    "out_path": "docs/hcai/ab869/raw/11731/compliance_plan_expanded.pdf",
+    "byte_size": 353388,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11733",
+    "facility_name": "Huntington Hospital",
+    "value_sent": "11733 Huntington Hospital",
+    "retrieved_at": "2026-09-02T04:30:26.518100+00:00",
+    "out_path": "docs/hcai/ab869/raw/11733/compliance_plan_expanded.pdf",
+    "byte_size": 381433,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11748",
+    "facility_name": "Emanate Health Inter-Community Hospital",
+    "value_sent": "11748 Emanate Health Inter-Community Hospital",
+    "retrieved_at": "2026-09-02T04:30:58.919209+00:00",
+    "out_path": "docs/hcai/ab869/raw/11748/compliance_plan_expanded.pdf",
+    "byte_size": 371911,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11758",
+    "facility_name": "Kaiser Foundation Hospital - South Bay",
+    "value_sent": "11758 Kaiser Foundation Hospital - South Bay",
+    "retrieved_at": "2026-09-02T04:31:32.584414+00:00",
+    "out_path": "docs/hcai/ab869/raw/11758/compliance_plan_expanded.pdf",
+    "byte_size": 387234,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11759",
+    "facility_name": "Kaiser Foundation Hospital - Panorama City",
+    "value_sent": "11759 Kaiser Foundation Hospital - Panorama City",
+    "retrieved_at": "2026-09-02T04:32:05.500509+00:00",
+    "out_path": "docs/hcai/ab869/raw/11759/compliance_plan_expanded.pdf",
+    "byte_size": 351517,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11760",
+    "facility_name": "Kaiser Foundation Hospital - Los Angeles",
+    "value_sent": "11760 Kaiser Foundation Hospital - Los Angeles",
+    "retrieved_at": "2026-09-02T04:32:37.416368+00:00",
+    "out_path": "docs/hcai/ab869/raw/11760/compliance_plan_expanded.pdf",
+    "byte_size": 355326,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11768",
+    "facility_name": "Vista Specialty Hospital of La Mirada",
+    "value_sent": "11768 Vista Specialty Hospital of La Mirada",
+    "retrieved_at": "2026-09-02T04:33:09.112500+00:00",
+    "out_path": "docs/hcai/ab869/raw/11768/compliance_plan_expanded.pdf",
+    "byte_size": 329511,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11776",
+    "facility_name": "Kindred Hospital - San Gabriel Valley",
+    "value_sent": "11776 Kindred Hospital - San Gabriel Valley",
+    "retrieved_at": "2026-09-02T04:33:42.586811+00:00",
+    "out_path": "docs/hcai/ab869/raw/11776/compliance_plan_expanded.pdf",
+    "byte_size": 352593,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11787",
+    "facility_name": "Providence Little Company of Mary Medical Center Torrance",
+    "value_sent": "11787 Providence Little Company of Mary Medical Center Torrance",
+    "retrieved_at": "2026-09-02T04:34:14.002242+00:00",
+    "out_path": "docs/hcai/ab869/raw/11787/compliance_plan_expanded.pdf",
+    "byte_size": 391420,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11809",
+    "facility_name": "LAC/Harbor-UCLA Medical Center",
+    "value_sent": "11809 LAC/Harbor-UCLA Medical Center",
+    "retrieved_at": "2026-09-02T04:34:46.916053+00:00",
+    "out_path": "docs/hcai/ab869/raw/11809/compliance_plan_expanded.pdf",
+    "byte_size": 387715,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11810",
+    "facility_name": "Los Angeles General Medical Center",
+    "value_sent": "11810 Los Angeles General Medical Center",
+    "retrieved_at": "2026-09-02T04:35:19.892445+00:00",
+    "out_path": "docs/hcai/ab869/raw/11810/compliance_plan_expanded.pdf",
+    "byte_size": 323127,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11843",
+    "facility_name": "Memorial Hospital of Gardena",
+    "value_sent": "11843 Memorial Hospital of Gardena",
+    "retrieved_at": "2026-09-02T04:35:52.613603+00:00",
+    "out_path": "docs/hcai/ab869/raw/11843/compliance_plan_expanded.pdf",
+    "byte_size": 329111,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11844",
+    "facility_name": "Glendale Memorial Hospital and Health Center",
+    "value_sent": "11844 Glendale Memorial Hospital and Health Center",
+    "retrieved_at": "2026-09-02T04:36:25.490360+00:00",
+    "out_path": "docs/hcai/ab869/raw/11844/compliance_plan_expanded.pdf",
+    "byte_size": 358457,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11846",
+    "facility_name": "Memorialcare Long Beach Medical Center",
+    "value_sent": "11846 Memorialcare Long Beach Medical Center",
+    "retrieved_at": "2026-09-02T04:36:58.034778+00:00",
+    "out_path": "docs/hcai/ab869/raw/11846/compliance_plan_expanded.pdf",
+    "byte_size": 369115,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11847",
+    "facility_name": "Mission Community Hospital",
+    "value_sent": "11847 Mission Community Hospital",
+    "retrieved_at": "2026-09-02T04:37:30.507044+00:00",
+    "out_path": "docs/hcai/ab869/raw/11847/compliance_plan_expanded.pdf",
+    "byte_size": 352501,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11848",
+    "facility_name": "Southern California Hospital At Culver City",
+    "value_sent": "11848 Southern California Hospital At Culver City",
+    "retrieved_at": "2026-09-02T04:38:02.870341+00:00",
+    "out_path": "docs/hcai/ab869/raw/11848/compliance_plan_expanded.pdf",
+    "byte_size": 328810,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11858",
+    "facility_name": "USC Arcadia Hospital",
+    "value_sent": "11858 USC Arcadia Hospital",
+    "retrieved_at": "2026-09-02T04:38:36.090929+00:00",
+    "out_path": "docs/hcai/ab869/raw/11858/compliance_plan_expanded.pdf",
+    "byte_size": 377311,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11863",
+    "facility_name": "Olympia Medical Center",
+    "value_sent": "11863 Olympia Medical Center",
+    "retrieved_at": "2026-09-02T04:39:09.201607+00:00",
+    "out_path": "docs/hcai/ab869/raw/11863/compliance_plan_expanded.pdf",
+    "byte_size": 329822,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11874",
+    "facility_name": "Monrovia Memorial Hospital",
+    "value_sent": "11874 Monrovia Memorial Hospital",
+    "retrieved_at": "2026-09-02T04:39:42.198860+00:00",
+    "out_path": "docs/hcai/ab869/raw/11874/compliance_plan_expanded.pdf",
+    "byte_size": 347438,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11891",
+    "facility_name": "Cedars-Sinai Medical Center",
+    "value_sent": "11891 Cedars-Sinai Medical Center",
+    "retrieved_at": "2026-09-02T04:40:13.838901+00:00",
+    "out_path": "docs/hcai/ab869/raw/11891/compliance_plan_expanded.pdf",
+    "byte_size": 356235,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11906",
+    "facility_name": "Northridge Hospital Medical Center",
+    "value_sent": "11906 Northridge Hospital Medical Center",
+    "retrieved_at": "2026-09-02T04:40:45.504046+00:00",
+    "out_path": "docs/hcai/ab869/raw/11906/compliance_plan_expanded.pdf",
+    "byte_size": 383207,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11910",
+    "facility_name": "Norwalk Community Hospital",
+    "value_sent": "11910 Norwalk Community Hospital",
+    "retrieved_at": "2026-09-02T04:41:18.712764+00:00",
+    "out_path": "docs/hcai/ab869/raw/11910/compliance_plan_expanded.pdf",
+    "byte_size": 330899,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11927",
+    "facility_name": "College Medical Center",
+    "value_sent": "11927 College Medical Center",
+    "retrieved_at": "2026-09-02T04:41:51.794464+00:00",
+    "out_path": "docs/hcai/ab869/raw/11927/compliance_plan_expanded.pdf",
+    "byte_size": 355432,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11966",
+    "facility_name": "Pomona Valley Hospital Medical Center",
+    "value_sent": "11966 Pomona Valley Hospital Medical Center",
+    "retrieved_at": "2026-09-02T04:42:24.033804+00:00",
+    "out_path": "docs/hcai/ab869/raw/11966/compliance_plan_expanded.pdf",
+    "byte_size": 364102,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11968",
+    "facility_name": "PIH Health Whittier Hospital",
+    "value_sent": "11968 PIH Health Whittier Hospital",
+    "retrieved_at": "2026-09-02T04:42:56.594537+00:00",
+    "out_path": "docs/hcai/ab869/raw/11968/compliance_plan_expanded.pdf",
+    "byte_size": 377628,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11971",
+    "facility_name": "Emanate Health Queen Of The Valley Hospital",
+    "value_sent": "11971 Emanate Health Queen Of The Valley Hospital",
+    "retrieved_at": "2026-09-02T04:45:19.534892+00:00",
+    "out_path": "docs/hcai/ab869/raw/11971/compliance_plan_expanded.pdf",
+    "byte_size": 373095,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "11976",
+    "facility_name": "LAC/Rancho Los Amigos National Rehabilitation Center",
+    "value_sent": "11976 LAC/Rancho Los Amigos National Rehabilitation Center",
+    "retrieved_at": "2026-09-02T04:44:01.793902+00:00",
+    "out_path": "docs/hcai/ab869/raw/11976/compliance_plan_expanded.pdf",
+    "byte_size": 326087,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12004",
+    "facility_name": "St. Francis Medical Center",
+    "value_sent": "12004 St. Francis Medical Center",
+    "retrieved_at": "2026-09-02T04:44:35.288328+00:00",
+    "out_path": "docs/hcai/ab869/raw/12004/compliance_plan_expanded.pdf",
+    "byte_size": 355264,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12006",
+    "facility_name": "Saint John's Health Center",
+    "value_sent": "12006 Saint John's Health Center",
+    "retrieved_at": "2026-09-02T04:45:08.121063+00:00",
+    "out_path": "docs/hcai/ab869/raw/12006/compliance_plan_expanded.pdf",
+    "byte_size": 354081,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12008",
+    "facility_name": "Providence Saint Joseph Medical Center",
+    "value_sent": "12008 Providence Saint Joseph Medical Center",
+    "retrieved_at": "2026-09-02T04:45:41.387431+00:00",
+    "out_path": "docs/hcai/ab869/raw/12008/compliance_plan_expanded.pdf",
+    "byte_size": 391916,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12012",
+    "facility_name": "St. Mary Medical Center",
+    "value_sent": "12012 St. Mary Medical Center",
+    "retrieved_at": "2026-09-02T04:48:04.827350+00:00",
+    "out_path": "docs/hcai/ab869/raw/12012/compliance_plan_expanded.pdf",
+    "byte_size": 350334,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12023",
+    "facility_name": "Providence Little Company Of Mary Medical Center San Pedro",
+    "value_sent": "12023 Providence Little Company Of Mary Medical Center San Pedro",
+    "retrieved_at": "2026-09-02T04:46:46.610716+00:00",
+    "out_path": "docs/hcai/ab869/raw/12023/compliance_plan_expanded.pdf",
+    "byte_size": 372779,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12024",
+    "facility_name": "Docs Surgical Hospital",
+    "value_sent": "12024 Docs Surgical Hospital",
+    "retrieved_at": "2026-09-02T04:47:19.645026+00:00",
+    "out_path": "docs/hcai/ab869/raw/12024/compliance_plan_expanded.pdf",
+    "byte_size": 328664,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12042",
+    "facility_name": "Pacifica Hospital of the Valley",
+    "value_sent": "12042 Pacifica Hospital of the Valley",
+    "retrieved_at": "2026-09-02T04:47:52.869823+00:00",
+    "out_path": "docs/hcai/ab869/raw/12042/compliance_plan_expanded.pdf",
+    "byte_size": 328717,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12047",
+    "facility_name": "Sherman Oaks Hospital",
+    "value_sent": "12047 Sherman Oaks Hospital",
+    "retrieved_at": "2026-09-02T04:48:26.085184+00:00",
+    "out_path": "docs/hcai/ab869/raw/12047/compliance_plan_expanded.pdf",
+    "byte_size": 353368,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12088",
+    "facility_name": "Coast Plaza Hospital",
+    "value_sent": "12088 Coast Plaza Hospital",
+    "retrieved_at": "2026-09-02T04:48:58.594358+00:00",
+    "out_path": "docs/hcai/ab869/raw/12088/compliance_plan_expanded.pdf",
+    "byte_size": 330138,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12127",
+    "facility_name": "Ronald Reagan UCLA Medical Center",
+    "value_sent": "12127 Ronald Reagan UCLA Medical Center",
+    "retrieved_at": "2026-09-02T04:49:32.312520+00:00",
+    "out_path": "docs/hcai/ab869/raw/12127/compliance_plan_expanded.pdf",
+    "byte_size": 350510,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12140",
+    "facility_name": "Valley Presbyterian Hospital",
+    "value_sent": "12140 Valley Presbyterian Hospital",
+    "retrieved_at": "2026-09-02T04:50:03.923861+00:00",
+    "out_path": "docs/hcai/ab869/raw/12140/compliance_plan_expanded.pdf",
+    "byte_size": 365657,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12180",
+    "facility_name": "West Covina Medical Center",
+    "value_sent": "12180 West Covina Medical Center",
+    "retrieved_at": "2026-09-02T04:50:37.181254+00:00",
+    "out_path": "docs/hcai/ab869/raw/12180/compliance_plan_expanded.pdf",
+    "byte_size": 329463,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12182",
+    "facility_name": "UCLA West Valley Medical Center",
+    "value_sent": "12182 UCLA West Valley Medical Center",
+    "retrieved_at": "2026-09-02T04:51:10.112528+00:00",
+    "out_path": "docs/hcai/ab869/raw/12182/compliance_plan_expanded.pdf",
+    "byte_size": 356823,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12198",
+    "facility_name": "Adventist Health White Memorial",
+    "value_sent": "12198 Adventist Health White Memorial",
+    "retrieved_at": "2026-09-02T04:51:41.286797+00:00",
+    "out_path": "docs/hcai/ab869/raw/12198/compliance_plan_expanded.pdf",
+    "byte_size": 376702,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12201",
+    "facility_name": "Whittier Hospital Medical Center",
+    "value_sent": "12201 Whittier Hospital Medical Center",
+    "retrieved_at": "2026-09-02T04:52:14.101743+00:00",
+    "out_path": "docs/hcai/ab869/raw/12201/compliance_plan_expanded.pdf",
+    "byte_size": 368476,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12249",
+    "facility_name": "Torrance Memorial Medical Center",
+    "value_sent": "12249 Torrance Memorial Medical Center",
+    "retrieved_at": "2026-09-02T04:52:46.561661+00:00",
+    "out_path": "docs/hcai/ab869/raw/12249/compliance_plan_expanded.pdf",
+    "byte_size": 392695,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12268",
+    "facility_name": "Scripps Mercy Hospital Chula Vista",
+    "value_sent": "12268 Scripps Mercy Hospital Chula Vista",
+    "retrieved_at": "2026-09-02T04:53:20.350398+00:00",
+    "out_path": "docs/hcai/ab869/raw/12268/compliance_plan_expanded.pdf",
+    "byte_size": 366571,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12285",
+    "facility_name": "Rady Children's Hospital San Diego",
+    "value_sent": "12285 Rady Children's Hospital San Diego",
+    "retrieved_at": "2026-09-02T04:53:53.042147+00:00",
+    "out_path": "docs/hcai/ab869/raw/12285/compliance_plan_expanded.pdf",
+    "byte_size": 386344,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12295",
+    "facility_name": "Sharp Coronado Hospital and Healthcare Center",
+    "value_sent": "12295 Sharp Coronado Hospital and Healthcare Center",
+    "retrieved_at": "2026-09-02T04:54:25.798507+00:00",
+    "out_path": "docs/hcai/ab869/raw/12295/compliance_plan_expanded.pdf",
+    "byte_size": 361181,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12309",
+    "facility_name": "Scripps Memorial Hospital - Encinitas",
+    "value_sent": "12309 Scripps Memorial Hospital - Encinitas",
+    "retrieved_at": "2026-09-02T04:54:58.912609+00:00",
+    "out_path": "docs/hcai/ab869/raw/12309/compliance_plan_expanded.pdf",
+    "byte_size": 369468,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12322",
+    "facility_name": "Grossmont Hospital",
+    "value_sent": "12322 Grossmont Hospital",
+    "retrieved_at": "2026-09-02T04:55:31.695223+00:00",
+    "out_path": "docs/hcai/ab869/raw/12322/compliance_plan_expanded.pdf",
+    "byte_size": 392012,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12328",
+    "facility_name": "Kindred Hospital - San Diego",
+    "value_sent": "12328 Kindred Hospital - San Diego",
+    "retrieved_at": "2026-09-02T04:56:04.991307+00:00",
+    "out_path": "docs/hcai/ab869/raw/12328/compliance_plan_expanded.pdf",
+    "byte_size": 356620,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12339",
+    "facility_name": "Scripps Mercy Hospital",
+    "value_sent": "12339 Scripps Mercy Hospital",
+    "retrieved_at": "2026-09-02T04:56:37.112224+00:00",
+    "out_path": "docs/hcai/ab869/raw/12339/compliance_plan_expanded.pdf",
+    "byte_size": 376778,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12348",
+    "facility_name": "Paradise Valley Hospital",
+    "value_sent": "12348 Paradise Valley Hospital",
+    "retrieved_at": "2026-09-02T04:57:09.881947+00:00",
+    "out_path": "docs/hcai/ab869/raw/12348/compliance_plan_expanded.pdf",
+    "byte_size": 366778,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12359",
+    "facility_name": "UC San Diego Health Hillcrest - Hillcrest Medical Center",
+    "value_sent": "12359 UC San Diego Health Hillcrest - Hillcrest Medical Center",
+    "retrieved_at": "2026-09-02T04:57:43.903075+00:00",
+    "out_path": "docs/hcai/ab869/raw/12359/compliance_plan_expanded.pdf",
+    "byte_size": 368990,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12363",
+    "facility_name": "Scripps Memorial Hospital - La Jolla",
+    "value_sent": "12363 Scripps Memorial Hospital - La Jolla",
+    "retrieved_at": "2026-09-02T05:00:06.476160+00:00",
+    "out_path": "docs/hcai/ab869/raw/12363/compliance_plan_expanded.pdf",
+    "byte_size": 386402,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12364",
+    "facility_name": "Sharp Memorial Hospital",
+    "value_sent": "12364 Sharp Memorial Hospital",
+    "retrieved_at": "2026-09-02T04:58:49.935944+00:00",
+    "out_path": "docs/hcai/ab869/raw/12364/compliance_plan_expanded.pdf",
+    "byte_size": 393603,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12372",
+    "facility_name": "Tri-City Medical Center",
+    "value_sent": "12372 Tri-City Medical Center",
+    "retrieved_at": "2026-09-02T04:59:23.176966+00:00",
+    "out_path": "docs/hcai/ab869/raw/12372/compliance_plan_expanded.pdf",
+    "byte_size": 394336,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12551",
+    "facility_name": "USC Verdugo Hills Hospital",
+    "value_sent": "12551 USC Verdugo Hills Hospital",
+    "retrieved_at": "2026-09-02T04:59:55.734707+00:00",
+    "out_path": "docs/hcai/ab869/raw/12551/compliance_plan_expanded.pdf",
+    "byte_size": 328325,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12573",
+    "facility_name": "Foothill Regional Medical Center",
+    "value_sent": "12573 Foothill Regional Medical Center",
+    "retrieved_at": "2026-09-02T05:00:29.744417+00:00",
+    "out_path": "docs/hcai/ab869/raw/12573/compliance_plan_expanded.pdf",
+    "byte_size": 349152,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12662",
+    "facility_name": "Eisenhower Medical Center",
+    "value_sent": "12662 Eisenhower Medical Center",
+    "retrieved_at": "2026-09-02T05:01:01.915875+00:00",
+    "out_path": "docs/hcai/ab869/raw/12662/compliance_plan_expanded.pdf",
+    "byte_size": 384299,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12744",
+    "facility_name": "Cedars-Sinai Marina Hospital",
+    "value_sent": "12744 Cedars-Sinai Marina Hospital",
+    "retrieved_at": "2026-09-02T05:01:34.944844+00:00",
+    "out_path": "docs/hcai/ab869/raw/12744/compliance_plan_expanded.pdf",
+    "byte_size": 359127,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12755",
+    "facility_name": "Memorialcare Saddleback Medical Center",
+    "value_sent": "12755 Memorialcare Saddleback Medical Center",
+    "retrieved_at": "2026-09-02T05:02:07.144778+00:00",
+    "out_path": "docs/hcai/ab869/raw/12755/compliance_plan_expanded.pdf",
+    "byte_size": 368246,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12763",
+    "facility_name": "Desert Valley Hospital",
+    "value_sent": "12763 Desert Valley Hospital",
+    "retrieved_at": "2026-09-02T05:02:39.960746+00:00",
+    "out_path": "docs/hcai/ab869/raw/12763/compliance_plan_expanded.pdf",
+    "byte_size": 361889,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12765",
+    "facility_name": "Adventist Health Delano",
+    "value_sent": "12765 Adventist Health Delano",
+    "retrieved_at": "2026-09-02T05:03:13.748782+00:00",
+    "out_path": "docs/hcai/ab869/raw/12765/compliance_plan_expanded.pdf",
+    "byte_size": 360435,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12787",
+    "facility_name": "Kindred Hospital Paramount",
+    "value_sent": "12787 Kindred Hospital Paramount",
+    "retrieved_at": "2026-09-02T05:05:37.144564+00:00",
+    "out_path": "docs/hcai/ab869/raw/12787/compliance_plan_expanded.pdf",
+    "byte_size": 352356,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12804",
+    "facility_name": "Providence Mission Hospital",
+    "value_sent": "12804 Providence Mission Hospital",
+    "retrieved_at": "2026-09-02T05:04:19.376172+00:00",
+    "out_path": "docs/hcai/ab869/raw/12804/compliance_plan_expanded.pdf",
+    "byte_size": 365084,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12834",
+    "facility_name": "UCI Health-Fountain Valley",
+    "value_sent": "12834 UCI Health-Fountain Valley",
+    "retrieved_at": "2026-09-02T05:04:51.626200+00:00",
+    "out_path": "docs/hcai/ab869/raw/12834/compliance_plan_expanded.pdf",
+    "byte_size": 370716,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12872",
+    "facility_name": "UC San Diego Health - East Campus Medical Center",
+    "value_sent": "12872 UC San Diego Health - East Campus Medical Center",
+    "retrieved_at": "2026-09-02T05:05:25.753120+00:00",
+    "out_path": "docs/hcai/ab869/raw/12872/compliance_plan_expanded.pdf",
+    "byte_size": 359104,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12875",
+    "facility_name": "Kaiser Foundation Hospital-West LA",
+    "value_sent": "12875 Kaiser Foundation Hospital-West LA",
+    "retrieved_at": "2026-09-02T05:05:58.155575+00:00",
+    "out_path": "docs/hcai/ab869/raw/12875/compliance_plan_expanded.pdf",
+    "byte_size": 370130,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12878",
+    "facility_name": "Monterey Park Hospital",
+    "value_sent": "12878 Monterey Park Hospital",
+    "retrieved_at": "2026-09-02T05:06:31.275042+00:00",
+    "out_path": "docs/hcai/ab869/raw/12878/compliance_plan_expanded.pdf",
+    "byte_size": 350850,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12881",
+    "facility_name": "Adventist Health Bakersfield",
+    "value_sent": "12881 Adventist Health Bakersfield",
+    "retrieved_at": "2026-09-02T05:07:04.277355+00:00",
+    "out_path": "docs/hcai/ab869/raw/12881/compliance_plan_expanded.pdf",
+    "byte_size": 363170,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "12992",
+    "facility_name": "Montclair Hospital Medical Center",
+    "value_sent": "12992 Montclair Hospital Medical Center",
+    "retrieved_at": "2026-09-02T05:07:36.797330+00:00",
+    "out_path": "docs/hcai/ab869/raw/12992/compliance_plan_expanded.pdf",
+    "byte_size": 364697,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "13019",
+    "facility_name": "La Palma Intercommunity Hospital",
+    "value_sent": "13019 La Palma Intercommunity Hospital",
+    "retrieved_at": "2026-09-02T05:08:09.418042+00:00",
+    "out_path": "docs/hcai/ab869/raw/13019/compliance_plan_expanded.pdf",
+    "byte_size": 366045,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "13030",
+    "facility_name": "Kindred Hospital Riverside",
+    "value_sent": "13030 Kindred Hospital Riverside",
+    "retrieved_at": "2026-09-02T05:08:43.388891+00:00",
+    "out_path": "docs/hcai/ab869/raw/13030/compliance_plan_expanded.pdf",
+    "byte_size": 350586,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "13035",
+    "facility_name": "Bear Valley Community Hospital",
+    "value_sent": "13035 Bear Valley Community Hospital",
+    "retrieved_at": "2026-09-02T05:09:15.406559+00:00",
+    "out_path": "docs/hcai/ab869/raw/13035/compliance_plan_expanded.pdf",
+    "byte_size": 354744,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "13059",
+    "facility_name": "South Coast Global Medical Center",
+    "value_sent": "13059 South Coast Global Medical Center",
+    "retrieved_at": "2026-09-02T05:09:48.941555+00:00",
+    "out_path": "docs/hcai/ab869/raw/13059/compliance_plan_expanded.pdf",
+    "byte_size": 330630,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "13061",
+    "facility_name": "Anaheim Global Medical Center",
+    "value_sent": "13061 Anaheim Global Medical Center",
+    "retrieved_at": "2026-09-02T05:10:21.943217+00:00",
+    "out_path": "docs/hcai/ab869/raw/13061/compliance_plan_expanded.pdf",
+    "byte_size": 330037,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "13068",
+    "facility_name": "Kindred Hospital Brea",
+    "value_sent": "13068 Kindred Hospital Brea",
+    "retrieved_at": "2026-09-02T05:10:54.697900+00:00",
+    "out_path": "docs/hcai/ab869/raw/13068/compliance_plan_expanded.pdf",
+    "byte_size": 345680,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "13072",
+    "facility_name": "Chino Valley Medical Center",
+    "value_sent": "13072 Chino Valley Medical Center",
+    "retrieved_at": "2026-09-02T05:11:27.226784+00:00",
+    "out_path": "docs/hcai/ab869/raw/13072/compliance_plan_expanded.pdf",
+    "byte_size": 366739,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "13073",
+    "facility_name": "Loma Linda University Medical Center East Campus Hospital",
+    "value_sent": "13073 Loma Linda University Medical Center East Campus Hospital",
+    "retrieved_at": "2026-09-02T05:12:01.176186+00:00",
+    "out_path": "docs/hcai/ab869/raw/13073/compliance_plan_expanded.pdf",
+    "byte_size": 361559,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "13077",
+    "facility_name": "UCI Health-Placentia Linda",
+    "value_sent": "13077 UCI Health-Placentia Linda",
+    "retrieved_at": "2026-09-02T05:12:34.447133+00:00",
+    "out_path": "docs/hcai/ab869/raw/13077/compliance_plan_expanded.pdf",
+    "byte_size": 368975,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "13084",
+    "facility_name": "San Dimas Community Hospital",
+    "value_sent": "13084 San Dimas Community Hospital",
+    "retrieved_at": "2026-09-02T05:14:58.330415+00:00",
+    "out_path": "docs/hcai/ab869/raw/13084/compliance_plan_expanded.pdf",
+    "byte_size": 354497,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "13085",
+    "facility_name": "Providence Cedars-Sinai Tarzana Medical Center",
+    "value_sent": "13085 Providence Cedars-Sinai Tarzana Medical Center",
+    "retrieved_at": "2026-09-02T05:13:41.812796+00:00",
+    "out_path": "docs/hcai/ab869/raw/13085/compliance_plan_expanded.pdf",
+    "byte_size": 371665,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "13093",
+    "facility_name": "Emanate Health Foothill Presbyterian Hospital",
+    "value_sent": "13093 Emanate Health Foothill Presbyterian Hospital",
+    "retrieved_at": "2026-09-02T05:14:14.953157+00:00",
+    "out_path": "docs/hcai/ab869/raw/13093/compliance_plan_expanded.pdf",
+    "byte_size": 352464,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "13111",
+    "facility_name": "Kaiser Foundation Hospital - Zion",
+    "value_sent": "13111 Kaiser Foundation Hospital - Zion",
+    "retrieved_at": "2026-09-02T05:14:48.649787+00:00",
+    "out_path": "docs/hcai/ab869/raw/13111/compliance_plan_expanded.pdf",
+    "byte_size": 359943,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "13224",
+    "facility_name": "Greater El Monte Community Hospital",
+    "value_sent": "13224 Greater El Monte Community Hospital",
+    "retrieved_at": "2026-09-02T05:15:21.315151+00:00",
+    "out_path": "docs/hcai/ab869/raw/13224/compliance_plan_expanded.pdf",
+    "byte_size": 354896,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "13225",
+    "facility_name": "L.A. Downtown Medical Center",
+    "value_sent": "13225 L.A. Downtown Medical Center",
+    "retrieved_at": "2026-09-02T05:15:54.367112+00:00",
+    "out_path": "docs/hcai/ab869/raw/13225/compliance_plan_expanded.pdf",
+    "byte_size": 356712,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "13333",
+    "facility_name": "Henry Mayo Newhall Hospital",
+    "value_sent": "13333 Henry Mayo Newhall Hospital",
+    "retrieved_at": "2026-09-02T05:16:31.580098+00:00",
+    "out_path": "docs/hcai/ab869/raw/13333/compliance_plan_expanded.pdf",
+    "byte_size": 383308,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "13336",
+    "facility_name": "Sharp Chula Vista Medical Center",
+    "value_sent": "13336 Sharp Chula Vista Medical Center",
+    "retrieved_at": "2026-09-02T05:17:04.564360+00:00",
+    "out_path": "docs/hcai/ab869/raw/13336/compliance_plan_expanded.pdf",
+    "byte_size": 370977,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "14100",
+    "facility_name": "Hi-Desert Medical Center",
+    "value_sent": "14100 Hi-Desert Medical Center",
+    "retrieved_at": "2026-09-02T05:17:39.187734+00:00",
+    "out_path": "docs/hcai/ab869/raw/14100/compliance_plan_expanded.pdf",
+    "byte_size": 322369,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "14102",
+    "facility_name": "Kindred Hospital Rancho",
+    "value_sent": "14102 Kindred Hospital Rancho",
+    "retrieved_at": "2026-09-02T05:18:12.773154+00:00",
+    "out_path": "docs/hcai/ab869/raw/14102/compliance_plan_expanded.pdf",
+    "byte_size": 351690,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "14181",
+    "facility_name": "Scripps Green Hospital",
+    "value_sent": "14181 Scripps Green Hospital",
+    "retrieved_at": "2026-09-02T05:18:45.704323+00:00",
+    "out_path": "docs/hcai/ab869/raw/14181/compliance_plan_expanded.pdf",
+    "byte_size": 353059,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "14190",
+    "facility_name": "Palomar Medical Center Poway",
+    "value_sent": "14190 Palomar Medical Center Poway",
+    "retrieved_at": "2026-09-02T05:19:18.508457+00:00",
+    "out_path": "docs/hcai/ab869/raw/14190/compliance_plan_expanded.pdf",
+    "byte_size": 372555,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "14370",
+    "facility_name": "Rady Children's Hospital Orange County",
+    "value_sent": "14370 Rady Children's Hospital Orange County",
+    "retrieved_at": "2026-09-02T05:19:52.380326+00:00",
+    "out_path": "docs/hcai/ab869/raw/14370/compliance_plan_expanded.pdf",
+    "byte_size": 330482,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "15007",
+    "facility_name": "Riverside University Health System - Medical Center",
+    "value_sent": "15007 Riverside University Health System - Medical Center",
+    "retrieved_at": "2026-09-02T05:20:25.728673+00:00",
+    "out_path": "docs/hcai/ab869/raw/15007/compliance_plan_expanded.pdf",
+    "byte_size": 355957,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "15179",
+    "facility_name": "USC Kenneth Norris Jr. Cancer Hospital",
+    "value_sent": "15179 USC Kenneth Norris Jr. Cancer Hospital",
+    "retrieved_at": "2026-09-02T05:22:49.636601+00:00",
+    "out_path": "docs/hcai/ab869/raw/15179/compliance_plan_expanded.pdf",
+    "byte_size": 348812,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "15454",
+    "facility_name": "Sharp Mary Birch Hospital For Women And Newborns",
+    "value_sent": "15454 Sharp Mary Birch Hospital For Women And Newborns",
+    "retrieved_at": "2026-09-02T05:21:31.656085+00:00",
+    "out_path": "docs/hcai/ab869/raw/15454/compliance_plan_expanded.pdf",
+    "byte_size": 346474,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "15630",
+    "facility_name": "Memorialcare Orange Coast Medical Center",
+    "value_sent": "15630 Memorialcare Orange Coast Medical Center",
+    "retrieved_at": "2026-09-02T05:22:03.659464+00:00",
+    "out_path": "docs/hcai/ab869/raw/15630/compliance_plan_expanded.pdf",
+    "byte_size": 360687,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "15666",
+    "facility_name": "Kaiser Foundation Hospital - Woodland Hills",
+    "value_sent": "15666 Kaiser Foundation Hospital - Woodland Hills",
+    "retrieved_at": "2026-09-02T05:22:37.015202+00:00",
+    "out_path": "docs/hcai/ab869/raw/15666/compliance_plan_expanded.pdf",
+    "byte_size": 372142,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "15749",
+    "facility_name": "Southwest Healthcare Inland Valley Hospital",
+    "value_sent": "15749 Southwest Healthcare Inland Valley Hospital",
+    "retrieved_at": "2026-09-02T05:23:10.300461+00:00",
+    "out_path": "docs/hcai/ab869/raw/15749/compliance_plan_expanded.pdf",
+    "byte_size": 330160,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "15801",
+    "facility_name": "LAC/Olive View-UCLA Medical Center",
+    "value_sent": "15801 LAC/Olive View-UCLA Medical Center",
+    "retrieved_at": "2026-09-02T05:23:43.227611+00:00",
+    "out_path": "docs/hcai/ab869/raw/15801/compliance_plan_expanded.pdf",
+    "byte_size": 367064,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "16148",
+    "facility_name": "Menifee Global Medical Center",
+    "value_sent": "16148 Menifee Global Medical Center",
+    "retrieved_at": "2026-09-02T05:24:16.113394+00:00",
+    "out_path": "docs/hcai/ab869/raw/16148/compliance_plan_expanded.pdf",
+    "byte_size": 354040,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "16164",
+    "facility_name": "Kaiser Foundation Hospital - Riverside",
+    "value_sent": "16164 Kaiser Foundation Hospital - Riverside",
+    "retrieved_at": "2026-09-02T05:24:48.895589+00:00",
+    "out_path": "docs/hcai/ab869/raw/16164/compliance_plan_expanded.pdf",
+    "byte_size": 364238,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "16234",
+    "facility_name": "UCI Health-Fountain Valley",
+    "value_sent": "16234 UCI Health-Fountain Valley",
+    "retrieved_at": "2026-09-02T05:25:22.023419+00:00",
+    "out_path": "docs/hcai/ab869/raw/16234/compliance_plan_expanded.pdf",
+    "byte_size": 346728,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "16245",
+    "facility_name": "Encompass Health Rehabilitation Hospital of Bakersfield",
+    "value_sent": "16245 Encompass Health Rehabilitation Hospital of Bakersfield",
+    "retrieved_at": "2026-09-02T05:25:54.073978+00:00",
+    "out_path": "docs/hcai/ab869/raw/16245/compliance_plan_expanded.pdf",
+    "byte_size": 330770,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "16319",
+    "facility_name": "Hoag Hospital Irvine",
+    "value_sent": "16319 Hoag Hospital Irvine",
+    "retrieved_at": "2026-09-02T05:26:28.188801+00:00",
+    "out_path": "docs/hcai/ab869/raw/16319/compliance_plan_expanded.pdf",
+    "byte_size": 356965,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "16325",
+    "facility_name": "Kaiser Foundation Hospital - Moreno Valley",
+    "value_sent": "16325 Kaiser Foundation Hospital - Moreno Valley",
+    "retrieved_at": "2026-09-02T05:27:00.639861+00:00",
+    "out_path": "docs/hcai/ab869/raw/16325/compliance_plan_expanded.pdf",
+    "byte_size": 370763,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "16483",
+    "facility_name": "Keck Hospital of USC",
+    "value_sent": "16483 Keck Hospital of USC",
+    "retrieved_at": "2026-09-02T05:27:35.246180+00:00",
+    "out_path": "docs/hcai/ab869/raw/16483/compliance_plan_expanded.pdf",
+    "byte_size": 351443,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "16681",
+    "facility_name": "Southwest Healthcare Rancho Springs Hospital",
+    "value_sent": "16681 Southwest Healthcare Rancho Springs Hospital",
+    "retrieved_at": "2026-09-02T05:28:08.298701+00:00",
+    "out_path": "docs/hcai/ab869/raw/16681/compliance_plan_expanded.pdf",
+    "byte_size": 329343,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "16703",
+    "facility_name": "Select Specialty Hospital - San Diego",
+    "value_sent": "16703 Select Specialty Hospital - San Diego",
+    "retrieved_at": "2026-09-02T05:30:30.733801+00:00",
+    "out_path": "docs/hcai/ab869/raw/16703/compliance_plan_expanded.pdf",
+    "byte_size": 330216,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "16877",
+    "facility_name": "Ballard Rehabilitation Hospital",
+    "value_sent": "16877 Ballard Rehabilitation Hospital",
+    "retrieved_at": "2026-09-02T05:29:13.984888+00:00",
+    "out_path": "docs/hcai/ab869/raw/16877/compliance_plan_expanded.pdf",
+    "byte_size": 346544,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "17207",
+    "facility_name": "Kaiser Foundation Hospital - Baldwin Park",
+    "value_sent": "17207 Kaiser Foundation Hospital - Baldwin Park",
+    "retrieved_at": "2026-09-02T05:29:49.106573+00:00",
+    "out_path": "docs/hcai/ab869/raw/17207/compliance_plan_expanded.pdf",
+    "byte_size": 358949,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "17282",
+    "facility_name": "Arrowhead Regional Medical Center",
+    "value_sent": "17282 Arrowhead Regional Medical Center",
+    "retrieved_at": "2026-09-02T05:30:21.461156+00:00",
+    "out_path": "docs/hcai/ab869/raw/17282/compliance_plan_expanded.pdf",
+    "byte_size": 324102,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "17358",
+    "facility_name": "Adventist Health Specialty Bakersfield",
+    "value_sent": "17358 Adventist Health Specialty Bakersfield",
+    "retrieved_at": "2026-09-02T05:30:56.069548+00:00",
+    "out_path": "docs/hcai/ab869/raw/17358/compliance_plan_expanded.pdf",
+    "byte_size": 345657,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "17438",
+    "facility_name": "Healthbridge Children's Hospital-Orange",
+    "value_sent": "17438 Healthbridge Children's Hospital-Orange",
+    "retrieved_at": "2026-09-02T05:31:29.840625+00:00",
+    "out_path": "docs/hcai/ab869/raw/17438/compliance_plan_expanded.pdf",
+    "byte_size": 339253,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "17572",
+    "facility_name": "Memorialcare Miller Children's & Women's Hospital Long Beach",
+    "value_sent": "17572 Memorialcare Miller Children's & Women's Hospital Long Beach",
+    "retrieved_at": "2026-09-02T05:32:03.717530+00:00",
+    "out_path": "docs/hcai/ab869/raw/17572/compliance_plan_expanded.pdf",
+    "byte_size": 360685,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "17632",
+    "facility_name": "Mercy Southwest Hospital",
+    "value_sent": "17632 Mercy Southwest Hospital",
+    "retrieved_at": "2026-09-02T05:32:36.974297+00:00",
+    "out_path": "docs/hcai/ab869/raw/17632/compliance_plan_expanded.pdf",
+    "byte_size": 348296,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "17919",
+    "facility_name": "Kaiser Foundation Hospital - Downey",
+    "value_sent": "17919 Kaiser Foundation Hospital - Downey",
+    "retrieved_at": "2026-09-02T05:33:45.410974+00:00",
+    "out_path": "docs/hcai/ab869/raw/17919/compliance_plan_expanded.pdf",
+    "byte_size": 365916,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "18007",
+    "facility_name": "Orange County Global Medical Center",
+    "value_sent": "18007 Orange County Global Medical Center",
+    "retrieved_at": "2026-09-02T05:34:17.470774+00:00",
+    "out_path": "docs/hcai/ab869/raw/18007/compliance_plan_expanded.pdf",
+    "byte_size": 329715,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "18141",
+    "facility_name": "Palmdale Regional Medical Center",
+    "value_sent": "18141 Palmdale Regional Medical Center",
+    "retrieved_at": "2026-09-02T05:34:48.421190+00:00",
+    "out_path": "docs/hcai/ab869/raw/18141/compliance_plan_expanded.pdf",
+    "byte_size": 355121,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "18152",
+    "facility_name": "Kaiser Foundation Hospital - Orange County - Irvine",
+    "value_sent": "18152 Kaiser Foundation Hospital - Orange County - Irvine",
+    "retrieved_at": "2026-09-02T05:35:18.998700+00:00",
+    "out_path": "docs/hcai/ab869/raw/18152/compliance_plan_expanded.pdf",
+    "byte_size": 346457,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "18161",
+    "facility_name": "Loma Linda University Surgical Hospital",
+    "value_sent": "18161 Loma Linda University Surgical Hospital",
+    "retrieved_at": "2026-09-02T05:35:48.256872+00:00",
+    "out_path": "docs/hcai/ab869/raw/18161/compliance_plan_expanded.pdf",
+    "byte_size": 350072,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "18162",
+    "facility_name": "Rehabilitation Hospital Of Southern California",
+    "value_sent": "18162 Rehabilitation Hospital Of Southern California",
+    "retrieved_at": "2026-09-02T05:36:18.540805+00:00",
+    "out_path": "docs/hcai/ab869/raw/18162/compliance_plan_expanded.pdf",
+    "byte_size": 330532,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "18167",
+    "facility_name": "Temecula Valley Hospital",
+    "value_sent": "18167 Temecula Valley Hospital",
+    "retrieved_at": "2026-09-02T05:36:49.203635+00:00",
+    "out_path": "docs/hcai/ab869/raw/18167/compliance_plan_expanded.pdf",
+    "byte_size": 329788,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "18173",
+    "facility_name": "Palomar Medical Center",
+    "value_sent": "18173 Palomar Medical Center",
+    "retrieved_at": "2026-09-02T05:37:19.373806+00:00",
+    "out_path": "docs/hcai/ab869/raw/18173/compliance_plan_expanded.pdf",
+    "byte_size": 345952,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "18175",
+    "facility_name": "Loma Linda University Medical Center - Murrieta",
+    "value_sent": "18175 Loma Linda University Medical Center - Murrieta",
+    "retrieved_at": "2026-09-02T05:37:49.820503+00:00",
+    "out_path": "docs/hcai/ab869/raw/18175/compliance_plan_expanded.pdf",
+    "byte_size": 357178,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "18178",
+    "facility_name": "Kaiser Foundation Hospital - Orange County - Anaheim",
+    "value_sent": "18178 Kaiser Foundation Hospital - Orange County - Anaheim",
+    "retrieved_at": "2026-09-02T05:38:20.546632+00:00",
+    "out_path": "docs/hcai/ab869/raw/18178/compliance_plan_expanded.pdf",
+    "byte_size": 351127,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "18197",
+    "facility_name": "Barstow Community Hospital",
+    "value_sent": "18197 Barstow Community Hospital",
+    "retrieved_at": "2026-09-02T05:38:51.560458+00:00",
+    "out_path": "docs/hcai/ab869/raw/18197/compliance_plan_expanded.pdf",
+    "byte_size": 354773,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "18199",
+    "facility_name": "Kaiser Foundation Hospital - San Diego",
+    "value_sent": "18199 Kaiser Foundation Hospital - San Diego",
+    "retrieved_at": "2026-09-02T05:39:21.890254+00:00",
+    "out_path": "docs/hcai/ab869/raw/18199/compliance_plan_expanded.pdf",
+    "byte_size": 325376,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "18201",
+    "facility_name": "Totally Kids Rehabilitation Hospital",
+    "value_sent": "18201 Totally Kids Rehabilitation Hospital",
+    "retrieved_at": "2026-09-02T05:39:52.592458+00:00",
+    "out_path": "docs/hcai/ab869/raw/18201/compliance_plan_expanded.pdf",
+    "byte_size": 351582,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "18202",
+    "facility_name": "Adventist Health Tehachapi Valley",
+    "value_sent": "18202 Adventist Health Tehachapi Valley",
+    "retrieved_at": "2026-09-02T05:40:22.729806+00:00",
+    "out_path": "docs/hcai/ab869/raw/18202/compliance_plan_expanded.pdf",
+    "byte_size": 359702,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "18213",
+    "facility_name": "Encompass Health Rehabilitation Hospital of Murrieta",
+    "value_sent": "18213 Encompass Health Rehabilitation Hospital of Murrieta",
+    "retrieved_at": "2026-09-02T05:40:53.836254+00:00",
+    "out_path": "docs/hcai/ab869/raw/18213/compliance_plan_expanded.pdf",
+    "byte_size": 323836,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "18226",
+    "facility_name": "Encompass Health Rehabilitation Hospital of Tustin",
+    "value_sent": "18226 Encompass Health Rehabilitation Hospital of Tustin",
+    "retrieved_at": "2026-09-02T05:41:24.385010+00:00",
+    "out_path": "docs/hcai/ab869/raw/18226/compliance_plan_expanded.pdf",
+    "byte_size": 324873,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "18230",
+    "facility_name": "Palomar Rehabilitation Institute",
+    "value_sent": "18230 Palomar Rehabilitation Institute",
+    "retrieved_at": "2026-09-02T05:41:55.604971+00:00",
+    "out_path": "docs/hcai/ab869/raw/18230/compliance_plan_expanded.pdf",
+    "byte_size": 323681,
+    "success": true,
+    "error": null
+  },
+  {
+    "perm_id": "10685",
+    "facility_name": "Kindred Hospital Ontario",
+    "value_sent": "10685 Kindred Hospital Ontario",
+    "retrieved_at": "2026-09-02T05:43:28.275604+00:00",
+    "out_path": null,
+    "byte_size": 0,
+    "success": false,
+    "error": "TimeoutError: Page.wait_for_selector: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator(\"text=Click to Expand\") to be visible\n"
+  },
+  {
+    "perm_id": "17905",
+    "facility_name": "Kaiser Foundation Hospital - Ontario",
+    "value_sent": "17905 Kaiser Foundation Hospital - Ontario",
+    "retrieved_at": "2026-09-02T05:44:03.448500+00:00",
+    "out_path": null,
+    "byte_size": 0,
+    "success": false,
+    "error": "TimeoutError: Page.wait_for_selector: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator(\"text=Click to Expand\") to be visible\n"
+  }
+]

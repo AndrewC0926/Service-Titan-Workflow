@@ -2240,3 +2240,167 @@ class ScheduleEntry(SQLModel, table=True):
     review_reason: str | None = None
     extraction_json: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
     created_at: datetime = Field(default_factory=utcnow)
+
+
+class Ab869Plan(SQLModel, table=True):
+    """One row per in-territory facility's AB 869 seismic compliance plan
+    filing -- facility grain, matching what a compliance plan actually IS
+    (one filing per facility, with per-building detail nested inside it;
+    see Ab869Building/Ab869Milestone for that nested detail, deliberately
+    NOT flattened onto this row). See app/pipeline/ab869.py's module
+    docstring for the full access/parsing investigation this is built on.
+
+    plan_status/plan_status_source: plan_status is sourced from the
+    crosstab CSV's own "Application Status" column when present (158 of
+    201 in-territory facilities carry one); for the 43 that don't,
+    plan_status_source is "pdf_header" and the value comes from the PDF's
+    own "Status: {text}" line instead -- both are real, disclosed sources,
+    never inferred. plan_status_paragraph is PDF-only (nothing else in
+    Scout has it) and is frequently null: the paragraph following the
+    status line is genuinely garbled for many facilities (see
+    app.pipeline.ab869's module docstring on the PDF's own text-layer
+    defect) -- plan_status_paragraph_reason records why when null.
+
+    delay_text/delay_requested: delay_text is the PDF's own "Facility's
+    Request for Delay" section, PDF-only, also frequently null for the
+    same reason. delay_requested is derived ONLY when delay_text itself
+    was successfully extracted: True unless the text is HCAI's own fixed
+    "HCAI has not received an application for delay from this facility"
+    phrasing, which is a literal template match, not an inference -- null
+    when delay_text itself is null, never guessed from anything else.
+
+    owner_name/owner_type/manager_name/manager_type/
+    financially_responsible_party: sourced from the CROSSTAB, not the PDF
+    -- three of the crosstab's own column headers are the literal question
+    text of three of these six PDF "ownership lines" ("Who manages the
+    hospital? ", "What type of entity manages this hospital? ", "Who is
+    financially responsible for the seismic upgrades?"), which is
+    independent confirmation this is the right source, not a guess. The
+    PDF's own rendering of these same six lines is confirmed garbled the
+    same way as the table headers (see app.pipeline.ab869). other_
+    financial_contact (the sixth line, "Other contact financially
+    obligated for infrastructure improvements") has no crosstab equivalent
+    and is always null with other_financial_contact_reason set -- never
+    guessed from an adjacent crosstab column.
+
+    ab869_letter_url: read via pdfplumber's own hyperlink annotations
+    (unaffected by the text-layer defect) -- confirmed 0 of 199 real
+    in-territory PDFs carry one at all, so this column is schema-ready but
+    has never actually been populated against real data as of this
+    migration; kept rather than dropped in case a facility with a real
+    delay letter link appears in a future re-import.
+
+    source_pdf_hash: sha256 of the exact PDF bytes this row was parsed
+    from -- `scout import-ab869`'s own idempotency key alongside perm_id,
+    so re-running the import after Andrew re-pulls a facility's PDF (a new
+    hash) creates a fresh import rather than silently keeping stale data,
+    while re-running against byte-identical files already on disk is a
+    true no-op.
+    """
+    __tablename__ = "ab869_plans"
+    __table_args__ = (UniqueConstraint("perm_id", name="uq_ab869_plan_perm_id"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    perm_id: str = Field(index=True)
+    county: str | None = Field(default=None, index=True)  # denormalized from HospitalBuilding at import time
+
+    plan_status: str | None = Field(default=None, index=True)
+    plan_status_source: str | None = None  # "crosstab" | "pdf_header"
+    plan_status_paragraph: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    plan_status_paragraph_reason: str | None = None
+
+    delay_text: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    delay_text_reason: str | None = None
+    delay_requested: bool | None = Field(default=None, index=True)
+    ab869_letter_url: str | None = None
+
+    owner_name: str | None = None
+    owner_type: str | None = None
+    manager_name: str | None = None
+    manager_type: str | None = None
+    financially_responsible_party: str | None = Field(default=None, index=True)
+    other_financial_contact: str | None = None
+    other_financial_contact_reason: str | None = None
+
+    source_pdf_path: str
+    source_pdf_hash: str = Field(index=True)
+    crosstab_path: str | None = None
+    imported_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class Ab869Building(SQLModel, table=True):
+    """One row per building named in a facility's Compliance Method table
+    -- building grain. Deliberately does NOT duplicate building_name,
+    spc_rating, or npc_rating from HospitalBuilding: those three columns
+    are the single most severely garbled region of the PDF (a long-
+    wrapping name column immediately adjacent to two narrow rating
+    columns -- see app.pipeline.ab869's module docstring), and
+    HospitalBuilding already carries them authoritatively for the same
+    (perm_id, building_nbr) pair at a confirmed 99.5% match rate against
+    this exact crosstab's own Building No. values. Join to
+    HospitalBuilding at query time for those three fields rather than
+    trusting a second, less reliable copy here.
+
+    compliance_type is sourced from the crosstab CSV (clean, already
+    validated), not the PDF. narrative/hcai_comment are PDF-only -- see
+    app.pipeline.ab869 for the column-position extraction and garbling
+    check; either can be null with its own _reason set when that specific
+    cell's text could not be reliably reconstructed.
+    """
+    __tablename__ = "ab869_buildings"
+    __table_args__ = (UniqueConstraint("perm_id", "building_nbr", name="uq_ab869_building"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    perm_id: str = Field(index=True)
+    building_nbr: str = Field(index=True)  # HCAI's "BLD-xxxxx", same format as HospitalBuilding.building_nbr
+
+    compliance_type: str | None = Field(default=None, index=True)
+    narrative: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    narrative_reason: str | None = None
+    hcai_comment: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    hcai_comment_reason: str | None = None
+    # From the crosstab's own "Progress" column -- ANY of a building's
+    # repeated crosstab rows carrying "Missed Milestone(s)" sets this. A
+    # building-level flag, not tied to any one Ab869Milestone row, because
+    # the crosstab's progress-bucket rows and the PDF's own per-milestone
+    # rows are two different views of the same underlying schedule, not a
+    # 1:1 join Scout can make reliably.
+    has_missed_milestone: bool = Field(default=False, index=True)
+
+    imported_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class Ab869Milestone(SQLModel, table=True):
+    """One row per milestone in a building's Milestone Description Table
+    -- milestone grain (many per building, PIN 80 allows up to ten).
+    PDF-only; nothing else in Scout has this.
+
+    completion_date_text is the verbatim string the hospital reported
+    (only ever accepted here after matching an MM/DD/YYYY-shaped pattern --
+    see app.pipeline.ab869's _DATE_RE -- so it is a validated date string,
+    not arbitrary text); completion_date is that SAME value parsed to a
+    real date, kept separate rather than replacing the raw string, same
+    "raw verbatim + derived" split this codebase already uses for
+    HospitalBuilding.spc_rating/spc_deadline_year. completion_date is what
+    the join's own date-sorted milestone report (Phase C.6.c) filters and
+    sorts on; completion_date_text is what a human reads to confirm it.
+    """
+    __tablename__ = "ab869_milestones"
+
+    id: int | None = Field(default=None, primary_key=True)
+    perm_id: str = Field(index=True)
+    building_nbr: str = Field(index=True)
+
+    milestone_type: str | None = Field(default=None, index=True)
+    milestone_type_reason: str | None = None
+    description: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    description_reason: str | None = None
+    completion_date_text: str | None = None
+    completion_date: datetime | None = Field(default=None, index=True)
+    completion_date_reason: str | None = None
+    hcai_comment: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    hcai_comment_reason: str | None = None
+    met_by_hcai: str | None = None
+    met_by_hcai_reason: str | None = None
+
+    imported_at: datetime = Field(default_factory=utcnow, index=True)

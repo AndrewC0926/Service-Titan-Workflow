@@ -657,6 +657,18 @@ sources:
     stale_hours: 2160
     portal_url: "https://data.chhs.ca.gov/dataset/seismic-ratings-and-collapse-probabilities-of-california-hospitals"
     extensions_url: "https://data.chhs.ca.gov/dataset/e961df15-50b8-4217-9628-b696ea121ee0"
+  # AB 869 seismic compliance plan roster -- see app/pipeline/ab869.py's
+  # module docstring for the full access investigation (robots.txt/terms
+  # sanctioned, but the Tableau roster itself requires a real browser
+  # session to render -- Playwright, not a fetcher) and `scout import-ab869`.
+  # NOT scheduled -- a human runs the Playwright pull and the import by
+  # hand, same as hcai_seismic_ratings, and for the same reason: there is
+  # no fetch cadence to measure at all, so 2160h (90 days) is the same
+  # judgment call, not a separately-derived number.
+  ab869_compliance_plans:
+    enabled: true
+    stale_hours: 2160
+    raw_dir: "docs/hcai/ab869/raw"
   # UA Local 250's own public signatory contractor list -- see
   # app/pipeline/local250.py for the compliance check, fetch, and CSLB join.
   # Weekly, same day as the retrofit steps: a public union roster doesn't

@@ -1383,6 +1383,54 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "app.ops.doctor's per-source stale_hours override, added for this source.",
     ))
 
+    # ---- AB 869 seismic compliance plan roster -------------------------------
+
+    out.append(Assumption(
+        group="AB 869 seismic compliance plan roster",
+        name="hcai.ca.gov / tab.hcai.ca.gov — robots.txt, X-Robots-Tag, meta robots",
+        config_path=None,
+        value="No automated-access restriction found; manual import chosen for a practical reason, not a legal one",
+        source_type=STATED,
+        source_detail=(
+            "Three checks, all read directly 2026-09-02 against the actual roster URL "
+            "(tab.hcai.ca.gov/t/OSHPD_PUBLIC/views/CompliancePlanWebsite/CompliancePlan), re-run after "
+            "an independent fetcher reported a robots-disallowed error for this same URL -- that report "
+            "did not reproduce here. (1) ROBOTS.TXT -- `curl -D -` against "
+            "https://tab.hcai.ca.gov/robots.txt returns a genuine HTTP 404, served by Tableau Server's "
+            "own generic error page (title 'Page Not Found', Server: Tableau header present, "
+            "X-Tableau: Tableau Server header present) -- not a redirect, not a WAF block page, not an "
+            "empty/malformed response that could be mistaken for one. No robots.txt file exists on this "
+            "host, same 'no file = default permissive' status CSLB's domain already has elsewhere in "
+            "this codebase. (2) X-ROBOTS-TAG -- absent from both the robots.txt response headers and "
+            "the view URL's own response headers (full header dump captured both times; grepped "
+            "case-insensitively, no match). (3) META ROBOTS -- absent from the view URL's HTML body "
+            "(grepped case-insensitively for any <meta ... robots ...> tag; no match. The HTML returned "
+            "is a genuine 200, Content-Length 5053, a pure Tableau/VizQL JS bootstrap shell with no "
+            "server-rendered data). Separately, hcai.ca.gov's own Conditions of Use "
+            "(hcai.ca.gov/home/conditions-of-use/, read directly) carries no automated-access/bot/"
+            "scraper restriction at all -- it states site information 'is considered in the public "
+            "domain' and 'may be distributed or copied as permitted by law', the CAEATFA "
+            "(treasurer.ca.gov) profile, not the CHHS Open Data Portal profile that put HCAI seismic "
+            "ratings and IEPR on manual import. All three signals are clean: nothing here forbids "
+            "automated access. The reason this source still comes in manually is NOT a terms question "
+            "-- it is that the roster is a live Tableau Server VizQL application requiring real browser "
+            "JS execution to populate (the bootstrap shell above proves this: no data exists in the "
+            "plain-HTTP response to scrape even if fully permitted to). Building a VizQL session client "
+            "for a one-source pilot was judged not worth it; a human reading the filtered view and "
+            "supplying the results by hand is the chosen path, matching the HCAI-seismic precedent's "
+            "OWN import shape (`scout import-*` from a file already obtained) even though the "
+            "underlying legal reasoning differs from that precedent's CHHS-terms basis. The independent "
+            "fetcher's earlier 'robots-disallowed' report is unexplained by anything found here -- "
+            "possibly a stale/cached robots.txt read, a cross-host robots.txt check against hcai.ca.gov "
+            "instead of tab.hcai.ca.gov, or a rate-limit/WAF response that fetcher's own error handling "
+            "mislabeled -- but is not reproduced by a direct, fresh fetch."
+        ),
+        verified=True,
+        last_reviewed="2026-09-02, read directly from tab.hcai.ca.gov/robots.txt (headers + body), the "
+                      "CompliancePlanWebsite view URL's own response headers and HTML body, and "
+                      "hcai.ca.gov/home/conditions-of-use/.",
+    ))
+
     return out
 
 

@@ -537,6 +537,28 @@ def sam_gov_cmd(
     typer.echo(json.dumps(stats))
 
 
+@app.command("import-ab869")
+def import_ab869_cmd(
+    raw_dir: str = typer.Option("docs/hcai/ab869/raw",
+                                help="Directory of per-facility {perm_id}/crosstab.csv + "
+                                     "compliance_plan_expanded.pdf, already pulled by hand "
+                                     "(crosstab loop + Playwright pass) -- no fetcher here"),
+) -> None:
+    """Import the AB 869 seismic compliance plan roster from a directory
+    already populated by hand -- see app/pipeline/ab869.py's module
+    docstring for the full access investigation (robots.txt/terms
+    sanctioned, but the Tableau roster needs a real browser session, so
+    this is a Playwright pull, not a fetcher) and the PDF text-layer
+    defect this parser works around. Idempotent on (perm_id,
+    source_pdf_hash): a facility whose PDF is unchanged since the last
+    import is skipped; writes ab869_plans/ab869_buildings/ab869_milestones,
+    replacing a changed facility's rows wholesale, never appending."""
+    from app.pipeline.ab869 import import_ab869
+    with session_scope() as session:
+        stats = import_ab869(session, raw_dir=raw_dir)
+    typer.echo(json.dumps(stats))
+
+
 @app.command("specs-pilot")
 def specs_pilot_cmd(
     directory: str = typer.Option("docs/specs-pilot", help="Directory of hand-placed PDF/.docx/.xlsx documents"),

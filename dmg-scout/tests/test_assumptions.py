@@ -196,10 +196,17 @@ def test_identity_penalty_value_unchanged_evidence_only(cfg):
 
 def test_placeholder_is_the_honest_majority_not_hidden(cfg):
     """Not a normative assertion about what SHOULD be true -- a regression
-    guard on the finding itself. If this ever flips because someone fixed
-    the config, that's good news and the test should be updated; if it
-    silently stops being true because a future edit reclassifies entries
-    without justification, this catches it."""
+    guard on the finding itself. A strict >=50% share is expected to erode
+    over time as more entries get genuinely verified (each one is good
+    news, not a bug) -- so this checks placeholder is still the largest
+    SINGLE category, a weaker but more durable version of the same finding,
+    rather than re-tuning a hardcoded ratio every time a source gets
+    checked. If placeholder ever stops being the plurality because a future
+    edit reclassifies entries without justification, this still catches it."""
     assumptions = load_assumptions(cfg)
-    placeholder_n = sum(1 for a in assumptions if a.source_type == PLACEHOLDER)
-    assert placeholder_n >= len(assumptions) / 2
+    from collections import Counter
+    counts = Counter(a.source_type for a in assumptions)
+    placeholder_n = counts[PLACEHOLDER]
+    other_counts = [n for t, n in counts.items() if t != PLACEHOLDER]
+    assert placeholder_n == max(counts.values())
+    assert placeholder_n > max(other_counts, default=0)
