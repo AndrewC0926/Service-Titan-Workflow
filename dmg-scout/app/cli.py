@@ -540,6 +540,9 @@ def sam_gov_cmd(
 @app.command("generate-line-pitches")
 def generate_line_pitches_cmd(
     cap_usd: float = typer.Option(5.0, help="Hard dollar cap for the whole run (app.spend.run_budget)"),
+    only_lines: str = typer.Option(
+        None, help="Comma-separated EXACT ProductLine.name values to regenerate; every other "
+                   "eligible line's current row is left untouched. Omit to run all eligible lines."),
 ) -> None:
     """One Sonnet pass per line-card product line, writing DRAFT
     line_pitches/line_competitors rows for a new rep to review at
@@ -548,10 +551,20 @@ def generate_line_pitches_cmd(
     manufacturer page or dropped) and what gets skipped (existence_verified
     is False, or a line already reviewed 'confirmed'). Nothing here is ever
     shown as fact until a human confirms it."""
+    from app.models import ProductLine
     from app.pipeline.line_pitch import run_line_pitch_generation
     cfg = load_config()
     with session_scope() as session:
-        stats = run_line_pitch_generation(session, cfg, cap_usd=cap_usd)
+        only_line_ids = None
+        if only_lines:
+            names = [n.strip() for n in only_lines.split(",") if n.strip()]
+            rows = session.exec(select(ProductLine).where(ProductLine.name.in_(names))).all()
+            found_names = {r.name for r in rows}
+            missing = [n for n in names if n not in found_names]
+            if missing:
+                raise typer.BadParameter(f"no ProductLine matches: {missing!r}")
+            only_line_ids = {r.id for r in rows}
+        stats = run_line_pitch_generation(session, cfg, cap_usd=cap_usd, only_line_ids=only_line_ids)
     typer.echo(json.dumps(stats, indent=2, default=str))
 
 

@@ -902,6 +902,23 @@ class ProductLine(SQLModel, table=True):
 
     limitations: str | None = None            # stated plainly, only where actually known — never inferred
 
+    # The ONE exception to this model's own "seeded from config.yaml,
+    # edited there" convention stated in the class docstring above --
+    # added 2026-09-04 by app.pipeline.line_pitch.discover_domain_via_web_search
+    # for the lines whose own basis text names no plausible domain
+    # (app.pipeline.line_pitch.candidate_domains). Closer in spirit to
+    # CompetitorLine.source_url than to a seeded fact: a manufacturer's
+    # domain doesn't change, so it is looked up via ONE web search, per
+    # line, ever -- once official_domain is set here, no later run
+    # searches again for that line (see candidate_domains, which tries
+    # this field first). official_domain_source is 'web_search' when
+    # found this way; official_domain_url is the fetched home page that
+    # confirmed the line's own name actually appears on it (the
+    # plausibility gate -- a web_search citation alone is never trusted).
+    official_domain: str | None = None
+    official_domain_source: str | None = None  # web_search | null
+    official_domain_url: str | None = None
+
     created_at: datetime = Field(default_factory=utcnow)
 
 

@@ -24,17 +24,30 @@ INPUTS -- deliberately narrow, per the brief ("using only"):
      knowledge, and any name it returns that isn't in the candidate set
      is dropped in code, not trusted from the schema alone (see
      _validate_competitor_names).
-  3. The manufacturer's own product page, IF a plausible URL for it can
-     be found WITHOUT a web search and robots.txt permits fetching it --
-     see _candidate_domains, which extracts a domain from this line's OWN
+  3. The manufacturer's own product page(s), fetched two ways in order:
+     (a) candidate_domains -- a domain extracted from this line's OWN
      already-researched basis fields (country_of_manufacture_basis,
-     ahri_certified_basis, etc. -- all seeded from a rep's own prior
-     research, not a new lookup), never invents one, and never falls back
-     to guessing "{name}.com". Measured against the real production line
-     card, 2026-09-03: 48 of 69 eligible lines have a plausible domain in
-     their own basis text; the other 21 get NO product-page fetch and
-     therefore NO factual (numeric/certification) claims at all -- only
-     the role/category-level pitch content that doesn't need grounding.
+     ahri_certified_basis, etc.) or a previously-discovered
+     ProductLine.official_domain, never invented, never a guessed
+     "{name}.com". Measured against the real production line card,
+     2026-09-03: 48 of 69 eligible lines had a plausible domain this way.
+     (b) discover_domain_via_web_search -- added 2026-09-04, ONE
+     web_search-enabled Sonnet call (app.llm.find_line_domain), used ONLY
+     as a fallback when (a) produced nothing fetchable, and ONLY once per
+     line ever (never retried once ProductLine.official_domain is set,
+     even if a later fetch of it fails). The domain it returns is trusted
+     only after fetch_product_pages actually retrieves the home page AND
+     the line's own name is found on it (_page_contains_line_name) -- a
+     web_search citation alone is never enough. Whichever way a domain
+     was found, fetch_product_pages fetches TWO pages -- the home page and
+     the most product-like page linked from it (matching "product",
+     "catalog", or "solutions" in its link text or href) -- and grounds
+     against both concatenated, since a manufacturer's real capability
+     claims routinely live on a dedicated catalog page, not the home
+     page's marketing copy. A line with no fetchable domain by either
+     method gets NO product-page fetch and therefore NO factual
+     (numeric/certification/capability) claims at all -- only the
+     role/category-level pitch content that doesn't need grounding.
 
 GROUNDING (rewritten 2026-09-03 -- round 2 of this feature). Every
 sentence in a generated field is scanned for claim FRAGMENTS, not just
@@ -433,7 +446,16 @@ def candidate_domains(line: ProductLine) -> list[str]:
     """Domains extractable from THIS line's own already-researched basis
     fields whose registrable name plausibly matches the line's own name --
     never a web search, never a guessed '{name}.com'. See module docstring
-    for the measured 48/69 real-corpus hit rate."""
+    for the measured 48/69 real-corpus hit rate.
+
+    line.official_domain (set at most once per line, by
+    discover_domain_via_web_search, after the fetched page was checked
+    for the line's own name -- see that function and ProductLine's own
+    docstring) is tried FIRST when present, ahead of anything extracted
+    from basis text here -- it is the one candidate that has already been
+    validated against a real fetch, not merely a citation."""
+    if line.official_domain:
+        return [line.official_domain]
     basis_fields = (
         line.description, line.existence_verified_basis, line.heat_rejection_mode_basis,
         line.latent_load_capability_basis, line.corrosion_resistance_basis,
@@ -487,6 +509,175 @@ def fetch_product_page(domain: str) -> tuple[str | None, str | None, str]:
     if not text.strip():
         return None, url, "fetch_failed"
     return text[:MAX_PAGE_CHARS], url, "fetched"
+
+
+# ---- two-page fetch (added 2026-09-04): a manufacturer's own capability
+# claims routinely live on a dedicated products/catalog page, not the home
+# page's marketing copy, so grounding against the home page alone under-
+# counts what's actually checkable. Same robots/retry discipline as
+# fetch_product_page above (which stays in place, unchanged, for anything
+# that only needs a single page and for the existing test suite's mocks).
+
+_PRODUCT_LINK_KEYWORDS = ("product", "catalog", "solutions")
+
+
+def _extract_product_like_link(tree, base_url: str) -> str | None:
+    """The first link on the home page whose own text or href matches a
+    product-page keyword, checked in _PRODUCT_LINK_KEYWORDS order so a
+    'product' link is preferred over a merely 'solutions' one when a page
+    has both. Resolved against base_url; a link to a different host is
+    never followed (a home page's footer routinely links to a parent
+    corporation, a certification body, or a social profile -- none of
+    those are this line's own deeper content)."""
+    from urllib.parse import urljoin, urlparse
+
+    base_host = urlparse(base_url).netloc
+    best: tuple[int, str] | None = None
+    for a in tree.css("a"):
+        href = a.attributes.get("href")
+        if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
+            continue
+        text = (a.text() or "").strip().lower()
+        href_l = href.lower()
+        for rank, kw in enumerate(_PRODUCT_LINK_KEYWORDS):
+            if kw in text or kw in href_l:
+                resolved = urljoin(base_url, href)
+                if urlparse(resolved).netloc != base_host:
+                    break
+                if best is None or rank < best[0]:
+                    best = (rank, resolved)
+                break
+    return best[1] if best else None
+
+
+def _parse_page_text(html: str) -> str:
+    from selectolax.parser import HTMLParser
+
+    tree = HTMLParser(html)
+    for tag in tree.css("script, style, noscript"):
+        tag.decompose()
+    return tree.body.text(separator=" ", strip=True) if tree.body else ""
+
+
+def fetch_product_pages(domain: str) -> tuple[str | None, str | None, str, list[str]]:
+    """Home page plus, if one is linked, the most product-like page
+    (products/catalog/solutions) -- grounded against both, concatenated
+    into one page_text (every caller downstream, ground_text/ground_list/
+    ground_required_claim, already just takes a single page_text string,
+    so no other code needs to know there were two fetches).
+
+    Returns (combined_page_text_or_None, home_url_or_None, fetch_status,
+    urls_fetched). fetch_status describes the HOME page fetch only --
+    'fetched' | 'robots_disallowed' | 'fetch_failed', same three values as
+    fetch_product_page. A second-page fetch failure (robots, network, no
+    matching link found at all) just means grounding runs against one
+    page instead of two; it is never a reason to fail the whole line, so
+    it is swallowed here and logged, not raised or returned as a status.
+
+    Both requests share ONE PoliteClient, so robots.txt is fetched once
+    per host but re-checked (app.http.PoliteClient.request calls
+    rp.can_fetch on the FULL url every time) before the second page --
+    a host that blocks /products/ while allowing / is still respected."""
+    from selectolax.parser import HTMLParser
+
+    from app.http import PoliteClient, RobotsDisallowed
+
+    home_url = f"https://{domain}/"
+    try:
+        with PoliteClient(interval=0.5, max_retries=1, max_retries_5xx=0) as client:
+            resp = client.get(home_url, timeout=FETCH_TIMEOUT_SECONDS)
+            tree = HTMLParser(resp.text)
+            for tag in tree.css("script, style, noscript"):
+                tag.decompose()
+            home_text = tree.body.text(separator=" ", strip=True) if tree.body else ""
+            if not home_text.strip():
+                return None, home_url, "fetch_failed", []
+
+            urls_fetched = [home_url]
+            texts = [home_text[:MAX_PAGE_CHARS]]
+
+            product_url = _extract_product_like_link(tree, home_url)
+            if product_url and product_url != home_url:
+                try:
+                    presp = client.get(product_url, timeout=FETCH_TIMEOUT_SECONDS)
+                    product_text = _parse_page_text(presp.text)
+                    if product_text.strip():
+                        texts.append(product_text[:MAX_PAGE_CHARS])
+                        urls_fetched.append(product_url)
+                except RobotsDisallowed:
+                    log.info("line_pitch: product page disallowed by robots.txt: %s", product_url)
+                except Exception as exc:  # noqa: BLE001 -- a second-page failure is never fatal
+                    log.warning("line_pitch: product-page fetch failed for %s: %s", product_url, exc)
+    except RobotsDisallowed:
+        return None, None, "robots_disallowed", []
+    except Exception as exc:  # noqa: BLE001 -- one bad domain must not kill the whole run
+        log.warning("line_pitch: fetch failed for %s: %s", home_url, exc)
+        return None, None, "fetch_failed", []
+
+    return "\n\n".join(texts), home_url, "fetched", urls_fetched
+
+
+def _page_contains_line_name(page_text: str | None, line_name: str) -> bool:
+    """The plausibility gate for a web_search-discovered domain (see
+    discover_domain_via_web_search): the fetched home page must actually
+    mention the line's own name somewhere, normalized the same way
+    _norm_key does everywhere else in this module -- a web_search
+    citation alone is never trusted, only a fetch that positively
+    confirms it. Deliberately a plain normalized substring check, not a
+    fuzzy/token-scatter one: a compound or slash name ('TCF/Twin City
+    Fan') may legitimately fail this even for the line's own real
+    domain if the page only ever spells out one half -- a disclosed,
+    accepted false-negative risk, not a bug, since the alternative (a
+    looser match) would let an unrelated page through instead."""
+    if not page_text or not line_name:
+        return False
+    norm_page = " ".join(_NON_ALNUM.sub(" ", page_text.lower()).split())
+    norm_name = " ".join(_NON_ALNUM.sub(" ", line_name.lower()).split())
+    return bool(norm_name) and norm_name in norm_page
+
+
+def discover_domain_via_web_search(cfg: Config, line: ProductLine) -> dict:
+    """ONE web_search-enabled Sonnet call (app.llm.find_line_domain) to
+    find a domain for a line whose own basis text named none -- used ONLY
+    as a fallback, never in place of candidate_domains. Fetches the
+    returned domain's home page and accepts it ONLY if the page actually
+    names this line (_page_contains_line_name) -- the model's own
+    citation is never trusted on its own. Never writes to `line` itself;
+    the caller (generate_one_line) does that, since only it knows whether
+    the fetch that follows actually succeeded end to end.
+
+    Returns {"domain": str|None, "url": str|None, "page_text": str|None,
+    "fetch_status": str, "searched": True, "cost_usd": float}. Only
+    BudgetExceeded propagates; any other failure (web_search call itself
+    errors, fetch fails, name doesn't match) comes back as domain=None,
+    same as "we looked and found nothing" -- a bad domain lookup must
+    never crash the run any more than a bad LLM pitch call does."""
+    from app.llm import find_line_domain
+    from app.spend import BudgetExceeded
+
+    try:
+        result = find_line_domain(line.name, line.category, line.description)
+    except BudgetExceeded:
+        raise
+    except Exception as exc:  # noqa: BLE001 -- a failed search must not kill the whole run
+        log.warning("line_pitch: domain search failed for %s: %s", line.name, exc)
+        return {"domain": None, "url": None, "page_text": None, "fetch_status": "fetch_failed",
+               "searched": True, "cost_usd": 0.0}
+
+    domain = result.get("domain")
+    if not domain or domain in EXCLUDED_DOMAINS:
+        return {"domain": None, "url": None, "page_text": None, "fetch_status": "no_domain_found",
+               "searched": True, "cost_usd": result.get("cost_usd", 0.0)}
+
+    page_text, url, fetch_status, _urls = fetch_product_pages(domain)
+    if fetch_status != "fetched" or not _page_contains_line_name(page_text, line.name):
+        log.info("line_pitch: web_search domain %s for %s rejected (fetch_status=%s, name_match=%s)",
+                 domain, line.name, fetch_status, _page_contains_line_name(page_text, line.name))
+        return {"domain": None, "url": None, "page_text": None, "fetch_status": "no_domain_found",
+               "searched": True, "cost_usd": result.get("cost_usd", 0.0)}
+
+    return {"domain": domain, "url": url, "page_text": page_text, "fetch_status": "fetched",
+           "searched": True, "cost_usd": result.get("cost_usd", 0.0)}
 
 
 # ---- the one Sonnet call, per line -----------------------------------------
@@ -564,7 +755,18 @@ def generate_one_line(session: Session, cfg: Config, line: ProductLine) -> dict:
     at all -- there is nothing to write a grounded capability claim
     against, so none is attempted. Never raises for a bad LLM response
     (records an error instead) -- ONLY lets app.spend.BudgetExceeded
-    propagate, since that one must stop the whole run, not just this line."""
+    propagate, since that one must stop the whole run, not just this line.
+
+    2026-09-04: if candidate_domains() (this line's own basis text, or a
+    previously-discovered line.official_domain) produces nothing fetchable,
+    ONE web_search-based domain lookup is tried (discover_domain_via_web_search)
+    -- but ONLY when line.official_domain is not already set, since that
+    field means a search already ran for this line at some point and found
+    nothing worth trusting further, or found something and there's no
+    reason to search again. A domain the search finds AND validates gets
+    written onto the line immediately (before the pitch LLM call, so it
+    persists even if that call then fails or the run's budget runs out) --
+    see candidate_domains, which tries this field first from then on."""
     branches = _confirmed_branches(session, line)
 
     competitor_rows = competing_lines_by_role(session).get(line.building_role, [])
@@ -577,8 +779,23 @@ def generate_one_line(session: Session, cfg: Config, line: ProductLine) -> dict:
     domains = candidate_domains(line)
     page_text = page_url = None
     fetch_status = "no_domain_found"
+    domain_source = "basis_text" if domains else None
     if domains:
-        page_text, page_url, fetch_status = fetch_product_page(domains[0])
+        page_text, page_url, fetch_status, _urls = fetch_product_pages(domains[0])
+
+    search_result = None
+    if fetch_status != "fetched" and not line.official_domain:
+        search_result = discover_domain_via_web_search(cfg, line)
+        if search_result["domain"]:
+            line.official_domain = search_result["domain"]
+            line.official_domain_source = "web_search"
+            line.official_domain_url = search_result["url"]
+            session.add(line)
+            session.commit()
+            page_text, page_url = search_result["page_text"], search_result["url"]
+            fetch_status = "fetched"
+            domain_source = "web_search"
+            domains = [search_result["domain"]]
 
     if fetch_status != "fetched":
         return {
@@ -586,6 +803,9 @@ def generate_one_line(session: Session, cfg: Config, line: ProductLine) -> dict:
             "raw": line_row_only_pitch(session, line),
             "page_text": None, "page_url": None, "fetch_status": fetch_status,
             "pitch_scope": "line_row_only", "domains_tried": domains, "model": None,
+            "domain_source": None,
+            "web_search_attempted": search_result is not None,
+            "web_search_cost_usd": (search_result or {}).get("cost_usd", 0.0),
         }
 
     user_content = _build_user_content(line, branches, candidates, page_text, page_url)
@@ -604,12 +824,18 @@ def generate_one_line(session: Session, cfg: Config, line: ProductLine) -> dict:
             "page_text": None, "page_url": None, "fetch_status": "fetch_failed",
             "pitch_scope": "line_row_only", "domains_tried": domains, "model": None,
             "llm_error": f"{type(exc).__name__}: {exc}",
+            "domain_source": domain_source,
+            "web_search_attempted": search_result is not None,
+            "web_search_cost_usd": (search_result or {}).get("cost_usd", 0.0),
         }
 
     return {
         "ok": True, "line_id": line.id, "line_name": line.name, "raw": raw,
         "page_text": page_text, "page_url": page_url, "fetch_status": fetch_status,
         "pitch_scope": "full", "domains_tried": domains, "model": model,
+        "domain_source": domain_source,
+        "web_search_attempted": search_result is not None,
+        "web_search_cost_usd": (search_result or {}).get("cost_usd", 0.0),
     }
 
 
@@ -765,23 +991,35 @@ def _write_pitch_and_competitors(session: Session, line: ProductLine, result: di
     }
 
 
-def run_line_pitch_generation(session: Session, cfg: Config, *, cap_usd: float = 5.0) -> dict:
+def run_line_pitch_generation(session: Session, cfg: Config, *, cap_usd: float = 5.0,
+                              only_line_ids: set[int] | None = None) -> dict:
     """The whole run: every eligible ProductLine, one Sonnet call each,
     hard-capped at cap_usd total. Skips (a) any line with
     existence_verified is False (per the brief), (b) any line whose
     LinePitch is already 'confirmed' (a human's review is never silently
     redone). Does NOT skip a 'rejected' or 'draft' pitch -- a rejected
-    pitch is a signal to try again differently, not a permanent no."""
+    pitch is a signal to try again differently, not a permanent no.
+
+    only_line_ids (added 2026-09-04): when given, every other eligible
+    line is skipped without touching its existing row at all -- for a
+    targeted rerun of just the lines a specific fix affects (see `scout
+    generate-line-pitches --only-lines`), leaving every other line's
+    current draft exactly as it is rather than regenerating the whole
+    card every time one thing changes."""
     lines = session.exec(
         select(ProductLine).where(ProductLine.existence_verified.is_not(False))
         .order_by(ProductLine.name)
     ).all()
+    if only_line_ids is not None:
+        lines = [l for l in lines if l.id in only_line_ids]
 
     stats = {
         "lines_total": len(lines), "lines_generated": 0, "lines_skipped_existence_false": 0,
         "lines_skipped_already_confirmed": 0, "lines_skipped_budget": 0, "lines_errored": 0,
         "grounded_claims_total": 0, "dropped_claims_total": 0, "claims_extracted_total": 0,
         "competitors_written_total": 0, "lines_line_row_only": 0, "lines_insufficient": 0,
+        "web_search_attempted": 0, "web_search_domain_found": 0, "web_search_domain_not_found": 0,
+        "web_search_cost_usd": 0.0,
         "fetch_status_counts": {}, "errors": [], "sample_pitches": [], "per_line_claims": [],
     }
 
@@ -817,6 +1055,14 @@ def run_line_pitch_generation(session: Session, cfg: Config, *, cap_usd: float =
             stats["fetch_status_counts"][result.get("fetch_status", "error")] = (
                 stats["fetch_status_counts"].get(result.get("fetch_status", "error"), 0) + 1)
 
+            if result.get("web_search_attempted"):
+                stats["web_search_attempted"] += 1
+                stats["web_search_cost_usd"] += result.get("web_search_cost_usd", 0.0)
+                if result.get("domain_source") == "web_search":
+                    stats["web_search_domain_found"] += 1
+                else:
+                    stats["web_search_domain_not_found"] += 1
+
             if not result.get("ok"):
                 stats["lines_errored"] += 1
                 stats["errors"].append({"line": line.name, "error": result.get("error")})
@@ -832,12 +1078,15 @@ def run_line_pitch_generation(session: Session, cfg: Config, *, cap_usd: float =
                 stats["lines_line_row_only"] += 1
             if write_stats["insufficient"]:
                 stats["lines_insufficient"] += 1
+            written_pitch = session.get(LinePitch, write_stats["pitch_id"])
             stats["per_line_claims"].append({
                 "line": line.name, "pitch_scope": write_stats["pitch_scope"],
+                "domain_source": result.get("domain_source"),
                 "claims_extracted": write_stats["claims_extracted"],
                 "claims_grounded": write_stats["grounded_claims"],
                 "claims_dropped": write_stats["dropped_claims"],
                 "insufficient": write_stats["insufficient"],
+                "has_differentiator": bool(written_pitch.differentiators),
             })
             if len(stats["sample_pitches"]) < 5:
                 pitch = session.get(LinePitch, write_stats["pitch_id"])
@@ -850,5 +1099,6 @@ def run_line_pitch_generation(session: Session, cfg: Config, *, cap_usd: float =
                     "pitch_scope": pitch.pitch_scope,
                 })
         stats["cost_usd"] = run.spent_usd
+        stats["web_search_cost_usd"] = round(stats["web_search_cost_usd"], 4)
 
     return stats

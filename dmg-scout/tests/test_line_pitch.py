@@ -13,10 +13,12 @@ from app.models import CompetitorLine, LineCompetitor, LinePitch, ProductLine, P
 from app.pipeline.line_pitch import (
     BANNED_PHRASES,
     _extract_claim_fragments,
+    _page_contains_line_name,
     _sanitize_field,
     _truncate_to_words,
     _validate_competitor_names,
     candidate_domains,
+    discover_domain_via_web_search,
     generate_one_line,
     ground_list,
     ground_required_claim,
@@ -27,6 +29,24 @@ from app.pipeline.line_pitch import (
 
 FETCHED_URL = "https://example.com/product"
 
+NO_DOMAIN_FOUND = {"domain": None, "url": None, "page_text": None,
+                   "fetch_status": "no_domain_found", "searched": True, "cost_usd": 0.0}
+
+
+@pytest.fixture(autouse=True)
+def _no_real_web_search(monkeypatch):
+    """Every test in this file gets a safe no-op web_search stub by
+    default -- generate_one_line now tries discover_domain_via_web_search
+    (a real Anthropic + web_search API call) whenever a fetch fails and
+    line.official_domain isn't already set, which is exactly the
+    candidate_domains=[] shape most tests below already use to reach
+    line_row_only. Without this, those tests would attempt a real network
+    call. A test that wants to exercise discovery itself overrides this
+    with its own monkeypatch.setattr call, which simply takes precedence
+    for that one test."""
+    monkeypatch.setattr(line_pitch, "discover_domain_via_web_search",
+                        lambda cfg, line: dict(NO_DOMAIN_FOUND))
+
 
 def _mock_fetched(monkeypatch, page_text=None):
     """Simulate a successful page fetch so generate_one_line proceeds to
@@ -36,7 +56,7 @@ def _mock_fetched(monkeypatch, page_text=None):
     NO LLM call at all (see generate_one_line's 2026-09-03 rewrite)."""
     text = page_text or "AAON manufactures packaged rooftop units with capacities from 3 to 230 tons."
     monkeypatch.setattr(line_pitch, "candidate_domains", lambda l: ["example.com"])
-    monkeypatch.setattr(line_pitch, "fetch_product_page", lambda d: (text, FETCHED_URL, "fetched"))
+    monkeypatch.setattr(line_pitch, "fetch_product_pages", lambda d: (text, FETCHED_URL, "fetched", [FETCHED_URL]))
 
 
 def _line(session, name="AAON", building_role="air_handling", existence_verified=None,
@@ -310,6 +330,202 @@ def test_never_falls_back_to_a_guessed_domain(db_session):
     assert candidate_domains(line) == []
 
 
+def test_official_domain_takes_priority_over_basis_text(db_session):
+    """A previously web_search-discovered, fetch-validated domain
+    (line.official_domain) is tried FIRST -- it has already survived a
+    real fetch + name check, unlike anything merely extracted from basis
+    text citations."""
+    line = _line(db_session, name="AAON",
+                basis_text="AAON's own corporate site (other-domain.com) states...",
+                official_domain="aaon.com")
+    assert candidate_domains(line) == ["aaon.com"]
+
+
+# ---- web_search domain discovery + two-page fetch (2026-09-04) ------------
+
+def test_page_contains_line_name_true_for_a_real_mention():
+    assert _page_contains_line_name("Welcome to AAON's official site.", "AAON")
+
+
+def test_page_contains_line_name_false_when_absent():
+    assert not _page_contains_line_name("Welcome to our official site.", "AAON")
+
+
+def test_page_contains_line_name_normalizes_punctuation():
+    """Punctuation immediately around the name (not interspersed within
+    it) must not defeat the match -- e.g. a trailing comma before 'Inc'."""
+    assert _page_contains_line_name("Welcome to AAON, Inc's official site.", "AAON")
+
+
+def test_page_contains_line_name_false_for_empty_inputs():
+    assert not _page_contains_line_name(None, "AAON")
+    assert not _page_contains_line_name("some text", "")
+
+
+def test_discover_domain_via_web_search_accepts_a_validated_domain(db_session, monkeypatch):
+    line = _line(db_session, name="AAON")
+    import app.llm as llm_mod
+    monkeypatch.setattr(llm_mod, "find_line_domain",
+                        lambda name, category, description: {"domain": "aaon.com", "model": "x",
+                                                              "web_searches": 1, "cost_usd": 0.02,
+                                                              "raw_text": "DOMAIN: aaon.com"})
+    monkeypatch.setattr(line_pitch, "fetch_product_pages",
+                        lambda d: ("Welcome to AAON's site.", "https://aaon.com/", "fetched", ["https://aaon.com/"]))
+
+    result = discover_domain_via_web_search(cfg=None, line=line)
+    assert result["domain"] == "aaon.com"
+    assert result["fetch_status"] == "fetched"
+    assert result["cost_usd"] == 0.02
+
+
+def test_discover_domain_via_web_search_rejects_a_page_missing_the_line_name(db_session, monkeypatch):
+    line = _line(db_session, name="AAON")
+    import app.llm as llm_mod
+    monkeypatch.setattr(llm_mod, "find_line_domain",
+                        lambda name, category, description: {"domain": "wrongsite.com", "model": "x",
+                                                              "web_searches": 1, "cost_usd": 0.02,
+                                                              "raw_text": "DOMAIN: wrongsite.com"})
+    monkeypatch.setattr(line_pitch, "fetch_product_pages",
+                        lambda d: ("This page never mentions the line.", "https://wrongsite.com/",
+                                  "fetched", ["https://wrongsite.com/"]))
+
+    result = discover_domain_via_web_search(cfg=None, line=line)
+    assert result["domain"] is None
+
+
+def test_discover_domain_via_web_search_rejects_an_excluded_domain(db_session, monkeypatch):
+    line = _line(db_session, name="AAON")
+    import app.llm as llm_mod
+    monkeypatch.setattr(llm_mod, "find_line_domain",
+                        lambda name, category, description: {"domain": "wikipedia.org", "model": "x",
+                                                              "web_searches": 1, "cost_usd": 0.02,
+                                                              "raw_text": "DOMAIN: wikipedia.org"})
+
+    def boom(d):
+        raise AssertionError("must never fetch an excluded domain")
+    monkeypatch.setattr(line_pitch, "fetch_product_pages", boom)
+
+    result = discover_domain_via_web_search(cfg=None, line=line)
+    assert result["domain"] is None
+
+
+def test_discover_domain_via_web_search_handles_domain_none(db_session, monkeypatch):
+    line = _line(db_session, name="AAON")
+    import app.llm as llm_mod
+    monkeypatch.setattr(llm_mod, "find_line_domain",
+                        lambda name, category, description: {"domain": None, "model": "x",
+                                                              "web_searches": 1, "cost_usd": 0.01,
+                                                              "raw_text": "DOMAIN: none"})
+    result = discover_domain_via_web_search(cfg=None, line=line)
+    assert result["domain"] is None
+
+
+def test_discover_domain_via_web_search_propagates_budget_exceeded(db_session, monkeypatch):
+    from app.spend import BudgetExceeded
+    line = _line(db_session, name="AAON")
+    import app.llm as llm_mod
+
+    def boom(name, category, description):
+        raise BudgetExceeded("cap hit")
+    monkeypatch.setattr(llm_mod, "find_line_domain", boom)
+
+    with pytest.raises(BudgetExceeded):
+        discover_domain_via_web_search(cfg=None, line=line)
+
+
+def test_generate_one_line_uses_web_search_when_basis_text_has_no_domain(db_session, cfg, monkeypatch):
+    """The 29-line_row_only rerun's whole point: a line with nothing in
+    its own basis text now gets ONE web_search attempt before falling
+    back to line_row_only, and a domain it finds AND validates is written
+    onto the line so a future run never searches again."""
+    line = _line(db_session, name="AAON")
+    monkeypatch.setattr(line_pitch, "candidate_domains", lambda l: [])
+    monkeypatch.setattr(line_pitch, "discover_domain_via_web_search",
+                        lambda cfg, line: {"domain": "aaon.com", "url": "https://aaon.com/",
+                                          "page_text": "AAON page text.", "fetch_status": "fetched",
+                                          "searched": True, "cost_usd": 0.02})
+    monkeypatch.setattr(line_pitch, "generate_line_pitch", lambda content: _fake_raw())
+
+    result = generate_one_line(db_session, cfg, line)
+    assert result["ok"] is True
+    assert result["pitch_scope"] == "full"
+    assert result["domain_source"] == "web_search"
+    db_session.refresh(line)
+    assert line.official_domain == "aaon.com"
+    assert line.official_domain_source == "web_search"
+    assert line.official_domain_url == "https://aaon.com/"
+
+
+def test_generate_one_line_never_searches_again_once_official_domain_is_set(db_session, cfg, monkeypatch):
+    """One web search per line, ever -- once official_domain is set (even
+    if THIS run's fetch of it fails), discover_domain_via_web_search must
+    not be called again."""
+    line = _line(db_session, name="AAON", official_domain="aaon.com")
+    monkeypatch.setattr(line_pitch, "fetch_product_pages", lambda d: (None, None, "fetch_failed", []))
+
+    def boom(cfg, line):
+        raise AssertionError("must not search again once official_domain is set")
+    monkeypatch.setattr(line_pitch, "discover_domain_via_web_search", boom)
+
+    result = generate_one_line(db_session, cfg, line)
+    assert result["pitch_scope"] == "line_row_only"
+    assert result["web_search_attempted"] is False
+
+
+def test_generate_one_line_skips_web_search_when_basis_domain_already_fetches(db_session, cfg, monkeypatch):
+    """A line WHOSE basis-text domain fetches successfully never triggers
+    a web search at all -- the fallback only fires when the primary path
+    fails."""
+    _mock_fetched(monkeypatch)
+    line = _line(db_session, name="AAON")
+
+    def boom(cfg, line):
+        raise AssertionError("must not search when the basis-text domain already fetched")
+    monkeypatch.setattr(line_pitch, "discover_domain_via_web_search", boom)
+
+    result = generate_one_line(db_session, cfg, line)
+    assert result["pitch_scope"] == "full"
+    assert result["web_search_attempted"] is False
+
+
+# ---- _extract_product_like_link: the second, product-like page ------------
+
+def test_extract_product_like_link_prefers_product_over_solutions():
+    from selectolax.parser import HTMLParser
+    from app.pipeline.line_pitch import _extract_product_like_link
+    html = """<html><body>
+    <a href="/solutions">Solutions</a>
+    <a href="/products">Products</a>
+    </body></html>"""
+    tree = HTMLParser(html)
+    link = _extract_product_like_link(tree, "https://example.com/")
+    assert link == "https://example.com/products"
+
+
+def test_extract_product_like_link_ignores_a_different_host():
+    from selectolax.parser import HTMLParser
+    from app.pipeline.line_pitch import _extract_product_like_link
+    html = '<html><body><a href="https://other-domain.com/products">Products</a></body></html>'
+    tree = HTMLParser(html)
+    assert _extract_product_like_link(tree, "https://example.com/") is None
+
+
+def test_extract_product_like_link_none_when_nothing_matches():
+    from selectolax.parser import HTMLParser
+    from app.pipeline.line_pitch import _extract_product_like_link
+    html = '<html><body><a href="/about">About us</a></body></html>'
+    tree = HTMLParser(html)
+    assert _extract_product_like_link(tree, "https://example.com/") is None
+
+
+def test_extract_product_like_link_matches_on_link_text_not_just_href():
+    from selectolax.parser import HTMLParser
+    from app.pipeline.line_pitch import _extract_product_like_link
+    html = '<html><body><a href="/en/offerings">Our Catalog</a></body></html>'
+    tree = HTMLParser(html)
+    assert _extract_product_like_link(tree, "https://example.com/") == "https://example.com/en/offerings"
+
+
 # ---- competitor-name validation: closed set, never invented ---------------
 
 def test_validate_competitor_names_drops_anything_not_on_the_map():
@@ -385,8 +601,8 @@ def test_generate_one_line_no_domain_means_no_fetch_attempted(db_session, cfg, m
     monkeypatch.setattr(line_pitch, "candidate_domains", lambda l: [])
 
     def boom(domain):
-        raise AssertionError("fetch_product_page must not be called with no candidate domain")
-    monkeypatch.setattr(line_pitch, "fetch_product_page", boom)
+        raise AssertionError("fetch_product_pages must not be called with no candidate domain")
+    monkeypatch.setattr(line_pitch, "fetch_product_pages", boom)
     monkeypatch.setattr(line_pitch, "generate_line_pitch", lambda content: _fake_raw())
 
     result = generate_one_line(db_session, cfg, line)
@@ -396,7 +612,7 @@ def test_generate_one_line_no_domain_means_no_fetch_attempted(db_session, cfg, m
 
 def test_generate_one_line_records_robots_disallowed(db_session, cfg, monkeypatch):
     line = _line(db_session, name="AAON", basis_text="see aaon.com for details")
-    monkeypatch.setattr(line_pitch, "fetch_product_page", lambda d: (None, None, "robots_disallowed"))
+    monkeypatch.setattr(line_pitch, "fetch_product_pages", lambda d: (None, None, "robots_disallowed", []))
     monkeypatch.setattr(line_pitch, "generate_line_pitch", lambda content: _fake_raw())
 
     result = generate_one_line(db_session, cfg, line)
@@ -572,6 +788,59 @@ def test_run_reports_sample_pitches_and_totals(db_session, cfg, monkeypatch):
     assert len(stats["sample_pitches"]) == 1
     assert stats["sample_pitches"][0]["line"] == "AAON"
     assert "cost_usd" in stats
+
+
+def test_run_only_line_ids_skips_every_other_eligible_line(db_session, cfg, monkeypatch):
+    """A targeted rerun (scout generate-line-pitches --only-lines) must
+    leave every OTHER eligible line's existing draft completely untouched
+    -- not regenerated, not even attempted."""
+    line_a = _line(db_session, name="AAON")
+    line_b = _line(db_session, name="Airzone")
+    existing_b = LinePitch(product_line_id=line_b.id, what_it_is="Untouched Airzone text.",
+                           review_status="draft")
+    db_session.add(existing_b)
+    db_session.commit()
+
+    monkeypatch.setattr(line_pitch, "candidate_domains", lambda l: [])
+
+    def boom(content):
+        raise AssertionError("must not be called for a line outside only_line_ids")
+    monkeypatch.setattr(line_pitch, "generate_line_pitch", boom)
+
+    stats = run_line_pitch_generation(db_session, cfg, cap_usd=5.0, only_line_ids={line_a.id})
+    assert stats["lines_total"] == 1
+    assert stats["lines_generated"] == 1
+    pitch_b = db_session.exec(select(LinePitch).where(LinePitch.product_line_id == line_b.id)).one()
+    assert pitch_b.what_it_is == "Untouched Airzone text."
+
+
+def test_run_web_search_stats_are_tallied(db_session, cfg, monkeypatch):
+    _line(db_session, name="AAON")
+    monkeypatch.setattr(line_pitch, "candidate_domains", lambda l: [])
+    monkeypatch.setattr(line_pitch, "discover_domain_via_web_search",
+                        lambda cfg, line: {"domain": "aaon.com", "url": "https://aaon.com/",
+                                          "page_text": "AAON page text.", "fetch_status": "fetched",
+                                          "searched": True, "cost_usd": 0.02})
+    monkeypatch.setattr(line_pitch, "generate_line_pitch", lambda content: _fake_raw())
+
+    stats = run_line_pitch_generation(db_session, cfg, cap_usd=5.0)
+    assert stats["web_search_attempted"] == 1
+    assert stats["web_search_domain_found"] == 1
+    assert stats["web_search_domain_not_found"] == 0
+    assert stats["web_search_cost_usd"] == 0.02
+
+
+def test_generate_one_line_web_search_fallback_propagates_budget_exceeded(db_session, cfg, monkeypatch):
+    from app.spend import BudgetExceeded
+    line = _line(db_session, name="AAON")
+    monkeypatch.setattr(line_pitch, "candidate_domains", lambda l: [])
+
+    def boom(cfg, line):
+        raise BudgetExceeded("cap hit")
+    monkeypatch.setattr(line_pitch, "discover_domain_via_web_search", boom)
+
+    with pytest.raises(BudgetExceeded):
+        generate_one_line(db_session, cfg, line)
 
 
 def test_run_reports_line_row_only_count(db_session, cfg, monkeypatch):

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from contextvars import ContextVar
 
 import anthropic
@@ -455,6 +456,81 @@ def generate_line_pitch(user_content: str) -> dict:
     model = cfg.get("llm.line_pitch_model", "claude-sonnet-4-6")
     return _tool_call(model, LINE_PITCH_SYSTEM, LINE_PITCH_TOOL, user_content,
                       max_tokens=1200, stage="line_pitch")
+
+
+DOMAIN_SEARCH_SYSTEM = """Find the official corporate website for one HVAC/mechanical
+equipment manufacturer, using web_search. Respond with EXACTLY one line and nothing else:
+
+DOMAIN: <bare domain, no scheme, no path, e.g. example.com>
+
+or, if you cannot confidently identify their official site:
+
+DOMAIN: none
+
+Never guess a domain you have not actually found via search. A manufacturer division or
+subsidiary's own domain counts; a third-party distributor, review site, or marketplace
+listing does not."""
+
+_DOMAIN_LINE_RE = re.compile(r"^DOMAIN:\s*(\S+)\s*$", re.IGNORECASE | re.MULTILINE)
+
+
+def find_line_domain(line_name: str, category: str, description: str) -> dict:
+    """ONE web_search-enabled Sonnet call to find a manufacturer's official
+    domain -- used by app.pipeline.line_pitch.discover_domain_via_web_search
+    ONLY as a fallback for a line whose own already-researched basis text
+    named no plausible domain (app.pipeline.line_pitch.candidate_domains).
+    Same division of labor as generate_line_pitch: the LLM call and its
+    cost bookkeeping live here; fetching the returned domain's actual page
+    and validating it before trusting it (the line's own name must appear
+    on the fetched page) is the pipeline module's job, not this function's
+    -- a web_search citation is not the same claim as a verified fetch.
+
+    Free-form text output (not a forced tool call, which cannot also emit
+    a search) -- same shape as app.precall._call_llm's web_search usage,
+    including its 'only the trailing text block is the real answer'
+    parsing rule, since this model narrates between search rounds too.
+    Costed via app.spend.record's extra_cost_usd hook at Anthropic's flat
+    per-search rate (app.precall.WEB_SEARCH_COST_PER_CALL_USD), same as
+    every other web_search call in this app -- counts against whatever
+    run_budget is active, so it stacks correctly under the SAME $5 run cap
+    app.pipeline.line_pitch.run_line_pitch_generation already enforces."""
+    from app.precall import WEB_SEARCH_COST_PER_CALL_USD
+    from app.spend import check_budget, record
+
+    stage = "line_pitch_domain_search"
+    check_budget(stage)
+    cfg = load_config()
+    model = cfg.get("llm.line_pitch_model", "claude-sonnet-4-6")
+    client = _client()
+    user_content = (
+        f"Manufacturer/line name: {line_name}\n"
+        f"Product category: {category}\n"
+        f"Description on file (may be empty): {description or '(none)'}"
+    )
+    resp = client.messages.create(
+        model=model, max_tokens=1024, system=DOMAIN_SEARCH_SYSTEM,
+        tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 1}],
+        messages=[{"role": "user", "content": user_content}],
+    )
+    last_non_text = max((i for i, b in enumerate(resp.content) if b.type != "text"), default=-1)
+    text = "".join(b.text for b in resp.content[last_non_text + 1:] if b.type == "text").strip()
+    n_searches = sum(1 for block in resp.content
+                     if block.type == "server_tool_use" and block.name == "web_search")
+    search_cost = n_searches * WEB_SEARCH_COST_PER_CALL_USD
+    cost = record(stage, model, resp.usage.input_tokens, resp.usage.output_tokens,
+                 extra_cost_usd=search_cost)
+
+    m = _DOMAIN_LINE_RE.search(text)
+    domain = m.group(1).strip().lower() if m else None
+    if domain in (None, "none"):
+        domain = None
+    elif domain:
+        for prefix in ("https://", "http://", "www."):
+            if domain.startswith(prefix):
+                domain = domain[len(prefix):]
+        domain = domain.rstrip("/")
+    return {"domain": domain, "model": model, "web_searches": n_searches,
+           "cost_usd": round(cost, 4), "raw_text": text}
 
 
 ADJUDICATE_SYSTEM = """You decide whether two records describe the SAME physical data center
