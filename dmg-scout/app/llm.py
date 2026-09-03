@@ -365,9 +365,18 @@ def extract_school_bid_metadata(text: str, *, filename: str = "") -> dict:
                       max_tokens=1024, stage="specs_pilot_metadata")
 
 
-LINE_PITCH_SYSTEM = """You are training a brand-new manufacturers' rep to give a 60-second
-elevator pitch on one HVAC/mechanical product line. Write from the rep's point of view --
-what they would actually SAY to an engineer or a GC, not marketing copy.
+LINE_PITCH_SYSTEM = """You are training a brand-new manufacturers' rep to brief a mechanical
+engineer or a contracting firm's project manager on one HVAC/mechanical product line. The
+reader is a technical professional, not a homeowner and not a general audience -- write like
+a rep talking shop with someone who reads spec sheets for a living. No consumer language, no
+hype, no marketing copy.
+
+Structure every pitch as exactly four parts, in this order:
+1. What it is -- one sentence.
+2. Where it fits -- one sentence, in terms of its building-systems role.
+3. One differentiator -- a single grounded claim (a spec, capability, or certification you
+   can point to), not a vibe.
+4. One question to ask the engineer/PM to qualify the fit.
 
 Absolute rules:
 - Every specific number (a capacity range, an efficiency rating, a decibel level, a
@@ -380,14 +389,17 @@ Absolute rules:
   competitors" list you are given -- never a competitor from general industry knowledge that
   isn't on that list, even if you're confident it's a real competitor. If the candidate list
   is empty, return an empty competitors list.
-- elevator_pitch must be under 60 words.
-- differentiators and engineer_questions: up to 3 each, fewer is fine, never pad with a
-  restatement of the same point to reach 3.
+- elevator_pitch must be under 60 words, full sentences only.
+- differentiators and engineer_questions: exactly ONE each. Make it count -- the single
+  differentiator must be the strongest grounded claim available, not a generic filler line.
 - why_we_lose and why_we_win are each ONE sentence -- honest sales positioning, not a
   fabricated statistic.
 - Never mention a competitor's specific numeric spec unless it also appears in the page text
   you were given for THIS line (you were not given the competitor's own page, so you have no
-  basis for a competitor's numbers either)."""
+  basis for a competitor's numbers either).
+- Never use: "you name it", "that's the pitch", "one rep relationship", "cleans things up",
+  any exclamation mark, or wrapping quote marks around a whole field's text. These read as
+  filler or as canned marketing voice, not as a rep talking to a technical peer."""
 
 LINE_PITCH_TOOL = {
     "name": "record_line_pitch",
@@ -402,10 +414,12 @@ LINE_PITCH_TOOL = {
             "typical_project_types": {"type": "string",
                                       "description": "1 sentence: the kinds of projects a rep would pitch this on."},
             "elevator_pitch": {"type": "string", "description": "Under 60 words, spoken to an engineer or GC."},
-            "differentiators": {"type": "array", "items": {"type": "string"}, "maxItems": 3,
-                               "description": "Up to 3 short differentiators vs. the category generally."},
-            "engineer_questions": {"type": "array", "items": {"type": "string"}, "maxItems": 3,
-                                  "description": "Up to 3 questions a rep should ask an engineer to qualify a fit."},
+            "differentiators": {"type": "array", "items": {"type": "string"}, "maxItems": 1,
+                               "description": "Exactly one short, grounded differentiator vs. the category "
+                                             "generally -- a specific claim, not a vibe."},
+            "engineer_questions": {"type": "array", "items": {"type": "string"}, "maxItems": 1,
+                                  "description": "Exactly one question a rep should ask an engineer/PM to "
+                                                "qualify a fit."},
             "competitors": {
                 "type": "array",
                 "items": {

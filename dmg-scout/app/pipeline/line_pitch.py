@@ -36,26 +36,68 @@ INPUTS -- deliberately narrow, per the brief ("using only"):
      therefore NO factual (numeric/certification) claims at all -- only
      the role/category-level pitch content that doesn't need grounding.
 
-GROUNDING. Every sentence in a generated field that reads as a factual
-claim -- a numeric range with a unit (tons, CFM, %, SEER, dB, kW, ...) or
-a named certification/standard (AHRI, UL, ETL, OSHPD, NSF, ISO, ASHRAE,
-ENERGY STAR, cETLus) -- is checked against the fetched page text with
-app.grounding.quote_grounded (the same substring-normalized fragment
-matcher app/pipeline/schedule.py already trusts for this exact question:
-"does this text actually appear in the source"). An ungrounded
-claim-bearing sentence is DROPPED from the field entirely, never
-softened, never rewritten to hedge -- per the brief's explicit "or it is
-dropped, not softened." A line with no fetched page has NOTHING to
-ground a claim against, so every claim-bearing sentence in every field is
-dropped for that line; this is why grounded_claim_count and
-dropped_claim_count are recorded per LinePitch row, not just in the
-aggregate run stats -- so it's visible on the pitch itself, not only in a
-one-time report.
+GROUNDING (rewritten 2026-09-03 -- round 2 of this feature). Every
+sentence in a generated field is scanned for claim FRAGMENTS, not just
+numeric ranges: _extract_claim_fragments pulls out unit-bearing numbers
+(tons, CFM, %, SEER, dB, kW, ...), qualified quantities including
+spelled-out forms ("over 200", "dozens of", "hundreds of" --
+_CLAIM_QUALIFIED_QTY_RE/_CLAIM_WORD_QTY_RE), named
+certifications/standards (AHRI, UL, ETL, OSHPD, NSF, ISO, ASHRAE, ENERGY
+STAR, cETLus), and short capability/integration windows following a
+trigger phrase ("compatible with", "integrates with", "certified for",
+...). Each fragment is checked against the fetched page text with
+app.grounding.quote_grounded (deliberately chosen over
+app.grounding.name_grounded for this: name_grounded's variant-generation
+is built for personal/firm names and produces false positives on
+arbitrary claims -- name_grounded("500 tons", a page that never states
+"500") returns True purely because its last-token variant "tons"
+matches). A sentence is kept only if ALL of its extracted fragments
+ground; otherwise the whole sentence is DROPPED, never softened, never
+rewritten to hedge -- per the brief's explicit "or it is dropped, not
+softened." This closes the original gap that let a line ship a
+capability claim with zero fragments even attempted (the Airzone "over
+200 compatible AC brands" case, which had no matching pattern before this
+rewrite -- see test_line_pitch.py's regression test for it). A line with
+no fetched page never reaches this grounding pass at all -- see
+pitch_scope below. grounded_claim_count/dropped_claim_count are recorded
+per LinePitch row, not just in the aggregate run stats, so coverage is
+visible on the pitch itself.
 
-Non-claim sentences (role framing, "why it fits," a question to ask an
-engineer) pass through untouched -- the grounding pass only ever removes
+Non-claim sentences (role framing, "why it fits") pass through untouched
+apart from register sanitization -- the grounding pass only ever removes
 sentences it can positively identify as making a checkable factual
-assertion; it does not touch everything else.
+assertion; it does not touch everything else. The single differentiator
+field is the one exception: because its entire purpose is to BE a
+specific checkable claim, ground_required_claim treats an item with no
+extractable claim fragment at all as ungrounded (dropped), unlike the
+general list/sentence path which passes non-claim content through.
+
+REGISTER (added 2026-09-03). The reader is a mechanical engineer or a
+contractor's PM, not a homeowner. Every field is sanitized
+(_sanitize_field: wrapping quote characters stripped, "!" replaced with
+".") and checked against BANNED_PHRASES ("you name it", "that's the
+pitch", "one rep relationship", "cleans things up") -- a sentence/item
+containing a banned phrase is dropped under the same discipline as an
+ungrounded claim, not just cosmetically cleaned. differentiators and
+engineer_questions are capped to exactly ONE each (down from "up to 3"),
+per the four-part structure: what it is (one sentence), where it fits
+(one sentence), one grounded differentiator, one question to ask.
+
+PITCH_SCOPE (added 2026-09-03). A line whose page fetch did not succeed
+("fetch_failed", "no_url_found", "robots_disallowed", etc.) never reaches
+the LLM at all -- generate_one_line short-circuits to
+line_row_only_pitch(), a deterministic template built only from the
+line's own building_role and confirmed branches, with NO capability or
+product-category claims and NO competitor rows (there is no capability
+fact to position a competitor comparison against). This is
+pitch_scope='line_row_only', shown in the UI distinctly from
+pitch_scope='full' (a page was fetched and an LLM wrote a grounded
+pitch). This replaces round 1's behavior, where a fetch_failed line still
+got a full LLM-written pitch that then had every claim dropped by
+grounding, leaving a vague, unlabeled fragment (the Aldes row, this
+feature's own first production run). A 'full' line whose every field
+still ends up empty after grounding is reported as "insufficient
+source" rather than shown as a bare fragment.
 
 COST. One Sonnet call per line (app.llm's SONNET-tier model, via
 llm.line_pitch_model), covering that line's full pitch AND every one of
@@ -128,27 +170,117 @@ _NON_ALNUM = re.compile(r"[^a-z0-9]", re.IGNORECASE)
 _CLAIM_NUMBER_RE = re.compile(
     r"\d+(?:\.\d+)?\s*(?:-|to|–)?\s*\d*(?:\.\d+)?\s*(?:"
     r"tons?\b|cfm\b|hp\b|kw\b|mw\b|percent\b|db\b|dba\b|seer\d*\b|eer\b|ieer\b|cop\b|"
-    r"gpm\b|psi\b|btu\b|amps?\b|volts?\b|hz\b|rpm\b|years?\b|weeks?\b|%"
+    r"gpm\b|psi\b|btu\b|amps?\b|volts?\b|hz\b|rpm\b|years?\b|weeks?\b|"
+    r"models?\b|brands?\b|zones?\b|units?\b|plants?\b|employees?\b|countries\b|projects?\b|%"
     r")",
     re.IGNORECASE,
 )
+# Claim-bearing signal #1b: a QUALIFIED quantity ("over 200", "more than
+# 42,000", "up to 10", "nearly 100") -- the specific shape this module's
+# first production run MISSED entirely. Confirmed real: Airzone's own
+# elevator pitch said "over 200 compatible AC brands", which tripped
+# NEITHER the number+unit regex above (no unit word matched -- "brands"
+# wasn't in the unit list yet) NOR the certification keyword list, so it
+# went out with ZERO claims attempted -- a genuinely true, on-page fact
+# (airzonecontrol.com's own text: "over 200 brands of AC units can be
+# managed", "+200 Compatible brands", "+42K Compatible models") that
+# simply never got checked. This pattern plus the widened unit list above
+# both exist specifically to catch that shape going forward.
+_CLAIM_QUALIFIED_QTY_RE = re.compile(
+    r"(?:over|more than|up to|at least|nearly|roughly|approximately|fewer than|less than)\s+"
+    r"[\d,]+(?:\.\d+)?\s*[kKmM]?\+?(?:\s+\w+){0,3}",
+    re.IGNORECASE,
+)
+# Claim-bearing signal #1c: a spelled-out quantity ("dozens of models",
+# "hundreds of installations") -- no digit at all, but still a checkable
+# quantity claim per the brief's explicit "any quantity including
+# spelled-out forms" instruction.
+_CLAIM_WORD_QTY_RE = re.compile(
+    r"\b(?:dozens?|hundreds?|thousands?)\b(?:\s+of\s+\w+){0,2}", re.IGNORECASE)
 # Claim-bearing signal #2: a named certification/standard -- checkable
 # against a page even with no number attached ("AHRI certified").
 _CLAIM_KEYWORDS = (
     "ahri", "ul listed", "ul-listed", "cetlus", "etl listed", "etl-listed",
     "nsf", "iso 9001", "iso 14001", "ashrae 90.1", "ashrae 62.1", "energy star",
-    "oshpd", "hcai osp", "ufc 4-010-06", "cul", " ce mark", "ce certified",
+    "oshpd", "hcai osp", "ufc 4-010-06", "cul", " ce mark", "ce certified", "leed",
 )
+# Claim-bearing signal #3: a capability/integration/product-category TRIGGER
+# -- per the brief's explicit "product categories, capabilities... and
+# integrations" scope, not numbers/certifications alone. Each trigger match
+# captures itself plus a short following window (see
+# _CAPABILITY_WINDOW_WORDS) as ONE claim phrase, ground-checked the same
+# fragment-level way as a numeric claim. Deliberately does NOT attempt to
+# grounds-check a bare descriptive noun phrase with no trigger word at all
+# (e.g. "packaged rooftop units" sitting on its own with no
+# "compatible with"/"certified for"/etc. nearby) -- see this module's own
+# docstring for why a whole-phrase verbatim check would reject correctly-
+# paraphrased, TRUE content (the same failure mode already found and fixed
+# for whole-sentence numeric grounding), which is the opposite of the
+# intended effect. This is a disclosed scope limit, not an oversight.
+_CAPABILITY_TRIGGERS = (
+    "compatible with", "compatible across", "integrates with", "integrated with",
+    "integration with", "works with", "connects to", "connects with",
+    "built-in", "built in", "factory-installed", "factory installed",
+    "compliant with", "certified for", "certified to", "rated for",
+    "designed for", "engineered for", "approved for", "proprietary", "patented",
+)
+_CAPABILITY_WINDOW_WORDS = 8
+_CAPABILITY_STOP_RE = re.compile(r"[.,;!?]")
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+# ---- register: banned filler, wrapping quotes, exclamation marks ----------
+# Per the 2026-09-03 rewrite: the reader is a mechanical engineer or a
+# contractor's PM, not a homeowner. A sentence carrying any of these reads
+# as ad copy, not a fact a rep can repeat to an engineer -- dropped
+# wholesale like an ungrounded claim, not rewritten to soften it, same
+# discipline throughout this module. Exclamation marks and wrapping quote
+# characters are cosmetic, not content problems, so those are FIXED in
+# place (see _sanitize_field) rather than causing a drop.
+BANNED_PHRASES = ("you name it", "that's the pitch", "one rep relationship", "cleans things up")
+
+_WRAPPING_QUOTE_PAIRS = (('"', '"'), ("'", "'"), ("“", "”"), ("‘", "’"))
+
+
+def _has_banned_phrase(text: str) -> bool:
+    lowered = text.lower()
+    return any(phrase in lowered for phrase in BANNED_PHRASES)
+
+
+def _sanitize_field(text: str | None) -> str | None:
+    """Cosmetic-only fixes, applied before grounding: strip a single
+    matching pair of wrapping quote characters, and replace exclamation
+    marks with a period -- neither changes the factual content of the
+    text, so neither counts as a claim being dropped."""
+    if not text:
+        return text
+    stripped = text.strip()
+    for lq, rq in _WRAPPING_QUOTE_PAIRS:
+        if len(stripped) > 1 and stripped.startswith(lq) and stripped.endswith(rq):
+            stripped = stripped[1:-1].strip()
+            break
+    stripped = stripped.replace("!", ".")
+    return stripped
+
+
+def _capability_window(sentence: str, trigger_start: int) -> str:
+    """From `trigger_start` to the next clause-ending punctuation or
+    _CAPABILITY_WINDOW_WORDS words, whichever comes first."""
+    rest = sentence[trigger_start:]
+    stop = _CAPABILITY_STOP_RE.search(rest)
+    if stop:
+        rest = rest[:stop.start()]
+    words = rest.split()
+    return " ".join(words[:_CAPABILITY_WINDOW_WORDS]).strip()
 
 
 def _extract_claim_fragments(sentence: str) -> list[str]:
     """The SHORT substrings within `sentence` that make a checkable factual
-    claim -- a number+unit span, or a certification keyword -- NOT the
-    whole sentence. Grounding a short fragment with quote_grounded is the
-    right granularity: grounding the whole SENTENCE would fail on any
-    faithful paraphrase around a real, correctly-cited number (confirmed
-    while building this -- "Capacities run from 3 to 230 tons." fails a
+    claim -- a quantity (numeric or spelled-out), a certification keyword,
+    or a capability/integration trigger phrase -- NOT the whole sentence.
+    Grounding a short fragment with quote_grounded is the right
+    granularity: grounding the whole SENTENCE would fail on any faithful
+    paraphrase around a real, correctly-cited number (confirmed while
+    building this -- "Capacities run from 3 to 230 tons." fails a
     whole-sentence check against a page that says "capacities from 3 to
     230 tons" purely because of the surrounding words, even though the
     number itself is exactly right). A word-level check
@@ -156,36 +288,77 @@ def _extract_claim_fragments(sentence: str) -> list[str]:
     case for the opposite reason: its variant-matching treats "500 tons"
     as grounded by a page that only contains the word "tons" somewhere
     else entirely -- exactly the false-positive this module cannot afford
-    on a number. quote_grounded on the isolated number+unit fragment
-    avoids both failure modes: "3 to 230 tons" matches a page saying
-    "capacities from 3 to 230 tons" (real, sourced, kept), "500 tons"
-    does not match a page that only has "3 to 230 tons" (fabricated,
-    dropped) -- confirmed with both cases directly against grounding.py's
-    real functions before choosing this approach."""
-    fragments = [m.group(0).strip() for m in _CLAIM_NUMBER_RE.finditer(sentence)]
+    on a number. quote_grounded on the isolated fragment avoids both
+    failure modes and is used uniformly here for every claim type,
+    including capability/integration phrases, for the same reason --
+    app.grounding.name_grounded's variant-matching risk (a fuzzy match
+    that can key off a single common trailing word) generalizes to any
+    multi-word claim, not just numeric ones.
+
+    A quantity like "up to 500 tons" matches BOTH _CLAIM_NUMBER_RE ("500
+    tons") and _CLAIM_QUALIFIED_QTY_RE ("up to 500") since "up to" is one
+    of that regex's own qualifiers -- without de-duplication this double-
+    counts the SAME claim as two fragments (caught by this module's own
+    test suite: dropped_claim_count came back doubled for any qualified
+    numeric phrase already covered by the number+unit regex). Fixed by
+    tracking character spans and skipping a qualified/word-quantity match
+    that overlaps a number-regex match already collected -- the two
+    regexes are independent for the cases that need both (a bare
+    "brands"/"models" count with no adjacent unit word, or a spelled-out
+    "hundreds of" with no digit at all), overlap only for the case that's
+    genuinely the same fragment counted twice."""
+    spans: list[tuple[int, int]] = []
+    fragments: list[str] = []
+
+    def _add(m: re.Match) -> None:
+        spans.append((m.start(), m.end()))
+        fragments.append(m.group(0).strip())
+
+    def _overlaps(m: re.Match) -> bool:
+        return any(m.start() < e and s < m.end() for s, e in spans)
+
+    for m in _CLAIM_NUMBER_RE.finditer(sentence):
+        _add(m)
+    for m in _CLAIM_QUALIFIED_QTY_RE.finditer(sentence):
+        if not _overlaps(m):
+            _add(m)
+    for m in _CLAIM_WORD_QTY_RE.finditer(sentence):
+        if not _overlaps(m):
+            _add(m)
     lowered = sentence.lower()
     for kw in _CLAIM_KEYWORDS:
         if kw in lowered:
             fragments.append(kw.strip())
+    for trigger in _CAPABILITY_TRIGGERS:
+        idx = lowered.find(trigger)
+        if idx != -1:
+            window = _capability_window(sentence, idx)
+            if window:
+                fragments.append(window)
     return fragments
 
 
 def ground_text(text: str | None, page_text: str | None) -> tuple[str | None, int, int]:
-    """Split `text` into sentences; a sentence with no claim fragment
-    passes through unchanged. A sentence WITH one or more claim fragments
-    is kept only if EVERY fragment in it is grounded (quote_grounded
-    against page_text) -- if page_text is None, every claim fragment is
-    automatically ungrounded (nothing to check it against). Dropped
-    wholesale, not softened: a sentence with one fabricated number and one
-    real one is dropped entirely, never rewritten to keep only the real
-    half. Returns (kept_text_or_None, grounded_fragment_count,
-    dropped_fragment_count)."""
+    """Sanitize (strip wrapping quotes, fix exclamation marks), then split
+    into sentences. A sentence carrying a banned filler phrase is dropped
+    outright (a register violation, not a grounding question). A sentence
+    with no claim fragment otherwise passes through unchanged. A sentence
+    WITH one or more claim fragments is kept only if EVERY fragment in it
+    is grounded (quote_grounded against page_text) -- if page_text is
+    None, every claim fragment is automatically ungrounded (nothing to
+    check it against). Dropped wholesale, not softened: a sentence with
+    one fabricated claim and one real one is dropped entirely, never
+    rewritten to keep only the real half. Returns (kept_text_or_None,
+    grounded_fragment_count, dropped_fragment_count)."""
+    text = _sanitize_field(text)
     if not text or not text.strip():
         return None, 0, 0
     sentences = [s.strip() for s in _SENTENCE_SPLIT_RE.split(text.strip()) if s.strip()]
     kept: list[str] = []
     grounded = dropped = 0
     for s in sentences:
+        if _has_banned_phrase(s):
+            continue
         fragments = _extract_claim_fragments(s)
         if not fragments:
             kept.append(s)
@@ -201,15 +374,19 @@ def ground_text(text: str | None, page_text: str | None) -> tuple[str | None, in
 
 
 def ground_list(items: list[str], page_text: str | None) -> tuple[list[str], int, int]:
-    """Same fragment-level rule as ground_text, applied per LIST ITEM (a
-    differentiator or an engineer question) -- an item carrying an
-    ungrounded claim fragment is dropped from the list entirely (never
-    padded back to a target length with an invented replacement)."""
+    """Same fragment-level rule as ground_text, applied per LIST ITEM (an
+    engineer question, which carries no factual claim of its own but is
+    still sanitized and register-checked) -- an item carrying an
+    ungrounded claim fragment or a banned phrase is dropped from the list
+    entirely (never padded back to a target length with an invented
+    replacement)."""
     kept: list[str] = []
     grounded = dropped = 0
     for item in items or []:
-        item = (item or "").strip()
+        item = _sanitize_field(item)
         if not item:
+            continue
+        if _has_banned_phrase(item):
             continue
         fragments = _extract_claim_fragments(item)
         if not fragments:
@@ -222,6 +399,30 @@ def ground_list(items: list[str], page_text: str | None) -> tuple[list[str], int
         else:
             dropped += len(fragments)
     return kept, grounded, dropped
+
+
+def ground_required_claim(item: str | None, page_text: str | None) -> tuple[str | None, int, int]:
+    """For a slot that MUST itself be a grounded claim -- the single
+    differentiator, per the 2026-09-03 register rewrite ('one grounded
+    differentiator'). Unlike ground_list's general items (which pass
+    through untouched if they carry no claim at all -- fine for an
+    engineer question, which isn't a factual assertion), an item with NO
+    extractable claim fragment is treated as ungrounded HERE: the whole
+    point of this one slot is that it be a specific, checkable fact, not a
+    vague statement of quality. Returns (kept_or_None, grounded_count,
+    dropped_count)."""
+    item = _sanitize_field(item)
+    if not item:
+        return None, 0, 0
+    if _has_banned_phrase(item):
+        return None, 0, 1
+    fragments = _extract_claim_fragments(item)
+    if not fragments:
+        return None, 0, 1  # required to BE a claim -- nothing to check counts as ungrounded
+    results = [bool(page_text) and quote_grounded(f, page_text).problem is None for f in fragments]
+    if all(results):
+        return item, len(fragments), 0
+    return None, 0, len(fragments)
 
 
 def _norm_key(name: str) -> str:
@@ -325,17 +526,46 @@ def _build_user_content(line: ProductLine, branches: list[str], competitor_candi
     return "\n".join(parts)
 
 
-def generate_one_line(session: Session, cfg: Config, line: ProductLine) -> dict:
-    """One Sonnet call for this line, fully grounded and validated. Returns
-    a stats dict; never raises for a bad LLM response (records an error
-    instead) -- ONLY lets app.spend.BudgetExceeded propagate, since that
-    one must stop the whole run, not just this line."""
-    branches = sorted({
+def _confirmed_branches(session: Session, line: ProductLine) -> list[str]:
+    return sorted({
         b.branch for b in session.exec(
             select(ProductLineBranch).where(
                 ProductLineBranch.product_line_id == line.id,
                 ProductLineBranch.status == "confirmed_covered")).all()
     })
+
+
+def line_row_only_pitch(session: Session, line: ProductLine) -> dict:
+    """The restricted pitch for a line with NO fetched product page, for
+    any reason -- built ONLY from this line's own building_role and
+    confirmed branch coverage, zero LLM call, zero capability or
+    product-category claims of any kind. See app.models.LinePitch's own
+    docstring for why this replaced the old behavior (a full LLM-written
+    pitch that then had every claim dropped by grounding, leaving a vague,
+    unlabeled fragment -- the Aldes row in this feature's first
+    production run)."""
+    from app.accounts import ROLE_LABELS
+
+    branches = _confirmed_branches(session, line)
+    role_label = ROLE_LABELS.get(line.building_role, line.building_role)
+    what_it_is = f"{line.name} is filed under DMG/ToroAire's {role_label} role on the line card."
+    where_it_fits = (f"Confirmed on the line card at {', '.join(branches)}." if branches
+                     else "Not yet confirmed on any branch's line card.")
+    return {"what_it_is": what_it_is, "where_it_fits": where_it_fits,
+           "typical_project_types": None, "elevator_pitch": None,
+           "differentiators": [], "engineer_questions": [], "competitors": []}
+
+
+def generate_one_line(session: Session, cfg: Config, line: ProductLine) -> dict:
+    """One Sonnet call for this line -- but ONLY if a real product page was
+    fetched. Per the 2026-09-03 rewrite: a line with no fetched page (no
+    domain found, robots disallowed, or the fetch failed) gets
+    line_row_only_pitch's deterministic template instead, with NO LLM call
+    at all -- there is nothing to write a grounded capability claim
+    against, so none is attempted. Never raises for a bad LLM response
+    (records an error instead) -- ONLY lets app.spend.BudgetExceeded
+    propagate, since that one must stop the whole run, not just this line."""
+    branches = _confirmed_branches(session, line)
 
     competitor_rows = competing_lines_by_role(session).get(line.building_role, [])
     own_key = _norm_key(line.name)
@@ -350,6 +580,14 @@ def generate_one_line(session: Session, cfg: Config, line: ProductLine) -> dict:
     if domains:
         page_text, page_url, fetch_status = fetch_product_page(domains[0])
 
+    if fetch_status != "fetched":
+        return {
+            "ok": True, "line_id": line.id, "line_name": line.name,
+            "raw": line_row_only_pitch(session, line),
+            "page_text": None, "page_url": None, "fetch_status": fetch_status,
+            "pitch_scope": "line_row_only", "domains_tried": domains, "model": None,
+        }
+
     user_content = _build_user_content(line, branches, candidates, page_text, page_url)
     model = cfg.get("llm.line_pitch_model", "claude-sonnet-4-6")
 
@@ -357,14 +595,21 @@ def generate_one_line(session: Session, cfg: Config, line: ProductLine) -> dict:
         raw = generate_line_pitch(user_content)
     except BudgetExceeded:
         raise
-    except Exception as exc:  # noqa: BLE001 -- one bad line must not kill the whole run
-        return {"ok": False, "line_id": line.id, "line_name": line.name,
-               "error": f"{type(exc).__name__}: {exc}"}
+    except Exception as exc:  # noqa: BLE001 -- one bad line must not kill the whole run, falls back below
+        log.warning("line_pitch: LLM call failed for %s, falling back to line_row_only: %s",
+                   line.name, exc)
+        return {
+            "ok": True, "line_id": line.id, "line_name": line.name,
+            "raw": line_row_only_pitch(session, line),
+            "page_text": None, "page_url": None, "fetch_status": "fetch_failed",
+            "pitch_scope": "line_row_only", "domains_tried": domains, "model": None,
+            "llm_error": f"{type(exc).__name__}: {exc}",
+        }
 
     return {
         "ok": True, "line_id": line.id, "line_name": line.name, "raw": raw,
         "page_text": page_text, "page_url": page_url, "fetch_status": fetch_status,
-        "domains_tried": domains, "model": model,
+        "pitch_scope": "full", "domains_tried": domains, "model": model,
     }
 
 
@@ -401,21 +646,55 @@ def _validate_competitor_names(competitors: list[dict], candidates: list[str]) -
 
 
 def _write_pitch_and_competitors(session: Session, line: ProductLine, result: dict) -> dict:
+    """pitch_scope='line_row_only' (see generate_one_line/line_row_only_pitch)
+    writes what_it_is/where_it_fits verbatim (already deterministic,
+    capability-claim-free template text -- nothing to ground, nothing to
+    sanitize beyond the same pass everything else gets for consistency)
+    and leaves elevator_pitch/typical_project_types/differentiators/
+    engineer_questions empty, with NO competitor rows written -- there is
+    no capability fact to position a competitor comparison against.
+
+    pitch_scope='full' runs the complete grounding pass: EVERY field is
+    sanitized (wrapping quotes stripped, '!' -> '.') and claim-checked
+    (see ground_text/ground_list), the elevator pitch is truncated at a
+    sentence boundary under MAX_ELEVATOR_PITCH_WORDS, and -- per the
+    2026-09-03 register rewrite -- differentiators/engineer_questions are
+    each capped to exactly ONE entry, with the single differentiator
+    additionally REQUIRED to be a grounded claim (ground_required_claim,
+    not the general list-item passthrough ground_list uses for a
+    non-factual engineer question)."""
     raw = result["raw"]
     page_text = result["page_text"]
+    pitch_scope = result.get("pitch_scope", "full")
 
-    what_it_is, g1, d1 = ground_text(raw.get("what_it_is"), page_text)
-    where_it_fits, g2, d2 = ground_text(raw.get("where_it_fits"), page_text)
-    typical, g3, d3 = ground_text(raw.get("typical_project_types"), page_text)
-    elevator, g4, d4 = ground_text(raw.get("elevator_pitch"), page_text)
-    truncated = False
-    if elevator:
-        elevator, truncated = _truncate_to_words(elevator, MAX_ELEVATOR_PITCH_WORDS)
-    diffs, g5, d5 = ground_list(raw.get("differentiators") or [], page_text)
-    questions, g6, d6 = ground_list(raw.get("engineer_questions") or [], page_text)
+    if pitch_scope == "line_row_only":
+        what_it_is = _sanitize_field(raw.get("what_it_is"))
+        where_it_fits = _sanitize_field(raw.get("where_it_fits"))
+        typical = elevator = None
+        diffs, questions = [], []
+        truncated = False
+        grounded_total = dropped_total = 0
+    else:
+        what_it_is, g1, d1 = ground_text(raw.get("what_it_is"), page_text)
+        where_it_fits, g2, d2 = ground_text(raw.get("where_it_fits"), page_text)
+        typical, g3, d3 = ground_text(raw.get("typical_project_types"), page_text)
+        elevator, g4, d4 = ground_text(raw.get("elevator_pitch"), page_text)
+        truncated = False
+        if elevator:
+            elevator, truncated = _truncate_to_words(elevator, MAX_ELEVATOR_PITCH_WORDS)
 
-    grounded_total = g1 + g2 + g3 + g4 + g5 + g6
-    dropped_total = d1 + d2 + d3 + d4 + d5 + d6
+        # Capped to ONE each, per the 2026-09-03 register rewrite (was up
+        # to 3) -- sliced from the model's raw output BEFORE grounding, so
+        # no effort is spent checking items 2/3 that would be discarded
+        # regardless of what the model returned.
+        raw_diffs = (raw.get("differentiators") or [])[:1]
+        raw_questions = (raw.get("engineer_questions") or [])[:1]
+        one_diff, g5, d5 = ground_required_claim(raw_diffs[0] if raw_diffs else None, page_text)
+        diffs = [one_diff] if one_diff else []
+        questions, g6, d6 = ground_list(raw_questions, page_text)
+
+        grounded_total = g1 + g2 + g3 + g4 + g5 + g6
+        dropped_total = d1 + d2 + d3 + d4 + d5 + d6
 
     existing = session.exec(select(LinePitch).where(LinePitch.product_line_id == line.id)).first()
     pitch = existing or LinePitch(product_line_id=line.id)
@@ -430,6 +709,7 @@ def _write_pitch_and_competitors(session: Session, line: ProductLine, result: di
     pitch.reviewed_at = None
     pitch.source_url = result["page_url"]
     pitch.source_fetch_status = result["fetch_status"]
+    pitch.pitch_scope = pitch_scope
     pitch.grounded_claim_count = grounded_total
     pitch.dropped_claim_count = dropped_total
     pitch.model = result["model"]
@@ -439,36 +719,49 @@ def _write_pitch_and_competitors(session: Session, line: ProductLine, result: di
     session.commit()
     session.refresh(pitch)
 
-    role_rows = competing_lines_by_role(session).get(line.building_role, [])
-    source_url_by_name = {row.manufacturer: row.source_url for row in role_rows}
+    n_competitors_written = competitors_offered = competitors_rejected = 0
+    if pitch_scope == "full":
+        role_rows = competing_lines_by_role(session).get(line.building_role, [])
+        source_url_by_name = {row.manufacturer: row.source_url for row in role_rows}
 
-    candidates = list(source_url_by_name.keys())
-    valid_competitors = _validate_competitor_names(raw.get("competitors") or [], candidates)
-    n_competitors_written = 0
-    for c in valid_competitors:
-        name = c["competitor_name"]
-        existing_c = session.exec(
-            select(LineCompetitor).where(LineCompetitor.product_line_id == line.id,
-                                         LineCompetitor.competitor_name == name)).first()
-        if existing_c is not None and existing_c.review_status in ("confirmed", "rejected"):
-            continue  # a human decision on this pair is never overwritten
-        row = existing_c or LineCompetitor(product_line_id=line.id, competitor_name=name)
-        row.why_we_lose = c.get("why_we_lose")
-        row.why_we_win = c.get("why_we_win")
-        row.evidence_url = source_url_by_name.get(name)
-        row.review_status = "draft"
-        row.model = result["model"]
-        row.generated_at = utcnow()
-        row.updated_at = utcnow()
-        session.add(row)
-        n_competitors_written += 1
-    session.commit()
+        candidates = list(source_url_by_name.keys())
+        offered = raw.get("competitors") or []
+        valid_competitors = _validate_competitor_names(offered, candidates)
+        competitors_offered = len(offered)
+        competitors_rejected = len(offered) - len(valid_competitors)
+        for c in valid_competitors:
+            name = c["competitor_name"]
+            existing_c = session.exec(
+                select(LineCompetitor).where(LineCompetitor.product_line_id == line.id,
+                                             LineCompetitor.competitor_name == name)).first()
+            if existing_c is not None and existing_c.review_status in ("confirmed", "rejected"):
+                continue  # a human decision on this pair is never overwritten
+            why_lose = _sanitize_field(c.get("why_we_lose"))
+            why_win = _sanitize_field(c.get("why_we_win"))
+            if why_lose and _has_banned_phrase(why_lose):
+                why_lose = None
+            if why_win and _has_banned_phrase(why_win):
+                why_win = None
+            row = existing_c or LineCompetitor(product_line_id=line.id, competitor_name=name)
+            row.why_we_lose = why_lose
+            row.why_we_win = why_win
+            row.evidence_url = source_url_by_name.get(name)
+            row.review_status = "draft"
+            row.model = result["model"]
+            row.generated_at = utcnow()
+            row.updated_at = utcnow()
+            session.add(row)
+            n_competitors_written += 1
+        session.commit()
 
     return {
-        "pitch_id": pitch.id, "grounded_claims": grounded_total, "dropped_claims": dropped_total,
+        "pitch_id": pitch.id, "pitch_scope": pitch_scope,
+        "grounded_claims": grounded_total, "dropped_claims": dropped_total,
+        "claims_extracted": grounded_total + dropped_total,
         "elevator_pitch_truncated": truncated, "competitors_written": n_competitors_written,
-        "competitors_offered": len(raw.get("competitors") or []),
-        "competitors_rejected_not_on_map": len(raw.get("competitors") or []) - len(valid_competitors),
+        "competitors_offered": competitors_offered,
+        "competitors_rejected_not_on_map": competitors_rejected,
+        "insufficient": pitch_scope == "full" and not (what_it_is or elevator or diffs),
     }
 
 
@@ -487,8 +780,9 @@ def run_line_pitch_generation(session: Session, cfg: Config, *, cap_usd: float =
     stats = {
         "lines_total": len(lines), "lines_generated": 0, "lines_skipped_existence_false": 0,
         "lines_skipped_already_confirmed": 0, "lines_skipped_budget": 0, "lines_errored": 0,
-        "grounded_claims_total": 0, "dropped_claims_total": 0, "competitors_written_total": 0,
-        "fetch_status_counts": {}, "errors": [], "sample_pitches": [],
+        "grounded_claims_total": 0, "dropped_claims_total": 0, "claims_extracted_total": 0,
+        "competitors_written_total": 0, "lines_line_row_only": 0, "lines_insufficient": 0,
+        "fetch_status_counts": {}, "errors": [], "sample_pitches": [], "per_line_claims": [],
     }
 
     all_lines = session.exec(select(ProductLine)).all()
@@ -515,6 +809,10 @@ def run_line_pitch_generation(session: Session, cfg: Config, *, cap_usd: float =
                 budget_exhausted = True
                 stats["lines_skipped_budget"] += 1
                 continue
+            except Exception as exc:  # noqa: BLE001 -- one bad line must never crash a 69-line batch
+                stats["lines_errored"] += 1
+                stats["errors"].append({"line": line.name, "error": f"{type(exc).__name__}: {exc}"})
+                continue
 
             stats["fetch_status_counts"][result.get("fetch_status", "error")] = (
                 stats["fetch_status_counts"].get(result.get("fetch_status", "error"), 0) + 1)
@@ -528,14 +826,28 @@ def run_line_pitch_generation(session: Session, cfg: Config, *, cap_usd: float =
             stats["lines_generated"] += 1
             stats["grounded_claims_total"] += write_stats["grounded_claims"]
             stats["dropped_claims_total"] += write_stats["dropped_claims"]
+            stats["claims_extracted_total"] += write_stats["claims_extracted"]
             stats["competitors_written_total"] += write_stats["competitors_written"]
+            if write_stats["pitch_scope"] == "line_row_only":
+                stats["lines_line_row_only"] += 1
+            if write_stats["insufficient"]:
+                stats["lines_insufficient"] += 1
+            stats["per_line_claims"].append({
+                "line": line.name, "pitch_scope": write_stats["pitch_scope"],
+                "claims_extracted": write_stats["claims_extracted"],
+                "claims_grounded": write_stats["grounded_claims"],
+                "claims_dropped": write_stats["dropped_claims"],
+                "insufficient": write_stats["insufficient"],
+            })
             if len(stats["sample_pitches"]) < 5:
                 pitch = session.get(LinePitch, write_stats["pitch_id"])
                 stats["sample_pitches"].append({
                     "line": line.name, "elevator_pitch": pitch.elevator_pitch,
-                    "what_it_is": pitch.what_it_is, "differentiators": pitch.differentiators,
+                    "what_it_is": pitch.what_it_is, "where_it_fits": pitch.where_it_fits,
+                    "differentiators": pitch.differentiators,
                     "engineer_questions": pitch.engineer_questions,
                     "source_fetch_status": pitch.source_fetch_status,
+                    "pitch_scope": pitch.pitch_scope,
                 })
         stats["cost_usd"] = run.spent_usd
 

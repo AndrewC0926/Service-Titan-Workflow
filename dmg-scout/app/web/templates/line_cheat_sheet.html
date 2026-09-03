@@ -26,13 +26,17 @@
 {% for line, pitch in by_role[r] %}
 <div style="margin-bottom:1.2rem;page-break-inside:avoid">
   <p><strong>{{ line.name }}</strong> <span class="note">({{ line.firm }})</span></p>
+  {% if pitch.pitch_scope == 'line_row_only' %}
+  <p class="note">{{ pitch.what_it_is }} {{ pitch.where_it_fits }}</p>
+  {% else %}
   {% if pitch.elevator_pitch %}<p>{{ pitch.elevator_pitch }}</p>{% endif %}
   {% if pitch.differentiators %}
-  <p class="note" style="margin-bottom:2px"><strong>Differentiators:</strong>
+  <p class="note" style="margin-bottom:2px"><strong>Differentiator:</strong>
     {{ pitch.differentiators|join(' · ') }}</p>
   {% endif %}
   {% if pitch.engineer_questions %}
   <p class="note"><strong>Ask the engineer:</strong> {{ pitch.engineer_questions|join(' · ') }}</p>
+  {% endif %}
   {% endif %}
 </div>
 {% endfor %}

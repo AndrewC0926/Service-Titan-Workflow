@@ -587,7 +587,8 @@
 <thead><tr><th>Line</th><th>Elevator pitch</th></tr></thead>
 <tbody>
 {% for pitch, line in pitches %}
-<tr><td><a href="/line/{{ line.id }}">{{ line.name }}</a></td><td>{{ pitch.elevator_pitch or '—' }}</td></tr>
+<tr><td><a href="/line/{{ line.id }}">{{ line.name }}</a>{% if pitch.pitch_scope == 'line_row_only' %} <span class="tag">line_row_only</span>{% endif %}</td>
+    <td>{{ pitch.elevator_pitch or (pitch.what_it_is ~ ' ' ~ pitch.where_it_fits if pitch.pitch_scope == 'line_row_only' else '—') }}</td></tr>
 {% endfor %}
 </tbody>
 </table>

@@ -2421,10 +2421,27 @@ class LinePitch(SQLModel, table=True):
     whose existing row is already 'confirmed', so a rep's review is
     permanent until they explicitly re-open it.
 
-    differentiators/engineer_questions are JSON lists, target length 3 --
-    can be shorter than 3 if a claim-bearing entry failed grounding and was
-    dropped (see dropped_claim_count), never padded back up to 3 with an
-    invented one.
+    differentiators/engineer_questions are JSON lists, target length 1 as
+    of the 2026-09-03 register rewrite (was 3) -- can be shorter (empty)
+    if the one candidate failed grounding, never padded with an invented
+    one.
+
+    pitch_scope is 'full' (a real manufacturer page was fetched, the LLM
+    wrote a complete pitch, every claim fragment-grounded against that
+    page) or 'line_row_only' (NO page was fetched, for any reason -- no
+    LLM call was made at all, and what_it_is/where_it_fits are a
+    deterministic template built ONLY from this line's own building_role
+    and confirmed branch coverage, with zero capability or product-
+    category claims of any kind). elevator_pitch/typical_project_types/
+    differentiators/engineer_questions and every LineCompetitor row are
+    always empty for a line_row_only pitch -- there is nothing to
+    positively claim without a source to check it against. The UI shows
+    'insufficient source' for these rather than any capability-sounding
+    text -- see app/pipeline/line_pitch.py's module docstring for why this
+    replaced the earlier behavior (a 'fetch_failed' line still got a full
+    LLM-written pitch that then had every claim dropped by grounding,
+    leaving a vague, unlabeled fragment -- confirmed real, the Aldes row
+    in this feature's own first production run).
 
     source_url/source_fetch_status record WHERE (if anywhere) the
     manufacturer's own product page came from for this generation pass --
@@ -2433,9 +2450,7 @@ class LinePitch(SQLModel, table=True):
     not assumed), 'no_domain_found' (nothing in this line's own researched
     basis fields named a plausible manufacturer domain -- no web search was
     performed to find one), or 'fetch_failed' (network/HTTP error). Any
-    status other than 'fetched' means every claim-bearing sentence in this
-    row was dropped for lack of anything to ground it against -- see
-    grounded_claim_count/dropped_claim_count.
+    status other than 'fetched' implies pitch_scope='line_row_only'.
     """
     __tablename__ = "line_pitches"
     __table_args__ = (UniqueConstraint("product_line_id", name="uq_line_pitch_product_line"),)
@@ -2456,6 +2471,7 @@ class LinePitch(SQLModel, table=True):
 
     source_url: str | None = None
     source_fetch_status: str | None = None  # fetched | robots_disallowed | no_domain_found | fetch_failed
+    pitch_scope: str = Field(default="full", index=True)  # full | line_row_only
     grounded_claim_count: int = 0
     dropped_claim_count: int = 0
 

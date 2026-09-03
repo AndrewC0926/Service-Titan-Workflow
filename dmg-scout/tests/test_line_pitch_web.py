@@ -92,6 +92,23 @@ def test_line_detail_shows_competitor_rows(client, db_session, cfg):
     assert "Brand recognition." in r.text
 
 
+def test_line_detail_shows_line_row_only_badge(client, db_session, cfg):
+    line = _line(db_session)
+    _pitch(db_session, line, pitch_scope="line_row_only", what_it_is="Filed under Air Handling.",
+          elevator_pitch=None, differentiators=[], engineer_questions=[])
+    r = client.get(f"/line/{line.id}", headers=AUTH)
+    assert "line_row_only" in r.text
+    assert "Filed under Air Handling." in r.text
+
+
+def test_line_detail_shows_insufficient_source_for_an_empty_full_pitch(client, db_session, cfg):
+    line = _line(db_session)
+    _pitch(db_session, line, pitch_scope="full", what_it_is=None, elevator_pitch=None,
+          differentiators=[], engineer_questions=[], source_fetch_status="fetched")
+    r = client.get(f"/line/{line.id}", headers=AUTH)
+    assert "insufficient source" in r.text.lower() or "Insufficient source" in r.text
+
+
 # ---- Confirm / Reject / Edit -----------------------------------------------
 
 def test_confirm_pitch_action(client, db_session, cfg):

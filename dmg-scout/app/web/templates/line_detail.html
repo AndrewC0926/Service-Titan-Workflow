@@ -18,32 +18,35 @@
     <th>Equipment type</th><td>{{ line.equipment_type.replace('_',' ') if line.equipment_type else '—' }}</td></tr>
 </table>
 
-<h2>Pitch {% if pitch and pitch.review_status == 'draft' %}<span class="stamp stamp-post">UNVERIFIED — generated, not reviewed</span>{% elif pitch and pitch.review_status == 'confirmed' %}<span class="stamp stamp-pre">confirmed{% if pitch.reviewed_by %} by {{ pitch.reviewed_by }}{% endif %}</span>{% elif pitch and pitch.review_status == 'rejected' %}<span class="tag bad">rejected</span>{% endif %}</h2>
+<h2>Pitch {% if pitch and pitch.review_status == 'draft' %}<span class="stamp stamp-post">UNVERIFIED — generated, not reviewed</span>{% elif pitch and pitch.review_status == 'confirmed' %}<span class="stamp stamp-pre">confirmed{% if pitch.reviewed_by %} by {{ pitch.reviewed_by }}{% endif %}</span>{% elif pitch and pitch.review_status == 'rejected' %}<span class="tag bad">rejected</span>{% endif %}
+{% if pitch and pitch.pitch_scope == 'line_row_only' %}<span class="tag" title="No manufacturer page was fetched -- this is a role/branch-only summary with no capability or product claims.">source=line_row_only</span>{% endif %}</h2>
 {% if not pitch %}
 <p class="note">No pitch generated for this line yet. Run <code>scout generate-line-pitches</code>.</p>
+{% elif pitch.pitch_scope != 'line_row_only' and not (pitch.what_it_is or pitch.elevator_pitch or pitch.differentiators) %}
+<p class="callout callout-warn">Insufficient source — a product page was fetched but no claim in the generated pitch could be grounded against it. Nothing usable was left to show.</p>
 {% else %}
 <p class="note" style="max-width:56rem">
-  {% if pitch.source_fetch_status == 'fetched' %}Grounded against <a href="{{ pitch.source_url }}" target="_blank" rel="noopener">the manufacturer's own product page</a> —
+  {% if pitch.pitch_scope == 'line_row_only' %}No manufacturer product page was fetched for this line (source_fetch_status: {{ pitch.source_fetch_status }}), so this is a restricted pitch built only from the line's own role and confirmed branch coverage — no capability or product-category claims are included.
+  {% elif pitch.source_fetch_status == 'fetched' %}Grounded against <a href="{{ pitch.source_url }}" target="_blank" rel="noopener">the manufacturer's own product page</a> —
     {{ pitch.grounded_claim_count }} claim(s) confirmed on that page, {{ pitch.dropped_claim_count }} dropped for lack of grounding.
-  {% elif pitch.source_fetch_status == 'robots_disallowed' %}No product page could be fetched — robots.txt disallowed it. No specific numbers or certifications are included below; only role/category-level content.
-  {% elif pitch.source_fetch_status == 'fetch_failed' %}No product page could be fetched — the fetch failed. No specific numbers or certifications are included below.
-  {% else %}No manufacturer product page was known for this line, so no web fetch was attempted. No specific numbers or certifications are included below.
   {% endif %}
-  {% if pitch.generated_at %}Generated {{ pitch.generated_at.strftime('%Y-%m-%d') }} by {{ pitch.model or 'unknown model' }}.{% endif %}
+  {% if pitch.generated_at %}Generated {{ pitch.generated_at.strftime('%Y-%m-%d') }}{% if pitch.model %} by {{ pitch.model }}{% endif %}.{% endif %}
 </p>
 
 <table style="max-width:900px">
 <tr><th>What it is</th><td colspan="3">{{ pitch.what_it_is or '—' }}</td></tr>
 <tr><th>Where it fits</th><td colspan="3">{{ pitch.where_it_fits or '—' }}</td></tr>
+{% if pitch.pitch_scope != 'line_row_only' %}
 <tr><th>Typical projects</th><td colspan="3">{{ pitch.typical_project_types or '—' }}</td></tr>
 <tr><th>Elevator pitch</th><td colspan="3">{{ pitch.elevator_pitch or '—' }}</td></tr>
+{% endif %}
 </table>
 {% if pitch.differentiators %}
-<p><strong>Differentiators</strong></p>
+<p><strong>Differentiator</strong></p>
 <ul>{% for d in pitch.differentiators %}<li>{{ d }}</li>{% endfor %}</ul>
 {% endif %}
 {% if pitch.engineer_questions %}
-<p><strong>Questions to ask an engineer</strong></p>
+<p><strong>Question to ask an engineer</strong></p>
 <ul>{% for q in pitch.engineer_questions %}<li>{{ q }}</li>{% endfor %}</ul>
 {% endif %}
 
