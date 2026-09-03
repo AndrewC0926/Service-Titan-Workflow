@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% from "_icon.html" import icon %}
+{% block title %}{{ branch }} cheat sheet{% endblock %}
+{% block content %}
+<style>
+@media print {
+  body { background: #fff; color: #000; font-size: 10.5pt; }
+  .masthead, nav, .noprint { display: none !important; }
+  main { border: none; background: #fff; margin: 0; padding: 0; }
+  a { color: #000; }
+  th, td { border-color: #999 !important; }
+  h2, h3 { color: #000; }
+}
+</style>
+<p class="noprint"><button onclick="window.print()">{{ icon('printer') }} Print / save PDF</button>
+  <a href="/lines" style="margin-left:12px">← back to lines</a></p>
+
+<h2>{{ branch }} — line card cheat sheet</h2>
+<p class="note">Confirmed pitches only, generated {{ tb.data_as_of.strftime('%Y-%m-%d') if tb.data_as_of else '' }} —
+  a draft (unreviewed) pitch never appears here. See <a href="/reference?tab=pitches">/reference</a> for
+  everything still awaiting review.</p>
+
+{% for r in role_order %}
+{% if by_role.get(r) %}
+<h3>{{ ROLE_LABELS[r] }}</h3>
+{% for line, pitch in by_role[r] %}
+<div style="margin-bottom:1.2rem;page-break-inside:avoid">
+  <p><strong>{{ line.name }}</strong> <span class="note">({{ line.firm }})</span></p>
+  {% if pitch.elevator_pitch %}<p>{{ pitch.elevator_pitch }}</p>{% endif %}
+  {% if pitch.differentiators %}
+  <p class="note" style="margin-bottom:2px"><strong>Differentiators:</strong>
+    {{ pitch.differentiators|join(' · ') }}</p>
+  {% endif %}
+  {% if pitch.engineer_questions %}
+  <p class="note"><strong>Ask the engineer:</strong> {{ pitch.engineer_questions|join(' · ') }}</p>
+  {% endif %}
+</div>
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% endblock %}

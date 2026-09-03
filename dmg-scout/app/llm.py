@@ -365,6 +365,84 @@ def extract_school_bid_metadata(text: str, *, filename: str = "") -> dict:
                       max_tokens=1024, stage="specs_pilot_metadata")
 
 
+LINE_PITCH_SYSTEM = """You are training a brand-new manufacturers' rep to give a 60-second
+elevator pitch on one HVAC/mechanical product line. Write from the rep's point of view --
+what they would actually SAY to an engineer or a GC, not marketing copy.
+
+Absolute rules:
+- Every specific number (a capacity range, an efficiency rating, a decibel level, a
+  certification) MUST be copied from the "Manufacturer's own product page text" you are
+  given, if any is given. If no page text is given, or the page doesn't state a number/
+  certification you'd otherwise want to use, DO NOT invent one or estimate one -- write
+  around it in role/category-level terms instead ("a packaged rooftop unit" not "a 20-100
+  ton packaged rooftop unit" unless the page text actually states that range).
+- competitor_name in every competitor entry MUST be chosen ONLY from the "Candidate
+  competitors" list you are given -- never a competitor from general industry knowledge that
+  isn't on that list, even if you're confident it's a real competitor. If the candidate list
+  is empty, return an empty competitors list.
+- elevator_pitch must be under 60 words.
+- differentiators and engineer_questions: up to 3 each, fewer is fine, never pad with a
+  restatement of the same point to reach 3.
+- why_we_lose and why_we_win are each ONE sentence -- honest sales positioning, not a
+  fabricated statistic.
+- Never mention a competitor's specific numeric spec unless it also appears in the page text
+  you were given for THIS line (you were not given the competitor's own page, so you have no
+  basis for a competitor's numbers either)."""
+
+LINE_PITCH_TOOL = {
+    "name": "record_line_pitch",
+    "description": "Record the elevator-pitch training content for one product line.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "what_it_is": {"type": "string", "description": "1-2 sentences: what this product line physically is."},
+            "where_it_fits": {"type": "string",
+                              "description": "1-2 sentences: where this line fits in a mechanical system, "
+                                            "in terms of its building-systems role."},
+            "typical_project_types": {"type": "string",
+                                      "description": "1 sentence: the kinds of projects a rep would pitch this on."},
+            "elevator_pitch": {"type": "string", "description": "Under 60 words, spoken to an engineer or GC."},
+            "differentiators": {"type": "array", "items": {"type": "string"}, "maxItems": 3,
+                               "description": "Up to 3 short differentiators vs. the category generally."},
+            "engineer_questions": {"type": "array", "items": {"type": "string"}, "maxItems": 3,
+                                  "description": "Up to 3 questions a rep should ask an engineer to qualify a fit."},
+            "competitors": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "competitor_name": {"type": "string"},
+                        "why_we_lose": {"type": "string"},
+                        "why_we_win": {"type": "string"},
+                    },
+                    "required": ["competitor_name", "why_we_lose", "why_we_win"],
+                },
+                "description": "One entry per candidate competitor you were given -- omit any "
+                              "you have nothing honest to say about, never invent one not on the list.",
+            },
+        },
+        "required": ["what_it_is", "where_it_fits", "typical_project_types", "elevator_pitch",
+                    "differentiators", "engineer_questions", "competitors"],
+    },
+}
+
+
+def generate_line_pitch(user_content: str) -> dict:
+    """One Sonnet call (constrained decoding against LINE_PITCH_TOOL) for
+    one product line's elevator-pitch training content -- see
+    app/pipeline/line_pitch.py's module docstring for what goes into
+    user_content (the line's own row, the closed competitor candidate
+    list, and the manufacturer's own product page text if one was fetched
+    and grounding/truncation/competitor-name validation, all of which
+    happens AFTER this call returns, not here -- this function is only the
+    LLM call itself, same division of labor as extract_equipment_schedule/
+    app.grounding.ground_schedule_entry."""
+    cfg = load_config()
+    model = cfg.get("llm.line_pitch_model", "claude-sonnet-4-6")
+    return _tool_call(model, LINE_PITCH_SYSTEM, LINE_PITCH_TOOL, user_content,
+                      max_tokens=1200, stage="line_pitch")
+
+
 ADJUDICATE_SYSTEM = """You decide whether two records describe the SAME physical data center
 project. Different SPE/LLC names for one campus are the same project. Different phases on
 one campus are the same project unless clearly separate buildings years apart. Same

@@ -18,6 +18,95 @@
     <th>Equipment type</th><td>{{ line.equipment_type.replace('_',' ') if line.equipment_type else '—' }}</td></tr>
 </table>
 
+<h2>Pitch {% if pitch and pitch.review_status == 'draft' %}<span class="stamp stamp-post">UNVERIFIED — generated, not reviewed</span>{% elif pitch and pitch.review_status == 'confirmed' %}<span class="stamp stamp-pre">confirmed{% if pitch.reviewed_by %} by {{ pitch.reviewed_by }}{% endif %}</span>{% elif pitch and pitch.review_status == 'rejected' %}<span class="tag bad">rejected</span>{% endif %}</h2>
+{% if not pitch %}
+<p class="note">No pitch generated for this line yet. Run <code>scout generate-line-pitches</code>.</p>
+{% else %}
+<p class="note" style="max-width:56rem">
+  {% if pitch.source_fetch_status == 'fetched' %}Grounded against <a href="{{ pitch.source_url }}" target="_blank" rel="noopener">the manufacturer's own product page</a> —
+    {{ pitch.grounded_claim_count }} claim(s) confirmed on that page, {{ pitch.dropped_claim_count }} dropped for lack of grounding.
+  {% elif pitch.source_fetch_status == 'robots_disallowed' %}No product page could be fetched — robots.txt disallowed it. No specific numbers or certifications are included below; only role/category-level content.
+  {% elif pitch.source_fetch_status == 'fetch_failed' %}No product page could be fetched — the fetch failed. No specific numbers or certifications are included below.
+  {% else %}No manufacturer product page was known for this line, so no web fetch was attempted. No specific numbers or certifications are included below.
+  {% endif %}
+  {% if pitch.generated_at %}Generated {{ pitch.generated_at.strftime('%Y-%m-%d') }} by {{ pitch.model or 'unknown model' }}.{% endif %}
+</p>
+
+<table style="max-width:900px">
+<tr><th>What it is</th><td colspan="3">{{ pitch.what_it_is or '—' }}</td></tr>
+<tr><th>Where it fits</th><td colspan="3">{{ pitch.where_it_fits or '—' }}</td></tr>
+<tr><th>Typical projects</th><td colspan="3">{{ pitch.typical_project_types or '—' }}</td></tr>
+<tr><th>Elevator pitch</th><td colspan="3">{{ pitch.elevator_pitch or '—' }}</td></tr>
+</table>
+{% if pitch.differentiators %}
+<p><strong>Differentiators</strong></p>
+<ul>{% for d in pitch.differentiators %}<li>{{ d }}</li>{% endfor %}</ul>
+{% endif %}
+{% if pitch.engineer_questions %}
+<p><strong>Questions to ask an engineer</strong></p>
+<ul>{% for q in pitch.engineer_questions %}<li>{{ q }}</li>{% endfor %}</ul>
+{% endif %}
+
+{% if pitch.review_status != 'confirmed' %}
+<details class="callout callout-warn">
+  <summary>Review this pitch</summary>
+  <div class="callout-content">
+    <form method="post" action="/line/{{ line.id }}/pitch/review" class="grid" style="gap:6px">
+      <label class="note">Your name<input type="text" name="reviewed_by" required></label>
+      <label class="note">What it is<textarea name="what_it_is" rows="2">{{ pitch.what_it_is or '' }}</textarea></label>
+      <label class="note">Where it fits<textarea name="where_it_fits" rows="2">{{ pitch.where_it_fits or '' }}</textarea></label>
+      <label class="note">Typical projects<textarea name="typical_project_types" rows="2">{{ pitch.typical_project_types or '' }}</textarea></label>
+      <label class="note">Elevator pitch<textarea name="elevator_pitch" rows="3">{{ pitch.elevator_pitch or '' }}</textarea></label>
+      <label class="note">Differentiators (one per line)<textarea name="differentiators" rows="3">{{ pitch.differentiators|join('\n') }}</textarea></label>
+      <label class="note">Engineer questions (one per line)<textarea name="engineer_questions" rows="3">{{ pitch.engineer_questions|join('\n') }}</textarea></label>
+      <div>
+        <button type="submit" name="action" value="confirm">Confirm as-is</button>
+        <button type="submit" name="action" value="edit">Save edits &amp; confirm</button>
+        <button type="submit" name="action" value="reject">Reject</button>
+      </div>
+    </form>
+  </div>
+</details>
+{% endif %}
+
+{% if pitch_competitors %}
+<h2>Competitors on this pitch</h2>
+<table class="tbl" style="width:100%">
+<thead><tr><th>Competitor</th><th>Why we lose</th><th>Why we win</th><th>Status</th><th></th></tr></thead>
+<tbody>
+{% for c in pitch_competitors %}
+<tr>
+  <td>{{ c.competitor_name }}{% if c.evidence_url %} <a href="{{ c.evidence_url }}" target="_blank" rel="noopener" title="Evidence this competitor sells into this role">↗</a>{% endif %}</td>
+  <td>{{ c.why_we_lose or '—' }}</td>
+  <td>{{ c.why_we_win or '—' }}</td>
+  <td>
+    {%- if c.review_status == 'draft' -%}<span class="stamp stamp-post">UNVERIFIED</span>
+    {%- elif c.review_status == 'confirmed' -%}<span class="stamp stamp-pre">confirmed</span>
+    {%- else -%}<span class="tag bad">rejected</span>{%- endif -%}
+  </td>
+  <td>
+    {% if c.review_status != 'confirmed' %}
+    <details><summary>Review</summary>
+      <form method="post" action="/line/{{ line.id }}/competitor/{{ c.id }}/review" style="display:grid;gap:4px;min-width:220px">
+        <input type="text" name="reviewed_by" placeholder="Your name" required>
+        <textarea name="why_we_lose" rows="2">{{ c.why_we_lose or '' }}</textarea>
+        <textarea name="why_we_win" rows="2">{{ c.why_we_win or '' }}</textarea>
+        <div>
+          <button type="submit" name="action" value="confirm">Confirm</button>
+          <button type="submit" name="action" value="edit">Save &amp; confirm</button>
+          <button type="submit" name="action" value="reject">Reject</button>
+        </div>
+      </form>
+    </details>
+    {% endif %}
+  </td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% endif %}
+{% endif %}
+
 <h2>Branch coverage</h2>
 <p class="note" style="max-width:56rem">Everything above this line was researched against DMG's SoCal card. Whether
   another DMG/ToroAire branch carries this line is a separate, mostly-unresearched fact.</p>

@@ -60,6 +60,12 @@ llm:
   # this stage yet; unmoved rather than guessed at, same as adjudicate_model
   # and outreach_model above.
   schedule_extraction_model: "claude-sonnet-4-6"
+  # Line-card training pitches (app/pipeline/line_pitch.py) -- explicitly
+  # requested on Sonnet, not routed by the triage/adjudicate policy above:
+  # writing a rep-facing elevator pitch and honest competitive positioning
+  # is synthesis over a small, curated context (the line's own row, the
+  # competitor map, a fetched product page), not a fixed-schema fill-in.
+  line_pitch_model: "claude-sonnet-4-6"
   # KEPT on Sonnet -- explicitly, per this app's own routing policy above:
   # needs web_search tool support (Sonnet 5 and Sonnet 4.6 both qualify) and
   # is prose synthesis + judgment about what counts as corroborated

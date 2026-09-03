@@ -570,6 +570,32 @@
     </span>
   </div>
 </details>
+
+{% elif active_tab == 'pitches' %}
+<p class="note mb-2" style="max-width:62rem">Confirmed pitches only -- a draft (generated, not yet reviewed)
+  never shows here. {{ total_drafts }} draft{{ 's' if total_drafts != 1 }} still awaiting review at
+  <a href="/lines">/lines</a>.</p>
+
+{% for r in role_order %}
+{% set pitches = confirmed_pitches_by_role.get(r, []) %}
+{% if pitches or draft_count_by_role.get(r, 0) %}
+<h3>{{ ROLE_LABELS[r] }}
+  {% if draft_count_by_role.get(r, 0) %}<span class="stamp stamp-post">{{ draft_count_by_role[r] }} draft{{ 's' if draft_count_by_role[r] != 1 }} awaiting review</span>{% endif %}
+</h3>
+{% if pitches %}
+<table class="tbl" style="width:100%;margin-bottom:1rem">
+<thead><tr><th>Line</th><th>Elevator pitch</th></tr></thead>
+<tbody>
+{% for pitch, line in pitches %}
+<tr><td><a href="/line/{{ line.id }}">{{ line.name }}</a></td><td>{{ pitch.elevator_pitch or '—' }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="note">No confirmed pitches yet for this role.</p>
+{% endif %}
+{% endif %}
+{% endfor %}
 {% endif %}
 
 <footer class="note" style="margin-top:2.5rem;border-top:1px solid var(--color-rule-hard);padding-top:0.85rem;line-height:1.65;max-width:70rem">

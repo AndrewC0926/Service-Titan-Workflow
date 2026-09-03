@@ -9,13 +9,22 @@ no assumptions-register entry, and no "data as of" stamp. Basis is ASHRAE
 the ASHRAE service-life database for the life ranges) -- see the citation in
 reference.html's footer, which is the only place that basis needs to live.
 
+ONE EXCEPTION: the "pitches" tab IS database-backed (app.models.LinePitch)
+-- see app/web/main.py's reference_index route. It shows CONFIRMED pitches
+only, grouped by role, plus a count of drafts still awaiting review. A
+draft (unreviewed, generated) pitch never appears here -- this page is
+where a rep learns the card, and an unverified generated sentence has no
+business being read back as if it were confirmed. See
+app/pipeline/line_pitch.py's module docstring for the generation
+discipline behind every row this tab can ever show.
+
 Content adapted from a standalone reference sheet the user hand-authored
 (hvac-field-reference.html) into this app's own template and component
 classes.
 """
 from __future__ import annotations
 
-TAB_ORDER = ("systems", "equipment", "numbers", "abbreviations", "roles")
+TAB_ORDER = ("systems", "equipment", "numbers", "abbreviations", "roles", "pitches")
 
 TAB_LABELS = {
     "systems": "Systems",
@@ -23,6 +32,7 @@ TAB_LABELS = {
     "numbers": "Numbers",
     "abbreviations": "Abbreviations",
     "roles": "Roles",
+    "pitches": "Pitches",
 }
 
 # equipment_type (RetrofitBuilding.equipment_type, set by

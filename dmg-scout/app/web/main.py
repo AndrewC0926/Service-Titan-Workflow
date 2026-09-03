@@ -55,6 +55,8 @@ from app.models import (
     Contractor,
     FieldIntel,
     Firm,
+    LineCompetitor,
+    LinePitch,
     MatchCandidate,
     Outreach,
     ProductLine,
@@ -1852,17 +1854,72 @@ def lines_index(request: Request, role: str = "", firm: str = "", market: str = 
     })
 
 
+@app.get("/lines/cheat-sheet/{branch}", response_class=HTMLResponse)
+def line_cheat_sheet(branch: str, request: Request,
+                     session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Printable, confirmed-only cheat sheet for one branch -- for the
+    truck. Confirmed pitches ONLY (see app.models.LinePitch's own
+    docstring): a draft belongs on /line/{id} for review, never on
+    something printed and carried around as if it were settled."""
+    from app.models import ProductLineBranch
+
+    branch_lines = session.exec(
+        select(ProductLine, LinePitch)
+        .where(ProductLine.id == ProductLineBranch.product_line_id,
+              ProductLineBranch.branch == branch,
+              ProductLineBranch.status == "confirmed_covered",
+              LinePitch.product_line_id == ProductLine.id,
+              LinePitch.review_status == "confirmed")
+        .order_by(ProductLine.building_role, ProductLine.name)
+    ).all()
+    if not branch_lines:
+        known = sorted({b for b in session.exec(
+            select(ProductLineBranch.branch).distinct()).all() if b})
+        raise HTTPException(404, detail=f"no confirmed pitches for branch {branch!r} -- "
+                                       f"known branches: {', '.join(known)}")
+
+    by_role: dict[str, list] = {}
+    for line, pitch in branch_lines:
+        by_role.setdefault(line.building_role, []).append((line, pitch))
+
+    return templates.TemplateResponse(request, "line_cheat_sheet.html", {
+        "branch": branch, "by_role": by_role, "role_order": ROLE_ORDER,
+        "tb": _title_block(session), "active": "lines",
+    })
+
+
 @app.get("/reference", response_class=HTMLResponse)
 def reference_index(request: Request, tab: str = "",
                      session: Session = Depends(get_session), _: str = Depends(auth)):
     """Static field-reference sheet -- equipment, formulas, abbreviations and
     role definitions. No source, no pipeline, nothing here to go stale --
     see app/reference.py's module docstring for why this carries no
-    source-health entry and no assumptions-register entry."""
+    source-health entry and no assumptions-register entry. The 'pitches'
+    tab is the one exception (see that same docstring): confirmed
+    line-card pitches only, grouped by role, plus a draft count."""
     active_tab = tab if tab in TAB_ORDER else TAB_ORDER[0]
+
+    confirmed_pitches_by_role: dict[str, list] = {r: [] for r in ROLE_ORDER}
+    draft_count_by_role: dict[str, int] = {r: 0 for r in ROLE_ORDER}
+    if active_tab == "pitches":
+        confirmed = session.exec(
+            select(LinePitch, ProductLine)
+            .where(LinePitch.product_line_id == ProductLine.id, LinePitch.review_status == "confirmed")
+        ).all()
+        for pitch, line in confirmed:
+            confirmed_pitches_by_role.setdefault(line.building_role, []).append((pitch, line))
+        drafts = session.exec(
+            select(LinePitch, ProductLine)
+            .where(LinePitch.product_line_id == ProductLine.id, LinePitch.review_status == "draft")
+        ).all()
+        for _pitch, line in drafts:
+            draft_count_by_role[line.building_role] = draft_count_by_role.get(line.building_role, 0) + 1
+
     return templates.TemplateResponse(request, "reference.html", {
         "tab_order": TAB_ORDER, "TAB_LABELS": TAB_LABELS, "active_tab": active_tab,
         "role_order": ROLE_ORDER, "role_reference": ROLE_REFERENCE,
+        "confirmed_pitches_by_role": confirmed_pitches_by_role, "draft_count_by_role": draft_count_by_role,
+        "total_drafts": sum(draft_count_by_role.values()),
         "tb": _title_block(session), "active": "reference",
     })
 
@@ -1892,6 +1949,10 @@ def line_detail(line_id: int, request: Request,
     branches = session.exec(
         select(ProductLineBranch).where(ProductLineBranch.product_line_id == line.id)
         .order_by(ProductLineBranch.branch)).all()
+    pitch = session.exec(select(LinePitch).where(LinePitch.product_line_id == line.id)).first()
+    pitch_competitors = session.exec(
+        select(LineCompetitor).where(LineCompetitor.product_line_id == line.id)
+        .order_by(LineCompetitor.competitor_name)).all()
     return templates.TemplateResponse(request, "line_detail.html", {
         "line": line, "best_guess": category_is_best_guess(line),
         "pull_through": pull_through(session, cfg, line),
@@ -1902,8 +1963,69 @@ def line_detail(line_id: int, request: Request,
         "access_labels": SELECTION_TOOL_ACCESS_LABELS, "verif_labels": SELECTION_TOOL_VERIFICATION_LABELS,
         "competing_lines": competing, "rep_firms": rep_firms,
         "branches": branches,
+        "pitch": pitch, "pitch_competitors": pitch_competitors,
         "tb": _title_block(session), "active": "lines",
     })
+
+
+@app.post("/line/{line_id}/pitch/review")
+def line_pitch_review(line_id: int, request: Request, action: str = Form(...),
+                      reviewed_by: str = Form(...),
+                      what_it_is: str = Form(None), where_it_fits: str = Form(None),
+                      typical_project_types: str = Form(None), elevator_pitch: str = Form(None),
+                      differentiators: str = Form(None), engineer_questions: str = Form(None),
+                      session: Session = Depends(get_session), _: str = Depends(auth)):
+    """One-tap Confirm/Reject, or an inline Edit-then-confirm -- action is
+    'confirm' | 'reject' | 'edit'. Edit applies the submitted field values
+    (one line per differentiator/question, blank lines dropped) AND marks
+    the row confirmed in the same action, since an edit exists precisely so
+    a rep can fix something small and move on, not to leave it drafted
+    again for no reason."""
+    pitch = session.exec(select(LinePitch).where(LinePitch.product_line_id == line_id)).first()
+    if pitch is None:
+        raise HTTPException(404)
+    if action not in ("confirm", "reject", "edit"):
+        raise HTTPException(400, detail=f"unknown action {action!r}")
+
+    if action == "edit":
+        pitch.what_it_is = (what_it_is or "").strip() or None
+        pitch.where_it_fits = (where_it_fits or "").strip() or None
+        pitch.typical_project_types = (typical_project_types or "").strip() or None
+        pitch.elevator_pitch = (elevator_pitch or "").strip() or None
+        pitch.differentiators = [ln.strip() for ln in (differentiators or "").splitlines() if ln.strip()]
+        pitch.engineer_questions = [ln.strip() for ln in (engineer_questions or "").splitlines() if ln.strip()]
+
+    pitch.review_status = "confirmed" if action in ("confirm", "edit") else "rejected"
+    pitch.reviewed_by = reviewed_by
+    pitch.reviewed_at = utcnow()
+    pitch.updated_at = utcnow()
+    session.add(pitch)
+    session.commit()
+    return RedirectResponse(f"/line/{line_id}", status_code=303)
+
+
+@app.post("/line/{line_id}/competitor/{competitor_id}/review")
+def line_competitor_review(line_id: int, competitor_id: int, request: Request,
+                           action: str = Form(...), reviewed_by: str = Form(...),
+                           why_we_lose: str = Form(None), why_we_win: str = Form(None),
+                           session: Session = Depends(get_session), _: str = Depends(auth)):
+    row = session.get(LineCompetitor, competitor_id)
+    if row is None or row.product_line_id != line_id:
+        raise HTTPException(404)
+    if action not in ("confirm", "reject", "edit"):
+        raise HTTPException(400, detail=f"unknown action {action!r}")
+
+    if action == "edit":
+        row.why_we_lose = (why_we_lose or "").strip() or None
+        row.why_we_win = (why_we_win or "").strip() or None
+
+    row.review_status = "confirmed" if action in ("confirm", "edit") else "rejected"
+    row.reviewed_by = reviewed_by
+    row.reviewed_at = utcnow()
+    row.updated_at = utcnow()
+    session.add(row)
+    session.commit()
+    return RedirectResponse(f"/line/{line_id}", status_code=303)
 
 
 # ---- accounts ----------------------------------------------------------

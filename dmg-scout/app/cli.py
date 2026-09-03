@@ -537,6 +537,24 @@ def sam_gov_cmd(
     typer.echo(json.dumps(stats))
 
 
+@app.command("generate-line-pitches")
+def generate_line_pitches_cmd(
+    cap_usd: float = typer.Option(5.0, help="Hard dollar cap for the whole run (app.spend.run_budget)"),
+) -> None:
+    """One Sonnet pass per line-card product line, writing DRAFT
+    line_pitches/line_competitors rows for a new rep to review at
+    /line/{id} -- see app/pipeline/line_pitch.py's module docstring for the
+    grounding discipline (every factual claim checked against a fetched
+    manufacturer page or dropped) and what gets skipped (existence_verified
+    is False, or a line already reviewed 'confirmed'). Nothing here is ever
+    shown as fact until a human confirms it."""
+    from app.pipeline.line_pitch import run_line_pitch_generation
+    cfg = load_config()
+    with session_scope() as session:
+        stats = run_line_pitch_generation(session, cfg, cap_usd=cap_usd)
+    typer.echo(json.dumps(stats, indent=2, default=str))
+
+
 @app.command("import-ab869")
 def import_ab869_cmd(
     raw_dir: str = typer.Option("docs/hcai/ab869/raw",

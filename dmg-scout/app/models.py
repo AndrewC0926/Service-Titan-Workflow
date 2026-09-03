@@ -2404,3 +2404,100 @@ class Ab869Milestone(SQLModel, table=True):
     met_by_hcai_reason: str | None = None
 
     imported_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class LinePitch(SQLModel, table=True):
+    """One row per ProductLine (never per branch -- a pitch is about the
+    manufacturer's product, not which DMG location happens to stock it):
+    the elevator-pitch training material a new rep uses to talk about a
+    line. See app/pipeline/line_pitch.py's module docstring for the full
+    generation method.
+
+    SAME propose-never-assert discipline as CaptureAudio/voice capture:
+    every row generation ever writes starts review_status='draft' and is
+    shown with an UNVERIFIED marker until a human confirms it. A confirmed
+    row is NEVER touched by a later regeneration pass -- see
+    app.pipeline.line_pitch.generate_line_pitches, which skips any line
+    whose existing row is already 'confirmed', so a rep's review is
+    permanent until they explicitly re-open it.
+
+    differentiators/engineer_questions are JSON lists, target length 3 --
+    can be shorter than 3 if a claim-bearing entry failed grounding and was
+    dropped (see dropped_claim_count), never padded back up to 3 with an
+    invented one.
+
+    source_url/source_fetch_status record WHERE (if anywhere) the
+    manufacturer's own product page came from for this generation pass --
+    'fetched' (real page text was used for grounding), 'robots_disallowed'
+    (a candidate domain was found but robots.txt refused it -- checked live,
+    not assumed), 'no_domain_found' (nothing in this line's own researched
+    basis fields named a plausible manufacturer domain -- no web search was
+    performed to find one), or 'fetch_failed' (network/HTTP error). Any
+    status other than 'fetched' means every claim-bearing sentence in this
+    row was dropped for lack of anything to ground it against -- see
+    grounded_claim_count/dropped_claim_count.
+    """
+    __tablename__ = "line_pitches"
+    __table_args__ = (UniqueConstraint("product_line_id", name="uq_line_pitch_product_line"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    product_line_id: int = Field(foreign_key="product_lines.id", index=True)
+
+    what_it_is: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    where_it_fits: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    typical_project_types: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    elevator_pitch: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    differentiators: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
+    engineer_questions: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
+
+    review_status: str = Field(default="draft", index=True)  # draft | confirmed | rejected
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
+
+    source_url: str | None = None
+    source_fetch_status: str | None = None  # fetched | robots_disallowed | no_domain_found | fetch_failed
+    grounded_claim_count: int = 0
+    dropped_claim_count: int = 0
+
+    model: str | None = None
+    generated_at: datetime | None = None
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class LineCompetitor(SQLModel, table=True):
+    """One row per (product_line_id, competitor_name) -- why a rep loses or
+    wins against that specific competitor for that specific DMG line.
+    competitor_name is constrained at generation time to manufacturers
+    already present in app.competitors.COMPETITOR_LINES/CompetitorLine for
+    the SAME building_role as this line -- never invented from general
+    knowledge, see app.pipeline.line_pitch's module docstring. evidence_url
+    is NOT LLM-generated: it is copied directly from the matching
+    CompetitorLine.source_url, the real, already-verified citation for that
+    competitor actually selling into that role -- the one fact in this row
+    that doesn't need a separate grounding pass, because it was sourced by
+    app/competitors.py's own research before this table ever existed.
+
+    Same review_status discipline as LinePitch: every row starts 'draft'
+    and a confirmed or rejected row is never silently regenerated.
+    """
+    __tablename__ = "line_competitors"
+    __table_args__ = (UniqueConstraint("product_line_id", "competitor_name",
+                                       name="uq_line_competitor"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    product_line_id: int = Field(foreign_key="product_lines.id", index=True)
+    competitor_name: str = Field(index=True)
+
+    why_we_lose: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    why_we_win: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    evidence_url: str | None = None
+
+    review_status: str = Field(default="draft", index=True)  # draft | confirmed | rejected
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
+
+    model: str | None = None
+    generated_at: datetime | None = None
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
