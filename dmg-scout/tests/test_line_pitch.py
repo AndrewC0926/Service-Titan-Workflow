@@ -12,6 +12,7 @@ import app.pipeline.line_pitch as line_pitch
 from app.models import CompetitorLine, LineCompetitor, LinePitch, ProductLine, ProductLineBranch
 from app.pipeline.line_pitch import (
     _extract_claim_fragments,
+    _truncate_to_words,
     _validate_competitor_names,
     candidate_domains,
     generate_one_line,
@@ -114,6 +115,39 @@ def test_ground_list_never_pads_back_to_original_length():
     kept, grounded, dropped = ground_list(items, PAGE)
     assert kept == []
     assert dropped == 2
+
+
+# ---- truncation: cut at a sentence boundary, never mid-thought ------------
+
+def test_truncate_prefers_a_sentence_boundary_over_a_hard_word_cut():
+    """The exact bug caught reviewing this module's own first production
+    run against real data (2026-09-02, the Aldes line): a hard word-count
+    cut left the pitch trailing off mid-sentence ('We carry them across
+    Central Coast, Central'). Must cut at the last complete sentence that
+    fits instead."""
+    text = ("First sentence here has several words in it for padding purposes today. "
+           "Second sentence also has quite a few words in it as well for padding. "
+           "Third sentence trails off into something that will not fit at all here now.")
+    result, truncated = _truncate_to_words(text, 20)
+    assert truncated is True
+    assert result.endswith(".")
+    assert "trails off" not in result  # the incomplete third sentence must not appear at all
+
+
+def test_truncate_falls_back_to_hard_cut_when_no_sentence_fits():
+    """A single sentence longer than the whole budget -- no sentence
+    boundary exists within it, so the hard cut is the only option left."""
+    text = "one two three four five six seven eight nine ten eleven twelve."
+    result, truncated = _truncate_to_words(text, 5)
+    assert truncated is True
+    assert result == "one two three four five"
+
+
+def test_truncate_leaves_short_text_untouched():
+    text = "A short pitch under the limit."
+    result, truncated = _truncate_to_words(text, 60)
+    assert result == text
+    assert truncated is False
 
 
 # ---- candidate_domains: never a web search, never a guessed {name}.com ----

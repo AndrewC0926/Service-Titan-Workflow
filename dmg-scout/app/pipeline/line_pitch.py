@@ -369,9 +369,27 @@ def generate_one_line(session: Session, cfg: Config, line: ProductLine) -> dict:
 
 
 def _truncate_to_words(text: str, max_words: int) -> tuple[str, bool]:
+    """Prefer cutting at the last complete SENTENCE that fits within
+    max_words -- a hard word-count cut produces a pitch that trails off
+    mid-thought ("We carry them across Central Coast, Central" -- a real
+    case caught while reviewing this module's own first production run,
+    2026-09-02). Only falls back to the hard word cut when no sentence
+    boundary exists within the budget at all (a single very long
+    sentence), so the field is never silently left empty."""
     words = text.split()
     if len(words) <= max_words:
         return text, False
+    sentences = _SENTENCE_SPLIT_RE.split(text.strip())
+    kept: list[str] = []
+    word_count = 0
+    for s in sentences:
+        s_words = len(s.split())
+        if word_count + s_words > max_words:
+            break
+        kept.append(s)
+        word_count += s_words
+    if kept:
+        return " ".join(kept).strip(), True
     return " ".join(words[:max_words]), True
 
 
