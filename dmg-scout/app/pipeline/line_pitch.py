@@ -1005,7 +1005,23 @@ def run_line_pitch_generation(session: Session, cfg: Config, *, cap_usd: float =
     targeted rerun of just the lines a specific fix affects (see `scout
     generate-line-pitches --only-lines`), leaving every other line's
     current draft exactly as it is rather than regenerating the whole
-    card every time one thing changes."""
+    card every time one thing changes.
+
+    2026-09-04: expire_on_commit is turned off on THIS session instance
+    (local to this one call, not a global session_scope() change) because
+    a 64-line run with a real network fetch/web_search per line runs long
+    enough in wall-clock time (over an hour, measured) that SQLAlchemy's
+    default post-commit attribute expiry turns even a plain `line.id`
+    read on the NEXT loop iteration into a fresh round-trip against a
+    connection that may have gone stale in between -- confirmed as the
+    real cause of a mid-run crash (PendingRollbackError) that stopped a
+    64-line rerun after only 12 lines, with every already-loaded
+    ProductLine row otherwise perfectly valid and not needing a reload at
+    all. The per-line write is additionally wrapped in the same
+    try/except as the LLM call, with an explicit session.rollback() on
+    failure, so a genuine connection error on ONE line's write recovers
+    the session for the next line instead of taking down the whole run."""
+    session.expire_on_commit = False
     lines = session.exec(
         select(ProductLine).where(ProductLine.existence_verified.is_not(False))
         .order_by(ProductLine.name)
@@ -1048,6 +1064,7 @@ def run_line_pitch_generation(session: Session, cfg: Config, *, cap_usd: float =
                 stats["lines_skipped_budget"] += 1
                 continue
             except Exception as exc:  # noqa: BLE001 -- one bad line must never crash a 69-line batch
+                session.rollback()
                 stats["lines_errored"] += 1
                 stats["errors"].append({"line": line.name, "error": f"{type(exc).__name__}: {exc}"})
                 continue
@@ -1068,7 +1085,14 @@ def run_line_pitch_generation(session: Session, cfg: Config, *, cap_usd: float =
                 stats["errors"].append({"line": line.name, "error": result.get("error")})
                 continue
 
-            write_stats = _write_pitch_and_competitors(session, line, result)
+            try:
+                write_stats = _write_pitch_and_competitors(session, line, result)
+            except Exception as exc:  # noqa: BLE001 -- a write failure (e.g. a dropped connection
+                # mid-commit) must recover the session for the NEXT line, not take down the batch.
+                session.rollback()
+                stats["lines_errored"] += 1
+                stats["errors"].append({"line": line.name, "error": f"{type(exc).__name__}: {exc}"})
+                continue
             stats["lines_generated"] += 1
             stats["grounded_claims_total"] += write_stats["grounded_claims"]
             stats["dropped_claims_total"] += write_stats["dropped_claims"]

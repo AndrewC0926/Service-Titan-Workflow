@@ -779,6 +779,35 @@ def test_run_stops_spending_once_budget_exhausted_but_does_not_crash(db_session,
     assert stats["lines_skipped_budget"] == 2
 
 
+def test_run_recovers_the_session_after_a_write_failure_and_keeps_going(db_session, cfg, monkeypatch):
+    """Real production failure (2026-09-04): a write-step exception left
+    the session's transaction invalid, and every SUBSEQUENT line's mere
+    `line.id` access then raised PendingRollbackError, crashing a 64-line
+    run after only 12 lines. The write step must be wrapped the same way
+    the LLM call already is, with an explicit session.rollback() so the
+    NEXT line's processing (including the confirmed_line_ids skip check
+    and generate_one_line) can use the session again."""
+    _line(db_session, name="Line A")
+    _line(db_session, name="Line B")
+    _mock_fetched(monkeypatch)
+    monkeypatch.setattr(line_pitch, "generate_line_pitch", lambda content: _fake_raw())
+
+    calls = {"n": 0}
+    real_write = line_pitch._write_pitch_and_competitors
+
+    def flaky_write(session, line, result):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("simulated dropped connection mid-commit")
+        return real_write(session, line, result)
+    monkeypatch.setattr(line_pitch, "_write_pitch_and_competitors", flaky_write)
+
+    stats = run_line_pitch_generation(db_session, cfg, cap_usd=5.0)
+    assert stats["lines_errored"] == 1
+    assert stats["lines_generated"] == 1
+    assert "simulated dropped connection" in stats["errors"][0]["error"]
+
+
 def test_run_reports_sample_pitches_and_totals(db_session, cfg, monkeypatch):
     _line(db_session, name="AAON")
     monkeypatch.setattr(line_pitch, "candidate_domains", lambda l: [])
