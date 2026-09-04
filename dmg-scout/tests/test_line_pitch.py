@@ -643,8 +643,8 @@ def test_set_manual_domain_writes_fields(db_session):
     from app.pipeline.line_pitch import set_manual_domain
     line = _line(db_session, name="TCF/Twin City Fan")
     updated = set_manual_domain(db_session, "TCF/Twin City Fan", "tcf.com")
-    assert updated.official_domain == "tcf.com"
-    assert updated.official_domain_source == "andrew_confirmed"
+    assert updated == {"name": "TCF/Twin City Fan", "official_domain": "tcf.com",
+                       "official_domain_source": "andrew_confirmed"}
     db_session.refresh(line)
     assert line.official_domain == "tcf.com"
 
@@ -653,7 +653,25 @@ def test_set_manual_domain_accepts_a_custom_source(db_session):
     from app.pipeline.line_pitch import set_manual_domain
     _line(db_session, name="Marley")
     updated = set_manual_domain(db_session, "Marley", "spxcooling.com", source="manual_override")
-    assert updated.official_domain_source == "manual_override"
+    assert updated["official_domain_source"] == "manual_override"
+
+
+def test_set_manual_domain_survives_a_closed_session(db_session):
+    """The exact bug this guards against: `scout set-line-domain` reads
+    the result AFTER app.db.session_scope's `with` block (and its
+    session.close()) has exited -- a live ProductLine returned across
+    that boundary raises DetachedInstanceError on first attribute access
+    (see tests/conftest.py's call_via_closing_session docstring for the
+    bug class). Confirmed against a real closing session, not the
+    long-lived db_session fixture, which structurally cannot catch this."""
+    from tests.conftest import assert_no_orm_objects, call_via_closing_session
+    _line(db_session, name="Titus")
+    db_session.commit()
+    result = call_via_closing_session(
+        line_pitch.set_manual_domain, "Titus", "titus-hvac.com", source="andrew_confirmed")
+    assert_no_orm_objects(result)
+    assert result == {"name": "Titus", "official_domain": "titus-hvac.com",
+                      "official_domain_source": "andrew_confirmed"}
 
 
 def test_set_manual_domain_raises_for_an_unknown_line(db_session):

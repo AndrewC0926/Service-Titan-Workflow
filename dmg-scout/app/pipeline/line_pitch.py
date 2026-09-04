@@ -746,7 +746,7 @@ def discover_domain_via_web_search(cfg: Config, line: ProductLine) -> dict:
 
 
 def set_manual_domain(session: Session, line_name: str, domain: str, *,
-                      source: str = "andrew_confirmed") -> ProductLine:
+                      source: str = "andrew_confirmed") -> dict:
     """A human overriding candidate_domains/discover_domain_via_web_search
     directly -- for a line web_search got wrong (TCF/Twin City Fan: the
     search's own domain, tcf.com, was correctly rejected by
@@ -760,7 +760,16 @@ def set_manual_domain(session: Session, line_name: str, domain: str, *,
     still fetched and grounded normally on the NEXT generate_one_line run
     for this line, same as any other candidate_domains() hit. Raises
     ValueError if no ProductLine matches line_name (never silently a
-    no-op on a typo)."""
+    no-op on a typo).
+
+    Returns a plain dict of the written fields, not the ProductLine
+    itself -- session.close() (app.db.session_scope's own finally, e.g.
+    from `scout set-line-domain`) expires every attribute of a live ORM
+    object, so a caller reading it after that session exits gets
+    DetachedInstanceError instead of the value. See
+    tests/conftest.py's call_via_closing_session for the pattern this
+    guards against (same bug class that broke `scout fetch`, `scout
+    doctor`, and app.pipeline_health.memory_pressure_status)."""
     line = session.exec(select(ProductLine).where(ProductLine.name == line_name)).first()
     if line is None:
         raise ValueError(f"no ProductLine named {line_name!r}")
@@ -770,7 +779,8 @@ def set_manual_domain(session: Session, line_name: str, domain: str, *,
     session.add(line)
     session.commit()
     session.refresh(line)
-    return line
+    return {"name": line.name, "official_domain": line.official_domain,
+            "official_domain_source": line.official_domain_source}
 
 
 # ---- the one Sonnet call, per line -----------------------------------------

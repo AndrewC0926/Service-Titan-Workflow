@@ -583,9 +583,8 @@ def set_line_domain_cmd(
     the new domain up."""
     from app.pipeline.line_pitch import set_manual_domain
     with session_scope() as session:
-        updated = set_manual_domain(session, line, domain, source=source)
-    typer.echo(json.dumps({"line": updated.name, "official_domain": updated.official_domain,
-                           "official_domain_source": updated.official_domain_source}))
+        result = set_manual_domain(session, line, domain, source=source)
+    typer.echo(json.dumps(result))
 
 
 @app.command("import-ab869")
