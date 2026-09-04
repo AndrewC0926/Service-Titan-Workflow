@@ -526,6 +526,150 @@ def test_extract_product_like_link_matches_on_link_text_not_just_href():
     assert _extract_product_like_link(tree, "https://example.com/") == "https://example.com/en/offerings"
 
 
+# ---- _is_ssl_cert_error / _fetch_home_page: www./http fallback (2026-09-04) --
+# Real production case: titus-hvac.com's own cert doesn't cover the bare
+# hostname. A www./http retry is ONLY correct for an SSL cert failure --
+# a DNS/connection/timeout/404 failure would not be fixed by it, so those
+# must stop after one attempt instead of spending two more requests.
+
+def test_is_ssl_cert_error_detects_a_real_ssl_error():
+    import ssl
+    from app.pipeline.line_pitch import _is_ssl_cert_error
+    exc = ssl.SSLCertVerificationError("certificate verify failed: Hostname mismatch")
+    assert _is_ssl_cert_error(exc)
+
+
+def test_is_ssl_cert_error_detects_a_wrapped_ssl_error():
+    import ssl
+    from app.pipeline.line_pitch import _is_ssl_cert_error
+    inner = ssl.SSLCertVerificationError("Hostname mismatch")
+    wrapper = ConnectionError("connect failed")
+    wrapper.__cause__ = inner
+    assert _is_ssl_cert_error(wrapper)
+
+
+def test_is_ssl_cert_error_false_for_an_unrelated_error():
+    from app.pipeline.line_pitch import _is_ssl_cert_error
+    assert not _is_ssl_cert_error(TimeoutError("timed out"))
+    assert not _is_ssl_cert_error(ConnectionError("Name or service not known"))
+
+
+class _FakeResp:
+    def __init__(self, text):
+        self.text = text
+
+
+class _FakeClient:
+    """A minimal stand-in for app.http.PoliteClient -- maps a URL to
+    either an _FakeResp or an exception to raise, and records every URL
+    it was asked to fetch so a test can assert exactly which fallbacks
+    were (or weren't) attempted."""
+    def __init__(self, responses):
+        self.responses = responses
+        self.calls = []
+
+    def get(self, url, timeout=None):
+        self.calls.append(url)
+        result = self.responses[url]
+        if isinstance(result, BaseException):
+            raise result
+        return _FakeResp(result)
+
+
+HTML_OK = "<html><body>Real content here.</body></html>"
+
+
+def test_fetch_home_page_falls_back_to_www_on_ssl_error():
+    import ssl
+    client = _FakeClient({
+        "https://titus-hvac.com/": ssl.SSLCertVerificationError("Hostname mismatch"),
+        "https://www.titus-hvac.com/": HTML_OK,
+    })
+    tree, url, status = line_pitch._fetch_home_page(client, "titus-hvac.com")
+    assert status == "fetched"
+    assert url == "https://www.titus-hvac.com/"
+    assert client.calls == ["https://titus-hvac.com/", "https://www.titus-hvac.com/"]
+
+
+def test_fetch_home_page_falls_back_to_http_as_last_resort():
+    import ssl
+    client = _FakeClient({
+        "https://titus-hvac.com/": ssl.SSLCertVerificationError("Hostname mismatch"),
+        "https://www.titus-hvac.com/": ssl.SSLCertVerificationError("Hostname mismatch"),
+        "http://titus-hvac.com/": HTML_OK,
+    })
+    tree, url, status = line_pitch._fetch_home_page(client, "titus-hvac.com")
+    assert status == "fetched"
+    assert url == "http://titus-hvac.com/"
+    assert len(client.calls) == 3
+
+
+def test_fetch_home_page_does_not_fall_back_on_a_non_ssl_error():
+    client = _FakeClient({
+        "https://example.com/": ConnectionError("Name or service not known"),
+    })
+    tree, url, status = line_pitch._fetch_home_page(client, "example.com")
+    assert status == "fetch_failed"
+    assert client.calls == ["https://example.com/"]  # never tried www./http
+
+
+def test_fetch_home_page_skips_www_variant_when_domain_already_has_www():
+    import ssl
+    client = _FakeClient({
+        "https://www.example.com/": ssl.SSLCertVerificationError("mismatch"),
+        "http://www.example.com/": HTML_OK,
+    })
+    tree, url, status = line_pitch._fetch_home_page(client, "www.example.com")
+    assert status == "fetched"
+    assert url == "http://www.example.com/"
+    assert client.calls == ["https://www.example.com/", "http://www.example.com/"]
+
+
+def test_fetch_home_page_all_variants_fail():
+    import ssl
+    client = _FakeClient({
+        "https://example.com/": ssl.SSLCertVerificationError("mismatch"),
+        "https://www.example.com/": ssl.SSLCertVerificationError("mismatch"),
+        "http://example.com/": ssl.SSLCertVerificationError("mismatch"),
+    })
+    tree, url, status = line_pitch._fetch_home_page(client, "example.com")
+    assert status == "fetch_failed"
+    assert tree is None and url is None
+
+
+# ---- set_manual_domain: a human overriding search/basis-text discovery ----
+
+def test_set_manual_domain_writes_fields(db_session):
+    from app.pipeline.line_pitch import set_manual_domain
+    line = _line(db_session, name="TCF/Twin City Fan")
+    updated = set_manual_domain(db_session, "TCF/Twin City Fan", "tcf.com")
+    assert updated.official_domain == "tcf.com"
+    assert updated.official_domain_source == "andrew_confirmed"
+    db_session.refresh(line)
+    assert line.official_domain == "tcf.com"
+
+
+def test_set_manual_domain_accepts_a_custom_source(db_session):
+    from app.pipeline.line_pitch import set_manual_domain
+    _line(db_session, name="Marley")
+    updated = set_manual_domain(db_session, "Marley", "spxcooling.com", source="manual_override")
+    assert updated.official_domain_source == "manual_override"
+
+
+def test_set_manual_domain_raises_for_an_unknown_line(db_session):
+    from app.pipeline.line_pitch import set_manual_domain
+    with pytest.raises(ValueError):
+        set_manual_domain(db_session, "Not A Real Line", "example.com")
+
+
+def test_set_manual_domain_takes_priority_in_candidate_domains(db_session):
+    from app.pipeline.line_pitch import set_manual_domain
+    line = _line(db_session, name="Titus", basis_text="see some-other-domain.com")
+    set_manual_domain(db_session, "Titus", "titus-hvac.com")
+    db_session.refresh(line)
+    assert candidate_domains(line) == ["titus-hvac.com"]
+
+
 # ---- competitor-name validation: closed set, never invented ---------------
 
 def test_validate_competitor_names_drops_anything_not_on_the_map():

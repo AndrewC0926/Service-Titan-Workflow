@@ -568,6 +568,26 @@ def generate_line_pitches_cmd(
     typer.echo(json.dumps(stats, indent=2, default=str))
 
 
+@app.command("set-line-domain")
+def set_line_domain_cmd(
+    line: str = typer.Option(..., help="Exact ProductLine.name"),
+    domain: str = typer.Option(..., help="Bare domain, no scheme (e.g. spxcooling.com)"),
+    source: str = typer.Option("andrew_confirmed", help="Recorded as ProductLine.official_domain_source"),
+) -> None:
+    """A human overriding candidate_domains/web_search domain discovery
+    directly -- see app.pipeline.line_pitch.set_manual_domain's own
+    docstring for why this exists (a search that found the wrong site, or
+    the right site behind an SSL cert candidate_domains's own www./http
+    fallback still can't fix). Does not fetch or regenerate anything
+    itself -- run `scout generate-line-pitches --only-lines` next to pick
+    the new domain up."""
+    from app.pipeline.line_pitch import set_manual_domain
+    with session_scope() as session:
+        updated = set_manual_domain(session, line, domain, source=source)
+    typer.echo(json.dumps({"line": updated.name, "official_domain": updated.official_domain,
+                           "official_domain_source": updated.official_domain_source}))
+
+
 @app.command("import-ab869")
 def import_ab869_cmd(
     raw_dir: str = typer.Option("docs/hcai/ab869/raw",

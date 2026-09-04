@@ -559,6 +559,73 @@ def _parse_page_text(html: str) -> str:
     return tree.body.text(separator=" ", strip=True) if tree.body else ""
 
 
+def _is_ssl_cert_error(exc: BaseException) -> bool:
+    """True for an SSL certificate verification failure specifically (a
+    hostname mismatch, an expired/self-signed cert, ...) -- NOT for a
+    plain connection refusal, timeout, or DNS failure, which a www./http
+    retry would not fix and shouldn't be attempted for (a wasted request
+    against a host that's simply down). Checked by walking the exception
+    chain for ssl.SSLCertVerificationError, with a string-match fallback
+    since httpx/OpenSSL wrap the underlying error differently across
+    versions -- confirmed real case, 2026-09-03 production run:
+    titus-hvac.com's own cert doesn't cover the bare (non-www) hostname
+    ('[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Hostname
+    mismatch, certificate is not valid for 'titus-hvac.com'')."""
+    import ssl
+
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        if isinstance(cur, ssl.SSLCertVerificationError):
+            return True
+        seen.add(id(cur))
+        cur = cur.__cause__ or cur.__context__
+    return "CERTIFICATE_VERIFY_FAILED" in str(exc)
+
+
+def _fetch_home_page(client, domain: str) -> tuple[object | None, str | None, str]:
+    """The home page, trying up to three URL variants in order:
+    https://{domain}/, then -- ONLY on an SSL certificate error, per the
+    2026-09-04 brief's explicit 'try www. and http fallbacks on SSL
+    mismatch' -- https://www.{domain}/ (skipped if domain already starts
+    with 'www.'), then http://{domain}/ as a last resort. Any OTHER
+    failure (DNS, connection refused, timeout, 404, robots) stops
+    immediately at that variant -- a www./http retry would not fix any of
+    those, so there is no reason to spend the extra requests.
+
+    Returns (parsed_tree_or_None, url_actually_used_or_None, fetch_status)
+    -- the PARSED selectolax tree, not extracted text, so the one caller
+    (fetch_product_pages) can pull both the body text AND the product-like
+    link out of the SAME fetch instead of requesting the home page twice."""
+    from selectolax.parser import HTMLParser
+
+    from app.http import RobotsDisallowed
+
+    candidates = [f"https://{domain}/"]
+    if not domain.startswith("www."):
+        candidates.append(f"https://www.{domain}/")
+    candidates.append(f"http://{domain}/")
+
+    for i, url in enumerate(candidates):
+        try:
+            resp = client.get(url, timeout=FETCH_TIMEOUT_SECONDS)
+        except RobotsDisallowed:
+            return None, None, "robots_disallowed"
+        except Exception as exc:  # noqa: BLE001 -- one bad domain must not kill the whole run
+            if i < len(candidates) - 1 and _is_ssl_cert_error(exc):
+                log.info("line_pitch: SSL cert error on %s, trying next fallback: %s", url, exc)
+                continue
+            log.warning("line_pitch: fetch failed for %s: %s", url, exc)
+            return None, None, "fetch_failed"
+        tree = HTMLParser(resp.text)
+        for tag in tree.css("script, style, noscript"):
+            tag.decompose()
+        if not (tree.body and tree.body.text(strip=True)):
+            continue
+        return tree, url, "fetched"
+    return None, None, "fetch_failed"
+
+
 def fetch_product_pages(domain: str) -> tuple[str | None, str | None, str, list[str]]:
     """Home page plus, if one is linked, the most product-like page
     (products/catalog/solutions) -- grounded against both, concatenated
@@ -569,30 +636,28 @@ def fetch_product_pages(domain: str) -> tuple[str | None, str | None, str, list[
     Returns (combined_page_text_or_None, home_url_or_None, fetch_status,
     urls_fetched). fetch_status describes the HOME page fetch only --
     'fetched' | 'robots_disallowed' | 'fetch_failed', same three values as
-    fetch_product_page. A second-page fetch failure (robots, network, no
-    matching link found at all) just means grounding runs against one
-    page instead of two; it is never a reason to fail the whole line, so
-    it is swallowed here and logged, not raised or returned as a status.
+    fetch_product_page (see _fetch_home_page for the www./http SSL
+    fallback sequence tried before this counts as failed). A second-page
+    fetch failure (robots, network, no matching link found at all) just
+    means grounding runs against one page instead of two; it is never a
+    reason to fail the whole line, so it is swallowed here and logged,
+    not raised or returned as a status.
 
-    Both requests share ONE PoliteClient, so robots.txt is fetched once
+    All requests share ONE PoliteClient, so robots.txt is fetched once
     per host but re-checked (app.http.PoliteClient.request calls
-    rp.can_fetch on the FULL url every time) before the second page --
-    a host that blocks /products/ while allowing / is still respected."""
-    from selectolax.parser import HTMLParser
-
+    rp.can_fetch on the FULL url every time) before every further
+    request -- a host that blocks /products/ while allowing / is still
+    respected, and www.{domain} is checked against ITS OWN robots.txt,
+    not assumed to inherit the bare domain's."""
     from app.http import PoliteClient, RobotsDisallowed
 
-    home_url = f"https://{domain}/"
     try:
         with PoliteClient(interval=0.5, max_retries=1, max_retries_5xx=0) as client:
-            resp = client.get(home_url, timeout=FETCH_TIMEOUT_SECONDS)
-            tree = HTMLParser(resp.text)
-            for tag in tree.css("script, style, noscript"):
-                tag.decompose()
-            home_text = tree.body.text(separator=" ", strip=True) if tree.body else ""
-            if not home_text.strip():
-                return None, home_url, "fetch_failed", []
+            tree, home_url, fetch_status = _fetch_home_page(client, domain)
+            if fetch_status != "fetched":
+                return None, home_url, fetch_status, []
 
+            home_text = tree.body.text(separator=" ", strip=True)
             urls_fetched = [home_url]
             texts = [home_text[:MAX_PAGE_CHARS]]
 
@@ -611,7 +676,7 @@ def fetch_product_pages(domain: str) -> tuple[str | None, str | None, str, list[
     except RobotsDisallowed:
         return None, None, "robots_disallowed", []
     except Exception as exc:  # noqa: BLE001 -- one bad domain must not kill the whole run
-        log.warning("line_pitch: fetch failed for %s: %s", home_url, exc)
+        log.warning("line_pitch: fetch failed for %s: %s", domain, exc)
         return None, None, "fetch_failed", []
 
     return "\n\n".join(texts), home_url, "fetched", urls_fetched
@@ -678,6 +743,34 @@ def discover_domain_via_web_search(cfg: Config, line: ProductLine) -> dict:
 
     return {"domain": domain, "url": url, "page_text": page_text, "fetch_status": "fetched",
            "searched": True, "cost_usd": result.get("cost_usd", 0.0)}
+
+
+def set_manual_domain(session: Session, line_name: str, domain: str, *,
+                      source: str = "andrew_confirmed") -> ProductLine:
+    """A human overriding candidate_domains/discover_domain_via_web_search
+    directly -- for a line web_search got wrong (TCF/Twin City Fan: the
+    search's own domain, tcf.com, was correctly rejected by
+    _page_contains_line_name since the fetched page never spells out
+    'TCF Twin City Fan' as one phrase, but a human confirms it IS the
+    right site) or couldn't reach at all (Titus: the model found the
+    right domain, titus-hvac.com, but its own SSL cert doesn't cover the
+    bare hostname -- see _fetch_home_page's www./http fallback, added for
+    exactly this case). Writes directly, no fetch/validation performed
+    here -- a human's own confirmation is the validation; the domain is
+    still fetched and grounded normally on the NEXT generate_one_line run
+    for this line, same as any other candidate_domains() hit. Raises
+    ValueError if no ProductLine matches line_name (never silently a
+    no-op on a typo)."""
+    line = session.exec(select(ProductLine).where(ProductLine.name == line_name)).first()
+    if line is None:
+        raise ValueError(f"no ProductLine named {line_name!r}")
+    line.official_domain = domain
+    line.official_domain_source = source
+    line.official_domain_url = None
+    session.add(line)
+    session.commit()
+    session.refresh(line)
+    return line
 
 
 # ---- the one Sonnet call, per line -----------------------------------------
