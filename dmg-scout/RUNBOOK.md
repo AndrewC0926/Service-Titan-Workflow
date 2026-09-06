@@ -273,6 +273,23 @@ Related: extraction stored `3000 kW` where the document says `3 MW`. The value i
 arithmetically right but the prompt says do not convert units, and `scout grounding`
 flags it because 3000 appears nowhere in the source.
 
+**Stale tons_estimate on 7 projects, cause unknown (found 2026-09-06).** While
+verifying the RATCHET OVERRIDE fix against a local restore of production, a
+fresh `run_size_score()` disagreed with the currently-*stored*
+`tons_estimate_low`/`tons_estimate_high` for projects **#771, #769, #849,
+#702, #810, #727, #910** — confirmed unrelated to that session's own changes
+(the pre-existing, unmodified `size_score.py` produces the same fresh,
+different numbers run against the same restore). Nothing about `mw_it`,
+`mw_total`, or the linked signals changed since these were last computed, so
+either something about `estimate_tons()`'s basis selection isn't as
+deterministic as it looks, or a `config.yaml` sizing constant changed after
+these 7 last got a real (non-nightly, i.e. `_absorb`-triggered) recompute and
+the nightly full-board pass has some reason not to be catching them current
+either way. Not investigated further; not fixed. Whoever picks this up next:
+start by diffing `estimate_basis` and `rejected_inputs` for these 7 between
+the stored row and a fresh `scout score` run, and check whether they share a
+`basis_key`.
+
 ## Extraction trust: the grounding audit
 
 ```
