@@ -29,23 +29,23 @@ def test_coerce_extraction_nulls_unstated_delivery_method():
     assert out["delivery_method"] is None
 
 
-def test_absorb_fills_delivery_method_from_signal():
+def test_absorb_fills_delivery_method_from_signal(db_session):
     project = _proj()
-    _absorb(project, _sig(delivery_method="design_bid_build"))
+    _absorb(db_session, project, _sig(delivery_method="design_bid_build"))
     assert project.delivery_method == "design_bid_build"
 
 
-def test_absorb_never_overwrites_known_delivery_method_with_null():
+def test_absorb_never_overwrites_known_delivery_method_with_null(db_session):
     project = _proj(delivery_method="cm_at_risk")
-    _absorb(project, _sig(delivery_method=None))  # a later doc that doesn't mention it
+    _absorb(db_session, project, _sig(delivery_method=None))  # a later doc that doesn't mention it
     assert project.delivery_method == "cm_at_risk"
 
 
-def test_absorb_never_overwrites_known_delivery_method_with_a_different_one():
+def test_absorb_never_overwrites_known_delivery_method_with_a_different_one(db_session):
     # First-stated-value wins -- a second, conflicting filing must not
     # silently flip the field.
     project = _proj(delivery_method="design_build")
-    _absorb(project, _sig(delivery_method="design_bid_build"))
+    _absorb(db_session, project, _sig(delivery_method="design_bid_build"))
     assert project.delivery_method == "design_build"
 
 

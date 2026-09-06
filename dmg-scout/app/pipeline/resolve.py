@@ -336,7 +336,7 @@ def link_signal_to_project(session: Session, signal: Signal, project: Project, c
     if not exists:
         session.add(ProjectSignal(project_id=project.id, signal_id=signal.id,
                                   match_confidence=confidence, match_method=method))
-    _absorb(project, signal)
+    _absorb(session, project, signal)
     _record_stage_observation(session, project, signal)
     session.add(project)
     resolve_signal_firms(session, project.id, signal.named_firms)
@@ -362,8 +362,21 @@ def _record_stage_observation(session: Session, project: Project, signal: Signal
     ))
 
 
-def _absorb(project: Project, signal: Signal) -> None:
-    """Fill project gaps from the signal; never overwrite a known value with null."""
+def _absorb(session: Session, project: Project, signal: Signal) -> None:
+    """Fill project gaps from the signal; never overwrite a known value with null.
+
+    stage/mw_it/mw_total/delivery_method additionally check for an active
+    ManualCorrection PIN (app.pipeline.corrections) before applying their
+    forward-only/max-only/first-wins rule: a signal at or before the pin's
+    corrected_at is stale evidence the human already had, silently
+    discarded exactly like a null value already is. A signal observed
+    AFTER the pin that would still move the field forward (or, for
+    delivery_method, disagree with it) is not applied either -- it's
+    queued as a PinnedFieldConflict for a human to confirm or reject. An
+    un-pinned field's behavior here is byte-for-byte what it was before
+    this existed."""
+    from app.pipeline.corrections import latest_correction, predates_pin, queue_pin_conflict
+
     if signal.project_name and (not project.name or project.name.startswith("Unnamed")):
         project.name = signal.project_name
     project.developer = project.developer or signal.developer_or_owner
@@ -376,14 +389,38 @@ def _absorb(project: Project, signal: Signal) -> None:
     project.sch_number = project.sch_number or signal.sch_number
     if project.latitude is None and signal.latitude is not None:
         project.latitude, project.longitude = signal.latitude, signal.longitude
+
+    signal_observed = signal.event_date or signal.created_at
+
+    mw_it_pin = latest_correction(session, project.id, "mw_it")
     if signal.mw_it and (project.mw_it or 0) < signal.mw_it:
-        project.mw_it = signal.mw_it
+        if mw_it_pin and predates_pin(signal_observed, mw_it_pin):
+            pass  # stale evidence the correction already accounted for
+        elif mw_it_pin:
+            queue_pin_conflict(session, project, "mw_it", signal, mw_it_pin, str(signal.mw_it))
+        else:
+            project.mw_it = signal.mw_it
+
+    mw_total_pin = latest_correction(session, project.id, "mw_total")
     if signal.mw_total and (project.mw_total or 0) < signal.mw_total:
-        project.mw_total = signal.mw_total
+        if mw_total_pin and predates_pin(signal_observed, mw_total_pin):
+            pass
+        elif mw_total_pin:
+            queue_pin_conflict(session, project, "mw_total", signal, mw_total_pin, str(signal.mw_total))
+        else:
+            project.mw_total = signal.mw_total
+
     stage_order = ["unknown", "concept", "entitlement", "design", "permitting",
                    "procurement", "construction", "operating"]
+    stage_pin = latest_correction(session, project.id, "stage")
     if stage_order.index(signal.stage.value) > stage_order.index(project.stage.value):
-        project.stage = signal.stage  # stage only moves forward
+        if stage_pin and predates_pin(signal_observed, stage_pin):
+            pass
+        elif stage_pin:
+            queue_pin_conflict(session, project, "stage", signal, stage_pin, signal.stage.value)
+        else:
+            project.stage = signal.stage  # stage only moves forward
+
     when = signal.event_date or signal.created_at
     if project.last_signal_at is None or (when and when > project.last_signal_at):
         project.last_signal_at = when
@@ -411,7 +448,17 @@ def _absorb(project: Project, signal: Signal) -> None:
 
     # First-stated-value wins, same discipline as everything else in this
     # function -- a later filing that simply doesn't discuss delivery method
-    # must not blank out an earlier one that did.
+    # must not blank out an earlier one that did. Once non-null (from a
+    # signal OR a correction), this line is already permanently a no-op --
+    # nothing here changes that. The pin only adds a review-queue fork for
+    # the case that line has always handled by silent, unrecorded discard:
+    # a signal AFTER a correction proposing a genuinely DIFFERENT value.
+    if signal.delivery_method and project.delivery_method is not None:
+        delivery_pin = latest_correction(session, project.id, "delivery_method")
+        if (delivery_pin and signal.delivery_method != project.delivery_method
+                and not predates_pin(signal_observed, delivery_pin)):
+            queue_pin_conflict(session, project, "delivery_method", signal,
+                              delivery_pin, signal.delivery_method)
     project.delivery_method = project.delivery_method or signal.delivery_method
 
     project.updated_at = utcnow()
@@ -438,7 +485,7 @@ def _new_project(session: Session, signal: Signal) -> Project:
             log.warning("signal %s acquired project #%d while it was being resolved; "
                         "absorbing into it instead of creating a duplicate",
                         signal.id, project.id)
-            _absorb(project, signal)
+            _absorb(session, project, signal)
             _record_stage_observation(session, project, signal)
             session.add(project)
             return project

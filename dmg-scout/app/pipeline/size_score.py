@@ -90,19 +90,32 @@ def run_size_score(session: Session, cfg: Config, only_project_ids: list[int] | 
     spillover_enabled = cfg.get("scoring.spillover.enabled", False)
     spillover_now = utcnow()
     county_totals = county_spillover_mw(session, cfg, spillover_now) if spillover_enabled else {}
+    from app.pipeline.corrections import latest_correction, predates_pin
     for project in projects:
         signals = project_signals(session, project.id)
 
-        # SIZE — best inputs across all signals (max: filings grow as design firms up)
-        def best(attr):
-            vals = [getattr(s, attr) for s in signals if getattr(s, attr) is not None]
+        # SIZE — best inputs across all signals (max: filings grow as design firms up).
+        # mw_it/mw_total additionally honor an active ManualCorrection pin
+        # (app.pipeline.corrections): a signal at or before the pin's
+        # corrected_at is excluded from the max, so an already-linked signal
+        # from before a correction can never re-establish the pre-correction
+        # figure on a later run -- defense in depth alongside project.mw_it's
+        # own short-circuit above (which already wins whenever set), not a
+        # substitute for it. `pin=None` (every other attr this closure sizes)
+        # is unaffected -- exactly today's behavior.
+        mw_it_pin = latest_correction(session, project.id, "mw_it")
+        mw_total_pin = latest_correction(session, project.id, "mw_total")
+
+        def best(attr, pin=None):
+            vals = [getattr(s, attr) for s in signals if getattr(s, attr) is not None
+                   and not (pin and predates_pin(s.event_date or s.created_at, pin))]
             return max(vals) if vals else None
 
         facility_type = _facility_type(signals)
         est = estimate_tons(
             cfg,
-            mw_it=project.mw_it or best("mw_it"),
-            mw_total=project.mw_total or best("mw_total"),
+            mw_it=project.mw_it or best("mw_it", mw_it_pin),
+            mw_total=project.mw_total or best("mw_total", mw_total_pin),
             generator_count=best("generator_count"),
             generator_hp_each=best("generator_hp_each"),
             generator_kw_each=best("generator_kw_each"),

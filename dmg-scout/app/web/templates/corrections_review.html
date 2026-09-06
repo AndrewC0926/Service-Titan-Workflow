@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Corrections Review{% endblock %}
+{% block content %}
+<h2>Stage regressions — review, never auto-fixed</h2>
+<p class="dim" style="margin-top:-6px">
+  Each row's most recent stated stage is EARLIER than what the board currently
+  shows — the forward-only rule (a signal can never move stage backward) means
+  this can only be corrected by a human. Often a legitimate non-issue: a later
+  filing simply didn't restate stage, and no evidence actually contradicts the
+  board. Only submit a correction when you have an actual reason to believe
+  the current stage is wrong — a typed reason is required, and nothing here
+  is ever applied without one.</p>
+<table>
+<thead><tr><th>Project</th><th>Current stage</th><th>Last observed stage</th><th>Correct it</th></tr></thead>
+<tbody>
+{% for c in candidates %}
+<tr id="proj-{{ c.project.id }}">
+  <td><a href="/project/{{ c.project.id }}">{{ c.project.name }}</a><br>
+      <span class="dim">{{ c.project.county or '?' }} · {{ c.project.developer or '?' }}</span></td>
+  <td class="mono">{{ c.project.stage.value }}</td>
+  <td class="dim">{{ c.last_observed_stage.value }} — {{ c.last_observed_at.strftime('%Y-%m-%d') }}</td>
+  <td>
+    <form hx-post="/corrections-review/{{ c.project.id }}" hx-target="#proj-{{ c.project.id }}" hx-swap="innerHTML">
+      <select name="new_value">
+        {% for s in stages %}
+        <option value="{{ s }}" {% if s == c.last_observed_stage.value %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+      <input type="text" name="reason" placeholder="Why this is wrong (required)" required style="width:220px">
+      <input type="text" name="corrected_by" placeholder="Your name (required)" required style="width:120px">
+      <button type="submit">Correct</button>
+    </form>
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="4" class="dim">No stage-regression candidates. Good.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}

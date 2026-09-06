@@ -1530,6 +1530,39 @@ def review_decide(candidate_id: int, decision: str,
     return HTMLResponse(f'<td colspan="5" class="resolved">{decision}d ✓</td>')
 
 
+@app.get("/corrections-review", response_class=HTMLResponse)
+def corrections_review(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
+    """The forward-only stage ratchet's own review queue -- see the RATCHET
+    BUG diagnosis and RATCHET OVERRIDE design (2026-09-06). Every row here
+    is a project whose most recent StageObservation names an earlier stage
+    than Project.stage currently shows -- often a legitimate non-issue (a
+    later filing simply didn't restate stage), sometimes a real correction.
+    Read-only until a human types a reason and submits; nothing here is
+    ever auto-applied."""
+    from app.pipeline.corrections import stage_regression_candidates
+    candidates = stage_regression_candidates(session)
+    return templates.TemplateResponse(request, "corrections_review.html", {
+        "candidates": candidates, "stages": [s.value for s in Stage],
+        "tb": _title_block(session), "active": "corrections-review",
+    })
+
+
+@app.post("/corrections-review/{project_id}", response_class=HTMLResponse)
+def corrections_review_submit(
+    project_id: int,
+    new_value: str = Form(...), reason: str = Form(...), corrected_by: str = Form(...),
+    session: Session = Depends(get_session), _: str = Depends(auth),
+):
+    from app.pipeline.corrections import apply_manual_correction
+
+    try:
+        apply_manual_correction(session, load_config(), project_id, "stage",
+                                new_value, reason, corrected_by)
+    except ValueError as exc:
+        return HTMLResponse(f'<td colspan="4" class="warn">{exc}</td>', status_code=400)
+    return HTMLResponse('<td colspan="4" class="resolved">corrected ✓</td>')
+
+
 @app.get("/contacts", response_class=HTMLResponse)
 def contacts_view(request: Request, role: str = "", territory: str = "",
                   session: Session = Depends(get_session), _: str = Depends(auth)):

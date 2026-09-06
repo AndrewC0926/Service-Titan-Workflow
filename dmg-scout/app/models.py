@@ -713,11 +713,89 @@ class StageObservation(SQLModel, table=True):
     # fell back to when we saw the document — same distinction staleness.py's
     # StageAge has always carried, preserved here rather than lost.
     from_event: bool = True
-    # Null only for a manually-entered correction (none exist yet, but the
-    # column exists so one never has to be faked as a fake signal_id).
+    # Null only for a manually-entered correction -- see ManualCorrection
+    # and app.pipeline.corrections.apply_manual_correction, its first
+    # writer (2026-09-06): a stage override inserts one of these with
+    # source='manual' so the ledger stays complete, same as a signal would.
     signal_id: int | None = Field(default=None, foreign_key="signals.id", index=True)
     source: str = "signal"  # signal | manual
     created_at: datetime = Field(default_factory=utcnow)
+
+
+class ManualCorrection(SQLModel, table=True):
+    """A human overriding stage/mw_it/mw_total/delivery_method directly --
+    the ONLY path allowed to move these backward (stage), shrink them
+    (mw_it/mw_total), or replace an already-stated one (delivery_method).
+    See app.pipeline.corrections' module docstring for the full design
+    (the RATCHET BUG diagnosis and RATCHET OVERRIDE proposal, both
+    2026-09-06) and apply_manual_correction, the only writer.
+
+    Writing a row here PINS the field: app.pipeline.resolve._absorb() and
+    app.pipeline.size_score.run_size_score()'s best() both check the most
+    recent correction for a (project_id, field) pair before applying their
+    own forward-only/max-only rule, and silently discard any signal whose
+    observed_at (or created_at fallback, same as StageObservation.from_event)
+    is at or before corrected_at -- that evidence was already available (or
+    contemporaneous) when the human decided, so it cannot un-decide it. A
+    signal observed AFTER corrected_at that would still move the field is
+    not applied automatically either -- see PinnedFieldConflict.
+
+    old_value is always read from the live Project row inside the same
+    transaction that writes this correction, never accepted from whatever
+    form or caller supplied new_value -- a claimed old_value could be
+    stale or simply wrong, and this table exists specifically to be a
+    trustworthy audit record.
+
+    field/new_value are both stored as plain strings (an enum's .value for
+    stage, a plain number-string for mw_it/mw_total, the string itself for
+    delivery_method) -- one shape covers all four correctable fields
+    without three near-identical tables, since nothing here ever needs to
+    query or aggregate across mixed value types, only display them.
+    """
+    __tablename__ = "manual_corrections"
+    __table_args__ = (
+        Index("ix_manual_corrections_project_field_at", "project_id", "field", "corrected_at"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="projects.id", index=True)
+    field: str = Field(index=True)  # stage | mw_it | mw_total | delivery_method
+    old_value: str | None = None
+    new_value: str
+    reason: str = Field(sa_column=Column(Text, nullable=False))
+    corrected_by: str
+    corrected_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class PinnedFieldConflict(SQLModel, table=True):
+    """A signal observed AFTER a ManualCorrection's corrected_at that would
+    still move the pinned field forward (stage/mw_it/mw_total) or propose a
+    different value (delivery_method) -- surfaced for a human to confirm or
+    reject, never applied automatically. The forward-only rule alone is no
+    longer sufficient justification once a human has actively overridden a
+    field; this is the fork in app.pipeline.resolve._absorb() that runs
+    instead of writing straight to Project once a pin exists.
+
+    Deduped on (project_id, field, signal_id) by the writer
+    (app.pipeline.corrections.queue_pin_conflict), not a DB constraint --
+    same one-decision-can't-double-insert discipline as
+    StageObservation.uq_stage_observation_signal, but this row is deleted
+    (not merely made unreachable) once resolved, so a unique constraint
+    would only complain about a case the caller already checked for.
+    """
+    __tablename__ = "pinned_field_conflicts"
+
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="projects.id", index=True)
+    field: str = Field(index=True)
+    signal_id: int = Field(foreign_key="signals.id", index=True)
+    correction_id: int = Field(foreign_key="manual_corrections.id", index=True)
+    pinned_value: str
+    candidate_value: str
+    status: str = Field(default="pending", index=True)  # pending | confirmed | rejected
+    created_at: datetime = Field(default_factory=utcnow)
+    resolved_at: datetime | None = None
+    resolved_by: str | None = None
 
 
 class McpOAuthClient(SQLModel, table=True):
