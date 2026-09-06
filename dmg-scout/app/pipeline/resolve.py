@@ -588,24 +588,49 @@ def _learn_alias(session: Session, signal: Signal, project: Project) -> None:
                                    alias_norm=norm, learned_from="merge_confirmation"))
 
 
-def apply_review_decision(session: Session, candidate_id: int, decision: str) -> None:
-    """One-click merge/reject from the dashboard review queue."""
+def apply_review_decision(session: Session, cfg: Config, candidate_id: int, decision: str) -> None:
+    """One-click merge/reject from the dashboard review queue.
+
+    Rescopes run_size_score() to just the touched project so its score/
+    window reflect the facts this decision just wrote, in the SAME
+    transaction as the decision -- see run_size_score's only_project_ids
+    docstring. Before this, a merge (or a reject that spins up a new
+    project) left Project.score stale until the next `scout pipeline` run
+    -- up to ~24h, and permanently for a correction the forward-only
+    stage/mw ratchet in link_signal_to_project's _absorb() can never apply
+    (see the RATCHET BUG diagnosis this fixes part of).
+
+    Refuses to run at all when SCOUT_VERIFYING_AGAINST_PROD is set -- see
+    app.runguard.refuse_if_verifying_against_prod's own docstring for why:
+    this exact function's internal commit (via run_size_score) is what
+    defeated a wrapping session.rollback() during this fix's own production
+    verification on 2026-09-06."""
+    from app.pipeline.size_score import run_size_score
+    from app.runguard import refuse_if_verifying_against_prod
+
+    refuse_if_verifying_against_prod("apply_review_decision")
+
     mc = session.get(MatchCandidate, candidate_id)
     if mc is None or mc.status != "pending":
         return
     signal = session.get(Signal, mc.signal_id)
     project = session.get(Project, mc.project_id)
+    touched_id: int | None = None
     if decision == "merge" and signal and project:
         link_signal_to_project(session, signal, project, mc.similarity, "manual_merge")
         _learn_alias(session, signal, project)
         mc.status = "merged"
+        touched_id = project.id
     else:
         if signal:
-            _new_project(session, signal)
+            touched_id = _new_project(session, signal).id
         mc.status = "rejected"
     mc.resolved_at = utcnow()
     session.add(mc)
-    session.commit()
+    if touched_id is not None:
+        run_size_score(session, cfg, only_project_ids=[touched_id])
+    else:
+        session.commit()
 
 
 def delivery_method_coverage(session: Session) -> dict:

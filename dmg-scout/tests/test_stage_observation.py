@@ -88,7 +88,7 @@ def test_merge_repoints_stage_observations_to_the_survivor(db_session, cfg):
                                     observed_at=sig.created_at, signal_id=sig.id))
     db_session.commit()
 
-    merge_projects(db_session, a, b)
+    merge_projects(db_session, cfg, a, b)
 
     moved = _observations(db_session, sig.id)
     assert len(moved) == 1

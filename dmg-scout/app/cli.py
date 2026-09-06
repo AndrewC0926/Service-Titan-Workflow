@@ -168,8 +168,9 @@ def merge_duplicates(
     to status='merged', never deleted.
     """
     from app.merge import merge_duplicate_groups
+    cfg = load_config()
     with session_scope() as session:
-        plans = merge_duplicate_groups(session, dry_run=not apply)
+        plans = merge_duplicate_groups(session, cfg, dry_run=not apply)
     if not plans:
         typer.echo("no duplicate groups to merge")
         return

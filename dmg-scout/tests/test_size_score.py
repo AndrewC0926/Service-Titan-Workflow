@@ -7,6 +7,7 @@ from app.models import Category, Project, ProjectSignal, Signal, SignalType, Sta
 from app.pipeline.size_score import (
     ScoreBreakdown,
     project_score_breakdown,
+    run_size_score,
     score_breakdown,
     signal_types_by_project,
 )
@@ -132,6 +133,14 @@ def test_signal_types_by_project_empty_input():
 
 
 def test_project_score_breakdown_uses_stored_tons_midpoint(db_session, cfg):
+    """RATCHET-adjacent transparency bug, fixed here: run_size_score() feeds
+    priority_score() TonsEstimate.midpoint, the GEOMETRIC mean (see that
+    property's own docstring -- size_factor is log10-scaled, so arithmetic
+    is the wrong centre for a band spanning orders of magnitude).
+    project_score_breakdown() must read the same midpoint through the same
+    property, not reimplement (low+high)/2 under the same name -- that
+    arithmetic reimplementation is exactly what silently disagreed with
+    Project.score before this fix."""
     project = _proj(name="Stored Tons Project", developer="Dev", county="Los Angeles",
                     window=Window.PRE_BOD, tons_estimate_low=1000, tons_estimate_high=2000,
                     last_signal_at=utcnow())
@@ -141,7 +150,32 @@ def test_project_score_breakdown_uses_stored_tons_midpoint(db_session, cfg):
 
     bd = project_score_breakdown(db_session, cfg, project)
     size_term = next(t for t in bd.terms if t.label == "Size")
-    assert "1,500" in size_term.detail  # midpoint of 1000-2000
+    assert "1,414" in size_term.detail  # geometric mean of 1000-2000 (sqrt(1000*2000)), not 1,500
+
+
+def test_project_score_breakdown_matches_run_size_score_end_to_end(db_session, cfg):
+    """The whole point of project_score_breakdown(): its product must equal
+    Project.score for a project run_size_score() actually scored -- a wide
+    tons band (not the narrow one test_size_score_end_to_end already
+    covers) is exactly the case that silently disagreed before the
+    geometric-midpoint fix, per TonsEstimate.midpoint's own docstring."""
+    project = _proj(name="Wide Band Project", developer="Dev", county="Los Angeles")
+    db_session.add(project)
+    db_session.commit()
+    signal = Signal(signal_type=SignalType.ceqa_nop, category=Category.industrial,
+                    stage=Stage.entitlement, building_sqft=2_000_000,
+                    confidence=0.9, summary_one_line="s")
+    db_session.add(signal)
+    db_session.commit()
+    db_session.add(ProjectSignal(project_id=project.id, signal_id=signal.id,
+                                 match_confidence=1.0, match_method="direct"))
+    db_session.commit()
+
+    run_size_score(db_session, cfg)
+    db_session.refresh(project)
+
+    bd = project_score_breakdown(db_session, cfg, project)
+    assert bd.total == project.score
 
 
 def test_project_score_breakdown_no_signals_still_returns_a_breakdown(db_session, cfg):

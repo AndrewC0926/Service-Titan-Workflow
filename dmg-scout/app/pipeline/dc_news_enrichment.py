@@ -79,10 +79,25 @@ def run_dc_news_enrichment(session, cfg: Config, client: PoliteClient) -> dict:
     """Fetch DCD/DCF, match each entry against existing active data-center
     projects, attach a corroborating Signal to matches. Returns per-feed and
     total stats. Safe to re-run: RawDocument's (source, source_uid) unique
-    constraint means an already-seen article is skipped, not duplicated."""
+    constraint means an already-seen article is skipped, not duplicated.
+
+    Rescopes run_size_score() to every project actually touched this run
+    (deduped -- the same project can be matched from more than one feed
+    entry) so a project's score/window reflect the just-attached signal in
+    the SAME transaction as the attach, instead of sitting stale until the
+    next `scout pipeline` run -- this function is a standalone CLI command,
+    not one of that pipeline's own stages, so nothing else would rescore it.
+
+    Refuses to run at all when SCOUT_VERIFYING_AGAINST_PROD is set -- see
+    app.runguard.refuse_if_verifying_against_prod's own docstring."""
     from app.pipeline.resolve import link_signal_to_project
+    from app.pipeline.size_score import run_size_score
+    from app.runguard import refuse_if_verifying_against_prod
+
+    refuse_if_verifying_against_prod("run_dc_news_enrichment")
 
     stats = {"entries_seen": 0, "matched": 0, "attached": 0, "feeds": {}}
+    touched_ids: set[int] = set()
     for feed_name, feed_url in FEEDS.items():
         feed_stats = {"entries": 0, "matched": 0, "attached": 0, "errors": 0}
         try:
@@ -153,10 +168,14 @@ def run_dc_news_enrichment(session, cfg: Config, client: PoliteClient) -> dict:
             session.flush()
 
             link_signal_to_project(session, signal, project, confidence=1.0, method="dc_news_enrichment")
+            touched_ids.add(project.id)
             feed_stats["attached"] += 1
             stats["attached"] += 1
 
         stats["feeds"][feed_name] = feed_stats
 
-    session.commit()
+    if touched_ids:
+        run_size_score(session, cfg, only_project_ids=list(touched_ids))
+    else:
+        session.commit()
     return stats

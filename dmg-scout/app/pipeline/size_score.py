@@ -18,7 +18,7 @@ from app.pipeline.scoring import (
     certainty_detail, classify_window, days_to_estimated_bid, days_to_estimated_bid_range,
     identity_factor, priority_score, recency_decay, size_factor,
 )
-from app.pipeline.sizing import estimate_equipment_value, estimate_tons
+from app.pipeline.sizing import TonsEstimate, estimate_equipment_value, estimate_tons
 from app.pipeline.spillover import county_spillover_mw, project_spillover, spillover_factor
 
 log = logging.getLogger(__name__)
@@ -66,8 +66,23 @@ def _facility_type(signals: list[Signal]) -> FacilityType:
     return FacilityType.unknown
 
 
-def run_size_score(session: Session, cfg: Config) -> dict:
-    projects = session.exec(select(Project).where(Project.status.in_(ACTIVE_STATUSES))).all()
+def run_size_score(session: Session, cfg: Config, only_project_ids: list[int] | None = None) -> dict:
+    """Pure recomputation from linked signals -- safe to re-run any time.
+
+    `only_project_ids` scopes the pass to specific projects (still filtered
+    to ACTIVE_STATUSES) instead of every active project on the board -- for
+    a caller that just wrote facts onto one or a few rows outside the
+    nightly pipeline (a review-queue decision, a project merge, an
+    enrichment pass) and needs those rows' score/window correct in the same
+    transaction, without paying for a full-board pass. Spillover still reads
+    the same whole-board county totals either way (its inputs aren't scoped
+    by this), so a scoped call costs one query more than a full one, not
+    less work per project.
+    """
+    query = select(Project).where(Project.status.in_(ACTIVE_STATUSES))
+    if only_project_ids is not None:
+        query = query.where(Project.id.in_(only_project_ids))
+    projects = session.exec(query).all()
     stats = {"sized": 0, "scored": 0}
     # Computed ONCE per run, not per project: every project's spillover input
     # reads the same county totals, so this stays a single pass over the
@@ -267,11 +282,16 @@ def project_score_breakdown(session: Session, cfg: Config, project: Project) -> 
     board rendering many rows should batch signal types once and call
     score_breakdown() directly per row instead (see app/web/main.py)."""
     signals = project_signals(session, project.id)
-    tons_midpoint = (
-        (project.tons_estimate_low + project.tons_estimate_high) / 2
-        if project.tons_estimate_low is not None and project.tons_estimate_high is not None
-        else None
-    )
+    # Geometric mean, via TonsEstimate.midpoint itself -- not reimplemented
+    # here. run_size_score() feeds priority_score() this SAME midpoint
+    # (est.midpoint, geometric — see that property's own docstring for why
+    # arithmetic is wrong for a band spanning orders of magnitude); this
+    # wrapper exists specifically to reproduce that chain, so it must read
+    # low/high through the one function that defines what "midpoint" means
+    # rather than recomputing a different number under the same name.
+    tons_midpoint = TonsEstimate(
+        low=project.tons_estimate_low, high=project.tons_estimate_high, basis=None
+    ).midpoint
     return score_breakdown(
         cfg,
         signal_types=[s.signal_type for s in signals],

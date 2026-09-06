@@ -4,7 +4,7 @@ import pytest
 from sqlmodel import select
 
 from app.models import (
-    DigestLog, MatchCandidate, Project, ProjectSignal, RawDocument, Signal, SignalType,
+    Category, DigestLog, MatchCandidate, Project, ProjectSignal, RawDocument, Signal, SignalType,
     SourceRun, Stage, TriageResult, Window, utcnow,
 )
 from app.pipeline.fetch import _store
@@ -72,10 +72,41 @@ def test_resolve_queues_ambiguous_for_review(db_session, cfg):
     mc = db_session.exec(select(MatchCandidate)).one()
     assert mc.status == "pending"
 
-    apply_review_decision(db_session, mc.id, "reject")
+    apply_review_decision(db_session, cfg, mc.id, "reject")
     assert db_session.exec(select(Project)).all().__len__() == 2
     db_session.refresh(mc)
     assert mc.status == "rejected"
+
+
+def test_review_merge_rescopes_a_rescore_in_the_same_transaction(db_session, cfg):
+    """RATCHET BUG fix, real production shape (project #708 / candidate #88):
+    a review-queue merge that advances stage past what the stored window
+    accounts for must not leave the stale, too-high score in place until
+    the next `scout pipeline` run -- apply_review_decision() must recompute
+    it itself, in the same commit as the merge."""
+    project = Project(name="Vantage Data Centers NV12", category=Category.data_center,
+                      developer="Vantage Data Centers NV12, LLC", county="Storey", state="NV",
+                      stage=Stage.permitting, window=Window.IN_BOD, status="active",
+                      last_signal_at=utcnow())
+    db_session.add(project)
+    db_session.commit()
+    starting_score = project.score
+
+    later_signal = _signal(db_session, project_name="Vantage Data Centers NV12",
+                           signal_type=SignalType.job_posting, stage=Stage.construction,
+                           county="Storey", state="NV",
+                           developer_or_owner="Vantage Data Centers")
+    mc = MatchCandidate(signal_id=later_signal.id, project_id=project.id,
+                        similarity=0.8, llm_verdict="uncertain", status="pending")
+    db_session.add(mc)
+    db_session.commit()
+
+    apply_review_decision(db_session, cfg, mc.id, "merge")
+
+    db_session.refresh(project)
+    assert project.stage == Stage.construction, "forward-only stage rule did not fire"
+    assert project.window == Window.POST_BOD, "window was not recomputed from the new stage"
+    assert project.score != starting_score, "score was left stale by the merge"
 
 
 def test_review_merge_learns_alias(db_session, cfg):
@@ -88,7 +119,7 @@ def test_review_merge_learns_alias(db_session, cfg):
     run_resolve(db_session, cfg, use_llm=False)
     mcs = db_session.exec(select(MatchCandidate).where(MatchCandidate.status == "pending")).all()
     if mcs:  # merge path learns the SPE alias
-        apply_review_decision(db_session, mcs[0].id, "merge")
+        apply_review_decision(db_session, cfg, mcs[0].id, "merge")
         from app.models import DeveloperAlias
         aliases = db_session.exec(select(DeveloperAlias)).all()
         assert any(a.alias == "Tech Core PY B, LLC" for a in aliases)

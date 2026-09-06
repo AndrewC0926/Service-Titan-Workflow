@@ -18,6 +18,7 @@ import logging
 
 from sqlmodel import Session, select
 
+from app.config import Config
 from app.models import (
     FalsePositiveMark,
     MatchCandidate,
@@ -90,13 +91,26 @@ def _absorb_project(survivor: Project, dup: Project) -> None:
     survivor.updated_at = utcnow()
 
 
-def merge_projects(session: Session, survivor: Project, dup: Project) -> dict:
+def merge_projects(session: Session, cfg: Config, survivor: Project, dup: Project) -> dict:
     """Fold `dup` into `survivor`. Returns what moved.
 
     Refuses to merge across categories: a data center and a factory are never the
     same building, and a merge that crosses the boards is a bug report, not a
     cleanup.
+
+    Rescopes run_size_score() to just the survivor at the end, in the same
+    transaction as the absorb -- see that function's only_project_ids
+    docstring. Before this, the survivor's score/window reflected its
+    PRE-merge facts until the next `scout pipeline` run (confirmed real:
+    the #963->#961 merge on 2026-08-06 20:38Z sat stale for ~16h20m until
+    the following day's 13:00Z run -- see the RATCHET BUG diagnosis).
+
+    Refuses to run at all when SCOUT_VERIFYING_AGAINST_PROD is set -- see
+    app.runguard.refuse_if_verifying_against_prod's own docstring.
     """
+    from app.runguard import refuse_if_verifying_against_prod
+    refuse_if_verifying_against_prod("merge_projects")
+
     if survivor.id == dup.id:
         raise ValueError("cannot merge a project into itself")
     if survivor.category != dup.category:
@@ -148,7 +162,9 @@ def merge_projects(session: Session, survivor: Project, dup: Project) -> dict:
 
     session.add(survivor)
     session.add(dup)
-    session.commit()
+
+    from app.pipeline.size_score import run_size_score
+    run_size_score(session, cfg, only_project_ids=[survivor.id])
 
     log.info("merged project #%d into #%d: moved %s, dropped %s",
              dup.id, survivor.id, moved or "nothing", dropped or "nothing")
@@ -156,7 +172,7 @@ def merge_projects(session: Session, survivor: Project, dup: Project) -> dict:
             "moved": moved, "dropped_as_duplicate_links": dropped}
 
 
-def merge_duplicate_groups(session: Session, dry_run: bool = True) -> list[dict]:
+def merge_duplicate_groups(session: Session, cfg: Config, dry_run: bool = True) -> list[dict]:
     """Collapse every group the duplicate check reports.
 
     Dry run by default. A group of more than two rows folds into one survivor,
@@ -180,6 +196,6 @@ def merge_duplicate_groups(session: Session, dry_run: bool = True) -> list[dict]
                 plan = {"rule": label, "key": key, "survivor_id": survivor.id,
                         "merge_id": loser.id, "name": survivor.name}
                 if not dry_run:
-                    plan["result"] = merge_projects(session, survivor, loser)
+                    plan["result"] = merge_projects(session, cfg, survivor, loser)
                 plans.append(plan)
     return plans

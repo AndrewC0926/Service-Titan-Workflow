@@ -21,6 +21,7 @@ from app.models import (
     Signal,
     SignalType,
     Stage,
+    Window,
 )
 
 
@@ -52,7 +53,7 @@ def _link(session, project, signal, method="direct"):
 
 def test_duplicate_is_retired_not_deleted(db_session, cfg):
     a, b = _project(db_session, "Same Project"), _project(db_session, "Same Project")
-    merge_projects(db_session, a, b)
+    merge_projects(db_session, cfg, a, b)
 
     assert db_session.get(Project, b.id) is not None, "the row was deleted"
     assert b.status == MERGED_STATUS
@@ -66,7 +67,7 @@ def test_signals_move_to_the_survivor(db_session, cfg):
     _link(db_session, a, s1)
     _link(db_session, b, s2)
 
-    merge_projects(db_session, a, b)
+    merge_projects(db_session, cfg, a, b)
 
     moved = db_session.exec(select(ProjectSignal)
                             .where(ProjectSignal.project_id == a.id)).all()
@@ -86,7 +87,7 @@ def test_a_link_the_survivor_already_has_is_dropped_not_repointed(db_session, cf
     _link(db_session, a, shared)
     _link(db_session, b, shared)
 
-    result = merge_projects(db_session, a, b)
+    result = merge_projects(db_session, cfg, a, b)
 
     links = db_session.exec(select(ProjectSignal)
                             .where(ProjectSignal.signal_id == shared.id)).all()
@@ -105,7 +106,7 @@ def test_contacts_dedupe_on_role(db_session, cfg):
     db_session.add(ProjectContact(project_id=b.id, contact_id=c.id, role="gc"))
     db_session.commit()
 
-    merge_projects(db_session, a, b)
+    merge_projects(db_session, cfg, a, b)
 
     roles = {pc.role for pc in db_session.exec(
         select(ProjectContact).where(ProjectContact.project_id == a.id)).all()}
@@ -119,7 +120,7 @@ def test_plain_tables_repoint_wholesale(db_session, cfg):
                                   llm_verdict="uncertain", llm_reasoning="x"))
     db_session.commit()
 
-    merge_projects(db_session, a, b)
+    merge_projects(db_session, cfg, a, b)
 
     mcs = db_session.exec(select(MatchCandidate)).all()
     assert [m.project_id for m in mcs] == [a.id]
@@ -135,7 +136,7 @@ def test_survivor_absorbs_gaps_but_keeps_known_values(db_session, cfg):
     db_session.add_all([a, b])
     db_session.commit()
 
-    merge_projects(db_session, a, b)
+    merge_projects(db_session, cfg, a, b)
 
     assert a.developer == "Known Developer", "overwrote a known value"
     assert a.sch_number == "2026010975", "did not fill a gap"
@@ -143,20 +144,37 @@ def test_survivor_absorbs_gaps_but_keeps_known_values(db_session, cfg):
     assert a.stage == Stage.construction, "stage did not move forward"
 
 
+def test_merge_rescopes_a_rescore_in_the_same_transaction(db_session, cfg):
+    """RATCHET BUG fix (real production shape: #963 -> #961, 2026-08-06):
+    the survivor's score/window must reflect the absorbed facts immediately,
+    not sit stale until the next `scout pipeline` run."""
+    survivor = _project(db_session, "P", stage=Stage.concept)
+    dup = _project(db_session, "P", stage=Stage.construction)
+    _link(db_session, dup, _signal(db_session, "corroborating"))
+    starting_score, starting_window = survivor.score, survivor.window
+
+    merge_projects(db_session, cfg, survivor, dup)
+
+    assert survivor.stage == Stage.construction
+    assert survivor.window == Window.POST_BOD
+    assert survivor.window != starting_window
+    assert survivor.score != starting_score, "score was left stale by the merge"
+
+
 def test_refuses_to_merge_across_boards(db_session, cfg):
     a = _project(db_session, "P", category=Category.data_center)
     b = _project(db_session, "P", category=Category.industrial)
     with pytest.raises(ValueError, match="across boards"):
-        merge_projects(db_session, a, b)
+        merge_projects(db_session, cfg, a, b)
 
 
 def test_refuses_to_merge_into_itself_or_remerge(db_session, cfg):
     a, b = _project(db_session, "P"), _project(db_session, "P")
     with pytest.raises(ValueError, match="into itself"):
-        merge_projects(db_session, a, a)
-    merge_projects(db_session, a, b)
+        merge_projects(db_session, cfg, a, a)
+    merge_projects(db_session, cfg, a, b)
     with pytest.raises(ValueError, match="already merged"):
-        merge_projects(db_session, a, b)
+        merge_projects(db_session, cfg, a, b)
 
 
 def test_survivor_is_the_row_with_more_evidence(db_session, cfg):
@@ -176,11 +194,11 @@ def test_dry_run_changes_nothing(db_session, cfg):
     db_session.add_all([a, b])
     db_session.commit()
 
-    plans = merge_duplicate_groups(db_session, dry_run=True)
+    plans = merge_duplicate_groups(db_session, cfg, dry_run=True)
     assert len(plans) == 1
     assert all(p.status == "active" for p in (a, b)), "dry run mutated the database"
 
-    merge_duplicate_groups(db_session, dry_run=False)
+    merge_duplicate_groups(db_session, cfg, dry_run=False)
     statuses = sorted(p.status for p in (a, b))
     assert statuses == ["active", MERGED_STATUS]
 
@@ -196,5 +214,5 @@ def test_merged_rows_leave_the_duplicate_report(db_session, cfg):
     db_session.commit()
     assert find_duplicates(db_session)["n_groups"] == 1
 
-    merge_duplicate_groups(db_session, dry_run=False)
+    merge_duplicate_groups(db_session, cfg, dry_run=False)
     assert find_duplicates(db_session)["n_groups"] == 0

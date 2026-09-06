@@ -1526,7 +1526,7 @@ def review_decide(candidate_id: int, decision: str,
                   session: Session = Depends(get_session), _: str = Depends(auth)):
     if decision not in ("merge", "reject"):
         raise HTTPException(400)
-    apply_review_decision(session, candidate_id, decision)
+    apply_review_decision(session, load_config(), candidate_id, decision)
     return HTMLResponse(f'<td colspan="5" class="resolved">{decision}d ✓</td>')
 
 

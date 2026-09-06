@@ -73,6 +73,35 @@ def test_matches_existing_project_by_developer_and_attaches_signal(db_session, c
 
 
 @respx.mock
+def test_attach_rescopes_a_rescore_in_the_same_run(db_session, cfg, monkeypatch):
+    """RATCHET BUG fix: attaching a signal must not leave Project.score/
+    window computed from the pre-attach facts until the next `scout
+    pipeline` run -- this module has no other stage to catch it up, since
+    it's a standalone CLI command, not one of that pipeline's own stages."""
+    p = _project(db_session, "Vantage NV11", "Vantage Data Centers")
+    before_score = p.score
+    assert before_score == 0.0, "fixture project should start with no signals and no score"
+
+    xml = RSS_ITEM.format(
+        title="Vantage Data Centers breaks ground on new Nevada campus",
+        link="https://example.com/article-rescore",
+        description="Vantage announced 200MW in Storey County, Nevada.")
+    for name, url in dcn.FEEDS.items():
+        respx.get(url).mock(return_value=httpx.Response(
+            200, text=xml if name == "dcd" else RSS_ITEM.format(title="x", link="https://x/empty2", description="")))
+    monkeypatch.setattr(dcn, "dc_news_facts", lambda title, summary: {
+        "developer": "Vantage Data Centers", "location_text": "Storey County, Nevada",
+        "mw": 200.0, "is_data_center_project": True})
+
+    stats = run_dc_news_enrichment(db_session, cfg, fast_client())
+    assert stats["attached"] >= 1  # dc_news_facts is mocked identically for every entry
+
+    db_session.refresh(p)
+    assert p.score > before_score, "score was not recomputed in this same run"
+    assert p.window == Window.PRE_BOD, "window was not recomputed in this same run"
+
+
+@respx.mock
 def test_never_creates_a_project_on_no_match(db_session, cfg, monkeypatch):
     """No project named 'Totally Unknown Developer' exists -- the article
     must be discarded, not queued or turned into a new project."""

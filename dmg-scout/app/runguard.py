@@ -25,6 +25,7 @@ which is the only guarantee that survives everything.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -90,3 +91,62 @@ def stage_run(session: Session, stage: str, force: bool = False) -> Iterator[Sou
             run.ok = True
         session.add(run)
         session.commit()
+
+
+# --- Verification-against-production guard ----------------------------------
+#
+# 2026-09-06: fixing the RATCHET BUG (Project.score/window not recomputed by
+# three off-cycle fact-write paths -- apply_review_decision, merge_projects,
+# run_dc_news_enrichment) needed verifying the fix against production. That
+# verification wrapped a call to apply_review_decision in
+# session.begin()/session.rollback(), intended as a read-only simulation --
+# which does not work, because apply_review_decision calls run_size_score(),
+# which commits INTERNALLY. The outer rollback had nothing left to undo, and
+# a real merge landed: project #708 and match_candidate #88 were mutated and
+# had to be reverted by hand (see CHANGELOG.md's 2026-09-06 entry and the
+# assumptions register's "Engineering safety rules" group for the full
+# account, including the exact SQL run both ways).
+#
+# The lesson is NOT "wrap it more carefully next time" -- a wrapping
+# transaction is not a sufficient safeguard when a called function's own
+# commit can defeat it silently, and there is no way to audit every current
+# and future write path for an internal commit before trusting a rollback
+# around it. The lesson is a policy, enforced mechanically: verification of
+# any write path that mutates Project/Signal facts runs against a local
+# Postgres restored from a production dump, never against production.
+
+VERIFYING_AGAINST_PROD_ENV = "SCOUT_VERIFYING_AGAINST_PROD"
+
+
+class VerifyingAgainstProduction(RuntimeError):
+    """Refused: this session is marked as verifying against production."""
+
+
+def refuse_if_verifying_against_prod(caller: str) -> None:
+    """Refuse to run `caller` -- a write path that mutates Project/Signal
+    facts and can trigger a real rescore -- when SCOUT_VERIFYING_AGAINST_PROD
+    is set in the environment.
+
+    Set this flag yourself, in your OWN shell, before running any read-only
+    check or simulation of apply_review_decision/merge_projects/
+    run_dc_news_enrichment (or a future write path with the same shape)
+    against a database you have not personally confirmed is a local restore
+    -- not in this app's own runtime environment (Render, the nightly
+    pipeline, the web app), which must never set it and will never need to:
+    those always run against the real production DATABASE_URL on purpose.
+    The flag exists ONLY to catch a human (or an agent) about to point a
+    verification session at production by mistake.
+
+    There is deliberately no override and no "are you sure" bypass. Unset
+    the flag once DATABASE_URL is pointed at a local restore instead --
+    that needs no flag at all, since a local database was never at risk in
+    the first place.
+    """
+    if os.environ.get(VERIFYING_AGAINST_PROD_ENV):
+        raise VerifyingAgainstProduction(
+            f"{caller} refused to run: {VERIFYING_AGAINST_PROD_ENV} is set, meaning this "
+            "session is marked as verifying against production. Point DATABASE_URL at a "
+            "local Postgres restored from a production dump instead, then unset "
+            f"{VERIFYING_AGAINST_PROD_ENV} -- see app/runguard.py's own docstring for why "
+            "this exists (2026-09-06: project #708 / match_candidate #88, CHANGELOG.md)."
+        )

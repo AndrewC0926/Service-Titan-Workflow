@@ -1431,6 +1431,47 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "hcai.ca.gov/home/conditions-of-use/.",
     ))
 
+    # ---- Engineering safety rules ---------------------------------------
+
+    out.append(Assumption(
+        group="Engineering safety rules",
+        name="Write-path verification runs against a local restore, never production",
+        config_path=None,
+        value="Enforced: apply_review_decision/merge_projects/run_dc_news_enrichment refuse to run "
+             "when SCOUT_VERIFYING_AGAINST_PROD is set",
+        source_type=STATED,
+        source_detail=(
+            "2026-09-06: fixing the RATCHET BUG (Project.score/window not recomputed by three "
+            "off-cycle fact-write paths) required verifying apply_review_decision(candidate #88) "
+            "against production to confirm the fix. The verification was wrapped in "
+            "session.begin()/session.rollback(), intended as a read-only simulation. That does not "
+            "work: apply_review_decision now calls run_size_score(), which commits internally, so "
+            "the outer rollback had nothing left to undo. The merge was applied for real -- "
+            "projects id 708 (stage permitting->construction, window IN_BOD->POST_BOD, score "
+            "0.2423->0.0693, last_signal_at 2026-06-03->2026-08-17), match_candidates id 88 "
+            "(status pending->merged, resolved_at set), plus a new project_signals row (id 1389) "
+            "and a new stage_observations row (id 498). developer_aliases was unaffected -- the "
+            "alias _learn_alias() would have written already existed (id 1, seeded 2026-08-05). "
+            "Reverted the same day: all four rows restored to their exact pre-merge values in one "
+            "transaction, read back and confirmed identical to the values captured earlier in the "
+            "same session before anything was touched. Full account, including the exact SQL run "
+            "both ways, in CHANGELOG.md's 2026-09-06 entry. "
+            "THE RULE this incident produced: verification of any write path that mutates Project/"
+            "Signal facts -- apply_review_decision, merge_projects, run_dc_news_enrichment, and any "
+            "future import that does the same -- runs against a local Postgres restored from a "
+            "production dump, never against production, full stop. A wrapping transaction is not "
+            "a sufficient safeguard on its own, since a called function's own internal commit (here, "
+            "run_size_score's) can defeat it silently. Enforced mechanically, not just by policy: "
+            "those three functions call app.runguard.refuse_if_verifying_against_prod() first and "
+            "refuse outright when SCOUT_VERIFYING_AGAINST_PROD is set in the environment -- see "
+            "that function's own docstring for exactly when to set the flag (before any check "
+            "against a database not yet confirmed to be a local restore) and why there is "
+            "deliberately no override."
+        ),
+        verified=True,
+        last_reviewed="2026-09-06, incident and revert both performed and verified directly in this session.",
+    ))
+
     return out
 
 
