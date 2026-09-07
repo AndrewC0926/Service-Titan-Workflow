@@ -1134,23 +1134,25 @@ def replacement_leads_view(request: Request, view: str = "contractors",
     leads = distribution = None
     never_scored = ranking_stale = count_stale = None
     ranking_radius = count_radius = None
-    ab802_rows = ab802_counties = ab802_property_types = None
+    ab802_rows = ab802_anomalies = ab802_counties = ab802_property_types = None
     ab802_filter_stale = None
     ab802_retrofit_id_by_apn = {}
 
     if view == "ab802":
         from app.ops import source_is_stale
         from app.pipeline.ab802 import latest_in_territory_rows, rank_in_territory
-        ab802_rows = rank_in_territory(
+        ab802_result = rank_in_territory(
             session, county=county or None, property_type=property_type or None,
             year_built_before=year_built_before, eui_above_median=eui_above_median,
             has_assessor_match=has_assessor_match,
             restrict_to_relevant_types=not show_all_types)
+        ab802_rows = ab802_result["ranked"]
+        ab802_anomalies = ab802_result["anomalies"]
         all_rows = latest_in_territory_rows(session)
         ab802_counties = sorted({r.county_from_geocoding for r in all_rows if r.county_from_geocoding})
         ab802_property_types = sorted({r.primary_property_type for r in all_rows if r.primary_property_type})
         ab802_filter_stale = source_is_stale(session, cfg, "ab802_benchmarking")
-        matched_apns = [d["row"].retrofit_apn for d in ab802_rows if d["row"].retrofit_apn]
+        matched_apns = [d["row"].retrofit_apn for d in ab802_rows + ab802_anomalies if d["row"].retrofit_apn]
         ab802_retrofit_id_by_apn = dict(session.exec(
             select(RetrofitBuilding.apn, RetrofitBuilding.id)
             .where(RetrofitBuilding.apn.in_(matched_apns))).all()) if matched_apns else {}
@@ -1182,7 +1184,7 @@ def replacement_leads_view(request: Request, view: str = "contractors",
         "distribution": distribution["at_threshold"] if distribution else None,
         "never_scored": never_scored,
         "ranking_stale": ranking_stale, "count_stale": count_stale,
-        "ab802_rows": ab802_rows, "ab802_counties": ab802_counties,
+        "ab802_rows": ab802_rows, "ab802_anomalies": ab802_anomalies, "ab802_counties": ab802_counties,
         "ab802_property_types": ab802_property_types, "ab802_filter_stale": ab802_filter_stale,
         "ab802_retrofit_id_by_apn": ab802_retrofit_id_by_apn,
         "county": county, "property_type": property_type, "show_all_types": show_all_types,

@@ -550,35 +550,69 @@ def looks_like_organization_name(name: str | None) -> bool:
     return any(p.search(name) for p in _ORG_NAME_HINT_PATTERNS)
 
 
+# AB 802 itself only covers buildings >=50,000 sqft (Public Resources Code
+# section 25402.10(a)(1)(A)) -- a row below GFA_FLOOR_SQFT is presumed a data
+# error in the source file (the un-floored top 20, measured 2026-09-07,
+# included a "Manufacturing/Industrial Plant" row with GFA=100 and a Site EUI
+# of 47,628 -- a mis-recorded denominator, not a real building), not a real
+# building this program covers. 20,000 rather than the statute's own 50,000
+# is deliberate slack: this app has no independent way to confirm GFA against
+# an assessor record for most of the state, so the floor only needs to catch
+# implausible values, not enforce the statute's own boundary at the margin.
+GFA_FLOOR_SQFT = 20_000
+
+# Above this, a row's true eui_ratio is presumed more likely a data error
+# than a genuine 5x-median energy hog -- pulled into `anomalies` instead of
+# `ranked`, never silently scored. See rank_in_territory's own docstring.
+EUI_RATIO_ANOMALY_ABOVE = 5.0
+
+
 def rank_in_territory(session: Session, *, county: str | None = None,
                       property_type: str | None = None, year_built_before: int | None = None,
                       eui_above_median: bool = False, has_assessor_match: bool = False,
-                      restrict_to_relevant_types: bool = False) -> list[dict]:
-    """Ranked, filtered board rows -- two terms, summed, both shown as plain
-    dict fields rather than folded into one opaque score:
+                      restrict_to_relevant_types: bool = False) -> dict:
+    """Returns {"ranked": [...], "anomalies": [...]} -- two terms, summed,
+    both shown as plain dict fields rather than folded into one opaque
+    score, for every row in `ranked`:
 
       - age_credit(row.year_built): see that function's own docstring for
         the exact trapezoid (full credit 1985-2012, tapering to 0 by 1975
         and by 2018, 0 before 1975).
       - eui_ratio: row.weather_normalized_site_eui / the MEDIAN weather-
         normalized site EUI for its own primary_property_type, among
-        in-territory buildings -- relative magnitude, not a percentile
-        rank, so a building at 3x its type's median EUI clearly outranks
-        one at 1.2x even if both are "top of their type." A 1980 office
-        and a 1980 distribution warehouse have different normal EUI
-        ranges, so this is always computed within type, never board-wide.
+        in-territory buildings at or above GFA_FLOOR_SQFT -- relative
+        magnitude, not a percentile rank, so a building at 3x its type's
+        median EUI clearly outranks one at 1.2x even if both are "top of
+        their type." A 1980 office and a 1980 distribution warehouse have
+        different normal EUI ranges, so this is always computed within
+        type, never board-wide.
 
     rank_key = eui_ratio + age_credit (0.0 substituted only for summing,
     never displayed as if it were a real 0 -- the caller shows the actual
     per-row field, which stays None when its input was missing). Ties on
     rank_key break on property_gfa_sqft, larger first ("a bigger building
-    is a bigger order") -- a null GFA sorts as the smallest, never assumed
-    large.
+    is a bigger order").
+
+    GFA_FLOOR_SQFT is applied FIRST, to the whole in-territory population,
+    before medians are computed -- a single implausible GFA must not be
+    allowed to distort the median every other row in its type is ranked
+    against. A row below the floor (or with no GFA at all -- unconfirmed,
+    never assumed to pass) is dropped entirely, not shown as an anomaly:
+    "data error, doesn't belong here" is a different claim than "genuine
+    but extreme, verify before calling."
+
+    A row whose eui_ratio EXCEEDS EUI_RATIO_ANOMALY_ABOVE is the second,
+    distinct case -- plausibly a real building, but a >5x-median site EUI
+    is more often a meter/unit-mismatch or similar data issue than a
+    genuine finding. That row is moved to `anomalies` (rank_key is None,
+    never sorted into `ranked`) instead of being allowed to dominate the
+    top of the list on a number that likely isn't real; the caller labels
+    it "data anomaly, verify before calling."
 
     Median and the EUI-above-median filter are computed over the type's
-    FULL in-territory population, before any filter below narrows which
-    rows are actually shown -- a filter must never change what "median for
-    its type" means for the rows that remain.
+    FULL floored, in-territory population, before any filter below
+    narrows which rows are actually shown -- a filter must never change
+    what "median for its type" means for the rows that remain.
 
     restrict_to_relevant_types (the board's own default -- see
     app/web/main.py:replacement_leads_view): limits results to
@@ -592,7 +626,8 @@ def rank_in_territory(session: Session, *, county: str | None = None,
     "owner". Both benchmarking_filer and name_hint are absent for a row
     with neither -- the caller shows "no owner data available" for that
     case, not this function."""
-    rows = latest_in_territory_rows(session)
+    rows = [r for r in latest_in_territory_rows(session)
+           if r.property_gfa_sqft is not None and r.property_gfa_sqft >= GFA_FLOOR_SQFT]
 
     by_type: dict[str, list[Ab802Building]] = {}
     for r in rows:
@@ -605,7 +640,7 @@ def rank_in_territory(session: Session, *, county: str | None = None,
         if eui_values:
             eui_median_by_type[ptype] = statistics.median(eui_values)
 
-    out = []
+    ranked, anomalies = [], []
     for r in rows:
         if county and r.county_from_geocoding != county:
             continue
@@ -628,14 +663,17 @@ def rank_in_territory(session: Session, *, county: str | None = None,
                     if median and r.weather_normalized_site_eui is not None else None)
         name_hint = (r.property_name if not r.benchmarking_filer
                     and looks_like_organization_name(r.property_name) else None)
-        out.append({
-            "row": r,
-            "age_credit": age,
-            "eui_ratio": eui_ratio,
-            "type_median_eui": median,
-            "rank_key": (eui_ratio or 0.0) + (age or 0.0),
-            "name_hint": name_hint,
-        })
+        entry = {
+            "row": r, "age_credit": age, "eui_ratio": eui_ratio,
+            "type_median_eui": median, "name_hint": name_hint,
+        }
+        if eui_ratio is not None and eui_ratio > EUI_RATIO_ANOMALY_ABOVE:
+            entry["rank_key"] = None
+            anomalies.append(entry)
+        else:
+            entry["rank_key"] = (eui_ratio or 0.0) + (age or 0.0)
+            ranked.append(entry)
 
-    out.sort(key=lambda d: (d["rank_key"], d["row"].property_gfa_sqft or 0.0), reverse=True)
-    return out
+    ranked.sort(key=lambda d: (d["rank_key"], d["row"].property_gfa_sqft or 0.0), reverse=True)
+    anomalies.sort(key=lambda d: d["eui_ratio"], reverse=True)
+    return {"ranked": ranked, "anomalies": anomalies}

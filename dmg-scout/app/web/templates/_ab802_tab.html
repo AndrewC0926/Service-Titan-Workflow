@@ -2,6 +2,41 @@
    for the rank formula and app/web/main.py:replacement_leads_view for the
    query params this form reads. #}
 
+{% macro ab802_row(d) %}
+{% set r = d.row %}
+<tr>
+  <td><span class="clip" title="{{ r.property_name or '' }}">{{ r.property_name or '(unnamed)' }}</span>
+    <div class="note">{{ r.address_1 or '' }}, {{ r.city or '' }}</div></td>
+  <td class="nowrap">{{ r.county_from_geocoding or '—' }}</td>
+  <td>{{ r.primary_property_type or '—' }}</td>
+  <td class="num mono">{{ r.year_built or '—' }}</td>
+  <td class="num mono">{{ '%.2f'|format(d.age_credit) if d.age_credit is not none else '—' }}</td>
+  <td class="num mono">{{ '%.0f'|format(r.weather_normalized_site_eui) if r.weather_normalized_site_eui is not none else '—' }}</td>
+  <td class="num mono">{{ '%.2fx'|format(d.eui_ratio) if d.eui_ratio is not none else '—' }}</td>
+  <td class="num mono">{{ '{:,.0f}'.format(r.property_gfa_sqft) if r.property_gfa_sqft is not none else '—' }}</td>
+  <td>
+    {%- if r.retrofit_apn and r.assessor_match_method == 'latlong' -%}
+      <a href="/retrofit/building/{{ ab802_retrofit_id_by_apn.get(r.retrofit_apn, '') }}">matched</a>
+      <div class="note">lat/long, {{ '%.0f'|format(r.assessor_match_distance_m) }}m</div>
+    {%- elif r.retrofit_apn -%}
+      <a href="/retrofit/building/{{ ab802_retrofit_id_by_apn.get(r.retrofit_apn, '') }}">matched</a>
+      <div class="note">address match</div>
+    {%- else -%}
+      <span class="dim">no assessor match</span>
+    {%- endif -%}
+  </td>
+  <td>
+    {%- if r.benchmarking_filer -%}
+      {{ r.benchmarking_filer }}<div class="note">benchmarking filer</div>
+    {%- elif d.name_hint -%}
+      {{ d.name_hint }}<div class="note">name on filing</div>
+    {%- else -%}
+      <span class="dim">no owner data available</span>
+    {%- endif -%}
+  </td>
+</tr>
+{% endmacro %}
+
 {% if ab802_filter_stale %}
 <div class="callout callout-bad">
   {{ icon('triangle-alert') }}
@@ -39,6 +74,24 @@
       <br>A building missing Year Built or EUI simply has no value for that half — never guessed at,
       never defaulted to a mid-point. Ties break on GFA, larger first — a bigger building is a bigger
       order.</span>
+    </span>
+  </div>
+</details>
+
+<details class="callout callout-warn">
+  <summary>How this is built</summary>
+  <div class="callout-content">
+    <span>
+    <strong>GFA floor and an EUI-ratio anomaly cutoff</strong>
+    <span class="body">AB 802 itself only covers buildings 50,000 sq ft and larger — a row on file
+      below 20,000 sq ft (or with no GFA stated at all) is dropped before ranking even starts, not
+      shown at all: it's treated as a data error in the source file, not a real building, and it's
+      also excluded from every property type's median so one bad GFA value can't distort what every
+      other row in its type is ranked against. Separately, a row whose Site EUI comes out above 5x its
+      type's median is pulled out of the ranked list below into its own "Data anomaly, verify before
+      calling" table instead — plausibly a real building, but a >5x-median EUI is more often a meter or
+      unit mismatch than a genuine finding, and letting one dominate the top of the list on a number
+      that likely isn't real would bury the genuine leads under it.</span>
     </span>
   </div>
 </details>
@@ -112,40 +165,7 @@
   <th>Assessor match</th><th>Filer</th>
 </tr></thead>
 <tbody>
-{% for d in ab802_rows %}
-{% set r = d.row %}
-<tr>
-  <td><span class="clip" title="{{ r.property_name or '' }}">{{ r.property_name or '(unnamed)' }}</span>
-    <div class="note">{{ r.address_1 or '' }}, {{ r.city or '' }}</div></td>
-  <td class="nowrap">{{ r.county_from_geocoding or '—' }}</td>
-  <td>{{ r.primary_property_type or '—' }}</td>
-  <td class="num mono">{{ r.year_built or '—' }}</td>
-  <td class="num mono">{{ '%.2f'|format(d.age_credit) if d.age_credit is not none else '—' }}</td>
-  <td class="num mono">{{ '%.0f'|format(r.weather_normalized_site_eui) if r.weather_normalized_site_eui is not none else '—' }}</td>
-  <td class="num mono">{{ '%.2fx'|format(d.eui_ratio) if d.eui_ratio is not none else '—' }}</td>
-  <td class="num mono">{{ '{:,.0f}'.format(r.property_gfa_sqft) if r.property_gfa_sqft is not none else '—' }}</td>
-  <td>
-    {%- if r.retrofit_apn and r.assessor_match_method == 'latlong' -%}
-      <a href="/retrofit/building/{{ ab802_retrofit_id_by_apn.get(r.retrofit_apn, '') }}">matched</a>
-      <div class="note">lat/long, {{ '%.0f'|format(r.assessor_match_distance_m) }}m</div>
-    {%- elif r.retrofit_apn -%}
-      <a href="/retrofit/building/{{ ab802_retrofit_id_by_apn.get(r.retrofit_apn, '') }}">matched</a>
-      <div class="note">address match</div>
-    {%- else -%}
-      <span class="dim">no assessor match</span>
-    {%- endif -%}
-  </td>
-  <td>
-    {%- if r.benchmarking_filer -%}
-      {{ r.benchmarking_filer }}<div class="note">benchmarking filer</div>
-    {%- elif d.name_hint -%}
-      {{ d.name_hint }}<div class="note">name on filing</div>
-    {%- else -%}
-      <span class="dim">no owner data available</span>
-    {%- endif -%}
-  </td>
-</tr>
-{% endfor %}
+{% for d in ab802_rows %}{{ ab802_row(d) }}{% endfor %}
 </tbody>
 </table>
 {% else %}
@@ -155,4 +175,25 @@
     <a href="/replacement-leads?view=ab802">clearing filters</a>, or run
     <span class="mono">scout fetch-ab802-benchmarks &lt;year&gt;</span> if this looks empty entirely.</p>
 </div>
+{% endif %}
+
+{% if ab802_anomalies %}
+<div class="sec-head mt-4">
+  <div class="sec-title">Data anomaly, verify before calling</div>
+  <span class="note">{{ '{:,}'.format(ab802_anomalies|length) }} row{{ 's' if ab802_anomalies|length != 1 }}
+    at more than {{ '%.0f'|format(5.0) }}x its type's median Site EUI — pulled out of the ranking above,
+    not ranked among it. See "How this is built" for why.</span>
+</div>
+<table class="tbl">
+<thead><tr>
+  <th>Property</th><th>County</th><th>Property type</th>
+  <th class="num">Year built</th><th class="num">Age credit</th>
+  <th class="num">Site EUI</th><th class="num">EUI vs. type median</th>
+  <th class="num">GFA</th>
+  <th>Assessor match</th><th>Filer</th>
+</tr></thead>
+<tbody>
+{% for d in ab802_anomalies %}{{ ab802_row(d) }}{% endfor %}
+</tbody>
+</table>
 {% endif %}

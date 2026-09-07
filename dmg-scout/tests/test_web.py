@@ -1121,7 +1121,7 @@ def test_replacement_leads_ab802_tab_shows_rows_and_no_owner_language(client, db
         portfolio_manager_property_id="1", year_ending=2024, in_territory=True,
         property_name="Test Tower", city="Los Angeles", county_from_geocoding="Los Angeles County",
         primary_property_type="Office", year_built=1970, weather_normalized_site_eui=150.0,
-        source_url="https://example.com/x",
+        property_gfa_sqft=50_000, source_url="https://example.com/x",
     ))
     db_session.commit()
 
@@ -1138,7 +1138,7 @@ def test_replacement_leads_ab802_tab_shows_benchmarking_filer_never_owner(client
         portfolio_manager_property_id="1", year_ending=2024, in_territory=True,
         property_name="Filed Tower", city="Los Angeles", county_from_geocoding="Los Angeles County",
         primary_property_type="Office", year_built=1970, weather_normalized_site_eui=150.0,
-        benchmarking_filer="Acme Property Mgmt", source_url="https://example.com/x",
+        property_gfa_sqft=50_000, benchmarking_filer="Acme Property Mgmt", source_url="https://example.com/x",
     ))
     db_session.commit()
 
@@ -1152,10 +1152,10 @@ def test_replacement_leads_ab802_filters_by_county(client, db_session, cfg):
     from app.models import Ab802Building
     db_session.add(Ab802Building(portfolio_manager_property_id="1", year_ending=2024, in_territory=True,
                                  property_name="LA Building", county_from_geocoding="Los Angeles County",
-                                 primary_property_type="Office", source_url="x"))
+                                 primary_property_type="Office", property_gfa_sqft=50_000, source_url="x"))
     db_session.add(Ab802Building(portfolio_manager_property_id="2", year_ending=2024, in_territory=True,
                                  property_name="Orange Building", county_from_geocoding="Orange County",
-                                 primary_property_type="Office", source_url="x"))
+                                 primary_property_type="Office", property_gfa_sqft=50_000, source_url="x"))
     db_session.commit()
 
     r = client.get("/replacement-leads?view=ab802&county=Los+Angeles+County", headers=AUTH)
@@ -1167,10 +1167,12 @@ def test_replacement_leads_ab802_defaults_to_relevant_property_types(client, db_
     from app.models import Ab802Building
     db_session.add(Ab802Building(portfolio_manager_property_id="1", year_ending=2024, in_territory=True,
                                  property_name="Office Tower", primary_property_type="Office",
-                                 county_from_geocoding="Los Angeles County", source_url="x"))
+                                 county_from_geocoding="Los Angeles County", property_gfa_sqft=50_000,
+                                 source_url="x"))
     db_session.add(Ab802Building(portfolio_manager_property_id="2", year_ending=2024, in_territory=True,
                                  property_name="Big Casino", primary_property_type="Casino",
-                                 county_from_geocoding="Los Angeles County", source_url="x"))
+                                 county_from_geocoding="Los Angeles County", property_gfa_sqft=50_000,
+                                 source_url="x"))
     db_session.commit()
 
     default = client.get("/replacement-leads?view=ab802", headers=AUTH)
@@ -1192,10 +1194,53 @@ def test_replacement_leads_ab802_shows_name_on_filing_hint(client, db_session, c
         portfolio_manager_property_id="1", year_ending=2024, in_territory=True,
         property_name="Kaiser Foundation Hospitals - Building A", city="Los Angeles",
         county_from_geocoding="Los Angeles County", primary_property_type="Hospital (General Medical & Surgical)",
-        source_url="x",
+        property_gfa_sqft=50_000, source_url="x",
     ))
     db_session.commit()
 
     r = client.get("/replacement-leads?view=ab802", headers=AUTH)
     assert "Kaiser Foundation Hospitals - Building A" in r.text
     assert "name on filing" in r.text
+
+
+def test_replacement_leads_ab802_below_gfa_floor_excluded_and_shown_nowhere(client, db_session, cfg):
+    from app.models import Ab802Building
+    db_session.add(Ab802Building(
+        portfolio_manager_property_id="1", year_ending=2024, in_territory=True,
+        property_name="Tiny Data Error", primary_property_type="Office",
+        county_from_geocoding="Los Angeles County", property_gfa_sqft=100, source_url="x",
+    ))
+    db_session.commit()
+
+    r = client.get("/replacement-leads?view=ab802&show_all_types=true", headers=AUTH)
+    assert "Tiny Data Error" not in r.text
+
+
+def test_replacement_leads_ab802_extreme_eui_ratio_shown_as_anomaly_not_ranked(client, db_session, cfg):
+    from app.models import Ab802Building
+    # Three baseline rows at eui=20 fix the Office median at 20.0 regardless
+    # of the anomaly row (odd count, repeated values) -- same discipline as
+    # app/pipeline/ab802.py's own equivalent test.
+    for i in range(3):
+        db_session.add(Ab802Building(
+            portfolio_manager_property_id=f"baseline_{i}", year_ending=2024, in_territory=True,
+            property_name="Normal Building", primary_property_type="Office",
+            county_from_geocoding="Los Angeles County", property_gfa_sqft=50_000,
+            weather_normalized_site_eui=20.0, source_url="x",
+        ))
+    db_session.add(Ab802Building(
+        portfolio_manager_property_id="anomaly", year_ending=2024, in_territory=True,
+        property_name="Anomaly Building", primary_property_type="Office",
+        county_from_geocoding="Los Angeles County", property_gfa_sqft=50_000,
+        weather_normalized_site_eui=1_000.0, source_url="x",
+    ))
+    db_session.commit()
+
+    r = client.get("/replacement-leads?view=ab802", headers=AUTH)
+    assert "Normal Building" in r.text
+    assert "Anomaly Building" in r.text
+    assert "data anomaly, verify before calling" in r.text.lower()
+    # The anomaly row must appear in its own section, after the ranked table
+    # -- never inside the main ranked table above it.
+    assert r.text.index("Anomaly Building") > r.text.index("Normal Building")
+    assert r.text.index("Anomaly Building") > r.text.lower().index("data anomaly, verify before calling")

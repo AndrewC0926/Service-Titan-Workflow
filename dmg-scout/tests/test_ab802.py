@@ -276,12 +276,16 @@ def test_match_to_ebewe_no_filer_field_when_organization_blank(db_session, cfg):
 
 def _ab802(session, property_id, year_ending=2024, in_territory=True, property_type="Office",
           year_built=1980, eui=90.0, county="Los Angeles County", assessor_match=None,
-          **extra) -> Ab802Building:
+          property_gfa_sqft=50_000, **extra) -> Ab802Building:
+    """property_gfa_sqft defaults to AB 802's own real statutory threshold --
+    since GFA_FLOOR_SQFT now excludes anything below 20,000, a test that
+    doesn't care about GFA still needs to clear the floor to appear in
+    rank_in_territory()["ranked"] at all."""
     row = Ab802Building(portfolio_manager_property_id=property_id, year_ending=year_ending,
                         in_territory=in_territory, primary_property_type=property_type,
                         year_built=year_built, weather_normalized_site_eui=eui,
                         county_from_geocoding=county, assessor_match_method=assessor_match,
-                        source_url="x", **extra)
+                        property_gfa_sqft=property_gfa_sqft, source_url="x", **extra)
     session.add(row)
     session.commit()
     return row
@@ -311,7 +315,7 @@ def test_rank_in_territory_older_and_higher_eui_ranks_first(db_session, cfg):
     _ab802(db_session, "new_good", year_built=2020, eui=20.0)   # no age credit, 0.2x median EUI
     _ab802(db_session, "middle", year_built=1980, eui=100.0)    # partial age credit, 1.0x median EUI
 
-    ranked = rank_in_territory(db_session)
+    ranked = rank_in_territory(db_session)["ranked"]
     ids = [d["row"].portfolio_manager_property_id for d in ranked]
     assert ids == ["old_bad", "middle", "new_good"]
     assert ranked[0]["age_credit"] == 1.0
@@ -329,7 +333,7 @@ def test_rank_in_territory_ranks_within_property_type_only(db_session, cfg):
     _ab802(db_session, "wh_new", property_type="Warehouse", year_built=2020, eui=10.0)
     _ab802(db_session, "office", property_type="Office", year_built=1990, eui=500.0)
 
-    ranked = rank_in_territory(db_session, property_type="Warehouse")
+    ranked = rank_in_territory(db_session, property_type="Warehouse")["ranked"]
     ids = [d["row"].portfolio_manager_property_id for d in ranked]
     assert ids == ["wh_old", "wh_new"]
     # Warehouse median is 20.0 (the two warehouses only) -- the office's 500
@@ -343,7 +347,7 @@ def test_rank_in_territory_missing_year_built_or_eui_gets_no_value_for_that_half
     _ab802(db_session, "unknown_age", year_built=None, eui=100.0)
     _ab802(db_session, "unknown_eui", year_built=1990, eui=None)
 
-    ranked = rank_in_territory(db_session)
+    ranked = rank_in_territory(db_session)["ranked"]
     by_id = {d["row"].portfolio_manager_property_id: d for d in ranked}
     assert by_id["unknown_age"]["age_credit"] is None
     assert by_id["known"]["age_credit"] is not None
@@ -354,24 +358,52 @@ def test_rank_in_territory_missing_year_built_or_eui_gets_no_value_for_that_half
 def test_rank_in_territory_ties_break_on_gfa_larger_first(db_session, cfg):
     from app.pipeline.ab802 import rank_in_territory
     # Both get age_credit=1.0 (built 1990) and eui_ratio=1.0 (both at the
-    # type median of 100.0) -- an exact rank_key tie, broken by GFA.
-    _ab802(db_session, "small", year_built=1990, eui=100.0, property_gfa_sqft=10_000)
+    # type median of 100.0) -- an exact rank_key tie, broken by GFA. Both
+    # GFAs are still >= GFA_FLOOR_SQFT (20,000).
+    _ab802(db_session, "small", year_built=1990, eui=100.0, property_gfa_sqft=20_000)
     _ab802(db_session, "big", year_built=1990, eui=100.0, property_gfa_sqft=90_000)
 
-    ranked = rank_in_territory(db_session)
+    ranked = rank_in_territory(db_session)["ranked"]
     assert ranked[0]["rank_key"] == ranked[1]["rank_key"]
     ids = [d["row"].portfolio_manager_property_id for d in ranked]
     assert ids == ["big", "small"]
 
 
-def test_rank_in_territory_null_gfa_sorts_as_smallest_in_a_tie(db_session, cfg):
-    from app.pipeline.ab802 import rank_in_territory
-    _ab802(db_session, "known_gfa", year_built=1990, eui=100.0, property_gfa_sqft=1_000)
-    _ab802(db_session, "unknown_gfa", year_built=1990, eui=100.0, property_gfa_sqft=None)
+# --- GFA_FLOOR_SQFT: a below-floor or missing GFA is a data error, dropped -
 
-    ranked = rank_in_territory(db_session)
-    ids = [d["row"].portfolio_manager_property_id for d in ranked]
-    assert ids == ["known_gfa", "unknown_gfa"]
+
+def test_rank_in_territory_excludes_gfa_below_floor(db_session, cfg):
+    from app.pipeline.ab802 import GFA_FLOOR_SQFT, rank_in_territory
+    _ab802(db_session, "too_small", property_gfa_sqft=GFA_FLOOR_SQFT - 1)
+    _ab802(db_session, "at_floor", property_gfa_sqft=GFA_FLOOR_SQFT)
+
+    ids = {d["row"].portfolio_manager_property_id for d in rank_in_territory(db_session)["ranked"]}
+    assert ids == {"at_floor"}
+
+
+def test_rank_in_territory_excludes_null_gfa(db_session, cfg):
+    from app.pipeline.ab802 import rank_in_territory
+    _ab802(db_session, "no_gfa", property_gfa_sqft=None)
+    _ab802(db_session, "has_gfa", property_gfa_sqft=50_000)
+
+    ids = {d["row"].portfolio_manager_property_id for d in rank_in_territory(db_session)["ranked"]}
+    assert ids == {"has_gfa"}
+
+
+def test_rank_in_territory_below_floor_row_never_distorts_the_type_median(db_session, cfg):
+    """A GFA=100 row with an absurd EUI (the real production case this floor
+    was added for) must not pull the type's median toward it before being
+    excluded -- the floor is applied before medians are computed, not after."""
+    from app.pipeline.ab802 import rank_in_territory
+    _ab802(db_session, "data_error", eui=47_628.0, property_gfa_sqft=100)
+    _ab802(db_session, "real_1", eui=20.0, property_gfa_sqft=50_000)
+    _ab802(db_session, "real_2", eui=30.0, property_gfa_sqft=50_000)
+
+    result = rank_in_territory(db_session)
+    ids = {d["row"].portfolio_manager_property_id for d in result["ranked"]}
+    assert ids == {"real_1", "real_2"}
+    by_id = {d["row"].portfolio_manager_property_id: d for d in result["ranked"]}
+    assert by_id["real_1"]["type_median_eui"] == 25.0  # median of {20, 30} only
 
 
 def test_rank_in_territory_filters_county_property_type_year_built_and_match(db_session, cfg):
@@ -383,13 +415,13 @@ def test_rank_in_territory_filters_county_property_type_year_built_and_match(db_
     _ab802(db_session, "4", county="Los Angeles County", property_type="Office", year_built=2020)
 
     assert {d["row"].portfolio_manager_property_id
-            for d in rank_in_territory(db_session, county="Los Angeles County")} == {"1", "3", "4"}
+            for d in rank_in_territory(db_session, county="Los Angeles County")["ranked"]} == {"1", "3", "4"}
     assert [d["row"].portfolio_manager_property_id
-           for d in rank_in_territory(db_session, property_type="Warehouse")] == ["3"]
+           for d in rank_in_territory(db_session, property_type="Warehouse")["ranked"]] == ["3"]
     assert {d["row"].portfolio_manager_property_id
-            for d in rank_in_territory(db_session, year_built_before=2000)} == {"1", "2", "3"}
+            for d in rank_in_territory(db_session, year_built_before=2000)["ranked"]} == {"1", "2", "3"}
     assert [d["row"].portfolio_manager_property_id
-           for d in rank_in_territory(db_session, has_assessor_match=True)] == ["1"]
+           for d in rank_in_territory(db_session, has_assessor_match=True)["ranked"]] == ["1"]
 
 
 def test_rank_in_territory_eui_above_median_for_its_type(db_session, cfg):
@@ -399,7 +431,7 @@ def test_rank_in_territory_eui_above_median_for_its_type(db_session, cfg):
     _ab802(db_session, "high", property_type="Office", eui=90.0)
 
     result = [d["row"].portfolio_manager_property_id
-             for d in rank_in_territory(db_session, eui_above_median=True)]
+             for d in rank_in_territory(db_session, eui_above_median=True)["ranked"]]
     assert result == ["high"]
 
 
@@ -448,12 +480,12 @@ def test_rank_in_territory_multifamily_not_default_but_still_selectable(db_sessi
     _ab802(db_session, "2", property_type="Office")
 
     default = [d["row"].portfolio_manager_property_id
-              for d in rank_in_territory(db_session, restrict_to_relevant_types=True)]
+              for d in rank_in_territory(db_session, restrict_to_relevant_types=True)["ranked"]]
     assert default == ["2"]
 
     explicit = [d["row"].portfolio_manager_property_id
                for d in rank_in_territory(db_session, property_type="Multifamily Housing",
-                                          restrict_to_relevant_types=True)]
+                                          restrict_to_relevant_types=True)["ranked"]]
     assert explicit == ["1"]
 
 
@@ -514,11 +546,11 @@ def test_rank_in_territory_restricts_to_relevant_types_by_default(db_session, cf
     _ab802(db_session, "2", property_type="Casino")
 
     restricted = [d["row"].portfolio_manager_property_id
-                 for d in rank_in_territory(db_session, restrict_to_relevant_types=True)]
+                 for d in rank_in_territory(db_session, restrict_to_relevant_types=True)["ranked"]]
     assert restricted == ["1"]
 
     unrestricted = {d["row"].portfolio_manager_property_id
-                   for d in rank_in_territory(db_session, restrict_to_relevant_types=False)}
+                   for d in rank_in_territory(db_session, restrict_to_relevant_types=False)["ranked"]}
     assert unrestricted == {"1", "2"}
 
 
@@ -528,7 +560,8 @@ def test_rank_in_territory_explicit_property_type_overrides_the_default_restrict
     _ab802(db_session, "2", property_type="Casino")
 
     result = [d["row"].portfolio_manager_property_id
-             for d in rank_in_territory(db_session, property_type="Casino", restrict_to_relevant_types=True)]
+             for d in rank_in_territory(db_session, property_type="Casino",
+                                        restrict_to_relevant_types=True)["ranked"]]
     assert result == ["2"]
 
 
@@ -538,7 +571,54 @@ def test_rank_in_territory_name_hint_only_when_filer_blank_and_name_reads_organi
     _ab802(db_session, "2", property_name="Dodger Stadium")                            # no filer, not org-like
     _ab802(db_session, "3", property_name="Some LLC Tower", benchmarking_filer="Acme Mgmt")  # filer wins
 
-    by_id = {d["row"].portfolio_manager_property_id: d for d in rank_in_territory(db_session)}
+    by_id = {d["row"].portfolio_manager_property_id: d for d in rank_in_territory(db_session)["ranked"]}
     assert by_id["1"]["name_hint"] == "Kaiser Foundation Hospitals - Building A"
     assert by_id["2"]["name_hint"] is None
     assert by_id["3"]["name_hint"] is None  # filer already present -- name_hint is never a second source
+
+
+# --- EUI_RATIO_ANOMALY_ABOVE: pulled out of ranked, into anomalies ---------
+
+
+def test_rank_in_territory_moves_extreme_eui_ratio_to_anomalies(db_session, cfg):
+    from app.pipeline.ab802 import EUI_RATIO_ANOMALY_ABOVE, rank_in_territory
+    # median of {20, 30, 1000} is 30 -- the 1000 row is 33.3x median, well
+    # above the cutoff.
+    _ab802(db_session, "normal_1", eui=20.0)
+    _ab802(db_session, "normal_2", eui=30.0)
+    _ab802(db_session, "extreme", eui=1_000.0)
+
+    result = rank_in_territory(db_session)
+    ranked_ids = {d["row"].portfolio_manager_property_id for d in result["ranked"]}
+    anomaly_ids = {d["row"].portfolio_manager_property_id for d in result["anomalies"]}
+    assert ranked_ids == {"normal_1", "normal_2"}
+    assert anomaly_ids == {"extreme"}
+    anomaly = result["anomalies"][0]
+    assert anomaly["eui_ratio"] > EUI_RATIO_ANOMALY_ABOVE
+    assert anomaly["rank_key"] is None  # never sorted into ranked on a made-up 0
+
+
+def test_rank_in_territory_anomalies_sorted_by_eui_ratio_descending(db_session, cfg):
+    from app.pipeline.ab802 import rank_in_territory
+    _ab802(db_session, "less_extreme", eui=200.0)   # median {20,200,2000}=200 -> 1.0x, not anomalous alone
+    _ab802(db_session, "baseline", eui=20.0)
+    _ab802(db_session, "most_extreme", eui=2_000.0)
+
+    result = rank_in_territory(db_session)
+    anomaly_ids = [d["row"].portfolio_manager_property_id for d in result["anomalies"]]
+    assert anomaly_ids == ["most_extreme"]
+
+
+def test_rank_in_territory_eui_ratio_exactly_at_cutoff_is_not_an_anomaly(db_session, cfg):
+    from app.pipeline.ab802 import EUI_RATIO_ANOMALY_ABOVE, rank_in_territory
+    # Four rows at eui=20 fix the type median at 20.0 regardless of the fifth
+    # (odd count, repeated values) -- "at_cutoff" then lands at EXACTLY 5.0x.
+    for i in range(4):
+        _ab802(db_session, f"baseline_{i}", eui=20.0)
+    _ab802(db_session, "at_cutoff", eui=20.0 * EUI_RATIO_ANOMALY_ABOVE)
+
+    result = rank_in_territory(db_session)
+    ranked_ids = {d["row"].portfolio_manager_property_id for d in result["ranked"]}
+    anomaly_ids = {d["row"].portfolio_manager_property_id for d in result["anomalies"]}
+    assert "at_cutoff" in ranked_ids  # exactly 5x is ranked, not anomalous -- only ABOVE 5x is
+    assert "at_cutoff" not in anomaly_ids
