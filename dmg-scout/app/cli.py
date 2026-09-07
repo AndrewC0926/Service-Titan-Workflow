@@ -1183,6 +1183,19 @@ def seed_competitors_cmd() -> None:
                f"({stats['confirmed']} confirmed, {stats['unconfirmed']} unconfirmed)")
 
 
+@app.command("seed-developer-team")
+def seed_developer_team_cmd() -> None:
+    """Rebuilds every source='extracted' row in developer_design_team from
+    ProjectFirm + Project.developer (app/developer_team.py) -- fully
+    repeatable, never touches a rep's own source='manual' rows entered on a
+    developer page. Re-run any time ProjectFirm gains new architect/
+    mep_engineer/engineer_of_record links worth rolling up."""
+    from app.developer_team import seed_from_project_firms
+    with session_scope() as session:
+        written = seed_from_project_firms(session)
+    typer.echo(f"{written} (developer, firm, role) rows written")
+
+
 @app.command("fetch-ownership-recency")
 def fetch_ownership_recency_cmd() -> None:
     """Change-of-ownership recency for the retrofit board, from LA County's

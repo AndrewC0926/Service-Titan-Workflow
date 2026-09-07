@@ -1220,13 +1220,23 @@ def project_detail(project_id: int, request: Request,
                        "from_roster": f.added_from == "roster"} for pf, f in roster_links]
 
     from app.call_target import (
-        ENGINEER_OF_RECORD_ROLE, GC_ROLE, nearby_contractor_by_project, project_call_target,
+        CallTarget, ENGINEER_OF_RECORD_ROLE, GC_ROLE, nearby_contractor_by_project,
+        project_call_target,
     )
     eor = next((f["name"] for f in resolved_firms if f["role"] == ENGINEER_OF_RECORD_ROLE), None)
     gc_name = next((f["name"] for f in resolved_firms if f["role"] == GC_ROLE), None)
     nearby_map = nearby_contractor_by_project(session, load_config(), [project])
     call_target = project_call_target(load_config(), project, engineer_of_record=eor,
                                       gc=gc_name, nearby_contractor=nearby_map.get(project.id))
+
+    # "Usual team" is a lead, never this project's engineer -- only shown when
+    # the call target is R4 engineer and no ProjectFirm has actually named one
+    # for THIS project. See app.developer_team's module docstring.
+    usual_team = None
+    if (call_target.target == CallTarget.engineer
+            and call_target.who_label == "engineer of record unknown" and project.developer):
+        from app.developer_team import usual_team_for_developer
+        usual_team = usual_team_for_developer(session, project.developer)
 
     timeline = []
     people, firms = [], []
@@ -1309,7 +1319,7 @@ def project_detail(project_id: int, request: Request,
         "documents": documents, "doc_entries": doc_entries,
         "schedule_mapping": schedule_mapping, "actionable_mapping": actionable_mapping,
         "displaceable_rows": displaceable_rows, "role_gap_rows": role_gap_rows,
-        "call_target": call_target,
+        "call_target": call_target, "usual_team": usual_team,
         "tb": _title_block(session), "active": "board",
     })
 
@@ -1478,6 +1488,46 @@ def add_firm(name: str = Form(...), firm_type: str = Form("unknown"),
                          aliases=alias_list, added_from="dashboard"))
     session.commit()
     return RedirectResponse("/contacts", status_code=303)
+
+
+@app.get("/developer/{developer_name:path}", response_class=HTMLResponse)
+def developer_detail(developer_name: str, request: Request,
+                     session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Every project naming this developer, plus their usual design team --
+    see app.developer_team's module docstring. Keyed on normalize_name, not a
+    Firm id: most developers only ever exist as Project.developer text, never
+    as their own roster row."""
+    from app.developer_team import DESIGN_TEAM_ROLES, usual_team_for_developer
+
+    norm = normalize_name(developer_name)
+    if not norm:
+        raise HTTPException(404)
+    projects = [p for p in session.exec(select(Project)).all()
+               if p.developer and normalize_name(p.developer) == norm]
+    if not projects:
+        raise HTTPException(404)
+    display_name = next((p.developer for p in projects if p.developer), developer_name)
+    projects.sort(key=lambda p: p.score, reverse=True)
+
+    return templates.TemplateResponse(request, "developer.html", {
+        "developer": display_name, "projects": projects,
+        "team": usual_team_for_developer(session, display_name),
+        "design_team_roles": DESIGN_TEAM_ROLES,
+        "tb": _title_block(session), "active": "board",
+    })
+
+
+@app.post("/developer/{developer_name:path}/team", response_class=HTMLResponse)
+def developer_team_add(developer_name: str, firm_name: str = Form(...), role: str = Form(...),
+                       reason: str = Form(...), confirmed_by: str = Form(...),
+                       session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.developer_team import add_manual_team_entry
+
+    try:
+        add_manual_team_entry(session, developer_name, firm_name, role, reason, confirmed_by)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return RedirectResponse(f"/developer/{developer_name}", status_code=303)
 
 
 def _csv_response(filename: str, header: list[str], rows: list[list]) -> Response:

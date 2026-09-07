@@ -998,3 +998,103 @@ def test_esco_board_is_reachable_and_separate(client, db_session, cfg):
     db_session.commit()
     assert "City Hall ESPC" in client.get("/board?category=esco&territory=all", headers=AUTH).text
     assert "City Hall ESPC" not in client.get("/board?category=all&territory=all", headers=AUTH).text
+
+
+# --- developer page: usual design team --------------------------------------
+
+
+def test_developer_page_404_for_unknown_developer(client, db_session, cfg):
+    assert client.get("/developer/Nobody%20Ever%20Heard%20Of", headers=AUTH).status_code == 404
+
+
+def test_developer_page_lists_projects_and_usual_team(client, db_session, cfg):
+    from app.developer_team import seed_from_project_firms
+    from app.models import Firm, Project, ProjectFirm
+
+    mep = Firm(name="Acme MEP", name_norm="acme mep", firm_type="mep")
+    db_session.add(mep)
+    db_session.commit()
+    db_session.refresh(mep)
+    p1 = Project(name="Project One", developer="Vantage Data Centers")
+    p2 = Project(name="Project Two", developer="Vantage Data Centers, LLC")
+    db_session.add(p1)
+    db_session.add(p2)
+    db_session.commit()
+    db_session.refresh(p1)
+    db_session.add(ProjectFirm(project_id=p1.id, firm_id=mep.id, role="mep_engineer"))
+    db_session.commit()
+    seed_from_project_firms(db_session)
+
+    r = client.get("/developer/Vantage Data Centers", headers=AUTH)
+    assert r.status_code == 200
+    assert "Project One" in r.text and "Project Two" in r.text
+    assert "Acme MEP" in r.text
+    assert "MEP engineer" in r.text
+
+
+def test_developer_page_manual_entry_requires_reason_and_name(client, db_session, cfg):
+    from app.models import Project
+
+    db_session.add(Project(name="Project One", developer="Some Dev"))
+    db_session.commit()
+    # Present but blank -- FastAPI's Form(...) is happy with an empty string,
+    # so it's add_manual_team_entry's own .strip() check that must reject it.
+    r = client.post("/developer/Some Dev/team",
+                    data={"firm_name": "New Firm", "role": "architect",
+                          "reason": "   ", "confirmed_by": "   "}, headers=AUTH)
+    assert r.status_code == 400
+
+
+def test_developer_page_manual_entry_shows_up_after_submit(client, db_session, cfg):
+    from app.models import Project
+
+    db_session.add(Project(name="Project One", developer="Some Dev"))
+    db_session.commit()
+    r = client.post("/developer/Some Dev/team",
+                    data={"firm_name": "Hand-Entered Architects", "role": "architect",
+                          "reason": "Told to me by the GC on site", "confirmed_by": "Andy"},
+                    headers=AUTH, follow_redirects=True)
+    assert r.status_code == 200
+    assert "Hand-Entered Architects" in r.text
+    assert "manual" in r.text.lower()
+    assert "Andy" in r.text
+
+
+def test_project_page_shows_usual_team_when_no_engineer_known(client, db_session, cfg):
+    from app.developer_team import seed_from_project_firms
+    from app.models import Firm, Project, ProjectFirm
+
+    mep = Firm(name="Acme MEP", name_norm="acme mep", firm_type="mep")
+    db_session.add(mep)
+    db_session.commit()
+    db_session.refresh(mep)
+    prior = Project(name="Prior Project", developer="Some Dev")
+    db_session.add(prior)
+    db_session.commit()
+    db_session.refresh(prior)
+    db_session.add(ProjectFirm(project_id=prior.id, firm_id=mep.id, role="mep_engineer"))
+    db_session.commit()
+    seed_from_project_firms(db_session)
+
+    new_project = Project(name="New Project", developer="Some Dev")
+    db_session.add(new_project)
+    db_session.commit()
+    db_session.refresh(new_project)
+
+    r = client.get(f"/project/{new_project.id}", headers=AUTH)
+    assert r.status_code == 200
+    assert "Usual team for Some Dev" in r.text
+    assert "Acme MEP" in r.text
+
+
+def test_project_page_no_usual_team_banner_when_nothing_known(client, db_session, cfg):
+    from app.models import Project
+
+    p = Project(name="Lonely Project", developer="Nobody Known LLC")
+    db_session.add(p)
+    db_session.commit()
+    db_session.refresh(p)
+
+    r = client.get(f"/project/{p.id}", headers=AUTH)
+    assert r.status_code == 200
+    assert "Usual team for" not in r.text

@@ -19,6 +19,10 @@ log = logging.getLogger(__name__)
 
 ROLE_TO_TYPE = {
     "engineer_of_record": "mep",
+    "mep_engineer": "mep",
+    "architect": "architect",
+    "civil_engineer": "civil",
+    "structural_engineer": "structural",
     "gc": "gc",
     "mech_contractor": "mech_contractor",
     "developer": "developer",

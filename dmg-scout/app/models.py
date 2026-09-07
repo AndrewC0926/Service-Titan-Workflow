@@ -562,7 +562,7 @@ class Firm(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(index=True)
     name_norm: str = Field(index=True)
-    firm_type: str = "unknown"  # mep | mech_contractor | gc | developer | consultant | unknown
+    firm_type: str = "unknown"  # mep | architect | civil | structural | mech_contractor | gc | developer | consultant | unknown
     aliases: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
     added_from: str = "roster"  # roster | extraction | dashboard
     created_at: datetime = Field(default_factory=utcnow)
@@ -575,8 +575,49 @@ class ProjectFirm(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     project_id: int = Field(foreign_key="projects.id", index=True)
     firm_id: int = Field(foreign_key="firms.id", index=True)
-    role: str = "unknown"  # engineer_of_record | gc | mech_contractor | developer | consultant
+    role: str = "unknown"  # engineer_of_record | architect | mep_engineer | civil_engineer |
+                           # structural_engineer | gc | mech_contractor | developer | consultant
     linked_at: datetime = Field(default_factory=utcnow)
+
+
+class DeveloperDesignTeam(SQLModel, table=True):
+    """A developer's recurring architect / MEP engineer / engineer of record,
+    rolled up from ProjectFirm + Project.developer across every project that
+    names them -- see app.developer_team.seed_from_project_firms and its
+    module docstring for why this exists: a developer that has used the same
+    design team on three prior projects is worth naming as a lead even on a
+    fourth project where no document has named an engineer yet.
+
+    NEVER this project's engineer of record -- a project's own ProjectFirm
+    row (extracted from a document about THIS project) always wins; a row
+    here is only ever shown labeled "usual team," same as FieldIntel's own
+    discipline of never overwriting a documented fact with an inferred one.
+
+    source='extracted' rows are a fully repeatable rollup
+    (seed_from_project_firms deletes and rebuilds every one of them from
+    ProjectFirm + Project.developer on each run) -- evidence_project_ids is
+    exactly the project_id list that produced it, so a caller can always
+    show its work. source='manual' rows are a rep's own knowledge entered on
+    the developer page; reason and confirmed_by are required for those, same
+    discipline as ManualCorrection, because there is no document behind a
+    rep's memory either -- seed_from_project_firms never touches these.
+    """
+    __tablename__ = "developer_design_team"
+    __table_args__ = (
+        UniqueConstraint("developer_norm", "firm_id", "role", name="uq_developer_design_team"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    developer: str = Field(index=True)       # as first seen/entered, for display
+    developer_norm: str = Field(index=True)  # normalize_name(developer) -- the real match key
+    firm_id: int = Field(foreign_key="firms.id", index=True)
+    role: str = Field(index=True)            # architect | mep_engineer | engineer_of_record
+    evidence_project_ids: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False, default=list))
+    source: str = "extracted"                # extracted | manual
+    reason: str | None = None                # required for source == 'manual'
+    confirmed_by: str | None = None          # required for source == 'manual'
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 class FieldIntel(SQLModel, table=True):

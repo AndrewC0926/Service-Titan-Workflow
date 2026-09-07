@@ -9,7 +9,7 @@
   <a href="/project/{{ p.id }}/precall" style="float:right;font-size:12px;margin-right:16px">{{ icon('phone') }} Pre-call brief</a></h2>
 
 <table style="max-width:900px">
-<tr><th>Developer</th><td>{{ p.developer or '—' }}</td>
+<tr><th>Developer</th><td>{% if p.developer %}<a href="/developer/{{ p.developer | urlencode }}">{{ p.developer }}</a>{% else %}—{% endif %}</td>
     <th>County</th><td>{{ p.county or '?' }}{{ ', ' + p.state if p.state }}</td></tr>
 <tr><th>Stage</th><td>{{ p.stage.value }}
     {%- if stage_age and stage_age.unverified(stale_months) %}
@@ -101,6 +101,13 @@
   {%- if call_target.who_label %} — {{ call_target.who_label }}{% if call_target.who_detail %} ({{ call_target.who_detail }}){% endif %}{% endif %}
   <br><span class="dim">{{ call_target.rule }}: {{ call_target.reason }}</span>
 </p>
+{% if usual_team %}
+<p style="max-width:1000px" class="dim">
+  <b>Usual team for {{ p.developer }}</b> (inferred from other projects, not confirmed for this one):
+  {% for t in usual_team %}{{ t.firm }} — {{ t.role_label }}{% if t.n %} ({{ t.n }} prior project{{ 's' if t.n != 1 }}){% elif t.source == 'manual' %} (added by {{ t.confirmed_by }}){% endif %}{% if not loop.last %}; {% endif %}{% endfor %}
+  · <a href="/developer/{{ p.developer | urlencode }}">see developer</a>
+</p>
+{% endif %}
 
 <h2>Contact ladder — who to call, best rung first</h2>
 <table style="max-width:1000px">

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ developer }}{% endblock %}
+{% block content %}
+<h2>{{ developer }}</h2>
+<p class="dim" style="margin-top:-6px">{{ projects | length }} project{{ 's' if projects | length != 1 }} on the board.</p>
+
+<div class="sec-head"><div class="sec-title">Usual design team</div></div>
+<p class="note" style="margin-top:-6px">Rolled up from every project naming this developer — a lead for
+  who to call when a newer project hasn't named an engineer yet, never a substitute for that project's
+  own documented engineer of record.</p>
+{% if team %}
+<table class="tbl mb-4">
+<thead><tr><th>Firm</th><th>Role</th><th class="num">Evidence</th><th>Source</th></tr></thead>
+<tbody>
+{% for t in team %}
+<tr>
+  <td><a href="/firm/{{ t.firm_id }}">{{ t.firm }}</a></td>
+  <td>{{ t.role_label }}</td>
+  <td class="num mono">{{ t.n }} prior project{{ 's' if t.n != 1 }}</td>
+  <td class="dim">{% if t.source == 'manual' %}manual — added by {{ t.confirmed_by }}{% else %}extracted{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="note mb-4">No architect, MEP engineer, or engineer of record recorded for this developer yet.</p>
+{% endif %}
+
+<div class="sec-head"><div class="sec-title">Add what you know</div></div>
+<p class="dim" style="margin-top:-6px">A reason and your name are required — this is a rep's own
+  knowledge, not a document, same discipline as any other manual correction on this board.</p>
+<form method="post" action="/developer/{{ developer | urlencode }}/team">
+  <input type="text" name="firm_name" placeholder="Firm name (required)" required style="width:220px">
+  <select name="role">
+    {% for r in design_team_roles %}<option value="{{ r }}">{{ r.replace('_', ' ') }}</option>{% endfor %}
+  </select>
+  <input type="text" name="reason" placeholder="Why you know this (required)" required style="width:260px">
+  <input type="text" name="confirmed_by" placeholder="Your name (required)" required style="width:120px">
+  <button type="submit">Add</button>
+</form>
+
+<div class="sec-head"><div class="sec-title">Projects</div></div>
+{% include "_project_rows.html" %}
+{% endblock %}

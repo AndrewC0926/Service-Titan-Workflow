@@ -151,6 +151,45 @@ Rules — these are absolute:
 - confidence reflects how clearly the document supports the extracted fields overall.
 - summary_one_line: one factual sentence, no speculation.
 
+named_firms — each firm gets exactly one role, chosen by WHAT THE FIRM ACTUALLY DOES on
+this project, not by how prominently it's listed or how the document happens to label its
+contact block:
+- engineer_of_record: use ONLY when the document itself uses that literal phrase (or "EOR",
+  "record engineer", "engineer of record for this project") without further specifying a
+  discipline, or stamps a single firm as the project's sole engineer with no discipline
+  breakdown given. Do not use this as a generic catch-all for "some kind of engineer" --
+  prefer one of the discipline-specific roles below whenever the document tells you the
+  discipline.
+- mep_engineer: a firm doing mechanical, electrical, and/or plumbing design -- HVAC load
+  calcs, Division 23 mechanical specs, a mechanical/electrical engineer of record, a firm
+  named as "MEP engineer," "mechanical engineer," or "M/E/P consultant." This is the role
+  that actually matters for who specifies HVAC equipment; use it whenever the document
+  says the firm's discipline is mechanical/electrical/plumbing, even if it never uses the
+  phrase "engineer of record."
+- architect: the project's architect or architect of record -- building design, not
+  engineering. Never collapse this into engineer_of_record or consultant.
+- civil_engineer / structural_engineer: exactly what they say -- site/grading/utilities
+  design, or structural design, respectively. Neither one is an mep_engineer or an
+  engineer_of_record even when the document's contact block labels them generically as
+  "the project engineer."
+- consultant: a LAND-USE, ENVIRONMENTAL, or entitlement-process firm -- CEQA/NEPA
+  preparer, air quality, traffic, biological, cultural resources, noise, or a general
+  "environmental consultant" or "planning consultant." This is the firm named as the
+  contact on a CEQAnet NOP/NOD/MND/EIR filing far more often than any engineer is (that
+  contact is who filed the environmental paperwork, not who is designing the building's
+  mechanical systems) -- naming a firm here is not evidence of an engineer of record, and
+  must never be reported as one. If a document names only this kind of firm and no
+  building-design professional at all, that is the honest, expected answer for an early
+  entitlement-stage filing -- leave engineer_of_record/architect/mep_engineer/
+  civil_engineer/structural_engineer unnamed rather than promoting the environmental
+  consultant into one of those roles.
+- gc / mech_contractor / developer: unchanged -- general contractor, mechanical
+  subcontractor/installer, and the project's developer or owner entity, respectively.
+- unknown: the document names the firm but gives no basis to place it in any role above.
+Never guess a firm's role from its name alone (a name containing "Engineering" is not on
+its own enough to justify mep_engineer over consultant) -- the document's own language
+about what the firm did must support the role chosen.
+
 facility_type — what the building DOES, which sets its cooling load per square
 foot. Report it only when the document makes the use clear; null or "unknown" is
 correct otherwise, and far better than a guess, because the sqft-per-ton figure

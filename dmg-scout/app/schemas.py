@@ -114,8 +114,13 @@ EXTRACTION_JSON_SCHEMA: dict = {
                     "name": {"type": "string"},
                     "role": {
                         "type": "string",
-                        "enum": ["engineer_of_record", "gc", "mech_contractor", "developer",
-                                 "consultant", "unknown"],
+                        "enum": ["engineer_of_record", "architect", "mep_engineer",
+                                 "civil_engineer", "structural_engineer", "gc", "mech_contractor",
+                                 "developer", "consultant", "unknown"],
+                        "description": "See EXTRACT_SYSTEM's named_firms paragraph for how to "
+                                       "choose among these -- in particular, a land-use, "
+                                       "environmental, CEQA, traffic, air-quality, or similar "
+                                       "review consultant is 'consultant', never an engineer role.",
                     },
                 },
                 "required": ["name", "role"],
