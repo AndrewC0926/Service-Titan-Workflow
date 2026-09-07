@@ -7,6 +7,11 @@
   {% if plan %} · imported {{ plan.imported_at.strftime('%Y-%m-%d %H:%M') }}Z{% endif %} ·
   <a href="{{ tableau_url }}" target="_blank" rel="noopener">HCAI Tableau page for this facility ↗</a></p>
 
+<p class="note" title="{{ call_target.rule }}: {{ call_target.reason }}">
+  Call target: <b>{{ CALL_TARGET_LABELS[call_target.target] }}</b>
+  {%- if call_target.who_label %} — {{ call_target.who_label }}{% if call_target.who_detail %} ({{ call_target.who_detail }}){% endif %}{% endif %}
+</p>
+
 {% if not plan %}
 <div class="callout callout-warn">
   {{ icon('triangle-alert') }}

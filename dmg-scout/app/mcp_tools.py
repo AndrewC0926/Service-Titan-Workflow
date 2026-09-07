@@ -295,17 +295,33 @@ def who_to_call(n: int = 5, county: str | None = None, state: str | None = None)
         if not picked:
             return "No project in scope has a reachable contact right now."
 
+        from app.call_target import (
+            CALL_TARGET_LABELS, engineer_of_record_by_project, gc_by_project,
+            nearby_contractor_by_project, project_call_target,
+        )
+        from app.config import load_config
+        cfg = load_config()
+        picked_projects = [p for p, _ in picked]
+        eor_map = engineer_of_record_by_project(session, [p.id for p in picked_projects])
+        gc_map = gc_by_project(session, [p.id for p in picked_projects])
+        nearby_map = nearby_contractor_by_project(session, cfg, picked_projects)
+
         lines = [f"Top {len(picked)} to call:"]
         for p, contact in picked:
             reach = ", ".join(x for x in (contact.get("phone"), contact.get("email")) if x)
             who = contact["name"] + (f" ({contact['title']})" if contact.get("title") else "")
             tons = (f"{p.tons_estimate_low:,.0f}-{p.tons_estimate_high:,.0f} tons"
                    if p.tons_estimate_low else "size unknown")
+            ct = project_call_target(cfg, p, engineer_of_record=eor_map.get(p.id),
+                                     gc=gc_map.get(p.id), nearby_contractor=nearby_map.get(p.id))
             lines.append(
                 f"\n#{p.id} {p.name} ({p.county or '?'} Co, {p.state or '?'}) — "
                 f"score {p.score:.2f}, {p.window.value}, {tons}\n"
                 f"  Call: {who} — {reach} — {contact['rung_label']}"
                 + (f" [{contact['source_url']}]" if contact.get("source_url") else "")
+                + f"\n  Call target: {CALL_TARGET_LABELS[ct.target]}"
+                + (f" — {ct.who_label}" if ct.who_label else "")
+                + f" ({ct.rule}: {ct.reason})"
             )
         return "\n".join(lines)
 

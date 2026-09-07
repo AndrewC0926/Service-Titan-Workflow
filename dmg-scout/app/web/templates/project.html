@@ -95,6 +95,13 @@
 </tbody>
 </table>
 
+<h2>Call target — who decides the mechanical spec here</h2>
+<p style="max-width:1000px">
+  <b>{{ CALL_TARGET_LABELS[call_target.target] }}</b>
+  {%- if call_target.who_label %} — {{ call_target.who_label }}{% if call_target.who_detail %} ({{ call_target.who_detail }}){% endif %}{% endif %}
+  <br><span class="dim">{{ call_target.rule }}: {{ call_target.reason }}</span>
+</p>
+
 <h2>Contact ladder — who to call, best rung first</h2>
 <table style="max-width:1000px">
 <thead><tr><th class="num">Rung</th><th>Name</th><th>Title</th><th>Company</th><th>Why this rung</th><th>Source</th></tr></thead>

@@ -106,6 +106,20 @@
 </div>
 {% endif %}
 
+{% if not is_watchlist and call_target_counts is defined %}
+<div class="mb-2 flex flex-wrap items-center gap-1.5">
+  <a href="/board?category={{ category or 'data_center' }}&territory={{ territory or 'mine' }}"
+     class="chip" aria-pressed="{{ 'true' if not call_target else 'false' }}">All call targets</a>
+  {% for key in ['engineer', 'db_contractor', 'bidding_contractors', 'owner', 'owner_standards', 'unknown'] %}
+  {% if call_target_counts.get(key) %}
+  {% set sel = call_target == key %}
+  <a href="/board?category={{ category or 'data_center' }}&territory={{ territory or 'mine' }}&call_target={{ key }}"
+     class="chip" aria-pressed="{{ 'true' if sel else 'false' }}">{{ CALL_TARGET_LABELS[key] }}<span class="ct">{{ call_target_counts[key] }}</span></a>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+
 {% if field_intel is defined and field_intel %}
 <div style="border-left:3px solid var(--color-rule, currentColor); padding:0.6rem 0 0.6rem 0.9rem; margin:0 0 1.1rem 0">
   <div class="sec-head" style="margin-bottom:0.3rem">
@@ -174,6 +188,12 @@
       <span class="stamp stamp-quiet">No one named — every contact rung came up empty</span>
     {%- endif -%}
   </div>
+  {% if call_targets is defined %}
+  {% set ct = call_targets.get(p.id) %}
+  {% if ct %}
+  <div class="note" title="{{ ct.rule }}: {{ ct.reason }}">Call target: {{ CALL_TARGET_LABELS[ct.target] }}{% if ct.who_label %} — {{ ct.who_label }}{% endif %}</div>
+  {% endif %}
+  {% endif %}
 
   <details class="row-card-window">
     <summary>
@@ -337,6 +357,12 @@
       {%- endif -%}
     {%- else -%}
       <span class="stamp stamp-quiet" title="No human named anywhere on the contact ladder for this project — every rung from the mechanical engineer of record down to the lead agency planner came up empty.">No one</span>
+    {%- endif -%}
+    {%- if call_targets is defined -%}
+      {%- set ct = call_targets.get(p.id) -%}
+      {%- if ct -%}
+      <div class="note" title="{{ ct.rule }}: {{ ct.reason }}">Call target: {{ CALL_TARGET_LABELS[ct.target] }}{% if ct.who_label %} — {{ ct.who_label }}{% endif %}</div>
+      {%- endif -%}
     {%- endif -%}
   </td>
 </tr>

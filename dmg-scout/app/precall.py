@@ -119,10 +119,16 @@ def _project_ingredients(session: Session, project_id: int) -> dict:
     facility_type = project_facility_type(p, signals)
     role_offerings = line_offering_by_role(session, p.category, facility_type)
 
+    from app.call_target import nearby_contractor_by_project, project_call_target
+    cfg = load_config()
+    nearby = nearby_contractor_by_project(session, cfg, [p])
+    call_target = project_call_target(cfg, p, engineer_of_record=b["engineer_of_record"],
+                                      gc=b["gc"], nearby_contractor=nearby.get(p.id))
+
     return {
         "entity_type": "project", "entity_id": p.id, "name": p.name,
         "project": p, "brief": b, "ladder": ladder, "stage_age": age,
-        "role_offerings": role_offerings,
+        "role_offerings": role_offerings, "call_target": call_target,
     }
 
 
@@ -209,7 +215,9 @@ LINE."""
 
 def _serialize_project(ing: dict) -> dict:
     from app.accounts import SOCAL_CARD_DISCLOSURE
+    from app.call_target import CALL_TARGET_LABELS
     p, b, age = ing["project"], ing["brief"], ing["stage_age"]
+    ct = ing["call_target"]
     tons = None
     if p.tons_estimate_low:
         tons = (f"{p.tons_estimate_low:,.0f}-{p.tons_estimate_high:,.0f} tons"
@@ -234,6 +242,11 @@ def _serialize_project(ing: dict) -> dict:
             f"${p.equipment_value_low:,.0f}-${p.equipment_value_high:,.0f}"
             if p.equipment_value_low else None),
         "engineer_of_record": b["engineer_of_record"], "general_contractor": b["gc"],
+        "call_target": {
+            "type": ct.target.value, "label": CALL_TARGET_LABELS[ct.target],
+            "rule": ct.rule, "reason": ct.reason,
+            "who": ct.who_label, "who_detail": ct.who_detail,
+        },
         "notes": p.notes, "next_action": p.next_action,
         "contact_ladder": ladder_rows or "no contact at any rung -- nobody named on this project yet",
         "prior_outreach": [

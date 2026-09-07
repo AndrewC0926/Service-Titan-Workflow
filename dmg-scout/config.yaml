@@ -1186,6 +1186,28 @@ resolution:
     "Vantage Data Centers": ["Vantage Data Centers NV11, LLC", "Vantage Data Centers NV1", "Tech Core PY"]
     "Switch": ["Switch Ltd", "Switch, Inc."]
 
+# CALL TARGET (see app/call_target.py) -- who the rep should be talking to
+# on a project, derived by rule. standards_owners feeds R1 owner_standards:
+# a developer/owner whose name substring-matches (case-insensitive) any
+# entry here outranks every other rule, since a standards program applies
+# at any project stage. Seed list, editable without a deploy -- add a
+# developer/owner name here the moment a rep confirms it runs a standards
+# program; no code change needed. UC system/LAUSD entries are deliberately
+# generic (not "UC Irvine"/"Los Angeles Unified School District") so any
+# campus/site under that umbrella matches by substring.
+call_target:
+  standards_owners:
+    - "Kaiser"
+    - "Providence"
+    - "Irvine Company"
+    - "UC "
+    - "University of California"
+    - "LAUSD"
+    - "Los Angeles Unified"
+    - "CommonSpirit"
+    - "Scripps"
+    - "Sutter"
+
 digest:
   enabled: true
   to: ["acrane988@gmail.com"]

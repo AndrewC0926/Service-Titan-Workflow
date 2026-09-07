@@ -37,6 +37,7 @@ from app.access_log import (
 )
 from app.assumptions import slugify
 from app.config import load_config
+from app.call_target import CALL_TARGET_LABELS
 from app.delivery import DELIVERY_METHOD_ABBR, DELIVERY_METHOD_LABELS, DELIVERY_METHOD_NOTES
 from app.reference import ROLE_REFERENCE, TAB_LABELS, TAB_ORDER, equipment_tooltip
 from app.schedule_mapping import BRANCH_BY_COUNTY
@@ -210,6 +211,7 @@ templates.env.globals["MARKET_LABELS"] = MARKET_LABELS
 templates.env.globals["equipment_tooltip"] = equipment_tooltip
 templates.env.globals["DELIVERY_METHOD_LABELS"] = DELIVERY_METHOD_LABELS
 templates.env.globals["DELIVERY_METHOD_ABBR"] = DELIVERY_METHOD_ABBR
+templates.env.globals["CALL_TARGET_LABELS"] = CALL_TARGET_LABELS
 templates.env.globals["DELIVERY_METHOD_NOTES"] = DELIVERY_METHOD_NOTES
 
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")),
@@ -287,6 +289,24 @@ def today(request: Request, session: Session = Depends(get_session), _: str = De
     from app.pipeline_health import check_and_alert_staleness
     cfg = load_config()
     brief = today_brief(session, cfg)
+    # Decorate the (already-selected, already-ordered) "three to call" cards
+    # with call_target -- purely a display addition, computed here rather
+    # than inside today_brief/three_calls_today so it can never touch which
+    # 3 projects are picked or what order they render in. See app/call_target.py.
+    if brief["calls"]:
+        from app.call_target import (
+            engineer_of_record_by_project, gc_by_project, nearby_contractor_by_project,
+            project_call_target,
+        )
+        call_projects = [c["project"] for c in brief["calls"]]
+        eor_map = engineer_of_record_by_project(session, [p.id for p in call_projects])
+        gc_map = gc_by_project(session, [p.id for p in call_projects])
+        nearby_map = nearby_contractor_by_project(session, cfg, call_projects)
+        for c in brief["calls"]:
+            p = c["project"]
+            c["call_target"] = project_call_target(
+                cfg, p, engineer_of_record=eor_map.get(p.id), gc=gc_map.get(p.id),
+                nearby_contractor=nearby_map.get(p.id))
     # Best-effort: a failure here (DB hiccup, Resend down) must never be the
     # reason the Today page itself fails to load -- see
     # app.pipeline_health's module docstring.
@@ -323,7 +343,7 @@ def _my_territory_filter():
 
 @app.get("/board", response_class=HTMLResponse)
 def board(request: Request, category: str = "data_center", territory: str = "mine",
-          session: Session = Depends(get_session), _: str = Depends(auth)):
+          call_target: str = "", session: Session = Depends(get_session), _: str = Depends(auth)):
     # Two boards, one pipeline. Defaults to data centers: that is the book of
     # business this system was built for, and industrial should never silently
     # dilute it. `?category=all` shows both.
@@ -333,6 +353,32 @@ def board(request: Request, category: str = "data_center", territory: str = "min
     territory_conditions = base_conditions if territory == "all" else [*base_conditions, _my_territory_filter()]
     q = select(Project).where(*territory_conditions)
     projects = session.exec(q.order_by(Project.score.desc())).all()
+
+    # call_target filter -- computed here (not a DB column), so it narrows
+    # `projects` in Python, same as every other board filter narrows the SQL
+    # query, before _board_extras builds the summary strip from whatever's
+    # left. Chip counts (call_target_counts) are taken BEFORE this filter
+    # narrows the list, same as the category chips' own counts are computed
+    # independent of which category is currently selected.
+    from app.call_target import (
+        engineer_of_record_by_project, gc_by_project, nearby_contractor_by_project,
+        project_call_target,
+    )
+    cfg = load_config()
+    project_ids = [p.id for p in projects]
+    eor_map = engineer_of_record_by_project(session, project_ids)
+    gc_map = gc_by_project(session, project_ids)
+    nearby_map = nearby_contractor_by_project(session, cfg, projects)
+    call_targets = {
+        p.id: project_call_target(cfg, p, engineer_of_record=eor_map.get(p.id),
+                                  gc=gc_map.get(p.id), nearby_contractor=nearby_map.get(p.id))
+        for p in projects
+    }
+    call_target_counts: dict[str, int] = {}
+    for r in call_targets.values():
+        call_target_counts[r.target.value] = call_target_counts.get(r.target.value, 0) + 1
+    if call_target:
+        projects = [p for p in projects if call_targets[p.id].target.value == call_target]
     # Every category gets a count, including esco — a chip whose count is hidden
     # is a category nobody will ever click. Counts respect the territory
     # filter too, so the chip numbers always match what clicking them shows.
@@ -368,6 +414,8 @@ def board(request: Request, category: str = "data_center", territory: str = "min
         "completeness": completeness, "category": category, "cat_counts": counts,
         "territory": territory, "territory_hidden_count": territory_hidden_count,
         "field_intel": active_field_intel(session)[:5],
+        "call_targets": call_targets, "call_target_counts": call_target_counts,
+        "call_target": call_target,
         "tb": _title_block(session), "active": "board",
         **_board_extras(session, projects),
     })
@@ -956,11 +1004,15 @@ def ab869_facility(perm_id: str, request: Request,
         nearby_contractors = nearest_mechanical_contractors(
             session, fake_point, radius_miles=default_radius_miles(cfg))
 
+    from app.call_target import ab869_call_target
+    call_target = ab869_call_target(cfg, detail["plan"], detail["facility_name"], nearby_contractors)
+
     return templates.TemplateResponse(request, "ab869_facility.html", {
         **detail,
         "tableau_url": hcai_tableau_url(perm_id, detail["facility_name"]),
         "nearby_contractors": nearby_contractors,
         "proximity_radius": default_radius_miles(cfg),
+        "call_target": call_target,
         "tb": _title_block(session), "active": "hospitals",
     })
 
@@ -1166,6 +1218,16 @@ def project_detail(project_id: int, request: Request,
                                         Firm.id == ProjectFirm.firm_id)).all()
     resolved_firms = [{"name": f.name, "role": pf.role, "type": f.firm_type,
                        "from_roster": f.added_from == "roster"} for pf, f in roster_links]
+
+    from app.call_target import (
+        ENGINEER_OF_RECORD_ROLE, GC_ROLE, nearby_contractor_by_project, project_call_target,
+    )
+    eor = next((f["name"] for f in resolved_firms if f["role"] == ENGINEER_OF_RECORD_ROLE), None)
+    gc_name = next((f["name"] for f in resolved_firms if f["role"] == GC_ROLE), None)
+    nearby_map = nearby_contractor_by_project(session, load_config(), [project])
+    call_target = project_call_target(load_config(), project, engineer_of_record=eor,
+                                      gc=gc_name, nearby_contractor=nearby_map.get(project.id))
+
     timeline = []
     people, firms = [], []
     signals = []
@@ -1247,6 +1309,7 @@ def project_detail(project_id: int, request: Request,
         "documents": documents, "doc_entries": doc_entries,
         "schedule_mapping": schedule_mapping, "actionable_mapping": actionable_mapping,
         "displaceable_rows": displaceable_rows, "role_gap_rows": role_gap_rows,
+        "call_target": call_target,
         "tb": _title_block(session), "active": "board",
     })
 

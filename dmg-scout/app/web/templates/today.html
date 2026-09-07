@@ -64,6 +64,12 @@
           </span>
         </div>
         <div class="call-why">{{ c.reason }}</div>
+        {% if c.call_target %}
+        <div class="call-target dim" title="{{ c.call_target.rule }}: {{ c.call_target.reason }}">
+          Call target: <b>{{ CALL_TARGET_LABELS[c.call_target.target] }}</b>
+          {%- if c.call_target.who_label %} — {{ c.call_target.who_label }}{% if c.call_target.who_detail %} ({{ c.call_target.who_detail }}){% endif %}{% endif -%}
+        </div>
+        {% endif %}
         <form class="call-action" hx-post="/project/{{ p.id }}/outreach" hx-target="this" hx-swap="outerHTML">
           <input type="hidden" name="channel" value="call">
           <input type="hidden" name="notes" value="Called {{ contact.name }}{% if contact.phone %} ({{ contact.phone }}){% endif %}">
