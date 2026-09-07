@@ -1091,10 +1091,17 @@ def contractor_detail(contractor_id: int, request: Request,
 
 
 @app.get("/replacement-leads", response_class=HTMLResponse)
-def replacement_leads_view(request: Request, min_overdue: int = 5, limit: int = 100,
+def replacement_leads_view(request: Request, view: str = "contractors",
+                           min_overdue: int = 5, limit: int = 100,
+                           county: str = "", property_type: str = "",
+                           year_built_before: int | None = None,
+                           eui_above_median: bool = False, has_assessor_match: bool = False,
                            session: Session = Depends(get_session), _: str = Depends(auth)):
-    """The owner-direct lane: mechanical contractors ranked by
-    nearby_urgency_score at ranking_radius_miles (see
+    """Two tabs, one page, selected by `view` (chip nav, same pattern
+    /board's category/territory chips already use):
+
+    view=contractors (default) -- the owner-direct lane: mechanical
+    contractors ranked by nearby_urgency_score at ranking_radius_miles (see
     app.contractors.replacement_leads for why — raw overdue count doesn't
     discriminate any more than raw proximity count did on /contractors),
     each showing an overdue count at the WIDER default_radius_miles (15mi,
@@ -1109,30 +1116,70 @@ def replacement_leads_view(request: Request, min_overdue: int = 5, limit: int = 
     ran over a minute for 100 rows. That detail lives one click away, on
     the per-contractor printable handout, the same way /contractors keeps
     its own board to cached aggregates and defers live detail to
-    /contractor/{id}."""
-    from app.contractors import (
-        MATCH_CONTRACTORS_OVERDUE_SOURCE,
-        MATCH_CONTRACTORS_SOURCE,
-        default_radius_miles,
-        ranking_radius_miles,
-        replacement_lead_distribution,
-        replacement_leads,
-    )
-    from app.ops import source_is_stale
+    /contractor/{id}.
+
+    view=ab802 -- one row per in-territory AB 802 building (latest year on
+    file), ranked by app.pipeline.ab802:rank_in_territory. See that
+    function's docstring for the rank (older + higher EUI, within its own
+    property type, shown as plain percentile columns, never a black-box
+    score)."""
     cfg = load_config()
-    leads = replacement_leads(session, min_overdue=min_overdue, limit=limit)
-    distribution = replacement_lead_distribution(session)
-    never_scored = session.exec(
-        select(func.count()).where(Contractor.latitude.is_not(None),
-                                   Contractor.nearby_overdue_count.is_(None))).one()
-    ranking_stale = source_is_stale(session, cfg, MATCH_CONTRACTORS_SOURCE)
-    count_stale = source_is_stale(session, cfg, MATCH_CONTRACTORS_OVERDUE_SOURCE)
+
+    leads = distribution = None
+    never_scored = ranking_stale = count_stale = None
+    ranking_radius = count_radius = None
+    ab802_rows = ab802_counties = ab802_property_types = None
+    ab802_filter_stale = None
+    ab802_retrofit_id_by_apn = {}
+
+    if view == "ab802":
+        from app.ops import source_is_stale
+        from app.pipeline.ab802 import latest_in_territory_rows, rank_in_territory
+        ab802_rows = rank_in_territory(
+            session, county=county or None, property_type=property_type or None,
+            year_built_before=year_built_before, eui_above_median=eui_above_median,
+            has_assessor_match=has_assessor_match)
+        all_rows = latest_in_territory_rows(session)
+        ab802_counties = sorted({r.county_from_geocoding for r in all_rows if r.county_from_geocoding})
+        ab802_property_types = sorted({r.primary_property_type for r in all_rows if r.primary_property_type})
+        ab802_filter_stale = source_is_stale(session, cfg, "ab802_benchmarking")
+        matched_apns = [d["row"].retrofit_apn for d in ab802_rows if d["row"].retrofit_apn]
+        ab802_retrofit_id_by_apn = dict(session.exec(
+            select(RetrofitBuilding.apn, RetrofitBuilding.id)
+            .where(RetrofitBuilding.apn.in_(matched_apns))).all()) if matched_apns else {}
+    else:
+        from app.contractors import (
+            MATCH_CONTRACTORS_OVERDUE_SOURCE,
+            MATCH_CONTRACTORS_SOURCE,
+            default_radius_miles,
+            ranking_radius_miles,
+            replacement_lead_distribution,
+            replacement_leads,
+        )
+        from app.ops import source_is_stale
+        leads = replacement_leads(session, min_overdue=min_overdue, limit=limit)
+        distribution = replacement_lead_distribution(session)
+        never_scored = session.exec(
+            select(func.count()).where(Contractor.latitude.is_not(None),
+                                       Contractor.nearby_overdue_count.is_(None))).one()
+        ranking_stale = source_is_stale(session, cfg, MATCH_CONTRACTORS_SOURCE)
+        count_stale = source_is_stale(session, cfg, MATCH_CONTRACTORS_OVERDUE_SOURCE)
+        ranking_radius = ranking_radius_miles(cfg)
+        count_radius = default_radius_miles(cfg)
+
     return templates.TemplateResponse(request, "replacement_leads.html", {
+        "view": view,
         "leads": leads, "min_overdue": min_overdue, "limit": limit,
-        "ranking_radius_miles": ranking_radius_miles(cfg), "count_radius_miles": default_radius_miles(cfg),
-        "mechanical_total": distribution["total_scored"],
-        "distribution": distribution["at_threshold"], "never_scored": never_scored,
+        "ranking_radius_miles": ranking_radius, "count_radius_miles": count_radius,
+        "mechanical_total": distribution["total_scored"] if distribution else None,
+        "distribution": distribution["at_threshold"] if distribution else None,
+        "never_scored": never_scored,
         "ranking_stale": ranking_stale, "count_stale": count_stale,
+        "ab802_rows": ab802_rows, "ab802_counties": ab802_counties,
+        "ab802_property_types": ab802_property_types, "ab802_filter_stale": ab802_filter_stale,
+        "ab802_retrofit_id_by_apn": ab802_retrofit_id_by_apn,
+        "county": county, "property_type": property_type, "year_built_before": year_built_before,
+        "eui_above_median": eui_above_median, "has_assessor_match": has_assessor_match,
         "tb": _title_block(session), "active": "replacement-leads",
     })
 

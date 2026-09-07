@@ -1151,6 +1151,29 @@ def fetch_ebewe_benchmarks_cmd() -> None:
         typer.echo(f"  ERROR: {stats['error']}", err=True)
 
 
+@app.command("fetch-ab802-benchmarks")
+def fetch_ab802_benchmarks_cmd(
+    year: int = typer.Argument(..., help="Benchmarking year to (re)fetch, e.g. 2024."),
+) -> None:
+    """AB 802 statewide benchmarking (energy.ca.gov's annual "Download
+    submitted {year} benchmarking information" file) -> ab802_buildings,
+    full-replacing that year's rows, then joined by lat/long-then-address
+    against RetrofitBuilding and by address against EbeweBenchmark -- see
+    app/pipeline/ab802.py for the compliance check and join method, and
+    app/assumptions.py for the measured figures. NOT part of `scout
+    pipeline` at any cadence -- this is run by hand, once a year, when a
+    new annual file is published (see config.yaml's
+    sources.ab802_benchmarking for why). Writes its own SourceRun so `scout
+    doctor` / source_health can see it."""
+    from app.http import PoliteClient
+    from app.pipeline.ab802 import fetch_ab802_benchmarks
+    with session_scope() as session, PoliteClient() as client:
+        stats = fetch_ab802_benchmarks(session, load_config(), client, year)
+    typer.echo(f"{year}: fetched {stats['fetched']}, stored {stats['stored']}")
+    if stats.get("error"):
+        typer.echo(f"  ERROR: {stats['error']}", err=True)
+
+
 @app.command("fetch-local250")
 def fetch_local250_cmd() -> None:
     """UA Local 250's public signatory contractor list (socalhvacr.info/

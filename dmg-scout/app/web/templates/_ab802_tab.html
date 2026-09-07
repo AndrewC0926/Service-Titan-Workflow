@@ -1,0 +1,121 @@
+{# AB 802 tab of /replacement-leads -- see app.pipeline.ab802:rank_in_territory
+   for the rank formula and app/web/main.py:replacement_leads_view for the
+   query params this form reads. #}
+
+{% if ab802_filter_stale %}
+<div class="callout callout-bad">
+  {{ icon('triangle-alert') }}
+  <span><strong>AB 802 data may be stale</strong>
+    <span class="body"><span class="mono">scout fetch-ab802-benchmarks &lt;year&gt;</span> has not
+      completed successfully within its staleness window (config.yaml's
+      <span class="mono">sources.ab802_benchmarking</span>) — this is an annual, hand-run fetch, not
+      part of the daily pipeline, so check /health before assuming a new year's file is missing by
+      mistake rather than simply not yet run.</span>
+  </span>
+</div>
+{% endif %}
+
+<details class="callout callout-warn">
+  <summary>How this is built</summary>
+  <div class="callout-content">
+    <span>
+    <strong>Rank inputs shown, not a black-box score</strong>
+    <span class="body">Sorted by (age percentile + EUI percentile), each computed WITHIN the
+      building's own property type — a 1980 office and a 1980 warehouse don't share a normal EUI
+      range, so ranking them against each other would mean nothing. Both percentiles are their own
+      columns below, not folded into one number: "Older %" is how much of its own property type this
+      building is older than; "EUI %" is how much of its own property type it uses more energy than,
+      weather-normalized. A building missing Year Built or EUI simply has no percentile for that half
+      — never guessed at, never defaulted to a mid-point.</span>
+    </span>
+  </div>
+</details>
+
+<details class="callout callout-warn">
+  <summary>How this is built</summary>
+  <div class="callout-content">
+    <span>
+    <strong>Assessor match is a building match, not an owner match</strong>
+    <span class="body">"Assessor match" links a row to a matched RetrofitBuilding record — lat/long
+      within 30m first, normalized address second (see <a href="/assumptions#{{ assumption_slug('Assessor/EBEWE join method and measured rate') }}">/assumptions</a>
+      for the measured rate and method breakdown) — never an owner. No free, bulk-queryable LA County
+      assessor owner-name source exists at all (see RetrofitBuilding's own docstring); this board
+      shows "no owner data available" for exactly that reason, on every row, permanently. Where a row
+      also matches an LA EBEWE benchmark filing by address, that filing's own self-reported
+      <span class="mono">organization</span> field is shown labeled "benchmarking filer" — the entity
+      that filed the EBEWE benchmark, not a verified owner. Both joins, and this whole population, are
+      LA County only — the only county this app's assessor/EBEWE data covers; outside LA, a row stands
+      alone with its Property Name.</span>
+    </span>
+  </div>
+</details>
+
+<form method="get" class="mb-2">
+  <input type="hidden" name="view" value="ab802">
+  <select name="county">
+    <option value="">All counties</option>
+    {% for c in ab802_counties %}<option value="{{ c }}" {% if c == county %}selected{% endif %}>{{ c }}</option>{% endfor %}
+  </select>
+  <select name="property_type">
+    <option value="">All property types</option>
+    {% for p in ab802_property_types %}<option value="{{ p }}" {% if p == property_type %}selected{% endif %}>{{ p }}</option>{% endfor %}
+  </select>
+  <label>Year built before <input type="number" name="year_built_before" value="{{ year_built_before or '' }}" style="width:6rem"></label>
+  <label><input type="checkbox" name="eui_above_median" value="true" {% if eui_above_median %}checked{% endif %}> EUI above median for its type</label>
+  <label><input type="checkbox" name="has_assessor_match" value="true" {% if has_assessor_match %}checked{% endif %}> Has an assessor match</label>
+  <button type="submit">Filter</button>
+  <a class="note" href="/replacement-leads?view=ab802">Clear filters</a>
+</form>
+
+<p class="note">{{ '{:,}'.format(ab802_rows|length) }} in-territory building{{ 's' if ab802_rows|length != 1 }} shown.</p>
+
+{% if ab802_rows %}
+<table class="tbl">
+<thead><tr>
+  <th>Property</th><th>County</th><th>Property type</th>
+  <th class="num">Year built</th><th class="num">Older %</th>
+  <th class="num">Weather-norm. Site EUI</th><th class="num">EUI %</th>
+  <th>Assessor match</th><th>Filer</th>
+</tr></thead>
+<tbody>
+{% for d in ab802_rows %}
+{% set r = d.row %}
+<tr>
+  <td><span class="clip" title="{{ r.property_name or '' }}">{{ r.property_name or '(unnamed)' }}</span>
+    <div class="note">{{ r.address_1 or '' }}, {{ r.city or '' }}</div></td>
+  <td class="nowrap">{{ r.county_from_geocoding or '—' }}</td>
+  <td>{{ r.primary_property_type or '—' }}</td>
+  <td class="num mono">{{ r.year_built or '—' }}</td>
+  <td class="num mono">{{ '%.0f'|format(d.age_percentile * 100) + '%' if d.age_percentile is not none else '—' }}</td>
+  <td class="num mono">{{ '%.0f'|format(r.weather_normalized_site_eui) if r.weather_normalized_site_eui is not none else '—' }}</td>
+  <td class="num mono">{{ '%.0f'|format(d.eui_percentile * 100) + '%' if d.eui_percentile is not none else '—' }}</td>
+  <td>
+    {%- if r.retrofit_apn and r.assessor_match_method == 'latlong' -%}
+      <a href="/retrofit/building/{{ ab802_retrofit_id_by_apn.get(r.retrofit_apn, '') }}">matched</a>
+      <div class="note">lat/long, {{ '%.0f'|format(r.assessor_match_distance_m) }}m</div>
+    {%- elif r.retrofit_apn -%}
+      <a href="/retrofit/building/{{ ab802_retrofit_id_by_apn.get(r.retrofit_apn, '') }}">matched</a>
+      <div class="note">address match</div>
+    {%- else -%}
+      <span class="dim">no assessor match</span>
+    {%- endif -%}
+  </td>
+  <td>
+    {%- if r.benchmarking_filer -%}
+      {{ r.benchmarking_filer }}<div class="note">benchmarking filer</div>
+    {%- else -%}
+      <span class="dim">no owner data available</span>
+    {%- endif -%}
+  </td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div class="empty">
+  {{ icon('file-text') }}
+  <p>No in-territory AB 802 building matches these filters. Try
+    <a href="/replacement-leads?view=ab802">clearing filters</a>, or run
+    <span class="mono">scout fetch-ab802-benchmarks &lt;year&gt;</span> if this looks empty entirely.</p>
+</div>
+{% endif %}

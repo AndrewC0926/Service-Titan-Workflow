@@ -9,6 +9,14 @@
     calling owners cold — so this is organized by contractor, not by building.</span>
 </div>
 
+<p class="mb-2">
+  <a class="chip" href="/replacement-leads" aria-pressed="{{ 'true' if view != 'ab802' else 'false' }}">Contractors</a>
+  <a class="chip" href="/replacement-leads?view=ab802" aria-pressed="{{ 'true' if view == 'ab802' else 'false' }}">AB 802</a>
+</p>
+
+{% if view == 'ab802' %}
+{% include "_ab802_tab.html" %}
+{% else %}
 {% if ranking_stale or count_stale %}
 <div class="callout callout-bad">
   {{ icon('triangle-alert') }}
@@ -122,5 +130,6 @@
     {{ count_radius_miles }}mi. Try <a href="/replacement-leads?min_overdue=1">min_overdue=1</a>, or run
     <span class="mono">scout match-contractors-overdue</span> if this looks stale.</p>
 </div>
+{% endif %}
 {% endif %}
 {% endblock %}

@@ -1492,6 +1492,110 @@ class EbeweBenchmark(SQLModel, table=True):
     imported_at: datetime = Field(default_factory=utcnow, index=True)
 
 
+class Ab802Building(SQLModel, table=True):
+    """One building's annual AB 802 statewide benchmarking submission --
+    energy.ca.gov's own yearly "Download submitted {year} benchmarking
+    information" file. See app/pipeline/ab802.py.
+
+    Keyed (portfolio_manager_property_id, year_ending): AB 802 is an ANNUAL
+    filing, same shape as EbeweBenchmark's (building_id, program_year) --
+    every year is stored, never overwritten, so year-over-year EUI change
+    is queryable. A re-fetch of one year's file FULL-REPLACES only that
+    year's rows (delete where year_ending == year, then reinsert) -- other
+    years on file are untouched, same discipline permits.py applies to
+    permit history.
+
+    Field names are 1:1 with the published file's own header row (see
+    app/pipeline/ab802.py:_parse_row for the exact header string each one
+    came from) -- no renaming for style, so a column here is always
+    traceable back to exactly what the file called it.
+
+    Deliberately NO owner column -- see AB 802 statewide benchmarking's own
+    assumptions-register entry: this file's `Address 1`/city/lat-long
+    identify the BUILDING (self-reported to satisfy AB 802), never an
+    owner of record, and this app's own verified finding elsewhere
+    (RetrofitBuilding's docstring) is that no free, bulk-queryable LA
+    County assessor owner-name source exists at all. Where a match to
+    EbeweBenchmark exists, that dataset's own `organization` field is
+    carried here as `benchmarking_filer` -- the entity that FILED the LA
+    EBEWE benchmark, not a verified owner, and never labeled "owner" on
+    the board for exactly that reason.
+
+    assessor_match_method/assessor_match_distance_m/retrofit_apn: a loose
+    join to RetrofitBuilding (LA County only -- the only county this app's
+    assessor population covers), lat/long-first (RetrofitBuilding.latitude/
+    longitude, itself rejoined from RetrofitGeocode) within 30m, falling
+    back to app.pipeline.retrofit:normalize_address text matching -- see
+    app/pipeline/ab802.py:match_to_retrofit for the same abstain-don't-
+    guess ambiguity exclusions app.pipeline.ebewe already applies (a match
+    on either side claimed by more than one row on the other is dropped,
+    not guessed at). Null outside LA County: there is no assessor
+    population to join against, by design, not a join failure.
+    """
+    __tablename__ = "ab802_buildings"
+    __table_args__ = (
+        UniqueConstraint("portfolio_manager_property_id", "year_ending", name="uq_ab802_property_year"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    portfolio_manager_property_id: str = Field(index=True)
+    standard_id: str | None = None
+    property_name: str | None = None
+    address_1: str | None = None
+    city: str | None = None
+    state_province: str | None = None
+    postal_code: str | None = None
+    property_gfa_sqft: float | None = None
+    primary_property_type: str | None = Field(default=None, index=True)
+    all_property_use_types: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    weather_normalized_site_eui: float | None = None
+    natural_gas_use_kbtu: float | None = None
+    electricity_grid_purchase_kbtu: float | None = None
+    electricity_onsite_renewable_kbtu: float | None = None
+    fuel_oil_2_use_kbtu: float | None = None
+    district_steam_use_kbtu: float | None = None
+    diesel_use_kbtu: float | None = None
+    propane_use_kbtu: float | None = None
+    district_hot_water_use_kbtu: float | None = None
+    district_chilled_water_use_kbtu: float | None = None
+    year_built: int | None = Field(default=None, index=True)
+    w_energy: str | None = None
+    energy_star_score: int | None = None
+    energy_star_certified: str | None = None
+    energy_star_cert_years: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    county_from_geocoding: str | None = Field(default=None, index=True)
+    report_generation_date: str | None = None
+    used_estimated_energy_values: str | None = None
+    alert_partial_year_data: str | None = None
+    total_ghg_emissions_metric_tons: float | None = None
+    ghg_emissions_intensity: float | None = None
+    year_ending: int = Field(index=True)
+    number_of_buildings: int | None = None
+
+    # Derived, not from the file -- see app.pipeline.size_score.in_territory,
+    # reused as-is against config.yaml's territory.CA county list.
+    in_territory: bool = Field(default=False, index=True)
+
+    # Loose join to RetrofitBuilding -- see class docstring. apn is a plain
+    # string, not a foreign key: RetrofitBuilding is fully deleted and
+    # reinserted on every retrofit rebuild, same reason OwnershipRecency/
+    # RetrofitGeocode avoid a hard FK to it.
+    assessor_match_method: str | None = Field(default=None, index=True)  # latlong | normalized_address
+    assessor_match_distance_m: float | None = None
+    retrofit_apn: str | None = Field(default=None, index=True)
+
+    # Loose join to EbeweBenchmark, address-only (EbeweBenchmark carries no
+    # lat/long) -- see class docstring for why organization is relabeled
+    # benchmarking_filer rather than owner.
+    ebewe_building_id: str | None = None
+    benchmarking_filer: str | None = None
+
+    source_url: str
+    imported_at: datetime = Field(default_factory=utcnow, index=True)
+
+
 class RetrofitBuilding(SQLModel, table=True):
     """One BUILDING (not permit) — the retrofit board's unit of record. See
     app/pipeline/retrofit.py: this is a deduplication of EquipmentPermit

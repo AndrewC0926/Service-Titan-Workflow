@@ -1034,6 +1034,75 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
         last_reviewed="2026-08-19, against the real run history of all three weekly sources.",
     ))
 
+    # ---- AB 802 statewide benchmarking ---------------------------------------
+
+    out.append(Assumption(
+        group="AB 802 statewide benchmarking", name="Access classification (Phase A research)",
+        config_path=None,
+        value="robots.txt-clean, public domain, no automated-access restriction -- same statewide "
+             "ca.gov Conditions of Use CAEATFA already relies on",
+        source_type=MEASURED,
+        source_detail=(
+            "Checked directly 2026-09-06 before any fetch was built. energy.ca.gov/robots.txt "
+            "disallows /admin/, /comment/reply/, /filter/tips, /node/add/, /search/, /search?, "
+            "/user/{register,password,login,logout}, /media/oembed -- NOT /media/{id} (the page "
+            "linking each year's file) and NOT /sites/default/files/ (where the actual xlsx lives), "
+            "so both the discovery page and the direct file download are robots.txt-clear. Site-wide "
+            "terms: energy.ca.gov is a ca.gov/CDT property under the same statewide Conditions of Use "
+            "CAEATFA's own entry already quotes verbatim (ca.gov/legal/conditions-of-use/, fetched "
+            "directly, word-for-word identical text) -- 'information presented on this website...is "
+            "considered in the public domain. It may be distributed or copied as permitted by law,' "
+            "with the only 'unauthorized use' language scoped to defeating security controls, not "
+            "automated or bulk access. No CEC-specific terms page distinct from this statewide policy "
+            "was found. See app/pipeline/ab802.py's module docstring for the full citation."
+        ),
+        verified=True,
+        last_reviewed="Checked 2026-09-06 directly against energy.ca.gov/robots.txt and the ca.gov "
+                      "Conditions of Use page.",
+    ))
+
+    out.append(Assumption(
+        group="AB 802 statewide benchmarking", name="Assessor/EBEWE join method and measured rate",
+        config_path=None,
+        value="Lat/long (30m) then normalized-address, LA County only: 2,843 of 6,659 (42.7%) matched "
+             "for 2023, 2,728 of 6,437 (42.4%) for 2024 -- address text accounts for the large majority "
+             "of matches in both years (2,529 of 2,843 in 2023; 2,437 of 2,728 in 2024)",
+        source_type=MEASURED,
+        source_detail=(
+            "Measured 2026-09-07 as a dry run against real production RetrofitBuilding/EbeweBenchmark "
+            "data before this shipped -- transient Ab802Building objects run through the real "
+            "match_to_retrofit/match_to_ebewe functions, never added or committed to the database, so "
+            "this measurement wrote nothing. Lat/long is tried first (RetrofitBuilding.latitude/"
+            "longitude, itself rejoined from RetrofitGeocode -- see that model's docstring) because, "
+            "unlike EBEWE's own join (app/pipeline/ebewe.py's module docstring), neither side needed a "
+            "NEW geocoding run here: AB 802's own Portfolio Manager coordinates are already in the "
+            "file, and RetrofitGeocode's Census geocoding is already built. The result was still "
+            "address-dominated in practice, not lat/long-dominated as that reasoning alone might "
+            "suggest: of 2,843 matches in 2023, only 314 (11%) were lat/long, the remaining 2,529 (89%) "
+            "fell back to normalized_address -- 2024 was the same shape (291 of 2,728, 11%). The most "
+            "likely explanation, consistent with EBEWE's own finding that independent geocoding "
+            "introduces jitter in dense LA parcels: RetrofitGeocode's coverage is partial (null until a "
+            "building has actually been geocoded), and even where both sides ARE geocoded, two "
+            "independently-produced coordinate pairs for the same real building (rooftop centroid vs. "
+            "address point, different geocoders) can easily disagree by more than 30m, while the "
+            "address text itself does not depend on either geocoder agreeing. Recorded here rather "
+            "than assumed: lat/long was tried first on sound reasoning, but this is the second time in "
+            "this codebase normalized-address text has outperformed a coordinate-based join for this "
+            "exact LA-parcel-density problem -- worth remembering before reaching for geocoding as the "
+            "default answer to a future join like this one. Both directions of ambiguity are excluded "
+            "throughout (a retrofit building or AB 802 row claimed by more than one match on the other "
+            "side is dropped, never guessed at), same discipline as app.pipeline.ebewe's own join. "
+            "Benchmarking-filer (EbeweBenchmark.organization, address-only match) coverage was 1,657 of "
+            "6,659 (24.9%) for 2023 and 1,711 of 6,437 (26.6%) for 2024 -- see Ab802Building's own "
+            "docstring for why this is never labeled 'owner': no free, bulk-queryable LA County "
+            "assessor owner-name source exists at all (RetrofitBuilding's own verified finding), so "
+            "every row outside this filer match shows 'no owner data available,' permanently, not "
+            "'not yet resolved.'"
+        ),
+        verified=True,
+        last_reviewed="Measured 2026-09-07 against live production RetrofitBuilding/EbeweBenchmark data.",
+    ))
+
     # ---- Project delivery method --------------------------------------------
 
     dmc = delivery_method_coverage or {}

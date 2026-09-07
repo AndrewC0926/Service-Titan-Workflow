@@ -747,6 +747,30 @@ sources:
     # past its last (successful) run for the identical no-override reason.
     # See app/assumptions.py's "Weekly-fetch staleness threshold" entry.
     stale_hours: 216
+  # AB 802 statewide benchmarking -- see app/pipeline/ab802.py's module
+  # docstring for the compliance check (robots.txt-clean, same statewide
+  # ca.gov Conditions of Use CAEATFA already relies on) and the join method.
+  # Direct import into its own table (ab802_buildings), not a Signal source
+  # -- same "listed here anyway so scout doctor/source_health enumerates it"
+  # treatment as la_ebewe_benchmarking above. NOT called from `scout
+  # pipeline` (app.cli.pipeline) at any cadence, daily or weekly -- a human
+  # runs `scout fetch-ab802-benchmarks <year>` once a year, by hand.
+  #
+  # stale_hours: 9000 (375 days, ~12.3 months) -- a judgment call, not a
+  # measured cadence, same category as hcai_seismic_ratings/
+  # ab869_compliance_plans above: this file has no fixed publish date (the
+  # 2024 file's Last-Modified is 2025-10-08; its own header row says the
+  # underlying data was "downloaded July 16, 2025", so even the ONE
+  # observed date is a republish, not the original pull). The one thing
+  # known for certain is the cadence is annual, so the year's next file is
+  # expected roughly 12 months after the last -- 375 days gives a full year
+  # plus 2 weeks of slack before flagging silence, the same "one cycle plus
+  # slack" reasoning la_ebewe_benchmarking's own 216h uses for its weekly
+  # cadence, scaled to an annual one.
+  ab802_benchmarking:
+    enabled: true
+    portal_url: "https://www.energy.ca.gov/programs-and-topics/programs/building-energy-benchmarking-program"
+    stale_hours: 9000
   manual:
     enabled: true
 

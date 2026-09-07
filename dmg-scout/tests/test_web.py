@@ -1098,3 +1098,66 @@ def test_project_page_no_usual_team_banner_when_nothing_known(client, db_session
     r = client.get(f"/project/{p.id}", headers=AUTH)
     assert r.status_code == 200
     assert "Usual team for" not in r.text
+
+
+# --- /replacement-leads AB 802 tab -------------------------------------
+
+
+def test_replacement_leads_contractors_tab_still_default(client, db_session, cfg):
+    r = client.get("/replacement-leads", headers=AUTH)
+    assert r.status_code == 200
+    assert "owner-direct lane" in r.text
+
+
+def test_replacement_leads_ab802_tab_renders_empty_state(client, db_session, cfg):
+    r = client.get("/replacement-leads?view=ab802", headers=AUTH)
+    assert r.status_code == 200
+    assert "No in-territory AB 802 building matches" in r.text
+
+
+def test_replacement_leads_ab802_tab_shows_rows_and_no_owner_language(client, db_session, cfg):
+    from app.models import Ab802Building
+    db_session.add(Ab802Building(
+        portfolio_manager_property_id="1", year_ending=2024, in_territory=True,
+        property_name="Test Tower", city="Los Angeles", county_from_geocoding="Los Angeles County",
+        primary_property_type="Office", year_built=1970, weather_normalized_site_eui=150.0,
+        source_url="https://example.com/x",
+    ))
+    db_session.commit()
+
+    r = client.get("/replacement-leads?view=ab802", headers=AUTH)
+    assert r.status_code == 200
+    assert "Test Tower" in r.text
+    assert "no owner data available" in r.text
+    assert "no assessor match" in r.text
+
+
+def test_replacement_leads_ab802_tab_shows_benchmarking_filer_never_owner(client, db_session, cfg):
+    from app.models import Ab802Building
+    db_session.add(Ab802Building(
+        portfolio_manager_property_id="1", year_ending=2024, in_territory=True,
+        property_name="Filed Tower", city="Los Angeles", county_from_geocoding="Los Angeles County",
+        primary_property_type="Office", year_built=1970, weather_normalized_site_eui=150.0,
+        benchmarking_filer="Acme Property Mgmt", source_url="https://example.com/x",
+    ))
+    db_session.commit()
+
+    r = client.get("/replacement-leads?view=ab802", headers=AUTH)
+    assert "Acme Property Mgmt" in r.text
+    assert "benchmarking filer" in r.text
+    assert "<th>Owner</th>" not in r.text
+
+
+def test_replacement_leads_ab802_filters_by_county(client, db_session, cfg):
+    from app.models import Ab802Building
+    db_session.add(Ab802Building(portfolio_manager_property_id="1", year_ending=2024, in_territory=True,
+                                 property_name="LA Building", county_from_geocoding="Los Angeles County",
+                                 source_url="x"))
+    db_session.add(Ab802Building(portfolio_manager_property_id="2", year_ending=2024, in_territory=True,
+                                 property_name="Orange Building", county_from_geocoding="Orange County",
+                                 source_url="x"))
+    db_session.commit()
+
+    r = client.get("/replacement-leads?view=ab802&county=Los+Angeles+County", headers=AUTH)
+    assert "LA Building" in r.text
+    assert "Orange Building" not in r.text
