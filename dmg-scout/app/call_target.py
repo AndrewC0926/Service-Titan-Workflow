@@ -337,3 +337,36 @@ def sample_for_review(distribution: dict, n: int = 10, seed: int | None = None) 
     results = distribution["results"]
     rng = random.Random(seed)
     return rng.sample(results, min(n, len(results)))
+
+
+def opsc_call_target(cfg: Config, district: str | None, status: str | None) -> CallTargetResult:
+    """Call target for an OPSC Schools-tab row -- not a Project, so R1-R6's
+    Project-shaped inputs (delivery_method, existing-building-ness,
+    Window) don't apply; this is its own small rule table, reusing
+    CallTarget/CallTargetResult and the SAME standards-owner precedence as
+    determine_call_target's own R1.
+
+    R1-equivalent: District matches call_target.standards_owners (the same
+    config list determine_call_target already checks -- LAUSD/"Los Angeles
+    Unified" is already on it) -> owner_standards, outranking status.
+    R5-equivalent: Status is literally "Funds Released" -> bidding_contractors
+    (the spec is locked; contractors are bidding). Otherwise (any earlier
+    status, including unknown) -> R4-equivalent engineer (the mechanical
+    basis of design is still being decided). There is no OPSC-side
+    equivalent of R2/R3/R6 -- a funding record never states a delivery
+    method or an existing-building fact, and "status unknown" still falls
+    through to engineer rather than a fourth unknown bucket, since PRE_BOD
+    is the honest default for a filed-but-not-yet-funds-released
+    application."""
+    standards_owners = cfg.get("call_target.standards_owners") or []
+    matched = _matches_standards_owner(standards_owners, district)
+    if matched:
+        return CallTargetResult(CallTarget.owner_standards, "R1",
+                                f"district matches configured standards owner: {matched}",
+                                who_label=matched)
+    if status == "Funds Released":
+        return CallTargetResult(CallTarget.bidding_contractors, "R5", "status is Funds Released",
+                                who_label="bidding contractors")
+    return CallTargetResult(CallTarget.engineer, "R4",
+                            f"status is {status or 'unknown'}, spec not yet locked",
+                            who_label="engineer of record unknown")

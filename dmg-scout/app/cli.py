@@ -1175,6 +1175,50 @@ def fetch_ab802_benchmarks_cmd(
         typer.echo(f"  ERROR: {stats['error']}", err=True)
 
 
+@app.command("fetch-opsc-projects")
+def fetch_opsc_projects_cmd() -> None:
+    """OPSC School Facility Program funding (data.ca.gov's bulk CSV,
+    never datastore_search -- see app/pipeline/opsc.py's module docstring
+    for the compliance check) -> opsc_projects, full-replacing the whole
+    table, then emitting a school_facility_funding Signal for exactly the
+    in-territory rows recent enough or changed since the prior load (see
+    that same docstring). NOT part of `scout pipeline` at any cadence --
+    run by hand, monthly, when a new file is published (config.yaml's
+    sources.opsc_school_facility). Writes its own SourceRun so `scout
+    doctor` / source_health can see it."""
+    from app.http import PoliteClient
+    from app.pipeline.opsc import fetch_opsc_projects
+    with session_scope() as session, PoliteClient() as client:
+        stats = fetch_opsc_projects(session, load_config(), client)
+    typer.echo(f"fetched {stats['fetched']}, stored {stats['stored']}, "
+              f"{stats['signals_created']} signals created")
+    if stats.get("error"):
+        typer.echo(f"  ERROR: {stats['error']}", err=True)
+
+
+@app.command("fetch-opsc-workload")
+def fetch_opsc_workload_cmd() -> None:
+    """OPSC's own SAB Modernization and New Construction Workload List PDFs
+    (dgs.ca.gov/OPSC, applications in house but not yet funded) ->
+    opsc_workload, full-replacing per program. Parsed with app.pdftext plus
+    a California-county-name anchor (see app/pipeline/opsc.py's
+    parse_workload_pdf docstring for the method and its measured ~99.5%
+    success rate) -- a program whose parse rate falls below
+    WORKLOAD_MIN_PARSE_RATE is reported and skipped, never loaded
+    half-wrong. NOT part of `scout pipeline` at any cadence -- run by hand,
+    monthly, same source as fetch-opsc-projects."""
+    from app.http import PoliteClient
+    from app.pipeline.opsc import fetch_opsc_workload
+    with session_scope() as session, PoliteClient() as client:
+        results = fetch_opsc_workload(session, load_config(), client)
+    for program, result in results.items():
+        status = "loaded" if result["loaded"] else "SKIPPED"
+        typer.echo(f"{program}: {status} -- parsed {result['parsed']}, failed {result['failed']} "
+                  f"({100*result['rate']:.1f}% success)")
+        if result.get("error"):
+            typer.echo(f"  {result['error']}", err=True)
+
+
 @app.command("fetch-local250")
 def fetch_local250_cmd() -> None:
     """UA Local 250's public signatory contractor list (socalhvacr.info/

@@ -21,7 +21,7 @@ from app.config import Config
 from app.llm import LLMUnavailable, adjudicate
 from app.models import (
     ACTIVE_STATUSES, DeveloperAlias, MatchCandidate, Project, ProjectSignal, Signal,
-    Stage, StageObservation, utcnow,
+    SignalType, Stage, StageObservation, utcnow,
 )
 from app.normalize import normalize_county, normalize_name, normalize_state
 from app.pipeline.waterrisk import water_risk_read
@@ -569,6 +569,27 @@ def _resolve_loop(session: Session, cfg: Config, unlinked: list[Signal], stats: 
             key=lambda t: t[0], reverse=True,
         )
         best_sim, best = scored[0] if scored else (0.0, None)
+
+        # OPSC school-funding signals never auto-link and never auto-create a
+        # Project, regardless of similarity -- see app.pipeline.opsc's module
+        # docstring: a funding record naming a district/school is not proof
+        # that a district's own Legistar/CEQAnet filing IS this project, and
+        # this source's own design says so explicitly ("do not link to
+        # Project automatically"). A fuzzy match still goes to the SAME
+        # review queue any other signal's uncertain match would, with no LLM
+        # adjudication spent on it (there is nothing web-searchable an LLM
+        # could add to a government funding record); no candidate at all
+        # means the signal simply stays unlinked, inert until a human acts.
+        if signal.signal_type == SignalType.school_facility_funding:
+            if best is not None:
+                session.add(MatchCandidate(
+                    signal_id=signal.id, project_id=best.id, similarity=best_sim,
+                    llm_verdict="uncertain",
+                    llm_reasoning="OPSC school-funding signal -- always reviewed by a human, "
+                                 "never auto-linked or auto-created"))
+                stats["queued_review"] += 1
+            session.commit()
+            continue
 
         if best is not None and best_sim >= auto_t:
             link_signal_to_project(session, signal, best, best_sim, "blocking+fuzzy")

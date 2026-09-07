@@ -771,6 +771,27 @@ sources:
     enabled: true
     portal_url: "https://www.energy.ca.gov/programs-and-topics/programs/building-energy-benchmarking-program"
     stale_hours: 9000
+  # OPSC School Facility Program -- see app/pipeline/opsc.py's module
+  # docstring for the compliance check (bulk-CSV-only; /api/ and
+  # /datastore/* are both robots.txt-disallowed) and the Signal-gating
+  # design. Direct import into its own table (opsc_projects), same "listed
+  # here anyway so scout doctor/source_health enumerates it" treatment as
+  # la_ebewe_benchmarking/ab802_benchmarking above. NOT called from `scout
+  # pipeline` at any cadence -- `scout fetch-opsc-projects` and `scout
+  # fetch-opsc-workload` are run by hand, monthly.
+  #
+  # stale_hours: 800 (33.3 days) -- one month (accrualPeriodicity R/P1M,
+  # confirmed live against the dataset's own CKAN metadata 2026-09-06) plus
+  # ~3 days of slack, the same "one cycle plus proportional slack" reasoning
+  # la_ebewe_benchmarking's own 216h (one week + 48h) uses, scaled to a
+  # monthly cadence rather than annual (ab802_benchmarking's 9000h) since
+  # this file's own publication rhythm is measurably monthly, not the
+  # irregular republish AB 802's file shows.
+  opsc_school_facility:
+    enabled: true
+    csv_url: "https://data.ca.gov/dataset/dd1eabf1-0b66-49d6-857d-8cef6ed93d45/resource/8080bb19-a63b-47e3-82d3-7451d119e27f/download/school-facility-program-funding.csv"
+    portal_url: "https://data.ca.gov/dataset/opsc-open-data"
+    stale_hours: 800
   manual:
     enabled: true
 

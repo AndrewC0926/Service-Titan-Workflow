@@ -1,0 +1,99 @@
+{# Schools tab of /board -- see app.pipeline.opsc:schools_board for the sort/
+   filter logic and app.call_target:opsc_call_target for the call target rule.
+   app/web/main.py:board passes school_rows/school_* filter option lists and
+   the current filter values when view=schools. #}
+
+{% if school_filter_stale %}
+<div class="callout callout-bad">
+  {{ icon('triangle-alert') }}
+  <span><strong>OPSC data may be stale</strong>
+    <span class="body"><span class="mono">scout fetch-opsc-projects</span> has not completed
+      successfully within its staleness window (config.yaml's
+      <span class="mono">sources.opsc_school_facility</span>) — this is a monthly, hand-run fetch, not
+      part of the daily pipeline, so check /health before assuming a new month's file is missing by
+      mistake rather than simply not yet run.</span>
+  </span>
+</div>
+{% endif %}
+
+<details class="callout callout-warn">
+  <summary>How this is built</summary>
+  <div class="callout-content">
+    <span>
+    <strong>Never auto-linked to a project</strong>
+    <span class="body">Every row here is OPSC's own School Facility Program funding record — never
+      auto-linked to an existing project and never used to create a new one. A fuzzy (District,
+      School Name) match against an existing Legistar or CEQAnet project goes to
+      <a href="/review">the review queue</a> as a candidate, same as any other uncertain match; with no
+      match at all, the row simply stands alone here. Call target: districts on
+      <span class="mono">call_target.standards_owners</span> are Owner (standards program) regardless
+      of status; otherwise Status "Funds Released" is Bidding contractors (the spec is locked), any
+      earlier status is Engineer (the mechanical basis of design is still being decided).</span>
+    </span>
+  </div>
+</details>
+
+<form method="get" class="mb-2">
+  <input type="hidden" name="view" value="schools">
+  <select name="county">
+    <option value="">All counties</option>
+    {% for c in school_counties %}<option value="{{ c }}" {% if c == school_county %}selected{% endif %}>{{ c }}</option>{% endfor %}
+  </select>
+  <select name="district">
+    <option value="">All districts</option>
+    {% for d in school_districts %}<option value="{{ d }}" {% if d == school_district %}selected{% endif %}>{{ d }}</option>{% endfor %}
+  </select>
+  <select name="program">
+    <option value="">All programs</option>
+    {% for p in school_programs %}<option value="{{ p }}" {% if p == school_program %}selected{% endif %}>{{ p }}</option>{% endfor %}
+  </select>
+  <select name="status">
+    <option value="">All statuses</option>
+    {% for s in school_statuses %}<option value="{{ s }}" {% if s == school_status %}selected{% endif %}>{{ s }}</option>{% endfor %}
+  </select>
+  <select name="grade_level">
+    <option value="">All grade levels</option>
+    {% for g in school_grade_levels %}<option value="{{ g }}" {% if g == school_grade_level %}selected{% endif %}>{{ g }}</option>{% endfor %}
+  </select>
+  <button type="submit">Filter</button>
+  <a class="note" href="/board?view=schools">Clear filters</a>
+</form>
+
+<p class="note">{{ '{:,}'.format(school_rows|length) }} in-territory row{{ 's' if school_rows|length != 1 }} shown, sorted by
+  most recent SAB date first.</p>
+
+{% if school_rows %}
+<table class="tbl">
+<thead><tr>
+  <th>District / School</th><th>County</th><th>Program</th><th>Grade level</th>
+  <th class="num">State share of funding</th><th>Status</th><th class="num">Last SAB date</th>
+  <th>Call target</th>
+</tr></thead>
+<tbody>
+{% for d in school_rows %}
+{% set r = d.row %}
+<tr>
+  <td><a href="/board?view=schools&district={{ r.district | urlencode }}">{{ r.district or '(no district)' }}</a>
+    <div class="note">{{ r.school_name or '' }}</div></td>
+  <td class="nowrap">{{ r.county or '—' }}</td>
+  <td>{{ r.program or '—' }}</td>
+  <td class="nowrap">{{ r.grade_level_of_project or '—' }}</td>
+  <td class="num mono">{% if r.state_share_of_funding is not none %}${{ '{:,.0f}'.format(r.state_share_of_funding) }}{% else %}—{% endif %}</td>
+  <td>{{ r.status or '—' }}</td>
+  <td class="num nowrap">{{ r.last_sab_date.strftime('%Y-%m-%d') if r.last_sab_date else '—' }}</td>
+  <td>
+    <b>{{ CALL_TARGET_LABELS[d.call_target.target] }}</b>
+    <div class="note">{{ d.call_target.rule }}: {{ d.call_target.reason }}</div>
+  </td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div class="empty">
+  {{ icon('file-text') }}
+  <p>No in-territory OPSC row matches these filters. Try
+    <a href="/board?view=schools">clearing filters</a>, or run
+    <span class="mono">scout fetch-opsc-projects</span> if this looks empty entirely.</p>
+</div>
+{% endif %}

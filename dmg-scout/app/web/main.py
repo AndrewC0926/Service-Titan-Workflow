@@ -342,8 +342,33 @@ def _my_territory_filter():
 
 
 @app.get("/board", response_class=HTMLResponse)
-def board(request: Request, category: str = "data_center", territory: str = "mine",
-          call_target: str = "", session: Session = Depends(get_session), _: str = Depends(auth)):
+def board(request: Request, view: str = "board", category: str = "data_center", territory: str = "mine",
+          call_target: str = "", county: str = "", district: str = "", program: str = "",
+          status: str = "", grade_level: str = "",
+          session: Session = Depends(get_session), _: str = Depends(auth)):
+    if view == "schools":
+        from app.ops import source_is_stale
+        from app.pipeline.opsc import schools_board
+        cfg = load_config()
+        rows = schools_board(session, cfg, county=county or None, district=district or None,
+                             program=program or None, status=status or None,
+                             grade_level=grade_level or None)
+        all_rows = schools_board(session, cfg)
+        return templates.TemplateResponse(request, "board.html", {
+            "view": view, "is_watchlist": False,
+            "school_rows": rows,
+            "school_counties": sorted({d["row"].county for d in all_rows if d["row"].county}),
+            "school_districts": sorted({d["row"].district for d in all_rows if d["row"].district}),
+            "school_programs": sorted({d["row"].program for d in all_rows if d["row"].program}),
+            "school_statuses": sorted({d["row"].status for d in all_rows if d["row"].status}),
+            "school_grade_levels": sorted({d["row"].grade_level_of_project for d in all_rows
+                                          if d["row"].grade_level_of_project}),
+            "school_county": county, "school_district": district, "school_program": program,
+            "school_status": status, "school_grade_level": grade_level,
+            "school_filter_stale": source_is_stale(session, cfg, "opsc_school_facility"),
+            "tb": _title_block(session), "active": "board",
+        })
+
     # Two boards, one pipeline. Defaults to data centers: that is the book of
     # business this system was built for, and industrial should never silently
     # dilute it. `?category=all` shows both.
@@ -409,6 +434,7 @@ def board(request: Request, category: str = "data_center", territory: str = "min
     completeness = pipeline_completeness(session, load_config())
     from app.field_intel import active_field_intel
     return templates.TemplateResponse(request, "board.html", {
+        "view": view,
         "projects": projects, "days_since": days_since, "review_count": review_count,
         "has_pre_bod": has_pre_bod, "watch_count": watch_count, "is_watchlist": False,
         "completeness": completeness, "category": category, "cat_counts": counts,

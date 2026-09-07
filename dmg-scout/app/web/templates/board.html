@@ -5,6 +5,18 @@
 {% block sheet_no %}{% if is_watchlist %}S-02{% else %}S-01{% endif %}{% endblock %}
 {% block content %}
 
+{% if not is_watchlist %}
+<p class="mb-2">
+  <a class="chip" href="/board?category={{ category or 'data_center' }}&territory={{ territory or 'mine' }}"
+    aria-pressed="{{ 'true' if view != 'schools' else 'false' }}">Board</a>
+  <a class="chip" href="/board?view=schools" aria-pressed="{{ 'true' if view == 'schools' else 'false' }}">Schools</a>
+</p>
+{% endif %}
+
+{% if view == 'schools' %}
+{% include "_schools_tab.html" %}
+{% else %}
+
 {# ── Statements about whether the sheet below can be trusted. Nothing else goes
      in a callout. If one is on screen, something under it is not safe to act on. #}
 {% if completeness is defined and completeness and not completeness.complete %}
@@ -379,4 +391,5 @@
 {% endfor %}
 </tbody>
 </table>
+{% endif %}
 {% endblock %}

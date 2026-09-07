@@ -1145,6 +1145,57 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "property search and third-party commercial listings for three real addresses.",
     ))
 
+    # ---- OPSC School Facility Program ----------------------------------------
+
+    out.append(Assumption(
+        group="OPSC School Facility Program", name="Access classification (Phase A research)",
+        config_path=None,
+        value="Bulk CSV download only, never datastore_search on a schedule -- CAEATFA-shaped on "
+             "the download path used, CHHS-shaped on the API path deliberately avoided",
+        source_type=MEASURED,
+        source_detail=(
+            "Checked 2026-09-06, re-confirmed 2026-09-08, before any fetch was built: "
+            "data.ca.gov/robots.txt disallows /api/ and /datastore/* for User-agent: * -- the "
+            "same CKAN-standard block CHHS's own robots.txt uses (app/pipeline/hcai.py's module "
+            "docstring), which is why this fetcher never calls datastore_search on a schedule "
+            "(a single one-off datastore_search call, limit=5, was used only during Phase A "
+            "research to read real field names -- never on a recurring schedule). The plain bulk "
+            "CSV resource-download URL (.../download/school-facility-program-funding.csv) is NOT "
+            "in the disallow list -- only /dataset/activity/*, /dataset/groups/*, "
+            "/dataset/showcases/*, and /dataset/*/issues/* are blocked under /dataset/, none of "
+            "which match a resource download URL. The same statewide ca.gov Conditions of Use "
+            "CAEATFA's own entry already quotes (public domain, no automated-access restriction) "
+            "applies here too -- data.ca.gov is a CDT property under the identical policy. See "
+            "app/pipeline/opsc.py's module docstring for the full citation."
+        ),
+        verified=True,
+        last_reviewed="Checked 2026-09-06 and re-confirmed 2026-09-08 directly against "
+                      "data.ca.gov/robots.txt.",
+    ))
+
+    out.append(Assumption(
+        group="OPSC School Facility Program", name="Workload-list PDF parse rate",
+        config_path=None,
+        value="99.4% (New Construction), 99.8% (Modernization) -- measured against the live SAB "
+             "workload PDFs before this shipped, comfortably above the 90% floor below which a "
+             "program's load is skipped rather than shipped with silent data loss",
+        source_type=MEASURED,
+        source_detail=(
+            "app.pipeline.opsc.parse_workload_text anchors each Application_Number line to the "
+            "LAST (rightmost) whole-word California county name preceding it, not the first -- CA "
+            "district names frequently repeat their own county's name (e.g. 'Riverside Unified "
+            "Riverside John W. North High'), so taking the first match mis-splits district from "
+            "school name. Switching from first-match to rightmost-match fixed 38 of 40 initial "
+            "failures, raising New Construction from 88.3% to 99.4% and Modernization to 99.8%. "
+            "Below WORKLOAD_MIN_PARSE_RATE (0.90) for a given program, that program's load is "
+            "skipped entirely (existing opsc_workload rows for it are left untouched) and reported "
+            "as a failure rather than loading a silently-degraded table -- the funded dataset "
+            "(opsc_projects) ships regardless, since it does not depend on PDF parsing at all."
+        ),
+        verified=True,
+        last_reviewed="Measured 2026-09-08 against the live SAB-NC and SAB-MOD workload PDFs.",
+    ))
+
     # ---- Project delivery method --------------------------------------------
 
     dmc = delivery_method_coverage or {}

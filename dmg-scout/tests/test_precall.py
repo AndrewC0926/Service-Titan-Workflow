@@ -9,12 +9,18 @@ from __future__ import annotations
 import pytest
 
 from app import precall
-from app.models import Category, Project, Stage, Window
+from app.models import Category, OpscProject, Project, Stage, Window
 
 
 def _project(id_=None, name="Test DC"):
     return Project(id=id_, name=name, category=Category.data_center,
                    stage=Stage.permitting, window=Window.IN_BOD, status="active")
+
+
+def _opsc(id_=None, district="Test USD", school_name="Test Elementary", status="Application Received"):
+    return OpscProject(id=id_, county="Los Angeles", district=district, school_name=school_name,
+                       program="Modernization", application_number="26/12345-00-001",
+                       status=status, in_territory=True, source_url="https://data.ca.gov/test")
 
 
 @pytest.fixture(autouse=True)
@@ -117,6 +123,47 @@ def test_pre_call_brief_missing_project_raises(db_session):
 def test_pre_call_brief_missing_contractor_raises(db_session):
     with pytest.raises(ValueError, match="no contractor"):
         precall.pre_call_brief(db_session, "contractor", 999999)
+
+
+def test_pre_call_brief_missing_opsc_project_raises(db_session):
+    with pytest.raises(ValueError, match="no opsc_project"):
+        precall.pre_call_brief(db_session, "opsc_project", 999999)
+
+
+def test_opsc_ingredients_and_serialize(db_session, cfg):
+    r = _opsc(status="Funds Released")
+    db_session.add(r)
+    db_session.commit()
+    db_session.refresh(r)
+
+    ing = precall._opsc_ingredients(db_session, r.id)
+    assert ing["entity_type"] == "opsc_project"
+    assert "Test USD" in ing["name"]
+
+    payload = precall._serialize_opsc(ing)
+    assert payload["district"] == "Test USD"
+    assert payload["school_name"] == "Test Elementary"
+    assert payload["call_target"]["label"]  # bidding_contractors, since Funds Released
+    assert payload["contact_ladder"] == (
+        "not applicable -- OPSC rows have no named human contact; the call "
+        "target above is the district or contractor pool, not a person")
+
+
+def test_pre_call_brief_opsc_project_end_to_end(db_session, monkeypatch):
+    r = _opsc()
+    db_session.add(r)
+    db_session.commit()
+    db_session.refresh(r)
+
+    monkeypatch.setattr(precall, "_call_llm", lambda cfg, sys, user, **k: {
+        "text": "BOTTOM LINE\nschool brief", "model": "m", "input_tokens": 1, "output_tokens": 1,
+        "web_searches": 0, "token_cost_usd": 0.0, "search_cost_usd": 0.0, "cost_usd": 0.0,
+    })
+
+    entry = precall.pre_call_brief(db_session, "opsc_project", r.id)
+    assert entry["from_cache"] is False
+    assert entry["text"] == "BOTTOM LINE\nschool brief"
+    assert entry["name"] == "Test USD -- Test Elementary"
 
 
 def test_pre_call_brief_cache_hit_never_calls_llm(db_session, monkeypatch):

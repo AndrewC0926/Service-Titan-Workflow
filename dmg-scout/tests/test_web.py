@@ -1276,3 +1276,71 @@ def test_replacement_leads_ab802_owner_hint_beats_name_on_filing(client, db_sess
     # "name on filing" legitimately appears once, in the static "How this is
     # built" explanation, never a second time attached to this row.
     assert r.text.count("name on filing") == 1
+
+
+# --- /board Schools tab ------------------------------------------------
+
+
+def test_board_schools_tab_renders_empty_state(client, db_session, cfg):
+    r = client.get("/board?view=schools", headers=AUTH)
+    assert r.status_code == 200
+    assert "No in-territory OPSC row matches" in r.text
+
+
+def test_board_schools_tab_shows_rows_and_call_target(client, db_session, cfg):
+    from app.models import OpscProject
+    db_session.add(OpscProject(
+        application_number="50/00000-00-001", county="Los Angeles",
+        district="Some Non-Standards District", school_name="Test Elementary",
+        program="New Construction", status="Funds Released", state_share_of_funding=1_500_000.0,
+        in_territory=True, source_url="x",
+    ))
+    db_session.commit()
+
+    r = client.get("/board?view=schools", headers=AUTH)
+    assert r.status_code == 200
+    assert "Some Non-Standards District" in r.text
+    assert "Test Elementary" in r.text
+    assert "$1,500,000" in r.text
+    assert "Bidding contractors" in r.text
+
+
+def test_board_schools_tab_standards_district_shows_owner_standards(client, db_session, cfg):
+    from app.models import OpscProject
+    db_session.add(OpscProject(
+        application_number="50/00000-00-001", county="Los Angeles",
+        district="Los Angeles Unified", school_name="Test Elementary",
+        program="New Construction", status="Closed",
+        in_territory=True, source_url="x",
+    ))
+    db_session.commit()
+
+    r = client.get("/board?view=schools", headers=AUTH)
+    assert "Owner (standards program)" in r.text
+
+
+def test_board_schools_tab_filters_by_county(client, db_session, cfg):
+    from app.models import OpscProject
+    db_session.add(OpscProject(application_number="1", county="Los Angeles", district="A",
+                               school_name="LA School", in_territory=True, source_url="x"))
+    db_session.add(OpscProject(application_number="2", county="Orange", district="B",
+                               school_name="Orange School", in_territory=True, source_url="x"))
+    db_session.commit()
+
+    r = client.get("/board?view=schools&county=Orange", headers=AUTH)
+    assert "Orange School" in r.text
+    assert "LA School" not in r.text
+
+
+def test_board_default_view_unaffected_by_schools_tab_addition(client, db_session, cfg):
+    seed(db_session, cfg)
+    r = client.get("/board?territory=all", headers=AUTH)
+    assert r.status_code == 200
+    assert "Meridian DC" in r.text
+
+
+def test_watchlist_unaffected_by_schools_tab_addition(client, db_session, cfg):
+    r = client.get("/watchlist", headers=AUTH)
+    assert r.status_code == 200
+    assert "Watch list" in r.text
+    assert "Schools" not in r.text

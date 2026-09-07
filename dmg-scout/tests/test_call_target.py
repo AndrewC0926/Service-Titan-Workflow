@@ -297,3 +297,28 @@ def test_ab869_no_plan_no_frp_no_contractor_says_both_unknown(cfg):
     r = ab869_call_target(cfg, None, "Some Independent Hospital", [])
     assert r.target == CallTarget.owner
     assert "unknown" in r.who_label
+
+
+# --- opsc_call_target: OPSC Schools-tab rows, not Projects ------------------
+
+
+def test_opsc_call_target_standards_district_wins_regardless_of_status(cfg):
+    from app.call_target import opsc_call_target
+    r = opsc_call_target(cfg, "Los Angeles Unified", "Funds Released")
+    assert r.target == CallTarget.owner_standards
+    assert r.rule == "R1"
+
+
+def test_opsc_call_target_funds_released_is_bidding_contractors(cfg):
+    from app.call_target import opsc_call_target
+    r = opsc_call_target(cfg, "Some Non-Standards District", "Funds Released")
+    assert r.target == CallTarget.bidding_contractors
+    assert r.rule == "R5"
+
+
+def test_opsc_call_target_earlier_status_is_engineer(cfg):
+    from app.call_target import opsc_call_target
+    for status in ("Closed", "100.00% Completed", None):
+        r = opsc_call_target(cfg, "Some Non-Standards District", status)
+        assert r.target == CallTarget.engineer
+        assert r.rule == "R4"

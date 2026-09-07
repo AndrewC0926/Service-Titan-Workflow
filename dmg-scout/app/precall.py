@@ -46,7 +46,7 @@ from pathlib import Path
 from sqlmodel import Session, select
 
 from app.config import Config, anthropic_api_key, load_config
-from app.models import Contractor, Project, ProjectSignal, Signal
+from app.models import Contractor, OpscProject, Project, ProjectSignal, Signal
 
 log = logging.getLogger(__name__)
 
@@ -161,23 +161,68 @@ def _contractor_ingredients(session: Session, contractor_id: int) -> dict:
     }
 
 
+def _opsc_ingredients(session: Session, opsc_id: int) -> dict:
+    from app.call_target import opsc_call_target
+
+    r = session.get(OpscProject, opsc_id)
+    if r is None:
+        raise ValueError(f"no opsc_project {opsc_id}")
+
+    cfg = load_config()
+    call_target = opsc_call_target(cfg, r.district, r.status)
+
+    return {
+        "entity_type": "opsc_project", "entity_id": r.id,
+        "name": f"{r.district or 'unknown district'} -- {r.school_name or 'unnamed site'}",
+        "row": r, "call_target": call_target,
+    }
+
+
+def _serialize_opsc(ing: dict) -> dict:
+    from app.call_target import CALL_TARGET_LABELS
+    r, ct = ing["row"], ing["call_target"]
+    return {
+        "source": "California OPSC (Office of Public School Construction) School Facility "
+                  "Program -- state bond funding for K-12 school construction/modernization, "
+                  "not a Scout-tracked Project (no address, no contact ladder, no prior outreach)",
+        "district": r.district, "school_name": r.school_name, "county": r.county,
+        "program": r.program, "application_number": r.application_number,
+        "status": r.status, "grade_level": r.grade_level_of_project,
+        "last_sab_date": r.last_sab_date.strftime("%Y-%m-%d") if r.last_sab_date else None,
+        "state_share_of_funding_usd": (
+            f"${r.state_share_of_funding:,.0f}" if r.state_share_of_funding is not None else None),
+        "portables_replaced": r.portables_replaced,
+        "call_target": {
+            "type": ct.target.value, "label": CALL_TARGET_LABELS[ct.target],
+            "rule": ct.rule, "reason": ct.reason,
+            "who": ct.who_label, "who_detail": ct.who_detail,
+        },
+        "contact_ladder": "not applicable -- OPSC rows have no named human contact; the call "
+                          "target above is the district or contractor pool, not a person",
+        "prior_outreach": "not tracked for OPSC rows",
+        "note": "This row is never auto-linked to a Scout project. If a matching project exists "
+               "it would show up separately in the review queue, not here.",
+    }
+
+
 # ---- prompt ------------------------------------------------------------
 
 PRECALL_SYSTEM = """You write a pre-call brief for a field rep at an HVAC/mechanical
 equipment manufacturers' rep firm, standing outside a building about to make a call.
 They will read this in about ninety seconds. Everything in it must earn its place.
 
-You are given Scout's own internal data on one project or contractor (developer,
-stage, contacts, prior outreach, license status, nearby regulatory triggers --
-whatever applies to this entity) as a JSON block below. Treat that block as ground
-truth about Scout's OWN records -- do not re-verify it, do not contradict it, just use
-it.
+You are given Scout's own internal data on one project, contractor, or OPSC school
+funding row (developer, stage, contacts, prior outreach, license status, nearby
+regulatory triggers -- whatever applies to this entity) as a JSON block below. Treat
+that block as ground truth about Scout's OWN records -- do not re-verify it, do not
+contradict it, just use it.
 
 Then use web_search to find what is NOT in Scout's own data and IS worth knowing
-before this call: what the company actually does, its size and recent activity, and
-any real news in roughly the last 12 months (a funding round, expansion, executive
-change, layoffs, an incident, an award -- anything that would change what a rep says
-on the phone). Search by the company/developer/contractor name plus its location; 2-4
+before this call: what the company or district actually does, its size and recent
+activity, and any real news in roughly the last 12 months (a funding round,
+expansion, executive change, layoffs, a bond measure, a board vote, an award --
+anything that would change what a rep says on the phone). Search by the
+company/developer/contractor/district name plus its location; 2-4
 searches is usually enough, do not pad with redundant queries. Keep any reasoning
 between searches minimal -- narrate your plan only if it's genuinely useful to you,
 never as commentary for the reader; the reader only ever sees the final brief below.
@@ -312,6 +357,8 @@ def _build_prompt(entity_type: str, ingredients: dict) -> tuple[str, str]:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     if entity_type == "project":
         payload = _serialize_project(ingredients)
+    elif entity_type == "opsc_project":
+        payload = _serialize_opsc(ingredients)
     else:
         payload = _serialize_contractor(ingredients)
     header = f"{entity_type.upper()} #{ingredients['entity_id']}: {ingredients['name']}"
@@ -439,12 +486,13 @@ def brief_sections(text: str) -> list[dict]:
 def pre_call_brief(session: Session, entity_type: str, entity_id: int, *,
                    force_refresh: bool = False) -> dict:
     """Everything worth knowing before dialing entity_type #entity_id
-    ("project" or "contractor"), from cache unless force_refresh or nothing
-    is cached yet. Raises ValueError if the entity doesn't exist,
-    PrecallUnavailable if ANTHROPIC_API_KEY isn't set, BudgetExceeded if
-    today's LLM spend cap is already hit."""
-    if entity_type not in ("project", "contractor"):
-        raise ValueError(f"entity_type must be 'project' or 'contractor', got {entity_type!r}")
+    ("project", "contractor", or "opsc_project"), from cache unless
+    force_refresh or nothing is cached yet. Raises ValueError if the entity
+    doesn't exist, PrecallUnavailable if ANTHROPIC_API_KEY isn't set,
+    BudgetExceeded if today's LLM spend cap is already hit."""
+    if entity_type not in ("project", "contractor", "opsc_project"):
+        raise ValueError(
+            f"entity_type must be 'project', 'contractor', or 'opsc_project', got {entity_type!r}")
 
     if not force_refresh:
         cached = _read_cache(entity_type, entity_id)
@@ -455,6 +503,8 @@ def pre_call_brief(session: Session, entity_type: str, entity_id: int, *,
         if session.get(Project, entity_id) is None:
             raise ValueError(f"no project {entity_id}")
         ingredients = _project_ingredients(session, entity_id)
+    elif entity_type == "opsc_project":
+        ingredients = _opsc_ingredients(session, entity_id)  # raises ValueError itself
     else:
         ingredients = _contractor_ingredients(session, entity_id)  # raises ValueError itself
 

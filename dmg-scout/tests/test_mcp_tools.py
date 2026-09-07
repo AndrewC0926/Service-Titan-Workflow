@@ -22,8 +22,8 @@ from app.mcp_tools import (
     who_to_call,
 )
 from app.models import (
-    AccountCoverage, Category, Contractor, Firm, FieldIntel, Outreach, Project, ProductLine,
-    Signal, SignalType, Stage,
+    AccountCoverage, Category, Contractor, Firm, FieldIntel, Outreach, OpscProject, Project,
+    ProductLine, Signal, SignalType, Stage,
 )
 from app.pipeline.resolve import run_resolve
 from app.pipeline.size_score import run_size_score
@@ -111,6 +111,40 @@ def test_who_to_call_lists_reachable_contact(db_session, cfg):
     run_size_score(db_session, cfg)
     out = who_to_call()
     assert "Jane Doe" in out and "555-1234" in out
+
+
+def _opsc(id_=None, county="Los Angeles", district="Test USD", status="Funds Released"):
+    return OpscProject(id=id_, county=county, district=district, school_name="Test Elementary",
+                       program="Modernization", application_number=f"26/{id_ or 1}-00-001",
+                       status=status, in_territory=True, source_url="https://data.ca.gov/test")
+
+
+def test_who_to_call_lists_in_territory_opsc_row(db_session, cfg):
+    _seed_project(db_session, cfg)  # unreachable, so the project list itself is empty
+    db_session.add(_opsc())
+    db_session.commit()
+    out = who_to_call()
+    assert "OPSC school funding" in out
+    assert "Test USD" in out and "Test Elementary" in out
+    assert "Bidding contractors" in out  # Funds Released -> bidding_contractors
+
+
+def test_who_to_call_opsc_filtered_by_county(db_session, cfg):
+    db_session.add(_opsc(id_=1, county="Los Angeles"))
+    db_session.add(_opsc(id_=2, county="Orange"))
+    db_session.commit()
+    out = who_to_call(county="Orange")
+    assert "OPSC school funding" in out
+    assert "Orange" in out
+    # Los Angeles row must not appear -- filtered out by county
+    assert out.count("Test USD") == 1
+
+
+def test_who_to_call_opsc_suppressed_for_non_ca_state(db_session, cfg):
+    db_session.add(_opsc())
+    db_session.commit()
+    out = who_to_call(state="TX")
+    assert "OPSC school funding" not in out
 
 
 def test_get_account_by_name_and_disambiguation(db_session, cfg):

@@ -53,6 +53,7 @@ class SignalType(str, enum.Enum):
     prequal_invite = "prequal_invite"
     bid_invite = "bid_invite"
     manual_tip = "manual_tip"
+    school_facility_funding = "school_facility_funding"
 
 
 class Stage(str, enum.Enum):
@@ -1488,6 +1489,102 @@ class EbeweBenchmark(SQLModel, table=True):
     indoor_water_use_intensity: float | None = None
     outdoor_water_use: float | None = None
     total_water_use: float | None = None
+    source_url: str
+    imported_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class OpscProject(SQLModel, table=True):
+    """One row per Application_Number in OPSC's own "School Facility
+    Program Funding" bulk CSV (data.ca.gov, CKAN package
+    dd1eabf1-0b66-49d6-857d-8cef6ed93d45) -- see app/pipeline/opsc.py's
+    module docstring for the fetch/compliance details.
+
+    Full-replaced on every monthly load (the whole table, not per-year like
+    Ab802Building -- OPSC's own file is one continuously-updated snapshot of
+    every application ever filed, not an annual series): delete every row,
+    reinsert fresh from the new CSV. Field names are 1:1 with the CSV's own
+    header row, no renaming for style -- see app/pipeline/opsc.py:parse_rows.
+
+    Numeric vs. text typing per field follows the CKAN datastore's OWN
+    declared field type (checked live against the datastore_search API,
+    2026-09-06/07), not a guess: Preliminary_Grant_Application,
+    Environmental_Hardship_Application, Reduced_to_Costs_Incurred,
+    Number_of_Elementary_School_Pupil_Grants_Requested,
+    Grade_Level_of_Project, CSFA_Lease_Amount, CTEFP_Loan_Amount,
+    Type_of_Joint_Use_Facility, Type_of_Joint_Use_Partner, Industry_Sector,
+    Portables_Replaced, and Status are all declared type "text" by the
+    datastore itself (several despite being funding-shaped columns) and are
+    stored here as plain strings, verbatim, never coerced to a number the
+    source itself doesn't claim; every other Application/Amount/Grants-
+    Requested column is declared "numeric" and stored as a float.
+
+    Deliberately NO address, latitude, or longitude field: OPSC's own file
+    states none, and School_Name is not a safe geocoding input (a district
+    can run more than one same-named site, e.g. "Lincoln Elementary" in
+    unrelated cities) -- never inferred, never guessed at."""
+    __tablename__ = "opsc_projects"
+
+    id: int | None = Field(default=None, primary_key=True)
+    county: str | None = Field(default=None, index=True)
+    district: str | None = Field(default=None, index=True)
+    school_name: str | None = None
+    program: str | None = Field(default=None, index=True)
+    application_number: str = Field(index=True, unique=True)
+    applicant: str | None = None
+    preliminary_grant_application: str | None = None
+    full_grant_application: float | None = None
+    site_and_design_application: float | None = None
+    site_only_application: float | None = None
+    design_only_application: float | None = None
+    environmental_hardship_application: str | None = None
+    reduced_to_costs_incurred: str | None = None
+    number_of_elementary_school_pupil_grants_requested: str | None = None
+    number_of_middle_school_pupil_grants_requested: float | None = None
+    number_of_high_school_pupil_grants_requested: float | None = None
+    number_of_non_severe_school_pupil_grants_requested: float | None = None
+    number_of_severe_school_pupil_grants_requested: float | None = None
+    grade_level_of_project: str | None = None
+    state_share_of_funding: float | None = None
+    site_acquisition: float | None = None
+    financial_hardship: float | None = None
+    csfa_lease_amount: str | None = None
+    ctefp_loan_amount: str | None = None
+    type_of_joint_use_facility: str | None = None
+    type_of_joint_use_partner: str | None = None
+    industry_sector: str | None = None
+    portables_replaced: str | None = None
+    last_sab_date: datetime | None = Field(default=None, index=True)
+    status: str | None = Field(default=None, index=True)
+
+    in_territory: bool = Field(default=False, index=True)
+    source_url: str
+    imported_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class OpscWorkload(SQLModel, table=True):
+    """One row per application on OPSC's own SAB Modernization or New
+    Construction Workload List PDF (dgs.ca.gov/OPSC Workload-Lists) --
+    applications currently in house, NOT yet funded, so they never appear
+    in OpscProject at all. See app/pipeline/opsc.py's module docstring for
+    the PDF-parsing approach and its own stated fallback (report the parse
+    failure rate and stop, if the table doesn't parse cleanly).
+
+    Full-replaced per `program` on every monthly load, same reasoning as
+    OpscProject: this is a snapshot of what's in house RIGHT NOW, not a
+    history to preserve row-by-row.
+
+    label is always "application in house, not funded" -- OPSC's own PDF
+    disclosure, verbatim, not this app's editorializing: see the source
+    dgs.ca.gov page's own text, quoted in the module docstring."""
+    __tablename__ = "opsc_workload"
+
+    id: int | None = Field(default=None, primary_key=True)
+    program: str = Field(index=True)  # "Modernization" | "New Construction"
+    district: str | None = None
+    school_name: str | None = None
+    application_number: str | None = Field(default=None, index=True)
+    label: str = "application in house, not funded"
+    raw_row_text: str = Field(sa_column=Column(Text, nullable=False))
     source_url: str
     imported_at: datetime = Field(default_factory=utcnow, index=True)
 

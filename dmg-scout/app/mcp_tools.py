@@ -264,7 +264,11 @@ def who_to_call(n: int = 5, county: str | None = None, state: str | None = None)
     ranked by priority score — use this for "who should I call this week".
     Each entry names the person, their role/rung, phone and email, and one
     line on why the project matters. Projects with no callable contact are
-    skipped entirely; use search_projects if you want to see those too."""
+    skipped entirely; use search_projects if you want to see those too.
+    Also lists in-territory OPSC school funding rows (county-filtered same
+    as the project list; state filter other than CA/blank suppresses them,
+    since OPSC is California-only) — these have no named human contact, so
+    the call target is the district itself, not a person."""
     from sqlmodel import select
 
     from app.db import session_scope
@@ -272,57 +276,80 @@ def who_to_call(n: int = 5, county: str | None = None, state: str | None = None)
     from app.models import ACTIVE_STATUSES, Project
     from app.normalize import normalize_county
 
+    from app.call_target import (
+        CALL_TARGET_LABELS, engineer_of_record_by_project, gc_by_project,
+        nearby_contractor_by_project, project_call_target,
+    )
+    from app.config import load_config
+
     with session_scope() as session:
+        cfg = load_config()
         q = select(Project).where(Project.status.in_(ACTIVE_STATUSES))
         if county:
             q = q.where(Project.county == normalize_county(county))
         if state:
             q = q.where(Project.state == state.strip().upper())
         projects = session.exec(q.order_by(Project.score.desc())).all()
-        if not projects:
-            return "No active projects matched."
 
-        ladders = build_ladders(session, projects)
         picked = []
-        for p in projects:
-            cs = contact_status(session, p, ladder=ladders[p.id])
-            if cs["status"] != "contactable":
-                continue
-            picked.append((p, cs["best_reachable"]))
-            if len(picked) >= n:
-                break
+        if projects:
+            ladders = build_ladders(session, projects)
+            for p in projects:
+                cs = contact_status(session, p, ladder=ladders[p.id])
+                if cs["status"] != "contactable":
+                    continue
+                picked.append((p, cs["best_reachable"]))
+                if len(picked) >= n:
+                    break
 
-        if not picked:
-            return "No project in scope has a reachable contact right now."
+        if not projects:
+            lines = ["No active projects matched."]
+        elif not picked:
+            lines = ["No project in scope has a reachable contact right now."]
+        else:
+            picked_projects = [p for p, _ in picked]
+            eor_map = engineer_of_record_by_project(session, [p.id for p in picked_projects])
+            gc_map = gc_by_project(session, [p.id for p in picked_projects])
+            nearby_map = nearby_contractor_by_project(session, cfg, picked_projects)
 
-        from app.call_target import (
-            CALL_TARGET_LABELS, engineer_of_record_by_project, gc_by_project,
-            nearby_contractor_by_project, project_call_target,
-        )
-        from app.config import load_config
-        cfg = load_config()
-        picked_projects = [p for p, _ in picked]
-        eor_map = engineer_of_record_by_project(session, [p.id for p in picked_projects])
-        gc_map = gc_by_project(session, [p.id for p in picked_projects])
-        nearby_map = nearby_contractor_by_project(session, cfg, picked_projects)
+            lines = [f"Top {len(picked)} to call:"]
+            for p, contact in picked:
+                reach = ", ".join(x for x in (contact.get("phone"), contact.get("email")) if x)
+                who = contact["name"] + (f" ({contact['title']})" if contact.get("title") else "")
+                tons = (f"{p.tons_estimate_low:,.0f}-{p.tons_estimate_high:,.0f} tons"
+                       if p.tons_estimate_low else "size unknown")
+                ct = project_call_target(cfg, p, engineer_of_record=eor_map.get(p.id),
+                                         gc=gc_map.get(p.id), nearby_contractor=nearby_map.get(p.id))
+                lines.append(
+                    f"\n#{p.id} {p.name} ({p.county or '?'} Co, {p.state or '?'}) — "
+                    f"score {p.score:.2f}, {p.window.value}, {tons}\n"
+                    f"  Call: {who} — {reach} — {contact['rung_label']}"
+                    + (f" [{contact['source_url']}]" if contact.get("source_url") else "")
+                    + f"\n  Call target: {CALL_TARGET_LABELS[ct.target]}"
+                    + (f" — {ct.who_label}" if ct.who_label else "")
+                    + f" ({ct.rule}: {ct.reason})"
+                )
 
-        lines = [f"Top {len(picked)} to call:"]
-        for p, contact in picked:
-            reach = ", ".join(x for x in (contact.get("phone"), contact.get("email")) if x)
-            who = contact["name"] + (f" ({contact['title']})" if contact.get("title") else "")
-            tons = (f"{p.tons_estimate_low:,.0f}-{p.tons_estimate_high:,.0f} tons"
-                   if p.tons_estimate_low else "size unknown")
-            ct = project_call_target(cfg, p, engineer_of_record=eor_map.get(p.id),
-                                     gc=gc_map.get(p.id), nearby_contractor=nearby_map.get(p.id))
-            lines.append(
-                f"\n#{p.id} {p.name} ({p.county or '?'} Co, {p.state or '?'}) — "
-                f"score {p.score:.2f}, {p.window.value}, {tons}\n"
-                f"  Call: {who} — {reach} — {contact['rung_label']}"
-                + (f" [{contact['source_url']}]" if contact.get("source_url") else "")
-                + f"\n  Call target: {CALL_TARGET_LABELS[ct.target]}"
-                + (f" — {ct.who_label}" if ct.who_label else "")
-                + f" ({ct.rule}: {ct.reason})"
-            )
+        from app.pipeline.opsc import schools_board
+        school_rows = [] if (state and state.strip().upper() != "CA") else schools_board(session, cfg, county=county)
+        if school_rows:
+            lines.append(f"\nOPSC school funding (no named contact — call target is the district itself):")
+            for d in school_rows[:5]:
+                r = d["row"]
+                ct = d["call_target"]
+                amt = (f"${r.state_share_of_funding:,.0f}" if r.state_share_of_funding is not None
+                      else "amount unknown")
+                lines.append(
+                    f"\n  #{r.id} {r.district or '(no district)'} — {r.school_name or '(no school)'} "
+                    f"({r.county or '?'} Co) — {r.program or '?'}, {r.status or '?'}, {amt}\n"
+                    f"    Call target: {CALL_TARGET_LABELS[ct.target]}"
+                    + (f" — {ct.who_label}" if ct.who_label else "")
+                    + f" ({ct.rule}: {ct.reason})"
+                )
+            if len(school_rows) > 5:
+                lines.append(f"\n  ... {len(school_rows) - 5} more in-territory school row(s) not shown; "
+                            f"see /board?view=schools.")
+
         return "\n".join(lines)
 
 
@@ -761,8 +788,10 @@ def pre_call_brief(entity_type: str, entity_id: int, force_refresh: bool = False
     card fit, nearby regulatory triggers -- whichever apply to this entity)
     plus fresh web research on the company and recent news, every web-sourced
     fact cited inline with its URL and retrieval date. entity_type is
-    "project" or "contractor" (use search_projects/who_to_call or
-    /contractors to find an id first).
+    "project", "contractor", or "opsc_project" (use search_projects/
+    who_to_call or /contractors to find an id first; who_to_call's OPSC
+    section shows opsc_project row ids -- these have no named contact, so
+    the brief covers the district/school and web research on it instead).
 
     Cached per entity after the first call -- opening it again is free and
     instant. Pass force_refresh=True to regenerate (the underlying data may
@@ -774,8 +803,8 @@ def pre_call_brief(entity_type: str, entity_id: int, force_refresh: bool = False
     from app.precall import pre_call_brief as _pre_call_brief
     from app.spend import BudgetExceeded
 
-    if entity_type not in ("project", "contractor"):
-        return f"entity_type must be 'project' or 'contractor', got {entity_type!r}."
+    if entity_type not in ("project", "contractor", "opsc_project"):
+        return f"entity_type must be 'project', 'contractor', or 'opsc_project', got {entity_type!r}."
 
     with session_scope() as session:
         try:
