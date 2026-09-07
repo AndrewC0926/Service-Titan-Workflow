@@ -20,13 +20,25 @@
   <div class="callout-content">
     <span>
     <strong>Rank inputs shown, not a black-box score</strong>
-    <span class="body">Sorted by (age percentile + EUI percentile), each computed WITHIN the
-      building's own property type — a 1980 office and a 1980 warehouse don't share a normal EUI
-      range, so ranking them against each other would mean nothing. Both percentiles are their own
-      columns below, not folded into one number: "Older %" is how much of its own property type this
-      building is older than; "EUI %" is how much of its own property type it uses more energy than,
-      weather-normalized. A building missing Year Built or EUI simply has no percentile for that half
-      — never guessed at, never defaulted to a mid-point.</span>
+    <span class="body">Sorted by (EUI vs. type median + age credit), shown below as their own
+      columns, never folded into one opaque number.
+      <br>&nbsp;
+      <br><strong>EUI vs. type median</strong> — the building's weather-normalized Site EUI divided
+      by the MEDIAN for its own property type among in-territory buildings (a 1980 office and a 1980
+      warehouse don't share a normal EUI range, so this is always computed within type). 1.30x means
+      30% above its type's median; this is a ratio, not a percentile rank, so a building at 3x median
+      clearly outranks one at 1.2x even if both are "top of their type."
+      <br>&nbsp;
+      <br><strong>Age credit</strong> — full credit (1.0) for Year Built 1985–2012, tapering linearly
+      to 0 by 1975 on the early side and by 2018 on the late side. Built before 1975 gets NO credit,
+      not full credit: by now, a pre-1975 building's original equipment has almost certainly already
+      been replaced at least once (typical commercial HVAC service life is 15–25 years), so Year Built
+      alone tells you nothing about what's actually installed today — genuinely unknown, not "assumed
+      old."
+      <br>&nbsp;
+      <br>A building missing Year Built or EUI simply has no value for that half — never guessed at,
+      never defaulted to a mid-point. Ties break on GFA, larger first — a bigger building is a bigger
+      order.</span>
     </span>
   </div>
 </details>
@@ -59,12 +71,13 @@
     <span>
     <strong>Defaults to DMG-relevant property types</strong>
     <span class="body">Office, medical office, hospital, K-12 school, college/university, laboratory,
-      data center, warehouse/distribution, manufacturing/industrial, hotel, retail, and multifamily —
-      an allowlist verified against the real property types on file, not a guess (golf/country club
-      rows carry "Other - Recreation" or similar, casino rows carry "Casino," worship rows "Worship
-      Facility," parking rows "Parking" — none of those, or any other Portfolio Manager "Other -"
-      catch-all, are in the allowlist). Pick a specific property type below (including an excluded one)
-      or check "show all property types" to see everything.</span>
+      data center, warehouse/distribution, manufacturing/industrial, hotel, and retail — an allowlist
+      verified against the real property types on file, not a guess (golf/country club rows carry
+      "Other - Recreation" or similar, casino rows carry "Casino," worship rows "Worship Facility,"
+      parking rows "Parking" — none of those, or any other Portfolio Manager "Other -" catch-all, are
+      in the allowlist). Multifamily Housing is NOT in the default either, as of 2026-09-07 — still
+      selectable explicitly below. Pick a specific property type (including an excluded one) or check
+      "show all property types" to see everything.</span>
     </span>
   </div>
 </details>
@@ -93,8 +106,9 @@
 <table class="tbl">
 <thead><tr>
   <th>Property</th><th>County</th><th>Property type</th>
-  <th class="num">Year built</th><th class="num">Older %</th>
-  <th class="num">Weather-norm. Site EUI</th><th class="num">EUI %</th>
+  <th class="num">Year built</th><th class="num">Age credit</th>
+  <th class="num">Site EUI</th><th class="num">EUI vs. type median</th>
+  <th class="num">GFA</th>
   <th>Assessor match</th><th>Filer</th>
 </tr></thead>
 <tbody>
@@ -106,9 +120,10 @@
   <td class="nowrap">{{ r.county_from_geocoding or '—' }}</td>
   <td>{{ r.primary_property_type or '—' }}</td>
   <td class="num mono">{{ r.year_built or '—' }}</td>
-  <td class="num mono">{{ '%.0f'|format(d.age_percentile * 100) + '%' if d.age_percentile is not none else '—' }}</td>
+  <td class="num mono">{{ '%.2f'|format(d.age_credit) if d.age_credit is not none else '—' }}</td>
   <td class="num mono">{{ '%.0f'|format(r.weather_normalized_site_eui) if r.weather_normalized_site_eui is not none else '—' }}</td>
-  <td class="num mono">{{ '%.0f'|format(d.eui_percentile * 100) + '%' if d.eui_percentile is not none else '—' }}</td>
+  <td class="num mono">{{ '%.2fx'|format(d.eui_ratio) if d.eui_ratio is not none else '—' }}</td>
+  <td class="num mono">{{ '{:,.0f}'.format(r.property_gfa_sqft) if r.property_gfa_sqft is not none else '—' }}</td>
   <td>
     {%- if r.retrofit_apn and r.assessor_match_method == 'latlong' -%}
       <a href="/retrofit/building/{{ ab802_retrofit_id_by_apn.get(r.retrofit_apn, '') }}">matched</a>

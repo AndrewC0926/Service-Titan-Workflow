@@ -9,6 +9,7 @@ import io
 
 import httpx
 import openpyxl
+import pytest
 import respx
 from sqlmodel import select
 
@@ -305,40 +306,72 @@ def test_latest_in_territory_rows_excludes_out_of_territory(db_session, cfg):
 
 def test_rank_in_territory_older_and_higher_eui_ranks_first(db_session, cfg):
     from app.pipeline.ab802 import rank_in_territory
-    _ab802(db_session, "old_bad", year_built=1950, eui=200.0)   # oldest, worst EUI -> top
-    _ab802(db_session, "new_good", year_built=2020, eui=20.0)   # newest, best EUI -> bottom
-    _ab802(db_session, "middle", year_built=1985, eui=100.0)
+    # median EUI of {200, 20, 100} is 100.
+    _ab802(db_session, "old_bad", year_built=1990, eui=200.0)   # full age credit, 2.0x median EUI
+    _ab802(db_session, "new_good", year_built=2020, eui=20.0)   # no age credit, 0.2x median EUI
+    _ab802(db_session, "middle", year_built=1980, eui=100.0)    # partial age credit, 1.0x median EUI
 
     ranked = rank_in_territory(db_session)
     ids = [d["row"].portfolio_manager_property_id for d in ranked]
     assert ids == ["old_bad", "middle", "new_good"]
-    assert ranked[0]["age_percentile"] == 1.0
-    assert ranked[0]["eui_percentile"] == 1.0
+    assert ranked[0]["age_credit"] == 1.0
+    assert ranked[0]["eui_ratio"] == 2.0
+    assert ranked[0]["type_median_eui"] == 100.0
 
 
 def test_rank_in_territory_ranks_within_property_type_only(db_session, cfg):
-    """A 1950 warehouse with low EUI for its type must not be dragged down by
-    a 2020 office with a naturally different EUI range -- percentiles are
-    computed per primary_property_type, never across types."""
+    """A warehouse with low absolute EUI for its type must not be dragged
+    down by an office with a naturally different EUI range -- the median
+    (and the ratio against it) is computed per primary_property_type,
+    never across types."""
     from app.pipeline.ab802 import rank_in_territory
-    _ab802(db_session, "wh_old", property_type="Warehouse", year_built=1950, eui=30.0)
+    _ab802(db_session, "wh_old", property_type="Warehouse", year_built=1990, eui=30.0)
     _ab802(db_session, "wh_new", property_type="Warehouse", year_built=2020, eui=10.0)
     _ab802(db_session, "office", property_type="Office", year_built=1990, eui=500.0)
 
     ranked = rank_in_territory(db_session, property_type="Warehouse")
     ids = [d["row"].portfolio_manager_property_id for d in ranked]
     assert ids == ["wh_old", "wh_new"]
+    # Warehouse median is 20.0 (the two warehouses only) -- the office's 500
+    # never enters this type's median.
+    assert ranked[0]["type_median_eui"] == 20.0
 
 
-def test_rank_in_territory_missing_year_built_gets_no_age_percentile(db_session, cfg):
+def test_rank_in_territory_missing_year_built_or_eui_gets_no_value_for_that_half(db_session, cfg):
     from app.pipeline.ab802 import rank_in_territory
-    _ab802(db_session, "known", year_built=1950, eui=100.0)
+    _ab802(db_session, "known", year_built=1990, eui=100.0)
     _ab802(db_session, "unknown_age", year_built=None, eui=100.0)
+    _ab802(db_session, "unknown_eui", year_built=1990, eui=None)
 
     ranked = rank_in_territory(db_session)
     by_id = {d["row"].portfolio_manager_property_id: d for d in ranked}
-    assert by_id["unknown_age"]["age_percentile"] is None
-    assert by_id["known"]["age_percentile"] is not None
+    assert by_id["unknown_age"]["age_credit"] is None
+    assert by_id["known"]["age_credit"] is not None
+    assert by_id["unknown_eui"]["eui_ratio"] is None
+    assert by_id["known"]["eui_ratio"] is not None
+
+
+def test_rank_in_territory_ties_break_on_gfa_larger_first(db_session, cfg):
+    from app.pipeline.ab802 import rank_in_territory
+    # Both get age_credit=1.0 (built 1990) and eui_ratio=1.0 (both at the
+    # type median of 100.0) -- an exact rank_key tie, broken by GFA.
+    _ab802(db_session, "small", year_built=1990, eui=100.0, property_gfa_sqft=10_000)
+    _ab802(db_session, "big", year_built=1990, eui=100.0, property_gfa_sqft=90_000)
+
+    ranked = rank_in_territory(db_session)
+    assert ranked[0]["rank_key"] == ranked[1]["rank_key"]
+    ids = [d["row"].portfolio_manager_property_id for d in ranked]
+    assert ids == ["big", "small"]
+
+
+def test_rank_in_territory_null_gfa_sorts_as_smallest_in_a_tie(db_session, cfg):
+    from app.pipeline.ab802 import rank_in_territory
+    _ab802(db_session, "known_gfa", year_built=1990, eui=100.0, property_gfa_sqft=1_000)
+    _ab802(db_session, "unknown_gfa", year_built=1990, eui=100.0, property_gfa_sqft=None)
+
+    ranked = rank_in_territory(db_session)
+    ids = [d["row"].portfolio_manager_property_id for d in ranked]
+    assert ids == ["known_gfa", "unknown_gfa"]
 
 
 def test_rank_in_territory_filters_county_property_type_year_built_and_match(db_session, cfg):
@@ -402,11 +435,54 @@ def test_fetch_dedupes_duplicate_property_ids_keeping_the_last_row(db_session, c
 def test_dmg_relevant_types_excludes_catchalls_and_named_exclusions():
     from app.pipeline.ab802 import DMG_RELEVANT_PROPERTY_TYPES
     for excluded in ("Casino", "Worship Facility", "Parking", "Other", "Other - Recreation",
-                    "Other - Restaurant/Bar", "Self-Storage Facility", "Senior Living Community"):
+                    "Other - Restaurant/Bar", "Self-Storage Facility", "Senior Living Community",
+                    "Multifamily Housing"):
         assert excluded not in DMG_RELEVANT_PROPERTY_TYPES
-    for included in ("Office", "Medical Office", "K-12 School", "Data Center",
-                     "Multifamily Housing", "Distribution Center"):
+    for included in ("Office", "Medical Office", "K-12 School", "Data Center", "Distribution Center"):
         assert included in DMG_RELEVANT_PROPERTY_TYPES
+
+
+def test_rank_in_territory_multifamily_not_default_but_still_selectable(db_session, cfg):
+    from app.pipeline.ab802 import rank_in_territory
+    _ab802(db_session, "1", property_type="Multifamily Housing")
+    _ab802(db_session, "2", property_type="Office")
+
+    default = [d["row"].portfolio_manager_property_id
+              for d in rank_in_territory(db_session, restrict_to_relevant_types=True)]
+    assert default == ["2"]
+
+    explicit = [d["row"].portfolio_manager_property_id
+               for d in rank_in_territory(db_session, property_type="Multifamily Housing",
+                                          restrict_to_relevant_types=True)]
+    assert explicit == ["1"]
+
+
+# --- age_credit: the Year Built trapezoid ----------------------------------
+
+
+def test_age_credit_full_for_1985_through_2012():
+    from app.pipeline.ab802 import age_credit
+    for year in (1985, 1990, 2000, 2012):
+        assert age_credit(year) == 1.0
+
+
+def test_age_credit_zero_before_1975_and_at_or_after_2018():
+    from app.pipeline.ab802 import age_credit
+    for year in (1900, 1974, 2018, 2019, 2030):
+        assert age_credit(year) == 0.0
+
+
+def test_age_credit_tapers_linearly_between_the_breakpoints():
+    from app.pipeline.ab802 import age_credit
+    assert age_credit(1975) == 0.0
+    assert age_credit(1980) == 0.5   # halfway from 1975 to 1985
+    assert age_credit(2015) == 0.5   # halfway from 2012 to 2018
+    assert age_credit(2017) == pytest.approx(1 / 6)
+
+
+def test_age_credit_none_when_year_built_unstated():
+    from app.pipeline.ab802 import age_credit
+    assert age_credit(None) is None
 
 
 def test_looks_like_organization_name_word_boundary_matches():

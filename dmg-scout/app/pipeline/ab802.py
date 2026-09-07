@@ -438,32 +438,39 @@ def match_to_ebewe(session: Session, rows: list[Ab802Building]) -> int:
 # ---- board: latest-year snapshot, ranked, filtered ------------------------
 
 
-def _percentile_rank(values_by_id: dict[int, float], *, higher_is_higher_rank: bool) -> dict[int, float]:
-    """0..1 percentile rank within the given group of ids -- 1.0 is the
-    extreme end that ranks HIGHEST (oldest year_built, or highest EUI).
-    Ties share the average rank. An id absent from `values_by_id` (a null
-    field) simply has no entry in the result -- never guessed at, never
-    defaulted to a mid-point that would look identical to "exactly
-    average"."""
-    items = sorted(values_by_id.items(), key=lambda kv: kv[1])
-    n = len(items)
-    if n == 0:
-        return {}
-    if n == 1:
-        return {items[0][0]: 0.5}
-    out: dict[int, float] = {}
-    i = 0
-    while i < n:
-        j = i
-        while j + 1 < n and items[j + 1][1] == items[i][1]:
-            j += 1
-        avg_rank = ((i + j) / 2) / (n - 1)  # 0..1, ascending by value
-        for k in range(i, j + 1):
-            out[items[k][0]] = avg_rank
-        i = j + 1
-    if not higher_is_higher_rank:
-        out = {k: 1 - v for k, v in out.items()}
-    return out
+# Age-credit trapezoid -- see age_credit()'s own docstring for the reasoning.
+AGE_CREDIT_ZERO_BEFORE = 1975   # pre-1975: no credit at all, not full credit
+AGE_CREDIT_FULL_START = 1985    # ramps 1975 -> 1985 from 0 to 1.0
+AGE_CREDIT_FULL_END = 2012      # full credit (1.0) for 1985-2012 inclusive
+AGE_CREDIT_ZERO_AFTER = 2018    # ramps 2012 -> 2018 from 1.0 back to 0
+
+
+def age_credit(year_built: int | None) -> float | None:
+    """0..1: full credit (1.0) for Year Built 1985-2012 inclusive, tapering
+    LINEARLY to 0 by 1975 on the early side and by 2018 on the late side.
+    None (year_built itself unstated) returns None, never 0 -- 0 would look
+    identical to "confirmed too new or too old for credit," a different
+    fact than "not stated at all."
+
+    Pre-1975 is 0, not full credit, even though it's the oldest building
+    stock on the board: by now, a pre-1975 building's ORIGINAL equipment
+    has almost certainly already been replaced at least once (typical
+    commercial HVAC service life is 15-25 years), so Year Built alone
+    tells you nothing about the age of whatever equipment is actually in
+    the building today. That is genuinely unknown, not "assumed old" --
+    same abstain-don't-guess discipline as every other null-shaped fact in
+    this codebase, just expressed as a credit of 0 instead of a null field,
+    since the age term must always produce a number to sum with the EUI
+    term below."""
+    if year_built is None:
+        return None
+    if year_built < AGE_CREDIT_ZERO_BEFORE or year_built >= AGE_CREDIT_ZERO_AFTER:
+        return 0.0
+    if AGE_CREDIT_FULL_START <= year_built <= AGE_CREDIT_FULL_END:
+        return 1.0
+    if year_built < AGE_CREDIT_FULL_START:
+        return (year_built - AGE_CREDIT_ZERO_BEFORE) / (AGE_CREDIT_FULL_START - AGE_CREDIT_ZERO_BEFORE)
+    return (AGE_CREDIT_ZERO_AFTER - year_built) / (AGE_CREDIT_ZERO_AFTER - AGE_CREDIT_FULL_END)
 
 
 def latest_in_territory_rows(session: Session) -> list[Ab802Building]:
@@ -494,6 +501,10 @@ def latest_in_territory_rows(session: Session) -> list[Ab802Building]:
 # deliberately NOT folded into warehouse/distribution or multifamily -- each
 # is its own real-estate asset class with a different mechanical profile, and
 # the user's own list named specific categories, not "anything similar."
+#
+# Multifamily Housing removed 2026-09-07 -- not a default type, still
+# selectable explicitly (`property_type=Multifamily Housing` bypasses this
+# allowlist the same way any other explicit type does).
 DMG_RELEVANT_PROPERTY_TYPES = {
     "Office",                                  # office
     "Medical Office",                          # medical office
@@ -514,7 +525,6 @@ DMG_RELEVANT_PROPERTY_TYPES = {
     "Supermarket/Grocery Store",               # retail
     "Wholesale Club/Supercenter",              # retail
     "Lifestyle Center",                        # retail
-    "Multifamily Housing",                     # multifamily
 }
 
 # Word-boundary matched, case-insensitive, plural forms included ("Kaiser
@@ -544,24 +554,37 @@ def rank_in_territory(session: Session, *, county: str | None = None,
                       property_type: str | None = None, year_built_before: int | None = None,
                       eui_above_median: bool = False, has_assessor_match: bool = False,
                       restrict_to_relevant_types: bool = False) -> list[dict]:
-    """Ranked, filtered board rows: older year_built and higher
-    weather_normalized_site_eui both push a row toward the top, relative
-    ONLY to other in-territory buildings of the SAME primary_property_type
-    (a 1980 office and a 1980 distribution warehouse have different normal
-    EUI ranges; ranking them against each other would not mean anything).
-    Returns the RAW inputs (year_built, eui) and their own within-type
-    percentiles as plain dict fields -- never a single opaque score, so a
-    rep can see exactly why one row outranks another.
+    """Ranked, filtered board rows -- two terms, summed, both shown as plain
+    dict fields rather than folded into one opaque score:
+
+      - age_credit(row.year_built): see that function's own docstring for
+        the exact trapezoid (full credit 1985-2012, tapering to 0 by 1975
+        and by 2018, 0 before 1975).
+      - eui_ratio: row.weather_normalized_site_eui / the MEDIAN weather-
+        normalized site EUI for its own primary_property_type, among
+        in-territory buildings -- relative magnitude, not a percentile
+        rank, so a building at 3x its type's median EUI clearly outranks
+        one at 1.2x even if both are "top of their type." A 1980 office
+        and a 1980 distribution warehouse have different normal EUI
+        ranges, so this is always computed within type, never board-wide.
+
+    rank_key = eui_ratio + age_credit (0.0 substituted only for summing,
+    never displayed as if it were a real 0 -- the caller shows the actual
+    per-row field, which stays None when its input was missing). Ties on
+    rank_key break on property_gfa_sqft, larger first ("a bigger building
+    is a bigger order") -- a null GFA sorts as the smallest, never assumed
+    large.
+
+    Median and the EUI-above-median filter are computed over the type's
+    FULL in-territory population, before any filter below narrows which
+    rows are actually shown -- a filter must never change what "median for
+    its type" means for the rows that remain.
 
     restrict_to_relevant_types (the board's own default -- see
     app/web/main.py:replacement_leads_view): limits results to
     DMG_RELEVANT_PROPERTY_TYPES, ignored when `property_type` names one
-    specific type explicitly (a rep who explicitly asks for "Casino" gets
-    it, default or not). Percentiles and the EUI-median-for-filtering are
-    still computed per-type over the type's own full in-territory
-    population regardless of this flag -- a type either is or isn't in the
-    group being shown, so excluding OTHER types can never change what
-    "median for its type" or "percentile" means for the types that remain.
+    specific type explicitly (a rep who explicitly asks for "Casino" or
+    "Multifamily Housing" gets it, default or not).
 
     name_hint: when benchmarking_filer is blank AND property_name itself
     reads like an organization (looks_like_organization_name), the name is
@@ -575,17 +598,12 @@ def rank_in_territory(session: Session, *, county: str | None = None,
     for r in rows:
         by_type.setdefault(r.primary_property_type or "Unknown", []).append(r)
 
-    age_pct: dict[int, float] = {}
-    eui_pct: dict[int, float] = {}
     eui_median_by_type: dict[str, float] = {}
     for ptype, group in by_type.items():
-        year_values = {r.id: r.year_built for r in group if r.year_built is not None}
-        eui_values = {r.id: r.weather_normalized_site_eui for r in group
-                     if r.weather_normalized_site_eui is not None}
-        age_pct.update(_percentile_rank(year_values, higher_is_higher_rank=False))
-        eui_pct.update(_percentile_rank(eui_values, higher_is_higher_rank=True))
+        eui_values = [r.weather_normalized_site_eui for r in group
+                     if r.weather_normalized_site_eui is not None]
         if eui_values:
-            eui_median_by_type[ptype] = statistics.median(eui_values.values())
+            eui_median_by_type[ptype] = statistics.median(eui_values)
 
     out = []
     for r in rows:
@@ -598,24 +616,26 @@ def rank_in_territory(session: Session, *, county: str | None = None,
             continue
         if year_built_before is not None and (r.year_built is None or r.year_built >= year_built_before):
             continue
+        median = eui_median_by_type.get(r.primary_property_type or "Unknown")
         if eui_above_median:
-            median = eui_median_by_type.get(r.primary_property_type or "Unknown")
             if median is None or r.weather_normalized_site_eui is None or r.weather_normalized_site_eui <= median:
                 continue
         if has_assessor_match and not r.assessor_match_method:
             continue
 
-        a_pct = age_pct.get(r.id)
-        e_pct = eui_pct.get(r.id)
+        age = age_credit(r.year_built)
+        eui_ratio = (r.weather_normalized_site_eui / median
+                    if median and r.weather_normalized_site_eui is not None else None)
         name_hint = (r.property_name if not r.benchmarking_filer
                     and looks_like_organization_name(r.property_name) else None)
         out.append({
             "row": r,
-            "age_percentile": a_pct,
-            "eui_percentile": e_pct,
-            "rank_key": (a_pct or 0.0) + (e_pct or 0.0),
+            "age_credit": age,
+            "eui_ratio": eui_ratio,
+            "type_median_eui": median,
+            "rank_key": (eui_ratio or 0.0) + (age or 0.0),
             "name_hint": name_hint,
         })
 
-    out.sort(key=lambda d: d["rank_key"], reverse=True)
+    out.sort(key=lambda d: (d["rank_key"], d["row"].property_gfa_sqft or 0.0), reverse=True)
     return out
