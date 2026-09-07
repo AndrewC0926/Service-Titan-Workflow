@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 import statistics
 
 import openpyxl
@@ -480,9 +481,69 @@ def latest_in_territory_rows(session: Session) -> list[Ab802Building]:
     return list(latest.values())
 
 
+# Default property-type filter -- see rank_in_territory's `restrict_to_relevant_types`.
+# Verified 2026-09-07 against the exact primary_property_type strings live in
+# production ab802_buildings (2024, in-territory) -- an ALLOWLIST, not an
+# exclude list: golf/country club rows carry "Other - Recreation" or "Other -
+# Restaurant/Bar", casino rows carry "Casino", worship rows "Worship Facility",
+# parking rows "Parking" -- none of those, and no other "Other"/"Other - X"
+# catch-all (Portfolio Manager's own miscellaneous bucket, never a specific
+# type DMG would target with confidence), are in this set, so they're excluded
+# by construction rather than by naming every excluded type. Self-Storage
+# Facility, Senior Living Community, and Residence Hall/Dormitory are
+# deliberately NOT folded into warehouse/distribution or multifamily -- each
+# is its own real-estate asset class with a different mechanical profile, and
+# the user's own list named specific categories, not "anything similar."
+DMG_RELEVANT_PROPERTY_TYPES = {
+    "Office",                                  # office
+    "Medical Office",                          # medical office
+    "Hospital (General Medical & Surgical)",   # hospital
+    "Other - Specialty Hospital",              # hospital
+    "K-12 School",                             # K-12 school
+    "College/University",                      # college/university
+    "Laboratory",                              # laboratory
+    "Data Center",                             # data center
+    "Distribution Center",                     # warehouse/distribution
+    "Non-Refrigerated Warehouse",              # warehouse/distribution
+    "Refrigerated Warehouse",                  # warehouse/distribution
+    "Manufacturing/Industrial Plant",          # manufacturing/industrial
+    "Hotel",                                   # hotel
+    "Retail Store",                            # retail
+    "Strip Mall",                              # retail
+    "Enclosed Mall",                           # retail
+    "Supermarket/Grocery Store",               # retail
+    "Wholesale Club/Supercenter",              # retail
+    "Lifestyle Center",                        # retail
+    "Multifamily Housing",                     # multifamily
+}
+
+# Word-boundary matched, case-insensitive, plural forms included ("Kaiser
+# Foundation Hospitals", "Los Angeles Unified School District") -- "City of"
+# is the one multi-word phrase, the rest are single tokens. Deliberately
+# \b-bounded: a raw substring check for "inc" matches "distinct"; this doesn't.
+_ORG_NAME_HINT_PATTERNS = [
+    re.compile(r"\bllc\b", re.I), re.compile(r"\binc\b", re.I),
+    re.compile(r"\bhospitals?\b", re.I), re.compile(r"\buniversit(?:y|ies)\b", re.I),
+    re.compile(r"\bdistricts?\b", re.I), re.compile(r"\bcount(?:y|ies)\b", re.I),
+    re.compile(r"\bcity of\b", re.I), re.compile(r"\bchurch(?:es)?\b", re.I),
+    re.compile(r"\bschools?\b", re.I),
+]
+
+
+def looks_like_organization_name(name: str | None) -> bool:
+    """True if `name` reads like an organization, not a street address or a
+    generic building nickname -- see rank_in_territory's `name_hint`. A hint
+    that a rep can call this name, never a claim that it IS the owner: see
+    Ab802Building's own docstring on why no owner field exists at all."""
+    if not name:
+        return False
+    return any(p.search(name) for p in _ORG_NAME_HINT_PATTERNS)
+
+
 def rank_in_territory(session: Session, *, county: str | None = None,
                       property_type: str | None = None, year_built_before: int | None = None,
-                      eui_above_median: bool = False, has_assessor_match: bool = False) -> list[dict]:
+                      eui_above_median: bool = False, has_assessor_match: bool = False,
+                      restrict_to_relevant_types: bool = False) -> list[dict]:
     """Ranked, filtered board rows: older year_built and higher
     weather_normalized_site_eui both push a row toward the top, relative
     ONLY to other in-territory buildings of the SAME primary_property_type
@@ -492,11 +553,22 @@ def rank_in_territory(session: Session, *, county: str | None = None,
     percentiles as plain dict fields -- never a single opaque score, so a
     rep can see exactly why one row outranks another.
 
-    Percentiles and the EUI-median-for-filtering are computed over the
-    FULL in-territory population per type, before any filter below is
-    applied -- a filter narrows which rows are shown, it must never change
-    what "median for its type" or "percentile" mean for the rows that
-    remain."""
+    restrict_to_relevant_types (the board's own default -- see
+    app/web/main.py:replacement_leads_view): limits results to
+    DMG_RELEVANT_PROPERTY_TYPES, ignored when `property_type` names one
+    specific type explicitly (a rep who explicitly asks for "Casino" gets
+    it, default or not). Percentiles and the EUI-median-for-filtering are
+    still computed per-type over the type's own full in-territory
+    population regardless of this flag -- a type either is or isn't in the
+    group being shown, so excluding OTHER types can never change what
+    "median for its type" or "percentile" means for the types that remain.
+
+    name_hint: when benchmarking_filer is blank AND property_name itself
+    reads like an organization (looks_like_organization_name), the name is
+    surfaced as a lead -- labeled "name on filing" by the caller, never
+    "owner". Both benchmarking_filer and name_hint are absent for a row
+    with neither -- the caller shows "no owner data available" for that
+    case, not this function."""
     rows = latest_in_territory_rows(session)
 
     by_type: dict[str, list[Ab802Building]] = {}
@@ -519,7 +591,10 @@ def rank_in_territory(session: Session, *, county: str | None = None,
     for r in rows:
         if county and r.county_from_geocoding != county:
             continue
-        if property_type and (r.primary_property_type or "Unknown") != property_type:
+        if property_type:
+            if (r.primary_property_type or "Unknown") != property_type:
+                continue
+        elif restrict_to_relevant_types and r.primary_property_type not in DMG_RELEVANT_PROPERTY_TYPES:
             continue
         if year_built_before is not None and (r.year_built is None or r.year_built >= year_built_before):
             continue
@@ -532,11 +607,14 @@ def rank_in_territory(session: Session, *, county: str | None = None,
 
         a_pct = age_pct.get(r.id)
         e_pct = eui_pct.get(r.id)
+        name_hint = (r.property_name if not r.benchmarking_filer
+                    and looks_like_organization_name(r.property_name) else None)
         out.append({
             "row": r,
             "age_percentile": a_pct,
             "eui_percentile": e_pct,
             "rank_key": (a_pct or 0.0) + (e_pct or 0.0),
+            "name_hint": name_hint,
         })
 
     out.sort(key=lambda d: d["rank_key"], reverse=True)

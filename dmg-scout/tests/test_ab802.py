@@ -394,3 +394,75 @@ def test_fetch_dedupes_duplicate_property_ids_keeping_the_last_row(db_session, c
     assert len(rows) == 2
     kept = next(r for r in rows if r.portfolio_manager_property_id == "1")
     assert kept.address_1 == "Corrected Address" and kept.weather_normalized_site_eui == 20.0
+
+
+# --- DMG_RELEVANT_PROPERTY_TYPES / looks_like_organization_name -----------
+
+
+def test_dmg_relevant_types_excludes_catchalls_and_named_exclusions():
+    from app.pipeline.ab802 import DMG_RELEVANT_PROPERTY_TYPES
+    for excluded in ("Casino", "Worship Facility", "Parking", "Other", "Other - Recreation",
+                    "Other - Restaurant/Bar", "Self-Storage Facility", "Senior Living Community"):
+        assert excluded not in DMG_RELEVANT_PROPERTY_TYPES
+    for included in ("Office", "Medical Office", "K-12 School", "Data Center",
+                     "Multifamily Housing", "Distribution Center"):
+        assert included in DMG_RELEVANT_PROPERTY_TYPES
+
+
+def test_looks_like_organization_name_word_boundary_matches():
+    from app.pipeline.ab802 import looks_like_organization_name
+    assert looks_like_organization_name("Acme Properties LLC") is True
+    assert looks_like_organization_name("Kaiser Foundation Hospitals") is True
+    assert looks_like_organization_name("University of Southern California") is True
+    assert looks_like_organization_name("Los Angeles Unified School District") is True
+    assert looks_like_organization_name("City of Los Angeles") is True
+    assert looks_like_organization_name("St. Mary's Church") is True
+
+
+def test_looks_like_organization_name_no_false_positive_on_substrings():
+    from app.pipeline.ab802 import looks_like_organization_name
+    # "inc" is a substring of "distinct"/"Cincinnati" -- must not match without a word boundary.
+    assert looks_like_organization_name("123 Distinct Plaza") is False
+    assert looks_like_organization_name("Cincinnati Building") is False
+    assert looks_like_organization_name("Dodger Stadium") is False
+    assert looks_like_organization_name("") is False
+    assert looks_like_organization_name(None) is False
+
+
+# --- rank_in_territory: restrict_to_relevant_types + name_hint -------------
+
+
+def test_rank_in_territory_restricts_to_relevant_types_by_default(db_session, cfg):
+    from app.pipeline.ab802 import rank_in_territory
+    _ab802(db_session, "1", property_type="Office")
+    _ab802(db_session, "2", property_type="Casino")
+
+    restricted = [d["row"].portfolio_manager_property_id
+                 for d in rank_in_territory(db_session, restrict_to_relevant_types=True)]
+    assert restricted == ["1"]
+
+    unrestricted = {d["row"].portfolio_manager_property_id
+                   for d in rank_in_territory(db_session, restrict_to_relevant_types=False)}
+    assert unrestricted == {"1", "2"}
+
+
+def test_rank_in_territory_explicit_property_type_overrides_the_default_restriction(db_session, cfg):
+    from app.pipeline.ab802 import rank_in_territory
+    _ab802(db_session, "1", property_type="Office")
+    _ab802(db_session, "2", property_type="Casino")
+
+    result = [d["row"].portfolio_manager_property_id
+             for d in rank_in_territory(db_session, property_type="Casino", restrict_to_relevant_types=True)]
+    assert result == ["2"]
+
+
+def test_rank_in_territory_name_hint_only_when_filer_blank_and_name_reads_organizational(db_session, cfg):
+    from app.pipeline.ab802 import rank_in_territory
+    _ab802(db_session, "1", property_name="Kaiser Foundation Hospitals - Building A")  # no filer, org name
+    _ab802(db_session, "2", property_name="Dodger Stadium")                            # no filer, not org-like
+    _ab802(db_session, "3", property_name="Some LLC Tower", benchmarking_filer="Acme Mgmt")  # filer wins
+
+    by_id = {d["row"].portfolio_manager_property_id: d for d in rank_in_territory(db_session)}
+    assert by_id["1"]["name_hint"] == "Kaiser Foundation Hospitals - Building A"
+    assert by_id["2"]["name_hint"] is None
+    assert by_id["3"]["name_hint"] is None  # filer already present -- name_hint is never a second source

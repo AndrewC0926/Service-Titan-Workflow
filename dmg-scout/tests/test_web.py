@@ -1152,12 +1152,50 @@ def test_replacement_leads_ab802_filters_by_county(client, db_session, cfg):
     from app.models import Ab802Building
     db_session.add(Ab802Building(portfolio_manager_property_id="1", year_ending=2024, in_territory=True,
                                  property_name="LA Building", county_from_geocoding="Los Angeles County",
-                                 source_url="x"))
+                                 primary_property_type="Office", source_url="x"))
     db_session.add(Ab802Building(portfolio_manager_property_id="2", year_ending=2024, in_territory=True,
                                  property_name="Orange Building", county_from_geocoding="Orange County",
-                                 source_url="x"))
+                                 primary_property_type="Office", source_url="x"))
     db_session.commit()
 
     r = client.get("/replacement-leads?view=ab802&county=Los+Angeles+County", headers=AUTH)
     assert "LA Building" in r.text
     assert "Orange Building" not in r.text
+
+
+def test_replacement_leads_ab802_defaults_to_relevant_property_types(client, db_session, cfg):
+    from app.models import Ab802Building
+    db_session.add(Ab802Building(portfolio_manager_property_id="1", year_ending=2024, in_territory=True,
+                                 property_name="Office Tower", primary_property_type="Office",
+                                 county_from_geocoding="Los Angeles County", source_url="x"))
+    db_session.add(Ab802Building(portfolio_manager_property_id="2", year_ending=2024, in_territory=True,
+                                 property_name="Big Casino", primary_property_type="Casino",
+                                 county_from_geocoding="Los Angeles County", source_url="x"))
+    db_session.commit()
+
+    default = client.get("/replacement-leads?view=ab802", headers=AUTH)
+    assert "Office Tower" in default.text
+    assert "Big Casino" not in default.text
+
+    show_all = client.get("/replacement-leads?view=ab802&show_all_types=true", headers=AUTH)
+    assert "Office Tower" in show_all.text
+    assert "Big Casino" in show_all.text
+
+    explicit = client.get("/replacement-leads?view=ab802&property_type=Casino", headers=AUTH)
+    assert "Big Casino" in explicit.text
+    assert "Office Tower" not in explicit.text
+
+
+def test_replacement_leads_ab802_shows_name_on_filing_hint(client, db_session, cfg):
+    from app.models import Ab802Building
+    db_session.add(Ab802Building(
+        portfolio_manager_property_id="1", year_ending=2024, in_territory=True,
+        property_name="Kaiser Foundation Hospitals - Building A", city="Los Angeles",
+        county_from_geocoding="Los Angeles County", primary_property_type="Hospital (General Medical & Surgical)",
+        source_url="x",
+    ))
+    db_session.commit()
+
+    r = client.get("/replacement-leads?view=ab802", headers=AUTH)
+    assert "Kaiser Foundation Hospitals - Building A" in r.text
+    assert "name on filing" in r.text

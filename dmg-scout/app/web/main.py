@@ -1093,7 +1093,7 @@ def contractor_detail(contractor_id: int, request: Request,
 @app.get("/replacement-leads", response_class=HTMLResponse)
 def replacement_leads_view(request: Request, view: str = "contractors",
                            min_overdue: int = 5, limit: int = 100,
-                           county: str = "", property_type: str = "",
+                           county: str = "", property_type: str = "", show_all_types: bool = False,
                            year_built_before: int | None = None,
                            eui_above_median: bool = False, has_assessor_match: bool = False,
                            session: Session = Depends(get_session), _: str = Depends(auth)):
@@ -1122,7 +1122,13 @@ def replacement_leads_view(request: Request, view: str = "contractors",
     file), ranked by app.pipeline.ab802:rank_in_territory. See that
     function's docstring for the rank (older + higher EUI, within its own
     property type, shown as plain percentile columns, never a black-box
-    score)."""
+    score). Defaults to DMG_RELEVANT_PROPERTY_TYPES only (office, medical
+    office, hospital, K-12 school, college/university, laboratory, data
+    center, warehouse/distribution, manufacturing/industrial, hotel,
+    retail, multifamily) -- show_all_types=true or an explicit
+    property_type both bypass that default, never lose access to the
+    excluded types (golf/country club, casino, worship, parking, and
+    similar catch-alls), just not first."""
     cfg = load_config()
 
     leads = distribution = None
@@ -1138,7 +1144,8 @@ def replacement_leads_view(request: Request, view: str = "contractors",
         ab802_rows = rank_in_territory(
             session, county=county or None, property_type=property_type or None,
             year_built_before=year_built_before, eui_above_median=eui_above_median,
-            has_assessor_match=has_assessor_match)
+            has_assessor_match=has_assessor_match,
+            restrict_to_relevant_types=not show_all_types)
         all_rows = latest_in_territory_rows(session)
         ab802_counties = sorted({r.county_from_geocoding for r in all_rows if r.county_from_geocoding})
         ab802_property_types = sorted({r.primary_property_type for r in all_rows if r.primary_property_type})
@@ -1178,7 +1185,8 @@ def replacement_leads_view(request: Request, view: str = "contractors",
         "ab802_rows": ab802_rows, "ab802_counties": ab802_counties,
         "ab802_property_types": ab802_property_types, "ab802_filter_stale": ab802_filter_stale,
         "ab802_retrofit_id_by_apn": ab802_retrofit_id_by_apn,
-        "county": county, "property_type": property_type, "year_built_before": year_built_before,
+        "county": county, "property_type": property_type, "show_all_types": show_all_types,
+        "year_built_before": year_built_before,
         "eui_above_median": eui_above_median, "has_assessor_match": has_assessor_match,
         "tb": _title_block(session), "active": "replacement-leads",
     })

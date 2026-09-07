@@ -43,9 +43,28 @@
       shows "no owner data available" for exactly that reason, on every row, permanently. Where a row
       also matches an LA EBEWE benchmark filing by address, that filing's own self-reported
       <span class="mono">organization</span> field is shown labeled "benchmarking filer" — the entity
-      that filed the EBEWE benchmark, not a verified owner. Both joins, and this whole population, are
-      LA County only — the only county this app's assessor/EBEWE data covers; outside LA, a row stands
-      alone with its Property Name.</span>
+      that filed the EBEWE benchmark, not a verified owner. Where neither exists but the Property Name
+      itself reads like an organization (contains LLC, Inc, Hospital, University, District, County,
+      City of, Church, or School), that name is shown labeled "name on filing" instead — a hint worth
+      calling, never a claim that it IS the owner. Both joins, and this whole population, are LA County
+      only — the only county this app's assessor/EBEWE data covers; outside LA, a row stands alone with
+      its Property Name.</span>
+    </span>
+  </div>
+</details>
+
+<details class="callout callout-warn">
+  <summary>How this is built</summary>
+  <div class="callout-content">
+    <span>
+    <strong>Defaults to DMG-relevant property types</strong>
+    <span class="body">Office, medical office, hospital, K-12 school, college/university, laboratory,
+      data center, warehouse/distribution, manufacturing/industrial, hotel, retail, and multifamily —
+      an allowlist verified against the real property types on file, not a guess (golf/country club
+      rows carry "Other - Recreation" or similar, casino rows carry "Casino," worship rows "Worship
+      Facility," parking rows "Parking" — none of those, or any other Portfolio Manager "Other -"
+      catch-all, are in the allowlist). Pick a specific property type below (including an excluded one)
+      or check "show all property types" to see everything.</span>
     </span>
   </div>
 </details>
@@ -57,12 +76,13 @@
     {% for c in ab802_counties %}<option value="{{ c }}" {% if c == county %}selected{% endif %}>{{ c }}</option>{% endfor %}
   </select>
   <select name="property_type">
-    <option value="">All property types</option>
+    <option value="">{{ 'All property types' if show_all_types else 'DMG-relevant property types (default)' }}</option>
     {% for p in ab802_property_types %}<option value="{{ p }}" {% if p == property_type %}selected{% endif %}>{{ p }}</option>{% endfor %}
   </select>
   <label>Year built before <input type="number" name="year_built_before" value="{{ year_built_before or '' }}" style="width:6rem"></label>
   <label><input type="checkbox" name="eui_above_median" value="true" {% if eui_above_median %}checked{% endif %}> EUI above median for its type</label>
   <label><input type="checkbox" name="has_assessor_match" value="true" {% if has_assessor_match %}checked{% endif %}> Has an assessor match</label>
+  <label><input type="checkbox" name="show_all_types" value="true" {% if show_all_types %}checked{% endif %}> Show all property types (incl. golf, casino, worship, parking, etc.)</label>
   <button type="submit">Filter</button>
   <a class="note" href="/replacement-leads?view=ab802">Clear filters</a>
 </form>
@@ -103,6 +123,8 @@
   <td>
     {%- if r.benchmarking_filer -%}
       {{ r.benchmarking_filer }}<div class="note">benchmarking filer</div>
+    {%- elif d.name_hint -%}
+      {{ d.name_hint }}<div class="note">name on filing</div>
     {%- else -%}
       <span class="dim">no owner data available</span>
     {%- endif -%}
