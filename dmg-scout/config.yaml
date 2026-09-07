@@ -1232,6 +1232,36 @@ call_target:
     - "Scripps"
     - "Sutter"
 
+# AB 802 board owner hints -- a HINT only, never a claim of ownership (see
+# Ab802Building's own docstring on why no owner field exists at all). Matched
+# against Property Name, first entry in this list wins -- editable without a
+# deploy, same discipline as call_target.standards_owners above. Each entry
+# is either `contains` (plain substring, case-insensitive -- same matching
+# app.call_target._matches_standards_owner already uses) or `regex` (used as
+# written, case-insensitive).
+#
+# The one regex entry (LAX/INE/SDG/ONT + 5 digits, Prologis's own internal
+# facility-code prefix) was verified 2026-09-08 against three real
+# in-territory property names, checked against Prologis's own public
+# property search and third-party commercial listings -- see
+# app/assumptions.py's "AB 802 owner hints" entry for the three addresses
+# and what confirmed each one.
+ab802_owner_hints:
+  tokens:
+    - {contains: "Rexford", owner: "Rexford Industrial"}
+    - {regex: "^(LAX|INE|SDG|ONT)\\d{5}", owner: "Prologis"}
+    - {contains: "BMR-", owner: "BioMed Realty"}
+    - {contains: "Kilroy", owner: "Kilroy"}
+    - {contains: "Irvine Company", owner: "Irvine Company"}
+    - {contains: "Prologis", owner: "Prologis"}
+    - {contains: "Link Logistics", owner: "Link Logistics"}
+    - {contains: "IDI", owner: "IDI"}
+    - {contains: "CenterPoint", owner: "CenterPoint"}
+    - {contains: "Duke", owner: "Duke"}
+    - {contains: "Majestic", owner: "Majestic"}
+    - {contains: "Watson Land", owner: "Watson Land"}
+    - {contains: "Sares Regis", owner: "Sares Regis"}
+
 digest:
   enabled: true
   to: ["acrane988@gmail.com"]

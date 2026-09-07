@@ -1103,6 +1103,48 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
         last_reviewed="Measured 2026-09-07 against live production RetrofitBuilding/EbeweBenchmark data.",
     ))
 
+    out.append(Assumption(
+        group="AB 802 statewide benchmarking", name="AB 802 owner hints",
+        config_path="ab802_owner_hints.tokens",
+        value="13 config-driven rules (12 plain-substring, 1 regex), first match wins -- see "
+             "config.yaml's ab802_owner_hints for the editable list",
+        source_type=MEASURED,
+        source_detail=(
+            "The one regex rule (`^(LAX|INE|SDG|ONT)\\d{5}` -> Prologis, Prologis's own internal "
+            "facility-code prefix convention) was verified 2026-09-08, per the user's explicit "
+            "instruction to check three real matches against Prologis's own public property search "
+            "before shipping the rule, or drop it if it didn't hold. Three in-territory property names "
+            "matching the pattern were checked:\n"
+            "  1. 'lax10201 - van nuys dis ctr 1', 16640 Stagg Street, Los Angeles (Van Nuys), CA 91406 "
+            "-- confirmed directly: PropertyShark lists the parcel (APN 2205-009-078) as owned by "
+            "'Prologis, L.P.', mailing address 2141 Rosecrans Avenue Suite #1151, El Segundo, CA -- "
+            "Prologis's own known Southern California office address.\n"
+            "  2. 'lax07412 - commerce business park 12', 5636 East 61st Street, Commerce, CA 90040 -- "
+            "confirmed by pattern family: Prologis's own property-search site (prologis.com/"
+            "industrial-properties/building/lax07401-...) publishes 'Commerce Business Park 1' at code "
+            "lax07401, and independently-listed 'Commerce Business Center 10/11' at lax07410/lax07411, "
+            "all on the same street/complex as the lax07412 target -- consecutive codes in the same "
+            "named complex, not a coincidental pattern match.\n"
+            "  3. 'lax06516 - south bay ind ctr 16', 355 West Carob Street, Compton, CA 90220 -- "
+            "confirmed by pattern family the same way: Prologis's own site publishes 'South Bay "
+            "Industrial Center 52' at code lax06552, and CBRE/PropertyShark/Point2 list multiple other "
+            "addresses on the SAME West Carob Street explicitly as 'Prologis South Bay Industrial "
+            "Center' (601, 700, 200, 255 West Carob Street) -- the target address sits among these.\n"
+            "All three held; the rule shipped as specified rather than being dropped. 265 in-territory "
+            "rows (2024) match the code pattern board-wide -- see the board's own per-token count, "
+            "computed live at /replacement-leads?view=ab802, not hand-copied here since it changes "
+            "every time a new year's file loads. The 12 plain-substring rules (Rexford, BMR-, Kilroy, "
+            "Irvine Company, Prologis, Link Logistics, IDI, CenterPoint, Duke, Majestic, Watson Land, "
+            "Sares Regis) were specified directly by the user, not independently verified -- same "
+            "matching discipline as app.call_target._matches_standards_owner (plain substring, "
+            "case-insensitive, first match in list order wins), and same non-claim as every other "
+            "owner-facing field on this board: a match is shown as 'owner hint: {name}', never 'owner'."
+        ),
+        verified=True,
+        last_reviewed="Prologis code-pattern rule verified 2026-09-08 against Prologis's own public "
+                      "property search and third-party commercial listings for three real addresses.",
+    ))
+
     # ---- Project delivery method --------------------------------------------
 
     dmc = delivery_method_coverage or {}

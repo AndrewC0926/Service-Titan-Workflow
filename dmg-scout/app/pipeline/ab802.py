@@ -550,6 +550,45 @@ def looks_like_organization_name(name: str | None) -> bool:
     return any(p.search(name) for p in _ORG_NAME_HINT_PATTERNS)
 
 
+def owner_hint_for_name(cfg: Config, name: str | None) -> tuple[str | None, str | None]:
+    """(owner, matched_token) for the FIRST entry in config.yaml's
+    ab802_owner_hints.tokens that matches Property Name, or (None, None) --
+    see that config comment for the editable-without-a-deploy list and
+    app/assumptions.py's "AB 802 owner hints" entry for the one regex
+    entry's verification (a Prologis internal facility-code prefix,
+    checked against Prologis's own public property search before this
+    shipped).
+
+    A HINT only, same discipline as looks_like_organization_name: matching
+    a token is not a claim that company owns the building, just a name
+    worth checking before calling -- see rank_in_territory's own docstring
+    and Ab802Building's on why no owner field exists at all.
+
+    Each entry is either `contains` (plain substring, case-insensitive --
+    same matching app.call_target._matches_standards_owner already uses
+    for its own config-driven owner list) or `regex` (used as written,
+    case-insensitive); first match in config list order wins. `matched_token`
+    is the entry's own `contains`/`regex` value, for reporting how many
+    rows matched EACH configured rule, not just the resulting owner name
+    (two different rules can map to the same owner, e.g. the Prologis
+    code pattern and the literal "Prologis" substring)."""
+    if not name:
+        return None, None
+    for entry in cfg.get("ab802_owner_hints.tokens") or []:
+        owner = entry.get("owner")
+        if not owner:
+            continue
+        pattern = entry.get("regex")
+        if pattern:
+            if re.match(pattern, name.strip(), re.I):
+                return owner, pattern
+            continue
+        token = entry.get("contains")
+        if token and token.lower() in name.lower():
+            return owner, token
+    return None, None
+
+
 # AB 802 itself only covers buildings >=50,000 sqft (Public Resources Code
 # section 25402.10(a)(1)(A)) -- a row below GFA_FLOOR_SQFT is presumed a data
 # error in the source file (the un-floored top 20, measured 2026-09-07,
@@ -567,7 +606,7 @@ GFA_FLOOR_SQFT = 20_000
 EUI_RATIO_ANOMALY_ABOVE = 5.0
 
 
-def rank_in_territory(session: Session, *, county: str | None = None,
+def rank_in_territory(session: Session, cfg: Config, *, county: str | None = None,
                       property_type: str | None = None, year_built_before: int | None = None,
                       eui_above_median: bool = False, has_assessor_match: bool = False,
                       restrict_to_relevant_types: bool = False) -> dict:
@@ -620,12 +659,18 @@ def rank_in_territory(session: Session, *, county: str | None = None,
     specific type explicitly (a rep who explicitly asks for "Casino" or
     "Multifamily Housing" gets it, default or not).
 
-    name_hint: when benchmarking_filer is blank AND property_name itself
-    reads like an organization (looks_like_organization_name), the name is
-    surfaced as a lead -- labeled "name on filing" by the caller, never
-    "owner". Both benchmarking_filer and name_hint are absent for a row
-    with neither -- the caller shows "no owner data available" for that
-    case, not this function."""
+    Owner-facing fields, most specific first -- the caller shows exactly
+    ONE of these per row, never more than one, and shows "no owner data
+    available" only when all three are absent:
+      1. benchmarking_filer (unchanged, an actual EBEWE filing).
+      2. owner_hint/owner_hint_token: see owner_hint_for_name -- a
+         config.yaml-driven token/pattern match against Property Name,
+         computed only when benchmarking_filer is blank. Labeled
+         "owner hint: {owner_hint}" by the caller, never "owner".
+      3. name_hint: when BOTH benchmarking_filer and owner_hint are
+         blank AND property_name itself reads like an organization
+         (looks_like_organization_name), the name is surfaced as a lead
+         -- labeled "name on filing" by the caller, never "owner"."""
     rows = [r for r in latest_in_territory_rows(session)
            if r.property_gfa_sqft is not None and r.property_gfa_sqft >= GFA_FLOOR_SQFT]
 
@@ -661,11 +706,15 @@ def rank_in_territory(session: Session, *, county: str | None = None,
         age = age_credit(r.year_built)
         eui_ratio = (r.weather_normalized_site_eui / median
                     if median and r.weather_normalized_site_eui is not None else None)
-        name_hint = (r.property_name if not r.benchmarking_filer
+        owner_hint = owner_hint_token = None
+        if not r.benchmarking_filer:
+            owner_hint, owner_hint_token = owner_hint_for_name(cfg, r.property_name)
+        name_hint = (r.property_name if not r.benchmarking_filer and not owner_hint
                     and looks_like_organization_name(r.property_name) else None)
         entry = {
             "row": r, "age_credit": age, "eui_ratio": eui_ratio,
             "type_median_eui": median, "name_hint": name_hint,
+            "owner_hint": owner_hint, "owner_hint_token": owner_hint_token,
         }
         if eui_ratio is not None and eui_ratio > EUI_RATIO_ANOMALY_ABOVE:
             entry["rank_key"] = None

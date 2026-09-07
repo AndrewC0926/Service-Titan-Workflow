@@ -1244,3 +1244,35 @@ def test_replacement_leads_ab802_extreme_eui_ratio_shown_as_anomaly_not_ranked(c
     # -- never inside the main ranked table above it.
     assert r.text.index("Anomaly Building") > r.text.index("Normal Building")
     assert r.text.index("Anomaly Building") > r.text.lower().index("data anomaly, verify before calling")
+
+
+def test_replacement_leads_ab802_shows_owner_hint_label(client, db_session, cfg):
+    from app.models import Ab802Building
+    db_session.add(Ab802Building(
+        portfolio_manager_property_id="1", year_ending=2024, in_territory=True,
+        property_name="Rexford Ontario Distribution Center", city="Ontario",
+        county_from_geocoding="Los Angeles County", primary_property_type="Distribution Center",
+        property_gfa_sqft=50_000, source_url="x",
+    ))
+    db_session.commit()
+
+    r = client.get("/replacement-leads?view=ab802", headers=AUTH)
+    assert "owner hint: Rexford Industrial" in r.text
+
+
+def test_replacement_leads_ab802_owner_hint_beats_name_on_filing(client, db_session, cfg):
+    from app.models import Ab802Building
+    db_session.add(Ab802Building(
+        portfolio_manager_property_id="1", year_ending=2024, in_territory=True,
+        property_name="Rexford Industrial LLC", city="Ontario",
+        county_from_geocoding="Los Angeles County", primary_property_type="Distribution Center",
+        property_gfa_sqft=50_000, source_url="x",
+    ))
+    db_session.commit()
+
+    r = client.get("/replacement-leads?view=ab802", headers=AUTH)
+    assert "owner hint: Rexford Industrial" in r.text
+    # The row itself must not ALSO show a name_hint div for this property --
+    # "name on filing" legitimately appears once, in the static "How this is
+    # built" explanation, never a second time attached to this row.
+    assert r.text.count("name on filing") == 1

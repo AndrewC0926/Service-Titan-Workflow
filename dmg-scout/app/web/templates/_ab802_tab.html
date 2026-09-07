@@ -28,6 +28,8 @@
   <td>
     {%- if r.benchmarking_filer -%}
       {{ r.benchmarking_filer }}<div class="note">benchmarking filer</div>
+    {%- elif d.owner_hint -%}
+      owner hint: {{ d.owner_hint }}
     {%- elif d.name_hint -%}
       {{ d.name_hint }}<div class="note">name on filing</div>
     {%- else -%}
@@ -108,12 +110,17 @@
       shows "no owner data available" for exactly that reason, on every row, permanently. Where a row
       also matches an LA EBEWE benchmark filing by address, that filing's own self-reported
       <span class="mono">organization</span> field is shown labeled "benchmarking filer" — the entity
-      that filed the EBEWE benchmark, not a verified owner. Where neither exists but the Property Name
-      itself reads like an organization (contains LLC, Inc, Hospital, University, District, County,
-      City of, Church, or School), that name is shown labeled "name on filing" instead — a hint worth
-      calling, never a claim that it IS the owner. Both joins, and this whole population, are LA County
-      only — the only county this app's assessor/EBEWE data covers; outside LA, a row stands alone with
-      its Property Name.</span>
+      that filed the EBEWE benchmark, not a verified owner. Where that's also blank, Property Name is
+      checked against a config-driven list of known real-estate owner names and internal facility-code
+      patterns (config.yaml's <span class="mono">ab802_owner_hints</span>, editable without a deploy —
+      see <a href="/assumptions#{{ assumption_slug('AB 802 owner hints') }}">/assumptions</a> for the
+      one regex rule's verification) — a match is shown as "owner hint: {name}", same non-claim as the
+      others. Only after all three are blank, and the Property Name itself reads like an organization
+      (contains LLC, Inc, Hospital, University, District, County, City of, Church, or School), is that
+      name shown labeled "name on filing" instead. Every one of these is a hint worth calling, never a
+      claim that it IS the owner. Both joins, and this whole population, are LA County only — the only
+      county this app's assessor/EBEWE data covers; outside LA, a row stands alone with its Property
+      Name.</span>
     </span>
   </div>
 </details>

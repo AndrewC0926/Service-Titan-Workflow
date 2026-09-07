@@ -315,7 +315,7 @@ def test_rank_in_territory_older_and_higher_eui_ranks_first(db_session, cfg):
     _ab802(db_session, "new_good", year_built=2020, eui=20.0)   # no age credit, 0.2x median EUI
     _ab802(db_session, "middle", year_built=1980, eui=100.0)    # partial age credit, 1.0x median EUI
 
-    ranked = rank_in_territory(db_session)["ranked"]
+    ranked = rank_in_territory(db_session, cfg)["ranked"]
     ids = [d["row"].portfolio_manager_property_id for d in ranked]
     assert ids == ["old_bad", "middle", "new_good"]
     assert ranked[0]["age_credit"] == 1.0
@@ -333,7 +333,7 @@ def test_rank_in_territory_ranks_within_property_type_only(db_session, cfg):
     _ab802(db_session, "wh_new", property_type="Warehouse", year_built=2020, eui=10.0)
     _ab802(db_session, "office", property_type="Office", year_built=1990, eui=500.0)
 
-    ranked = rank_in_territory(db_session, property_type="Warehouse")["ranked"]
+    ranked = rank_in_territory(db_session, cfg, property_type="Warehouse")["ranked"]
     ids = [d["row"].portfolio_manager_property_id for d in ranked]
     assert ids == ["wh_old", "wh_new"]
     # Warehouse median is 20.0 (the two warehouses only) -- the office's 500
@@ -347,7 +347,7 @@ def test_rank_in_territory_missing_year_built_or_eui_gets_no_value_for_that_half
     _ab802(db_session, "unknown_age", year_built=None, eui=100.0)
     _ab802(db_session, "unknown_eui", year_built=1990, eui=None)
 
-    ranked = rank_in_territory(db_session)["ranked"]
+    ranked = rank_in_territory(db_session, cfg)["ranked"]
     by_id = {d["row"].portfolio_manager_property_id: d for d in ranked}
     assert by_id["unknown_age"]["age_credit"] is None
     assert by_id["known"]["age_credit"] is not None
@@ -363,7 +363,7 @@ def test_rank_in_territory_ties_break_on_gfa_larger_first(db_session, cfg):
     _ab802(db_session, "small", year_built=1990, eui=100.0, property_gfa_sqft=20_000)
     _ab802(db_session, "big", year_built=1990, eui=100.0, property_gfa_sqft=90_000)
 
-    ranked = rank_in_territory(db_session)["ranked"]
+    ranked = rank_in_territory(db_session, cfg)["ranked"]
     assert ranked[0]["rank_key"] == ranked[1]["rank_key"]
     ids = [d["row"].portfolio_manager_property_id for d in ranked]
     assert ids == ["big", "small"]
@@ -377,7 +377,7 @@ def test_rank_in_territory_excludes_gfa_below_floor(db_session, cfg):
     _ab802(db_session, "too_small", property_gfa_sqft=GFA_FLOOR_SQFT - 1)
     _ab802(db_session, "at_floor", property_gfa_sqft=GFA_FLOOR_SQFT)
 
-    ids = {d["row"].portfolio_manager_property_id for d in rank_in_territory(db_session)["ranked"]}
+    ids = {d["row"].portfolio_manager_property_id for d in rank_in_territory(db_session, cfg)["ranked"]}
     assert ids == {"at_floor"}
 
 
@@ -386,7 +386,7 @@ def test_rank_in_territory_excludes_null_gfa(db_session, cfg):
     _ab802(db_session, "no_gfa", property_gfa_sqft=None)
     _ab802(db_session, "has_gfa", property_gfa_sqft=50_000)
 
-    ids = {d["row"].portfolio_manager_property_id for d in rank_in_territory(db_session)["ranked"]}
+    ids = {d["row"].portfolio_manager_property_id for d in rank_in_territory(db_session, cfg)["ranked"]}
     assert ids == {"has_gfa"}
 
 
@@ -399,7 +399,7 @@ def test_rank_in_territory_below_floor_row_never_distorts_the_type_median(db_ses
     _ab802(db_session, "real_1", eui=20.0, property_gfa_sqft=50_000)
     _ab802(db_session, "real_2", eui=30.0, property_gfa_sqft=50_000)
 
-    result = rank_in_territory(db_session)
+    result = rank_in_territory(db_session, cfg)
     ids = {d["row"].portfolio_manager_property_id for d in result["ranked"]}
     assert ids == {"real_1", "real_2"}
     by_id = {d["row"].portfolio_manager_property_id: d for d in result["ranked"]}
@@ -415,13 +415,13 @@ def test_rank_in_territory_filters_county_property_type_year_built_and_match(db_
     _ab802(db_session, "4", county="Los Angeles County", property_type="Office", year_built=2020)
 
     assert {d["row"].portfolio_manager_property_id
-            for d in rank_in_territory(db_session, county="Los Angeles County")["ranked"]} == {"1", "3", "4"}
+            for d in rank_in_territory(db_session, cfg, county="Los Angeles County")["ranked"]} == {"1", "3", "4"}
     assert [d["row"].portfolio_manager_property_id
-           for d in rank_in_territory(db_session, property_type="Warehouse")["ranked"]] == ["3"]
+           for d in rank_in_territory(db_session, cfg, property_type="Warehouse")["ranked"]] == ["3"]
     assert {d["row"].portfolio_manager_property_id
-            for d in rank_in_territory(db_session, year_built_before=2000)["ranked"]} == {"1", "2", "3"}
+            for d in rank_in_territory(db_session, cfg, year_built_before=2000)["ranked"]} == {"1", "2", "3"}
     assert [d["row"].portfolio_manager_property_id
-           for d in rank_in_territory(db_session, has_assessor_match=True)["ranked"]] == ["1"]
+           for d in rank_in_territory(db_session, cfg, has_assessor_match=True)["ranked"]] == ["1"]
 
 
 def test_rank_in_territory_eui_above_median_for_its_type(db_session, cfg):
@@ -431,7 +431,7 @@ def test_rank_in_territory_eui_above_median_for_its_type(db_session, cfg):
     _ab802(db_session, "high", property_type="Office", eui=90.0)
 
     result = [d["row"].portfolio_manager_property_id
-             for d in rank_in_territory(db_session, eui_above_median=True)["ranked"]]
+             for d in rank_in_territory(db_session, cfg, eui_above_median=True)["ranked"]]
     assert result == ["high"]
 
 
@@ -480,11 +480,11 @@ def test_rank_in_territory_multifamily_not_default_but_still_selectable(db_sessi
     _ab802(db_session, "2", property_type="Office")
 
     default = [d["row"].portfolio_manager_property_id
-              for d in rank_in_territory(db_session, restrict_to_relevant_types=True)["ranked"]]
+              for d in rank_in_territory(db_session, cfg, restrict_to_relevant_types=True)["ranked"]]
     assert default == ["2"]
 
     explicit = [d["row"].portfolio_manager_property_id
-               for d in rank_in_territory(db_session, property_type="Multifamily Housing",
+               for d in rank_in_territory(db_session, cfg, property_type="Multifamily Housing",
                                           restrict_to_relevant_types=True)["ranked"]]
     assert explicit == ["1"]
 
@@ -546,11 +546,11 @@ def test_rank_in_territory_restricts_to_relevant_types_by_default(db_session, cf
     _ab802(db_session, "2", property_type="Casino")
 
     restricted = [d["row"].portfolio_manager_property_id
-                 for d in rank_in_territory(db_session, restrict_to_relevant_types=True)["ranked"]]
+                 for d in rank_in_territory(db_session, cfg, restrict_to_relevant_types=True)["ranked"]]
     assert restricted == ["1"]
 
     unrestricted = {d["row"].portfolio_manager_property_id
-                   for d in rank_in_territory(db_session, restrict_to_relevant_types=False)["ranked"]}
+                   for d in rank_in_territory(db_session, cfg, restrict_to_relevant_types=False)["ranked"]}
     assert unrestricted == {"1", "2"}
 
 
@@ -560,7 +560,7 @@ def test_rank_in_territory_explicit_property_type_overrides_the_default_restrict
     _ab802(db_session, "2", property_type="Casino")
 
     result = [d["row"].portfolio_manager_property_id
-             for d in rank_in_territory(db_session, property_type="Casino",
+             for d in rank_in_territory(db_session, cfg, property_type="Casino",
                                         restrict_to_relevant_types=True)["ranked"]]
     assert result == ["2"]
 
@@ -571,7 +571,7 @@ def test_rank_in_territory_name_hint_only_when_filer_blank_and_name_reads_organi
     _ab802(db_session, "2", property_name="Dodger Stadium")                            # no filer, not org-like
     _ab802(db_session, "3", property_name="Some LLC Tower", benchmarking_filer="Acme Mgmt")  # filer wins
 
-    by_id = {d["row"].portfolio_manager_property_id: d for d in rank_in_territory(db_session)["ranked"]}
+    by_id = {d["row"].portfolio_manager_property_id: d for d in rank_in_territory(db_session, cfg)["ranked"]}
     assert by_id["1"]["name_hint"] == "Kaiser Foundation Hospitals - Building A"
     assert by_id["2"]["name_hint"] is None
     assert by_id["3"]["name_hint"] is None  # filer already present -- name_hint is never a second source
@@ -588,7 +588,7 @@ def test_rank_in_territory_moves_extreme_eui_ratio_to_anomalies(db_session, cfg)
     _ab802(db_session, "normal_2", eui=30.0)
     _ab802(db_session, "extreme", eui=1_000.0)
 
-    result = rank_in_territory(db_session)
+    result = rank_in_territory(db_session, cfg)
     ranked_ids = {d["row"].portfolio_manager_property_id for d in result["ranked"]}
     anomaly_ids = {d["row"].portfolio_manager_property_id for d in result["anomalies"]}
     assert ranked_ids == {"normal_1", "normal_2"}
@@ -604,7 +604,7 @@ def test_rank_in_territory_anomalies_sorted_by_eui_ratio_descending(db_session, 
     _ab802(db_session, "baseline", eui=20.0)
     _ab802(db_session, "most_extreme", eui=2_000.0)
 
-    result = rank_in_territory(db_session)
+    result = rank_in_territory(db_session, cfg)
     anomaly_ids = [d["row"].portfolio_manager_property_id for d in result["anomalies"]]
     assert anomaly_ids == ["most_extreme"]
 
@@ -617,8 +617,97 @@ def test_rank_in_territory_eui_ratio_exactly_at_cutoff_is_not_an_anomaly(db_sess
         _ab802(db_session, f"baseline_{i}", eui=20.0)
     _ab802(db_session, "at_cutoff", eui=20.0 * EUI_RATIO_ANOMALY_ABOVE)
 
-    result = rank_in_territory(db_session)
+    result = rank_in_territory(db_session, cfg)
     ranked_ids = {d["row"].portfolio_manager_property_id for d in result["ranked"]}
     anomaly_ids = {d["row"].portfolio_manager_property_id for d in result["anomalies"]}
     assert "at_cutoff" in ranked_ids  # exactly 5x is ranked, not anomalous -- only ABOVE 5x is
     assert "at_cutoff" not in anomaly_ids
+
+
+# --- owner_hint_for_name: config-driven, hint only, never "owner" ---------
+
+
+def test_owner_hint_for_name_plain_substring_tokens(cfg):
+    from app.pipeline.ab802 import owner_hint_for_name
+    assert owner_hint_for_name(cfg, "Rexford Ontario Distribution Center") == ("Rexford Industrial", "Rexford")
+    assert owner_hint_for_name(cfg, "Kilroy Sabre Springs") == ("Kilroy", "Kilroy")
+    assert owner_hint_for_name(cfg, "Sares Regis Business Park") == ("Sares Regis", "Sares Regis")
+
+
+def test_owner_hint_for_name_bmr_prefix(cfg):
+    from app.pipeline.ab802 import owner_hint_for_name
+    assert owner_hint_for_name(cfg, "BMR-9390 Towne Centre Drive") == ("BioMed Realty", "BMR-")
+
+
+def test_owner_hint_for_name_prologis_code_pattern(cfg):
+    from app.pipeline.ab802 import owner_hint_for_name
+    owner, token = owner_hint_for_name(cfg, "lax10201 - van nuys dis ctr 1")
+    assert owner == "Prologis"
+    assert "LAX" in token  # the configured regex itself, for per-token reporting
+
+    owner, token = owner_hint_for_name(cfg, "ine04605 - san bern dis ctr 1")
+    assert owner == "Prologis"
+
+    owner, token = owner_hint_for_name(cfg, "sdg01234 - some facility")
+    assert owner == "Prologis"
+
+    owner, token = owner_hint_for_name(cfg, "ont05678 - some facility")
+    assert owner == "Prologis"
+
+
+def test_owner_hint_for_name_prologis_literal_token_still_matches(cfg):
+    from app.pipeline.ab802 import owner_hint_for_name
+    assert owner_hint_for_name(cfg, "Prologis Park Ontario") == ("Prologis", "Prologis")
+
+
+def test_owner_hint_for_name_no_match_returns_none(cfg):
+    from app.pipeline.ab802 import owner_hint_for_name
+    assert owner_hint_for_name(cfg, "Dodger Stadium") == (None, None)
+    assert owner_hint_for_name(cfg, None) == (None, None)
+    assert owner_hint_for_name(cfg, "") == (None, None)
+
+
+def test_owner_hint_for_name_code_pattern_is_anchored_at_start(cfg):
+    """The Prologis code prefix must appear at the START of the name, not
+    merely somewhere inside it -- a property incidentally mentioning
+    "LAX" mid-name (e.g. near LAX airport) must not false-positive."""
+    from app.pipeline.ab802 import owner_hint_for_name
+    owner, token = owner_hint_for_name(cfg, "Some Building Near LAX12345 Corridor")
+    assert owner is None
+
+
+# --- rank_in_territory: owner_hint precedence over name_hint ---------------
+
+
+def test_rank_in_territory_owner_hint_beats_name_hint(db_session, cfg):
+    """'Rexford Industrial LLC' both matches the Rexford owner-hint token
+    AND reads like an organization (LLC) -- owner_hint wins, name_hint is
+    never also shown."""
+    from app.pipeline.ab802 import rank_in_territory
+    _ab802(db_session, "1", property_name="Rexford Industrial LLC")
+
+    result = rank_in_territory(db_session, cfg)
+    entry = result["ranked"][0]
+    assert entry["owner_hint"] == "Rexford Industrial"
+    assert entry["name_hint"] is None
+
+
+def test_rank_in_territory_benchmarking_filer_beats_owner_hint(db_session, cfg):
+    from app.pipeline.ab802 import rank_in_territory
+    _ab802(db_session, "1", property_name="Rexford Industrial Building",
+          benchmarking_filer="Some Compliance Vendor")
+
+    result = rank_in_territory(db_session, cfg)
+    entry = result["ranked"][0]
+    assert entry["owner_hint"] is None  # filer takes precedence -- owner_hint not even computed
+    assert entry["owner_hint_token"] is None
+
+
+def test_rank_in_territory_falls_back_to_name_hint_when_no_owner_hint_token_matches(db_session, cfg):
+    from app.pipeline.ab802 import rank_in_territory
+    _ab802(db_session, "1", property_name="Kaiser Foundation Hospitals - Building A")
+
+    result = rank_in_territory(db_session, cfg)
+    entry = result["ranked"][0]
+    assert entry["owner_hint"] is None
+    assert entry["name_hint"] == "Kaiser Foundation Hospitals - Building A"

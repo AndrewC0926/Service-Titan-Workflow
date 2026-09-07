@@ -1142,7 +1142,7 @@ def replacement_leads_view(request: Request, view: str = "contractors",
         from app.ops import source_is_stale
         from app.pipeline.ab802 import latest_in_territory_rows, rank_in_territory
         ab802_result = rank_in_territory(
-            session, county=county or None, property_type=property_type or None,
+            session, cfg, county=county or None, property_type=property_type or None,
             year_built_before=year_built_before, eui_above_median=eui_above_median,
             has_assessor_match=has_assessor_match,
             restrict_to_relevant_types=not show_all_types)
