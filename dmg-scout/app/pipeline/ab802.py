@@ -204,23 +204,43 @@ def fetch_ab802_benchmarks(session: Session, cfg: Config, client: PoliteClient, 
     that year_ending, computes in_territory, then joins the fresh rows
     against RetrofitBuilding and EbeweBenchmark. Safe to re-run: other
     years already on file are untouched (only `year_ending == year` rows
-    are deleted first)."""
+    are deleted first).
+
+    DUPLICATE PROPERTY IDS, confirmed live against both the 2023 and 2024
+    files (2026-09-07): the file itself is not unique per Portfolio Manager
+    Property ID within a year -- 50 of 24,758 rows in 2023, 39 of 25,591 in
+    2024, almost always the same property resubmitted with a corrected
+    address (e.g. "lombard street" vs "1 lombard street" for the same
+    building), occasionally two genuinely different addresses under one
+    id. The LAST row for a given id, in the file's own row order, is kept
+    -- CEC's own file lists a correction after the original it corrects,
+    never before, so this is the file's own stated sequence, not a guess
+    at which row is "right." The dropped count is returned in stats
+    (`duplicate_property_ids_dropped`) rather than silently discarded."""
     url = FILE_URL_TEMPLATE.format(year=year)
     run = SourceRun(source=SOURCE)
     session.add(run)
     session.commit()
 
-    fetched, stored, error = 0, 0, None
+    fetched, stored, duplicates_dropped, error = 0, 0, 0, None
     try:
         raw = client.get_bytes(url)
         rows = parse_rows(raw, year)
         fetched = len(rows)
 
+        deduped: dict[str, dict] = {}
+        for parsed in rows:
+            deduped[parsed["portfolio_manager_property_id"]] = parsed  # last one in file order wins
+        duplicates_dropped = fetched - len(deduped)
+        if duplicates_dropped:
+            log.warning("AB 802 %s: %d rows shared a Portfolio Manager Property ID with a later row "
+                       "-- keeping the last one per id, dropping %d", year, duplicates_dropped, duplicates_dropped)
+
         session.exec(delete(Ab802Building).where(Ab802Building.year_ending == year))
 
         territory_cfg = cfg.get("territory") or {}
         new_rows: list[Ab802Building] = []
-        for parsed in rows:
+        for parsed in deduped.values():
             county = parsed["county_from_geocoding"]
             state = parsed["state_province"]
             territory = bool(territory_cfg) and _territory_check(cfg, state, county)
@@ -247,7 +267,8 @@ def fetch_ab802_benchmarks(session: Session, cfg: Config, client: PoliteClient, 
     run.error = error
     session.add(run)
     session.commit()
-    return {"year": year, "fetched": fetched, "stored": stored, "error": error}
+    return {"year": year, "fetched": fetched, "stored": stored,
+           "duplicate_property_ids_dropped": duplicates_dropped, "error": error}
 
 
 def _is_la_county(county: str | None) -> bool:

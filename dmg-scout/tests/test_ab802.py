@@ -368,3 +368,29 @@ def test_rank_in_territory_eui_above_median_for_its_type(db_session, cfg):
     result = [d["row"].portfolio_manager_property_id
              for d in rank_in_territory(db_session, eui_above_median=True)]
     assert result == ["high"]
+
+
+@respx.mock
+def test_fetch_dedupes_duplicate_property_ids_keeping_the_last_row(db_session, cfg):
+    """Confirmed live 2026-09-07: the real file is not unique per Portfolio
+    Manager Property ID within a year -- the last row in file order wins,
+    dropped count is reported, nothing silently discarded without account."""
+    xlsx = _workbook([
+        _row(property_id="1", address_1="Original Address", eui=10.0),
+        _row(property_id="1", address_1="Corrected Address", eui=20.0),
+        _row(property_id="2", address_1="Unrelated"),
+    ])
+    respx.get(FILE_URL_TEMPLATE.format(year=2024)).mock(return_value=httpx.Response(200, content=xlsx))
+
+    with fast_client() as client:
+        stats = fetch_ab802_benchmarks(db_session, cfg, client, 2024)
+
+    assert stats["fetched"] == 3
+    assert stats["stored"] == 2
+    assert stats["duplicate_property_ids_dropped"] == 1
+    assert stats["error"] is None
+
+    rows = db_session.exec(select(Ab802Building)).all()
+    assert len(rows) == 2
+    kept = next(r for r in rows if r.portfolio_manager_property_id == "1")
+    assert kept.address_1 == "Corrected Address" and kept.weather_normalized_site_eui == 20.0

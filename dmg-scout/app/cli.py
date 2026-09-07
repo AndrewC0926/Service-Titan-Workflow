@@ -1169,7 +1169,8 @@ def fetch_ab802_benchmarks_cmd(
     from app.pipeline.ab802 import fetch_ab802_benchmarks
     with session_scope() as session, PoliteClient() as client:
         stats = fetch_ab802_benchmarks(session, load_config(), client, year)
-    typer.echo(f"{year}: fetched {stats['fetched']}, stored {stats['stored']}")
+    typer.echo(f"{year}: fetched {stats['fetched']}, stored {stats['stored']} "
+              f"({stats['duplicate_property_ids_dropped']} duplicate property ids dropped)")
     if stats.get("error"):
         typer.echo(f"  ERROR: {stats['error']}", err=True)
 
