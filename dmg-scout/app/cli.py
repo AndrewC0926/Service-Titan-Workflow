@@ -1240,6 +1240,28 @@ def fetch_scaqmd_facilities_cmd() -> None:
         typer.echo(f"  ERROR: {stats['error']}", err=True)
 
 
+@app.command("load-carb-facilities")
+def load_carb_facilities_cmd(
+    csv_path: str = typer.Option(
+        "docs/carb/2024-south-coast-aqmd-facilities.csv", help="Path to CARB's own export CSV"),
+) -> None:
+    """Loads CARB's Facility Search Tool export (a static file already on
+    disk -- see tools/pull_carb_facilities.py for how it's pulled, a
+    one-off Playwright trigger, never a live network call from this
+    command) into scaqmd_facilities with source='carb', full-replacing
+    only that source's own rows, then recomputing the AB 802 air-permit
+    join across both sources. NOT part of `scout pipeline` -- run by hand
+    whenever docs/carb/'s file is refreshed."""
+    from app.pipeline.scaqmd import load_carb_facilities
+    with session_scope() as session:
+        stats = load_carb_facilities(session, csv_path=csv_path)
+    typer.echo(f"fetched {stats['fetched']}, stored {stats['stored']} "
+              f"({stats['new']} new, {stats['already_present']} already present from the AER list), "
+              f"{stats['ab802_flagged']} AB 802 rows flagged with an air permit match")
+    if stats.get("error"):
+        typer.echo(f"  ERROR: {stats['error']}", err=True)
+
+
 @app.command("fetch-local250")
 def fetch_local250_cmd() -> None:
     """UA Local 250's public signatory contractor list (socalhvacr.info/

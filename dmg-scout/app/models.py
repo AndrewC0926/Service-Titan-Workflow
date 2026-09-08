@@ -1734,29 +1734,64 @@ class ScaqmdFacility(SQLModel, table=True):
     territory filter, not a separate check this app performs.
 
     CARB's own Facility Search Tool (ww2.arb.ca.gov/facility-search-tool)
-    was found in Phase A and its robots.txt is clean, but it is a
-    JavaScript single-page application with no static download URL or
-    discoverable public API this codebase's tooling can drive -- NOT
-    loaded here. See the assumptions register; this is a disclosed gap,
-    not a silent one.
+    was initially thought unreachable in Phase A (it renders as a
+    JavaScript single-page application) -- corrected once it was confirmed
+    the actual form lives in a plain HTML iframe
+    (www.arb.ca.gov/app/emsinv/iframe/facinfo/facinfo.php), on a host whose
+    own robots.txt is clean (Allow: /, 2s crawl-delay). CARB's own tooling
+    still can't be driven headlessly from `app/pipeline` the way the AER
+    XLSX is fetched -- its export is a hand-run Playwright pull (district
+    "SC" = South Coast AQMD), saved as a static file under docs/carb/ and
+    loaded from disk by app.pipeline.scaqmd.load_carb_facilities, same
+    "hand-pulled, statically stored" precedent as app/pipeline/ab869.py's
+    own PDF corpus (docs/hcai/ab869/raw/). See the assumptions register for
+    the full access writeup and the Phase A correction.
 
-    Full-replaced on every annual load, same discipline as
-    Ab802Building's own year-partitioned table, except this source carries
-    no year dimension of its own (it's a live notification list, not an
-    annual series) -- so the WHOLE table is replaced each run, same as
-    OpscProject's continuously-updated snapshot.
+    Two independent sources, kept as separate rows under (facility_id,
+    source) rather than merged -- both ultimately trace back to South
+    Coast AQMD's own permit system and, where a real facility appears in
+    both, share the same facility_id (confirmed by inspection, not
+    assumed), but their field coverage differs (AER carries the AB2588/
+    CTR/Rule-317.1 flags; CARB's own export carries emissions tonnage by
+    pollutant, not stored here -- out of scope for a facility-grain table
+    with no equipment data either way) and their own full-replace cadences
+    are independent, so merging them into one row per facility_id would
+    make a partial re-load of one source silently clobber the other's
+    fields.
+
+    Full-replaced on every load, same discipline as Ab802Building's own
+    year-partitioned table, except this source carries no year dimension
+    of its own (it's a live notification list, not an annual series) --
+    so the WHOLE table is replaced each run, same as OpscProject's
+    continuously-updated snapshot, scoped to WHERE source = the one being
+    reloaded (a CARB load must never delete the AER rows, or the reverse).
     """
     __tablename__ = "scaqmd_facilities"
 
+    __table_args__ = (
+        UniqueConstraint("facility_id", "source", name="uq_scaqmd_facility_id_source"),
+    )
+
     id: int | None = Field(default=None, primary_key=True)
-    facility_id: str = Field(index=True, unique=True)
+    facility_id: str = Field(index=True)
+    # "aer_facilities_notified" (South Coast AQMD's own bulk XLSX) or
+    # "carb" (CARB's Facility Search Tool, CEIDARS-backed) -- the SAME real
+    # facility can appear once from each source, under the same facility_id
+    # (both ultimately trace back to South Coast AQMD's own permit system),
+    # so uniqueness is (facility_id, source), not facility_id alone. See
+    # app.pipeline.scaqmd's module docstring for how each is loaded and how
+    # "new vs already present" is reported across the two.
+    source: str = Field(default="aer_facilities_notified", index=True)
     facility_name: str | None = None
     address: str | None = None
     city: str | None = Field(default=None, index=True)
     zip_code: str | None = None
 
     # Flags verbatim from the source file's own checkbox columns -- True
-    # when checked, False when blank, never inferred.
+    # when checked, False when blank, never inferred. AER-only; always
+    # False on a CARB-sourced row (CARB's own export carries emissions
+    # tonnage by pollutant instead, not these flags -- not stored here,
+    # out of scope for a facility-grain table with no equipment data).
     ab_2588: bool = Field(default=False)
     meets_ctr_threshold: bool = Field(default=False)  # "Criteria Pollutants >= 4tpy (100 tpy for CO)"
     core_ctr_facility: bool = Field(default=False)     # "'Core' CTR Facility (PTE>=250 tpy, ...)"

@@ -12,19 +12,31 @@ behind the two blocked hosts above, and a Public Records Act request is
 the only path to it (see RUNBOOK.md's deferred-sources list and this
 source's own assumptions-register entry).
 
-CARB's own Facility Search Tool (ww2.arb.ca.gov/facility-search-tool) was
-found in Phase A and its robots.txt is clean (explicitly names Claude-Web
-in an Allow block), but it is a JavaScript single-page application with no
-static download URL or discoverable public API -- getting its data
-requires driving an interactive browser session, which this codebase has
-no tooling for. NOT loaded here. Disclosed, not guessed at or silently
-skipped -- see the assumptions register.
+CARB's own Facility Search Tool (ww2.arb.ca.gov/facility-search-tool):
+Phase A research called this unreachable (it renders as a JavaScript
+single-page app with no visible form). Corrected 2026-09-08 -- the actual
+search form lives in a plain HTML iframe,
+www.arb.ca.gov/app/emsinv/iframe/facinfo/facinfo.php, on a host with a
+clean robots.txt (Allow: /, 2s crawl-delay, confirmed directly). Driven
+once with Playwright (District = "SC", i.e. South Coast AQMD only) to
+trigger its own "Download this data as a Comma Separated Value text file"
+export -- the resulting CSV is checked in as a static file under
+docs/carb/, and load_carb_facilities reads it from disk. This is NOT a
+live fetcher: same "hand-pulled, statically stored, re-run by hand when
+someone re-pulls it" precedent as app/pipeline/ab869.py's own PDF corpus
+(docs/hcai/ab869/raw/) -- there is no scheduled or on-demand browser
+automation anywhere in `app/`, only this one-off pull.
 
-CADENCE: annual, hand-run -- `scout fetch-scaqmd-facilities` is not part
-of `scout pipeline`, same as ab802/opsc. The source file itself is a live
-notification list (no year dimension of its own), so unlike Ab802Building
-this is a WHOLE-TABLE full replace every run, same discipline as
-OpscProject's continuously-updated snapshot.
+CADENCE: both sources are annual, hand-run -- `scout fetch-scaqmd-
+facilities` (AER XLSX, live network fetch) and `scout load-carb-
+facilities` (CARB CSV, reads the static file already on disk) are both
+outside `scout pipeline`, same as ab802/opsc. Neither source carries a
+year dimension of its own (the AER file is a live notification list; the
+CARB export is a live district snapshot), so each is a full replace of
+its OWN rows on every run -- WHERE source = 'aer_facilities_notified' or
+WHERE source = 'carb' respectively, never the whole table, since the two
+sources' own reload cadences are independent and neither run should ever
+clobber the other's rows.
 
 JOIN: to Ab802Building, normalized-address text (app.pipeline.retrofit.
 normalize_address) -- neither side has lat/long here, so there is no
@@ -65,6 +77,8 @@ from app.pipeline.retrofit import normalize_address
 log = logging.getLogger(__name__)
 
 SOURCE = "scaqmd_facility"
+SOURCE_AER = "aer_facilities_notified"
+SOURCE_CARB = "carb"
 
 # The sfvrsn suffix is Sitefinity's own cache-busting version stamp on the
 # published file -- it changes whenever South Coast AQMD republishes the
@@ -131,6 +145,100 @@ def parse_facility_rows(raw_bytes: bytes) -> list[dict]:
             "rule_317_1": _bool(row[9] if len(row) > 9 else None),
         })
     return out
+
+
+CARB_CSV_PATH = "docs/carb/2024-south-coast-aqmd-facilities.csv"
+CARB_SOURCE_URL = (
+    "https://www.arb.ca.gov/app/emsinv/iframe/facinfo/faccrit_output.csv"
+    "?&dbyr=2024&ab_=&dis_=SC&co_=&fname_=&city_=&sort=FacilityNameA&fzip_=&fsic_=&facid_=&all_fac=C"
+    "&chapis_only=&CERR=&dd="
+)
+
+
+def parse_carb_csv(raw_bytes: bytes) -> list[dict]:
+    """Parses CARB's own Facility Search Tool export (CEIDARS-backed,
+    triggered with District='SC' -- South Coast AQMD only, matching the
+    AER population's own scope). Header row is CARB's own field names
+    verbatim: FACID, FNAME, FSTREET, FCITY, FZIP, plus per-pollutant
+    emissions tonnage columns this table does not store (facility grain
+    only, see this module's docstring for why). Name-based column lookup,
+    not positional -- unlike the AER XLSX, this CSV's header is plain
+    ASCII and stable."""
+    import csv
+    import io as _io
+
+    text = raw_bytes.decode("utf-8-sig")
+    reader = csv.DictReader(_io.StringIO(text))
+    out = []
+    for row in reader:
+        facid = (row.get("FACID") or "").strip()
+        if not facid:
+            continue
+        out.append({
+            "facility_id": facid,
+            "facility_name": (row.get("FNAME") or "").strip() or None,
+            "address": (row.get("FSTREET") or "").strip() or None,
+            "city": (row.get("FCITY") or "").strip() or None,
+            "zip_code": (row.get("FZIP") or "").strip() or None,
+        })
+    return out
+
+
+def load_carb_facilities(session: Session, csv_path: str = CARB_CSV_PATH,
+                         source_url: str = CARB_SOURCE_URL) -> dict:
+    """Reads the static CARB export already on disk (see this module's
+    docstring for how it got there -- a one-off Playwright pull, not a
+    live fetch) and full-replaces every source='carb' row. Recomputes the
+    AB 802 join afterward the same as fetch_scaqmd_facilities, since CARB
+    rows are just as eligible to match as AER rows. Returns fetched/stored/
+    new/already_present (against the AER-sourced facility_id set already
+    on file) plus ab802_flagged, error."""
+    run = SourceRun(source=f"{SOURCE}_carb")
+    session.add(run)
+    session.commit()
+
+    fetched, stored, new_count, already_present, ab802_flagged, error = 0, 0, 0, 0, 0, None
+    try:
+        with open(csv_path, "rb") as fh:
+            raw = fh.read()
+        rows = parse_carb_csv(raw)
+        fetched = len(rows)
+
+        aer_facility_ids = set(session.exec(
+            select(ScaqmdFacility.facility_id).where(ScaqmdFacility.source == SOURCE_AER)).all())
+
+        session.exec(delete(ScaqmdFacility).where(ScaqmdFacility.source == SOURCE_CARB))
+        now = utcnow()
+        for r in rows:
+            session.add(ScaqmdFacility(
+                facility_id=r["facility_id"], source=SOURCE_CARB, facility_name=r["facility_name"],
+                address=r["address"], city=r["city"], zip_code=r["zip_code"],
+                in_territory=True, source_url=source_url, imported_at=now,
+            ))
+            if r["facility_id"] in aer_facility_ids:
+                already_present += 1
+            else:
+                new_count += 1
+        session.flush()
+        stored = fetched
+
+        ab802_flagged = _link_ab802(session)
+        session.commit()
+    except Exception as exc:  # noqa: BLE001 -- recorded on the SourceRun, not raised past this stage
+        session.rollback()
+        error = f"{type(exc).__name__}: {exc}"
+        log.error("SCAQMD CARB facility load failed: %s", error)
+
+    run.finished_at = utcnow()
+    run.records_fetched = fetched
+    run.records_new = new_count
+    run.ok = error is None
+    run.error = error
+    session.add(run)
+    session.commit()
+
+    return {"fetched": fetched, "stored": stored, "new": new_count,
+           "already_present": already_present, "ab802_flagged": ab802_flagged, "error": error}
 
 
 def _link_ab802(session: Session) -> int:
@@ -203,11 +311,11 @@ def fetch_scaqmd_facilities(session: Session, cfg: Config, client: PoliteClient)
         rows = parse_facility_rows(raw)
         fetched = len(rows)
 
-        session.exec(delete(ScaqmdFacility))
+        session.exec(delete(ScaqmdFacility).where(ScaqmdFacility.source == SOURCE_AER))
         now = utcnow()
         for r in rows:
             session.add(ScaqmdFacility(
-                facility_id=r["facility_id"], facility_name=r["facility_name"],
+                facility_id=r["facility_id"], source=SOURCE_AER, facility_name=r["facility_name"],
                 address=r["address"], city=r["city"], zip_code=r["zip_code"],
                 ab_2588=r["ab_2588"], meets_ctr_threshold=r["meets_ctr_threshold"],
                 core_ctr_facility=r["core_ctr_facility"], ctr_phase_3=r["ctr_phase_3"],

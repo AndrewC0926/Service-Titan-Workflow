@@ -20,8 +20,8 @@ from app.http import PoliteClient
 from app.models import Ab802Building, HospitalBuilding, ScaqmdFacility, SourceRun, utcnow
 from app.pipeline.ab869 import ab869_board_rows
 from app.pipeline.scaqmd import (
-    AER_XLSX_URL, _link_ab802, fetch_scaqmd_facilities, parse_facility_rows,
-    scaqmd_matches_for_ab869,
+    AER_XLSX_URL, SOURCE_AER, SOURCE_CARB, _link_ab802, fetch_scaqmd_facilities,
+    load_carb_facilities, parse_carb_csv, parse_facility_rows, scaqmd_matches_for_ab869,
 )
 
 
@@ -302,3 +302,118 @@ def test_ab869_board_rows_carries_air_permit_facility_id(db_session, cfg):
     rows = ab869_board_rows(db_session, cfg)
     row = next(r for r in rows if r["perm_id"] == "P1")
     assert row["air_permit_facility_id"] == "F1"
+
+
+# ---- CARB CSV: parse_carb_csv, load_carb_facilities -----------------------
+
+CARB_HEADER = ["CO", "AB", "FACID", "DIS", "FNAME", "FSTREET", "FCITY", "FZIP", "FSIC",
+              "COID", "DISN", "CHAPIS", "CERR_CODE", "TOGT", "ROGT", "COT", "NOXT", "SOXT",
+              "PMT", "PM10T"]
+
+
+def _carb_csv(rows: list[dict]) -> bytes:
+    import csv
+    import io as _io
+
+    buf = _io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=CARB_HEADER)
+    w.writeheader()
+    for r in rows:
+        w.writerow({h: r.get(h, "") for h in CARB_HEADER})
+    return buf.getvalue().encode("utf-8")
+
+
+def _carb_row(facid="193444", fname="100 N CRESCENT LLC", fstreet="100 N CRESCENT DR",
+             fcity="BEVERLY HILLS", fzip="90210") -> dict:
+    return {"CO": "19", "AB": "SC", "FACID": facid, "DIS": "SC", "FNAME": fname,
+           "FSTREET": fstreet, "FCITY": fcity, "FZIP": fzip}
+
+
+def test_parse_carb_csv_extracts_fields():
+    csv_bytes = _carb_csv([_carb_row()])
+    rows = parse_carb_csv(csv_bytes)
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["facility_id"] == "193444"
+    assert r["facility_name"] == "100 N CRESCENT LLC"
+    assert r["address"] == "100 N CRESCENT DR"
+    assert r["city"] == "BEVERLY HILLS"
+    assert r["zip_code"] == "90210"
+
+
+def test_parse_carb_csv_drops_rows_with_no_facid():
+    csv_bytes = _carb_csv([_carb_row(facid=""), _carb_row(facid="1")])
+    rows = parse_carb_csv(csv_bytes)
+    assert len(rows) == 1
+    assert rows[0]["facility_id"] == "1"
+
+
+def test_load_carb_facilities_stores_rows_with_carb_source(db_session, cfg, tmp_path):
+    csv_path = tmp_path / "carb.csv"
+    csv_path.write_bytes(_carb_csv([_carb_row(facid="1"), _carb_row(facid="2", fname="Other Co")]))
+
+    stats = load_carb_facilities(db_session, csv_path=str(csv_path))
+    assert stats["fetched"] == 2 and stats["stored"] == 2 and stats["error"] is None
+
+    rows = db_session.exec(select(ScaqmdFacility).where(ScaqmdFacility.source == SOURCE_CARB)).all()
+    assert {r.facility_id for r in rows} == {"1", "2"}
+    assert all(r.source == SOURCE_CARB for r in rows)
+
+
+def test_load_carb_facilities_reports_new_vs_already_present(db_session, cfg, tmp_path):
+    # Seed an AER-sourced row under facility_id "1" -- CARB's own row for
+    # the same facility_id should count as "already present," not "new".
+    db_session.add(ScaqmdFacility(facility_id="1", source=SOURCE_AER, facility_name="AER Facility",
+                                  source_url="https://example.com"))
+    db_session.commit()
+
+    csv_path = tmp_path / "carb.csv"
+    csv_path.write_bytes(_carb_csv([_carb_row(facid="1"), _carb_row(facid="2")]))
+
+    stats = load_carb_facilities(db_session, csv_path=str(csv_path))
+    assert stats["already_present"] == 1
+    assert stats["new"] == 1
+
+
+def test_load_carb_facilities_never_deletes_aer_rows(db_session, cfg, tmp_path):
+    db_session.add(ScaqmdFacility(facility_id="99", source=SOURCE_AER, facility_name="AER only",
+                                  source_url="https://example.com"))
+    db_session.commit()
+
+    csv_path = tmp_path / "carb.csv"
+    csv_path.write_bytes(_carb_csv([_carb_row(facid="1")]))
+    load_carb_facilities(db_session, csv_path=str(csv_path))
+
+    aer_rows = db_session.exec(select(ScaqmdFacility).where(ScaqmdFacility.source == SOURCE_AER)).all()
+    assert {r.facility_id for r in aer_rows} == {"99"}
+
+
+def test_load_carb_facilities_full_replaces_only_carb_rows_on_rerun(db_session, cfg, tmp_path):
+    csv_path = tmp_path / "carb.csv"
+    csv_path.write_bytes(_carb_csv([_carb_row(facid="1"), _carb_row(facid="2")]))
+    load_carb_facilities(db_session, csv_path=str(csv_path))
+
+    csv_path.write_bytes(_carb_csv([_carb_row(facid="1")]))
+    stats = load_carb_facilities(db_session, csv_path=str(csv_path))
+    assert stats["stored"] == 1
+
+    remaining = db_session.exec(select(ScaqmdFacility).where(ScaqmdFacility.source == SOURCE_CARB)).all()
+    assert {r.facility_id for r in remaining} == {"1"}
+
+
+def test_load_carb_facilities_records_error_on_missing_file(db_session, cfg):
+    stats = load_carb_facilities(db_session, csv_path="/nonexistent/path.csv")
+    assert stats["error"] is not None
+    run = db_session.exec(select(SourceRun).where(SourceRun.source == "scaqmd_facility_carb")).one()
+    assert run.ok is False
+
+
+def test_load_carb_facilities_flags_ab802_the_same_as_aer(db_session, cfg, tmp_path):
+    b = _ab802_building(db_session, "P1", address_1="100 N Crescent Dr")
+    csv_path = tmp_path / "carb.csv"
+    csv_path.write_bytes(_carb_csv([_carb_row(facid="193444", fstreet="100 N Crescent Dr")]))
+
+    stats = load_carb_facilities(db_session, csv_path=str(csv_path))
+    db_session.refresh(b)
+    assert stats["ab802_flagged"] == 1
+    assert b.air_permit_facility_id == "193444"

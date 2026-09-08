@@ -1229,10 +1229,11 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
     # ---- SCAQMD facility grain -------------------------------------------------
 
     out.append(Assumption(
-        group="SCAQMD facility grain", name="Access classification and source (Phase A + build)",
+        group="SCAQMD facility grain", name="Access classification and sources (Phase A + build)",
         config_path="sources.scaqmd_facility",
         value="FIND and Public Document Search both blocked entirely (PlanetBids-shaped); loaded "
-             "instead from South Coast AQMD's own un-blocked bulk facility-notification XLSX -- "
+             "instead from TWO sources -- South Coast AQMD's own un-blocked bulk facility-"
+             "notification XLSX, and CARB's Facility Search Tool via a one-off Playwright pull -- "
              "facility grain only, no equipment, no permit number, no capacity",
         source_type=MEASURED,
         source_detail=(
@@ -1245,26 +1246,40 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
             "Use asserts ordinary copyright over documents ('may be protected under the U.S. and "
             "Foreign Copyright Laws') rather than the ca.gov statewide public-domain language CAEATFA/"
             "AB802/OPSC could rely on -- moot here since the application hosts' robots.txt settles it "
-            "first anyway. A real bulk alternative was found and verified on that same un-blocked "
-            "host: 'Facilities Notified' Annual Emissions Reporting XLSX, linked directly from "
-            "aqmd.gov/home/rules-compliance/compliance/annual-emission-reporting (not the blocked "
-            "application host) -- 3,091 facilities as of the 2025 list, columns Facility ID/Name/"
-            "Address/City/Zip plus AB2588/CTR/Rule-317.1 flags. The source's own Notes sheet states "
-            "this list is 'not comprehensive' -- facilities notified to report under Rule 301(e)/CTR, "
-            "not every permitted facility in South Coast AQMD's jurisdiction. No equipment, permit "
-            "number, or capacity field exists in this file at all -- that data lives only behind the "
-            "two blocked hosts above; a Public Records Act request is the only path to it (see "
-            "RUNBOOK.md's deferred-sources list). CARB's own Facility Search Tool "
-            "(ww2.arb.ca.gov/facility-search-tool) was also found -- its robots.txt is clean and "
-            "explicitly names Claude-Web in an Allow block -- but it is a JavaScript single-page "
-            "application with no static download URL or discoverable public API this codebase's "
-            "tooling can drive (confirmed by inspecting its raw HTML: a bundled SPA shell, no visible "
-            "form action or API endpoint). NOT loaded this build -- a disclosed gap, not guessed at "
-            "or silently skipped."
+            "first anyway. Source 1: 'Facilities Notified' Annual Emissions Reporting XLSX, linked "
+            "directly from aqmd.gov/home/rules-compliance/compliance/annual-emission-reporting (not "
+            "the blocked application host) -- 3,091 facilities as of the 2025 list, columns Facility "
+            "ID/Name/Address/City/Zip plus AB2588/CTR/Rule-317.1 flags. The source's own Notes sheet "
+            "states this list is 'not comprehensive' -- facilities notified to report under Rule "
+            "301(e)/CTR, not every permitted facility in South Coast AQMD's jurisdiction.\n"
+            "Source 2, corrected after an initial Phase A miss: CARB's own Facility Search Tool "
+            "(ww2.arb.ca.gov/facility-search-tool) was first reported as an unreachable JS SPA with no "
+            "static download or API. That was wrong -- the tool's landing page is a JS shell, but the "
+            "actual search FORM lives in a plain HTML iframe "
+            "(www.arb.ca.gov/app/emsinv/iframe/facinfo/facinfo.php), confirmed directly by inspecting "
+            "the rendered page's frames, not just its raw HTML (a static curl/WebFetch of the landing "
+            "page alone does not show it, which is what produced the original miss). That host's own "
+            "robots.txt is clean (Allow: /, 2s crawl-delay). Driven once with Playwright, District='SC' "
+            "(South Coast AQMD only, matching the AER population's scope), to trigger the tool's own "
+            "'Download this data as a Comma Separated Value text file' export -- 5,569 facilities, "
+            "columns FACID/FNAME/FSTREET/FCITY/FZIP plus per-pollutant emissions tonnage (not stored, "
+            "out of scope for a facility-grain table). Saved as a static file under docs/carb/ and "
+            "loaded from disk (app.pipeline.scaqmd.load_carb_facilities) -- not a live fetcher, same "
+            "'hand-pulled, statically stored' precedent as app/pipeline/ab869.py's own PDF corpus. "
+            "One real operational lesson from this pull: rapid repeated Playwright requests against "
+            "www.arb.ca.gov during interactive exploration triggered a temporary CloudFront rate-limit "
+            "block (403) despite the permissive robots.txt -- a ~15 minute cooldown cleared it. Future "
+            "re-pulls (tools/pull_carb_facilities.py) should run as a single, deliberate trigger, not "
+            "iterated against during debugging.\n"
+            "No equipment, permit number, or capacity field exists in EITHER source -- that data lives "
+            "only behind the two blocked hosts above; a Public Records Act request is the only path to "
+            "it (see RUNBOOK.md's deferred-sources list, updated to remove the CARB entry now that it "
+            "loads)."
         ),
         verified=True,
         last_reviewed="Checked 2026-09-08 directly against xappprod.aqmd.gov/robots.txt, "
-                      "onbase-pub.aqmd.gov/robots.txt, and ww2.arb.ca.gov/robots.txt.",
+                      "onbase-pub.aqmd.gov/robots.txt, and www.arb.ca.gov/robots.txt; CARB pull "
+                      "performed and verified the same day.",
     ))
 
     out.append(Assumption(
