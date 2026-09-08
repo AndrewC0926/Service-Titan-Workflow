@@ -290,6 +290,22 @@ start by diffing `estimate_basis` and `rejected_inputs` for these 7 between
 the stored row and a fresh `scout score` run, and check whether they share a
 `basis_key`.
 
+**DIR PWC-100 public works registrations (Phase A research only, 2026-09-07) —
+PRA path only.** Every public-works contract award (Labor Code 1773.3) is
+registered with DIR on form PWC-100, listing the prime contractor and every
+subcontractor with license numbers -- exactly the mechanical sub on every
+public job in territory. Not built: no bulk export exists, no data.ca.gov
+mirror exists, and the search tool itself (`services.dir.ca.gov`, which is
+what every `dir.ca.gov` PWC-100/contractor-lookup link redirects to) carries
+a robots.txt disallowing everything for every user agent -- a full block,
+PlanetBids-shaped, not the CHHS/CAEATFA pattern this codebase usually finds.
+See app/assumptions.py's "DIR PWC-100 public works registrations" entry for
+the verbatim robots.txt and the field/join findings. The only path to this
+data is a Public Records Act request to DIR, not a fetcher -- worth
+revisiting only if someone actually files one, and even then, re-check the
+access classification first: DIR is mid-migration off PWC-100/PWCR/eCPR to a
+new platform.
+
 ## Extraction trust: the grounding audit
 
 ```

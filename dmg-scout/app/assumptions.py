@@ -1196,6 +1196,36 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
         last_reviewed="Measured 2026-09-08 against the live SAB-NC and SAB-MOD workload PDFs.",
     ))
 
+    # ---- DIR PWC-100 public works registrations ------------------------------
+
+    out.append(Assumption(
+        group="DIR PWC-100 public works registrations", name="Access classification (Phase A research)",
+        config_path=None,
+        value="Blocked entirely, PlanetBids-shaped -- no bulk export, no data.ca.gov mirror, and the "
+             "HTML search itself is robots.txt-disallowed in full. Not built; PRA request only.",
+        source_type=MEASURED,
+        source_detail=(
+            "Checked 2026-09-07, Phase A research, no code written. No PWC-100 dataset exists on "
+            "data.ca.gov or any third-party open-data mirror (searched directly). The PWC-100 award "
+            "search and DIR's own public-works contractor-registration lookup both resolve to "
+            "services.dir.ca.gov (every www.dir.ca.gov/pwc100ext/* path 307-redirects there, as does "
+            "the contractor-lookup link on dir.ca.gov/Public-Works/Contractors.html). That host's own "
+            "robots.txt is 'User-agent: *' / 'Disallow: /' -- a full block, verbatim, no exceptions -- "
+            "unlike CHHS's own robots.txt (blocks only /api/ and /datastore/*, leaving a bulk file "
+            "reachable) or CAEATFA/AB802/OPSC's clean robots.txt plus public-domain ToU. This is the "
+            "PlanetBids pattern instead: blocked regardless of method, including a single one-off "
+            "sample fetch -- none was made. www.dir.ca.gov itself has no PWC-100-specific robots.txt "
+            "disallow, but that host only redirects; it never serves the data itself, so there is no "
+            "daylight to fetch through. DIR is also actively retiring PWC-100/PWCR/eCPR for a new "
+            "platform (dir.ca.gov/Public-Works/Public-Works-Website-Services.html, no docs live yet), "
+            "so this classification should be re-checked before ever revisiting the question, not "
+            "assumed to still hold. The only path to this data is a Public Records Act request to DIR "
+            "-- not a fetcher, not on any deploy cadence. See RUNBOOK.md's deferred-sources list."
+        ),
+        verified=True,
+        last_reviewed="Checked 2026-09-07 directly against services.dir.ca.gov/robots.txt.",
+    ))
+
     # ---- Project delivery method --------------------------------------------
 
     dmc = delivery_method_coverage or {}
