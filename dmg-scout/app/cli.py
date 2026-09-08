@@ -1256,7 +1256,8 @@ def load_carb_facilities_cmd(
     with session_scope() as session:
         stats = load_carb_facilities(session, csv_path=csv_path)
     typer.echo(f"fetched {stats['fetched']}, stored {stats['stored']} "
-              f"({stats['new']} new, {stats['already_present']} already present from the AER list), "
+              f"({stats['duplicates_dropped']} duplicate facility ids dropped), "
+              f"{stats['new']} new, {stats['already_present']} already present from the AER list, "
               f"{stats['ab802_flagged']} AB 802 rows flagged with an air permit match")
     if stats.get("error"):
         typer.echo(f"  ERROR: {stats['error']}", err=True)

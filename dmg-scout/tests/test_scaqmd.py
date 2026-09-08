@@ -360,6 +360,30 @@ def test_load_carb_facilities_stores_rows_with_carb_source(db_session, cfg, tmp_
     assert all(r.source == SOURCE_CARB for r in rows)
 
 
+def test_load_carb_facilities_dedupes_repeated_facility_id_keeping_the_last(db_session, cfg, tmp_path):
+    """CARB's own export carries a handful of genuine duplicate FACID rows
+    (same facility, different county code) -- must not crash on the
+    unique constraint, must keep the LAST row in file order, and must
+    report the dropped count."""
+    csv_path = tmp_path / "carb.csv"
+    csv_path.write_bytes(_carb_csv([
+        _carb_row(facid="1", fcity="FIRST CITY"),
+        _carb_row(facid="1", fcity="SECOND CITY"),
+        _carb_row(facid="2"),
+    ]))
+
+    stats = load_carb_facilities(db_session, csv_path=str(csv_path))
+    assert stats["error"] is None
+    assert stats["fetched"] == 3
+    assert stats["stored"] == 2
+    assert stats["duplicates_dropped"] == 1
+
+    row = db_session.exec(
+        select(ScaqmdFacility).where(ScaqmdFacility.source == SOURCE_CARB, ScaqmdFacility.facility_id == "1")
+    ).one()
+    assert row.city == "SECOND CITY"
+
+
 def test_load_carb_facilities_reports_new_vs_already_present(db_session, cfg, tmp_path):
     # Seed an AER-sourced row under facility_id "1" -- CARB's own row for
     # the same facility_id should count as "already present," not "new".

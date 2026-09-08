@@ -192,24 +192,40 @@ def load_carb_facilities(session: Session, csv_path: str = CARB_CSV_PATH,
     AB 802 join afterward the same as fetch_scaqmd_facilities, since CARB
     rows are just as eligible to match as AER rows. Returns fetched/stored/
     new/already_present (against the AER-sourced facility_id set already
-    on file) plus ab802_flagged, error."""
+    on file) plus duplicates_dropped (CARB's own export carries a handful
+    of genuine duplicate FACID rows -- last one in file order wins, same
+    discipline as app.pipeline.ab802's own duplicate-id handling),
+    ab802_flagged, error."""
     run = SourceRun(source=f"{SOURCE}_carb")
     session.add(run)
     session.commit()
 
-    fetched, stored, new_count, already_present, ab802_flagged, error = 0, 0, 0, 0, 0, None
+    fetched, stored, new_count, already_present, duplicates_dropped, ab802_flagged, error = \
+        0, 0, 0, 0, 0, 0, None
     try:
         with open(csv_path, "rb") as fh:
             raw = fh.read()
         rows = parse_carb_csv(raw)
         fetched = len(rows)
 
+        # CARB's own export carries a handful of genuine duplicate FACID
+        # rows (2026-09-08: 15 of 5,569, same name/address/city, different
+        # county code -- a data quirk in CARB's own system, not a parsing
+        # bug). Same discipline as app.pipeline.ab802's own duplicate-
+        # property-id handling: keep the LAST row per id in file order,
+        # report the dropped count rather than silently discarding or
+        # crashing on the unique constraint.
+        deduped: dict[str, dict] = {}
+        for r in rows:
+            deduped[r["facility_id"]] = r
+        duplicates_dropped = fetched - len(deduped)
+
         aer_facility_ids = set(session.exec(
             select(ScaqmdFacility.facility_id).where(ScaqmdFacility.source == SOURCE_AER)).all())
 
         session.exec(delete(ScaqmdFacility).where(ScaqmdFacility.source == SOURCE_CARB))
         now = utcnow()
-        for r in rows:
+        for r in deduped.values():
             session.add(ScaqmdFacility(
                 facility_id=r["facility_id"], source=SOURCE_CARB, facility_name=r["facility_name"],
                 address=r["address"], city=r["city"], zip_code=r["zip_code"],
@@ -220,7 +236,7 @@ def load_carb_facilities(session: Session, csv_path: str = CARB_CSV_PATH,
             else:
                 new_count += 1
         session.flush()
-        stored = fetched
+        stored = len(deduped)
 
         ab802_flagged = _link_ab802(session)
         session.commit()
@@ -238,7 +254,8 @@ def load_carb_facilities(session: Session, csv_path: str = CARB_CSV_PATH,
     session.commit()
 
     return {"fetched": fetched, "stored": stored, "new": new_count,
-           "already_present": already_present, "ab802_flagged": ab802_flagged, "error": error}
+           "already_present": already_present, "duplicates_dropped": duplicates_dropped,
+           "ab802_flagged": ab802_flagged, "error": error}
 
 
 def _link_ab802(session: Session) -> int:
