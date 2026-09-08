@@ -35,6 +35,9 @@
   <div>
     <label><input type="checkbox" name="upcoming_12mo" value="true" {{ 'checked' if upcoming_12mo }} onchange="this.form.submit()"> Upcoming milestone in next 12mo</label>
   </div>
+  <div>
+    <label><input type="checkbox" name="has_air_permit" value="true" {{ 'checked' if has_air_permit }} onchange="this.form.submit()"> Air permit on file</label>
+  </div>
   <div><button type="submit">Apply</button> <a href="/ab869" style="margin-left:8px">Reset</a></div>
 </form>
 
@@ -43,7 +46,7 @@
 <thead><tr>
   <th>Facility</th><th>County</th><th class="num">NPC buildings</th><th>Plan status</th>
   <th class="num">Missed milestones</th><th>Delay requested</th><th>Next Permit/Commencement</th>
-  <th>Financially responsible</th>
+  <th>Financially responsible</th><th>Air permit</th>
 </tr></thead>
 <tbody>
 {% for r in rows %}
@@ -57,6 +60,7 @@
   <td>{% if r.delay_requested is true %}True{% else %}<span class="note">blank</span>{% endif %}</td>
   <td class="nowrap">{{ r.next_upcoming_date.strftime('%Y-%m-%d') if r.next_upcoming_date else '<span class="note">blank</span>'|safe }}</td>
   <td>{{ r.financially_responsible_party or '<span class="note">not parsed</span>'|safe }}</td>
+  <td>{% if r.air_permit_facility_id %}on file <span class="note">#{{ r.air_permit_facility_id }}</span>{% else %}<span class="note">no match</span>{% endif %}</td>
 </tr>
 {% endfor %}
 </tbody>

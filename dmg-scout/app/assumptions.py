@@ -1226,6 +1226,79 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
         last_reviewed="Checked 2026-09-07 directly against services.dir.ca.gov/robots.txt.",
     ))
 
+    # ---- SCAQMD facility grain -------------------------------------------------
+
+    out.append(Assumption(
+        group="SCAQMD facility grain", name="Access classification and source (Phase A + build)",
+        config_path="sources.scaqmd_facility",
+        value="FIND and Public Document Search both blocked entirely (PlanetBids-shaped); loaded "
+             "instead from South Coast AQMD's own un-blocked bulk facility-notification XLSX -- "
+             "facility grain only, no equipment, no permit number, no capacity",
+        source_type=MEASURED,
+        source_detail=(
+            "Checked 2026-09-08. FIND (South Coast AQMD's facility/equipment lookup) resolves to "
+            "xappprod.aqmd.gov, whose robots.txt is 'User-agent: *' / 'Disallow: /' -- verbatim, full "
+            "block, no exceptions. Public Document Search (permits to operate, permit public notices) "
+            "resolves to onbase-pub.aqmd.gov, same full block. Neither was ever queried, not even "
+            "once. www.aqmd.gov itself (the informational site) carries only a narrow, unrelated "
+            "robots.txt (App_Data/, bin/, MVC/, Services/, a few file extensions) and its own Terms of "
+            "Use asserts ordinary copyright over documents ('may be protected under the U.S. and "
+            "Foreign Copyright Laws') rather than the ca.gov statewide public-domain language CAEATFA/"
+            "AB802/OPSC could rely on -- moot here since the application hosts' robots.txt settles it "
+            "first anyway. A real bulk alternative was found and verified on that same un-blocked "
+            "host: 'Facilities Notified' Annual Emissions Reporting XLSX, linked directly from "
+            "aqmd.gov/home/rules-compliance/compliance/annual-emission-reporting (not the blocked "
+            "application host) -- 3,091 facilities as of the 2025 list, columns Facility ID/Name/"
+            "Address/City/Zip plus AB2588/CTR/Rule-317.1 flags. The source's own Notes sheet states "
+            "this list is 'not comprehensive' -- facilities notified to report under Rule 301(e)/CTR, "
+            "not every permitted facility in South Coast AQMD's jurisdiction. No equipment, permit "
+            "number, or capacity field exists in this file at all -- that data lives only behind the "
+            "two blocked hosts above; a Public Records Act request is the only path to it (see "
+            "RUNBOOK.md's deferred-sources list). CARB's own Facility Search Tool "
+            "(ww2.arb.ca.gov/facility-search-tool) was also found -- its robots.txt is clean and "
+            "explicitly names Claude-Web in an Allow block -- but it is a JavaScript single-page "
+            "application with no static download URL or discoverable public API this codebase's "
+            "tooling can drive (confirmed by inspecting its raw HTML: a bundled SPA shell, no visible "
+            "form action or API endpoint). NOT loaded this build -- a disclosed gap, not guessed at "
+            "or silently skipped."
+        ),
+        verified=True,
+        last_reviewed="Checked 2026-09-08 directly against xappprod.aqmd.gov/robots.txt, "
+                      "onbase-pub.aqmd.gov/robots.txt, and ww2.arb.ca.gov/robots.txt.",
+    ))
+
+    out.append(Assumption(
+        group="SCAQMD facility grain", name="Air permit join to AB 802 and AB 869",
+        config_path=None,
+        value="AB 802: normalized-address text match, denormalized onto Ab802Building. AB 869: "
+             "normalized-facility-NAME match (same city) -- AB 869/HospitalBuilding carry no street "
+             "address field at all, so an address join was not possible as originally scoped.",
+        source_type=MEASURED,
+        source_detail=(
+            "AB 802 join: app.pipeline.scaqmd._link_ab802, normalized-address text only (neither side "
+            "has lat/long here, so unlike AB 802's own RetrofitBuilding join there is no lat/long-"
+            "first step) -- ambiguous on either side (two ScaqmdFacility rows or two Ab802Building "
+            "rows sharing one normalized address) is dropped, never guessed at, same discipline as "
+            "every prior join in this codebase. Recomputed fresh across ALL years of Ab802Building on "
+            "file on every scaqmd_facility load, not just the latest year shown on the board -- a real "
+            "building's address doesn't change year to year. AB 869 join: inspected Ab869Plan, "
+            "Ab869Building, and HospitalBuilding directly (2026-09-08) and confirmed none of the three "
+            "carries a street address field -- only city/county and, on HospitalBuilding only, lat/"
+            "long. A text-address join was therefore not possible as literally scoped; the best "
+            "available loose join is normalized facility name (app.normalize.normalize_name), "
+            "restricted to the same city to keep an unrelated same-named facility in a different city "
+            "from colliding -- computed live in app.pipeline.ab869.ab869_board_rows (cheap, ~200 "
+            "facilities), never stored, since there is no clean column to denormalize onto: Ab869Plan "
+            "doesn't exist for the ~11 facilities with NO_PLAN_ON_FILE, and HospitalBuilding is "
+            "building-, not facility-, grain. Disclosed everywhere it surfaces (model docstrings, "
+            "module docstring, board UI copy, and here) as a name match, never presented as address-"
+            "based."
+        ),
+        verified=True,
+        last_reviewed="Measured 2026-09-08 against real production Ab802Building/HospitalBuilding "
+                      "data.",
+    ))
+
     # ---- Project delivery method --------------------------------------------
 
     dmc = delivery_method_coverage or {}

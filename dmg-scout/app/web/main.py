@@ -960,6 +960,7 @@ def hospital_building_detail(building_id: int, request: Request,
 @app.get("/ab869", response_class=HTMLResponse)
 def ab869_board(request: Request, county: str = None, plan_status: str = None,
                 has_missed: bool = False, upcoming_12mo: bool = False, owner: str = "",
+                has_air_permit: bool = False,
                 session: Session = Depends(get_session), _: str = Depends(auth)):
     """One row per in-territory facility -- the AB 869 seismic compliance
     plan roster. See app.pipeline.ab869's module docstring for the access/
@@ -994,11 +995,13 @@ def ab869_board(request: Request, county: str = None, plan_status: str = None,
         needle = owner.lower()
         rows = [r for r in rows if r["financially_responsible_party"]
                and needle in r["financially_responsible_party"].lower()]
+    if has_air_permit:
+        rows = [r for r in rows if r["air_permit_facility_id"]]
 
     return templates.TemplateResponse(request, "ab869_board.html", {
         "rows": rows, "counties": counties, "plan_statuses": plan_statuses,
         "county": county, "plan_status": plan_status, "has_missed": has_missed,
-        "upcoming_12mo": upcoming_12mo, "owner": owner,
+        "upcoming_12mo": upcoming_12mo, "owner": owner, "has_air_permit": has_air_permit,
         "tb": _title_block(session), "active": "hospitals",
     })
 
@@ -1122,6 +1125,7 @@ def replacement_leads_view(request: Request, view: str = "contractors",
                            county: str = "", property_type: str = "", show_all_types: bool = False,
                            year_built_before: int | None = None,
                            eui_above_median: bool = False, has_assessor_match: bool = False,
+                           has_air_permit: bool = False,
                            session: Session = Depends(get_session), _: str = Depends(auth)):
     """Two tabs, one page, selected by `view` (chip nav, same pattern
     /board's category/territory chips already use):
@@ -1170,7 +1174,7 @@ def replacement_leads_view(request: Request, view: str = "contractors",
         ab802_result = rank_in_territory(
             session, cfg, county=county or None, property_type=property_type or None,
             year_built_before=year_built_before, eui_above_median=eui_above_median,
-            has_assessor_match=has_assessor_match,
+            has_assessor_match=has_assessor_match, has_air_permit=has_air_permit,
             restrict_to_relevant_types=not show_all_types)
         ab802_rows = ab802_result["ranked"]
         ab802_anomalies = ab802_result["anomalies"]
@@ -1216,6 +1220,7 @@ def replacement_leads_view(request: Request, view: str = "contractors",
         "county": county, "property_type": property_type, "show_all_types": show_all_types,
         "year_built_before": year_built_before,
         "eui_above_median": eui_above_median, "has_assessor_match": has_assessor_match,
+        "has_air_permit": has_air_permit,
         "tb": _title_block(session), "active": "replacement-leads",
     })
 

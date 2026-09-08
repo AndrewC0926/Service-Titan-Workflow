@@ -306,6 +306,18 @@ revisiting only if someone actually files one, and even then, re-check the
 access classification first: DIR is mid-migration off PWC-100/PWCR/eCPR to a
 new platform.
 
+**CARB Facility Search Tool (Phase A research, 2026-09-08) -- not loaded,
+no static download.** Found while researching SCAQMD facility-grain
+alternatives (`ww2.arb.ca.gov/facility-search-tool`) with a genuinely
+clean robots.txt -- it explicitly names `Claude-Web` in an `Allow: /`
+block, alongside Googlebot/Bingbot. Not built anyway: it's a JavaScript
+single-page application with no static download URL or discoverable
+public API, and this codebase has no headless-browser tooling to drive an
+interactive session. See app/assumptions.py's "SCAQMD facility grain"
+entry -- `ScaqmdFacility` is instead seeded from South Coast AQMD's own
+bulk XLSX. Worth revisiting only if this app ever gains browser
+automation, or if CARB publishes a static export of the same data.
+
 ## Extraction trust: the grounding audit
 
 ```

@@ -1219,6 +1219,27 @@ def fetch_opsc_workload_cmd() -> None:
             typer.echo(f"  {result['error']}", err=True)
 
 
+@app.command("fetch-scaqmd-facilities")
+def fetch_scaqmd_facilities_cmd() -> None:
+    """South Coast AQMD's own "Facilities Notified" Annual Emissions
+    Reporting XLSX (facility grain only -- FIND and Public Document Search
+    are both robots.txt-blocked in full, never queried; see
+    app/pipeline/scaqmd.py's module docstring) -> scaqmd_facilities, full-
+    replacing the whole table, then recomputing the normalized-address
+    join onto every Ab802Building row on file. NOT part of `scout
+    pipeline` at any cadence -- run by hand, annually (config.yaml's
+    sources.scaqmd_facility). Writes its own SourceRun so `scout doctor` /
+    source_health can see it."""
+    from app.http import PoliteClient
+    from app.pipeline.scaqmd import fetch_scaqmd_facilities
+    with session_scope() as session, PoliteClient() as client:
+        stats = fetch_scaqmd_facilities(session, load_config(), client)
+    typer.echo(f"fetched {stats['fetched']}, stored {stats['stored']}, "
+              f"{stats['ab802_flagged']} AB 802 rows flagged with an air permit match")
+    if stats.get("error"):
+        typer.echo(f"  ERROR: {stats['error']}", err=True)
+
+
 @app.command("fetch-local250")
 def fetch_local250_cmd() -> None:
     """UA Local 250's public signatory contractor list (socalhvacr.info/

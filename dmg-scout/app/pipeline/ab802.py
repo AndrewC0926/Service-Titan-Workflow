@@ -609,6 +609,7 @@ EUI_RATIO_ANOMALY_ABOVE = 5.0
 def rank_in_territory(session: Session, cfg: Config, *, county: str | None = None,
                       property_type: str | None = None, year_built_before: int | None = None,
                       eui_above_median: bool = False, has_assessor_match: bool = False,
+                      has_air_permit: bool = False,
                       restrict_to_relevant_types: bool = False) -> dict:
     """Returns {"ranked": [...], "anomalies": [...]} -- two terms, summed,
     both shown as plain dict fields rather than folded into one opaque
@@ -701,6 +702,8 @@ def rank_in_territory(session: Session, cfg: Config, *, county: str | None = Non
             if median is None or r.weather_normalized_site_eui is None or r.weather_normalized_site_eui <= median:
                 continue
         if has_assessor_match and not r.assessor_match_method:
+            continue
+        if has_air_permit and not r.air_permit_facility_id:
             continue
 
         age = age_credit(r.year_built)

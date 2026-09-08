@@ -1278,6 +1278,46 @@ def test_replacement_leads_ab802_owner_hint_beats_name_on_filing(client, db_sess
     assert r.text.count("name on filing") == 1
 
 
+def test_replacement_leads_ab802_shows_air_permit_on_file(client, db_session, cfg):
+    from app.models import Ab802Building, ScaqmdFacility
+    db_session.add(ScaqmdFacility(facility_id="F1", facility_name="Matched Facility",
+                                  address="123 Main St", city="Los Angeles",
+                                  source_url="https://example.com"))
+    db_session.add(Ab802Building(
+        portfolio_manager_property_id="1", year_ending=2024, in_territory=True,
+        property_name="Test Tower", address_1="123 Main St", city="Los Angeles",
+        county_from_geocoding="Los Angeles County", primary_property_type="Office",
+        year_built=1970, weather_normalized_site_eui=150.0, property_gfa_sqft=50_000,
+        air_permit_facility_id="F1", air_permit_match_method="normalized_address",
+        source_url="https://example.com/x",
+    ))
+    db_session.commit()
+
+    r = client.get("/replacement-leads?view=ab802", headers=AUTH)
+    assert "air permit on file" in r.text
+    assert "SCAQMD #F1" in r.text
+
+
+def test_replacement_leads_ab802_has_air_permit_filter(client, db_session, cfg):
+    from app.models import Ab802Building
+    db_session.add(Ab802Building(
+        portfolio_manager_property_id="1", year_ending=2024, in_territory=True,
+        property_name="Matched Tower", county_from_geocoding="Los Angeles County",
+        primary_property_type="Office", property_gfa_sqft=50_000,
+        air_permit_facility_id="F1", source_url="x",
+    ))
+    db_session.add(Ab802Building(
+        portfolio_manager_property_id="2", year_ending=2024, in_territory=True,
+        property_name="Unmatched Tower", county_from_geocoding="Los Angeles County",
+        primary_property_type="Office", property_gfa_sqft=50_000, source_url="x",
+    ))
+    db_session.commit()
+
+    r = client.get("/replacement-leads?view=ab802&has_air_permit=true", headers=AUTH)
+    assert "Matched Tower" in r.text
+    assert "Unmatched Tower" not in r.text
+
+
 # --- /board Schools tab ------------------------------------------------
 
 

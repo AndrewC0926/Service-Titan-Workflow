@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import select
 
 from app.db import get_session
-from app.models import Ab869Building, Ab869Milestone, Ab869Plan, HospitalBuilding, utcnow
+from app.models import Ab869Building, Ab869Milestone, Ab869Plan, HospitalBuilding, ScaqmdFacility, utcnow
 from app.pipeline.ab869 import NO_PLAN_ON_FILE, ab869_board_rows, hcai_tableau_url
 from app.web.main import app
 
@@ -19,9 +19,9 @@ AUTH = {"Authorization": "Basic " + base64.b64encode(b"andrew:testpw").decode()}
 
 
 def _hospital_building(session, perm_id, facility_name, county, building_nbr,
-                       spc="5", npc="2", lat=34.0, lon=-118.0):
+                       spc="5", npc="2", lat=34.0, lon=-118.0, city=None):
     hb = HospitalBuilding(perm_id=perm_id, building_nbr=building_nbr, facility_name=facility_name,
-                          county=county, state="CA", spc_rating=spc, npc_rating=npc,
+                          county=county, city=city, state="CA", spc_rating=spc, npc_rating=npc,
                           latitude=lat, longitude=lon, snapshot_date=utcnow(),
                           source_url="https://example.com")
     session.add(hb)
@@ -258,3 +258,30 @@ def test_facility_detail_renders_for_crosstab_only_facility_with_no_pdf(client, 
 
     board = client.get("/ab869", headers=AUTH)
     assert "no PDF" in board.text
+
+
+# ---- air permit on file (SCAQMD facility grain join) -----------------------
+
+def test_board_shows_air_permit_facility_id_when_matched(client, db_session, cfg):
+    f = ScaqmdFacility(facility_id="F1", facility_name="LA Hospital", city="Los Angeles",
+                       source_url="https://example.com")
+    db_session.add(f)
+    db_session.commit()
+    _hospital_building(db_session, "111", "LA Hospital", "Los Angeles", "BLD-001", city="Los Angeles")
+
+    r = client.get("/ab869", headers=AUTH)
+    assert "on file" in r.text
+    assert "#F1" in r.text
+
+
+def test_has_air_permit_filter(client, db_session, cfg):
+    _hospital_building(db_session, "111", "LA Hospital", "Los Angeles", "BLD-001", city="Los Angeles")
+    _hospital_building(db_session, "222", "Kern Hospital", "Kern", "BLD-002", city="Bakersfield")
+    f = ScaqmdFacility(facility_id="F1", facility_name="LA Hospital", city="Los Angeles",
+                       source_url="https://example.com")
+    db_session.add(f)
+    db_session.commit()
+
+    r = client.get("/ab869?has_air_permit=true", headers=AUTH)
+    assert "LA Hospital" in r.text
+    assert "Kern Hospital" not in r.text

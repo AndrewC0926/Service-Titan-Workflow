@@ -792,6 +792,17 @@ sources:
     csv_url: "https://data.ca.gov/dataset/dd1eabf1-0b66-49d6-857d-8cef6ed93d45/resource/8080bb19-a63b-47e3-82d3-7451d119e27f/download/school-facility-program-funding.csv"
     portal_url: "https://data.ca.gov/dataset/opsc-open-data"
     stale_hours: 800
+  # South Coast AQMD's own "Facilities Notified" Annual Emissions Reporting
+  # list -- see app/pipeline/scaqmd.py's module docstring for why this is
+  # the bulk alternative to the blocked FIND/Public Document Search hosts.
+  # Annual, hand-run (`scout fetch-scaqmd-facilities`), not part of `scout
+  # pipeline`. stale_hours mirrors ab802_benchmarking's own annual figure
+  # (~one year + a few days' slack): 365*24 = 8760, +72h slack = 8832.
+  scaqmd_facility:
+    enabled: true
+    aer_xlsx_url: "https://www.aqmd.gov/docs/default-source/planning/annual-emission-reporting/2025-aer-facilities-notified-list.xlsx?sfvrsn=c7466b7e_2"
+    portal_url: "https://www.aqmd.gov/home/rules-compliance/compliance/annual-emission-reporting"
+    stale_hours: 8832
   manual:
     enabled: true
 

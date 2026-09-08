@@ -1689,6 +1689,82 @@ class Ab802Building(SQLModel, table=True):
     ebewe_building_id: str | None = None
     benchmarking_filer: str | None = None
 
+    # Loose join to ScaqmdFacility, normalized-address text only (neither
+    # side has lat/long here) -- see app.pipeline.scaqmd's module docstring.
+    # Recomputed fresh on every scaqmd_facility load, across all years on
+    # file, not just the latest -- a real building's address doesn't change
+    # year to year. Ambiguous on either side (two ScaqmdFacility rows or two
+    # AB802 rows sharing one normalized address) is dropped, never guessed.
+    air_permit_facility_id: str | None = Field(default=None, index=True)
+    air_permit_match_method: str | None = None  # "normalized_address" or null
+
+    source_url: str
+    imported_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class ScaqmdFacility(SQLModel, table=True):
+    """One row per South Coast AQMD permitted facility -- FACILITY grain
+    only, never equipment/permit grain. See app/pipeline/scaqmd.py's module
+    docstring for the full access investigation: FIND (South Coast AQMD's
+    own facility/equipment lookup) and Public Document Search (permits to
+    operate, permit public notices) both live on hosts whose robots.txt
+    disallows every user agent entirely -- PlanetBids-shaped, blocked
+    regardless of method -- so neither was ever queried, not even once.
+    This table exists ONLY because a real, un-blocked bulk alternative was
+    found and verified: South Coast AQMD's own "Facilities Notified"
+    Annual Emissions Reporting list, a plain XLSX linked directly from
+    aqmd.gov/home/rules-compliance/compliance/annual-emission-reporting
+    (not the blocked application host). Field names below are 1:1 with
+    that file's own header row.
+
+    Deliberately NO equipment, permit number, or capacity field: this
+    source's own Notes sheet states plainly this is a facility-notification
+    list, not a permit database, and none of those columns exist in it.
+    An "air permit on file" flag naming this Facility ID is the honest
+    ceiling of what this source can claim -- never "has a boiler," never
+    "boiler capacity X."
+
+    in_territory is True for every row, unconditionally, not computed
+    against a county field -- there isn't one in the source file (only
+    city/zip). This is not a guess: South Coast AQMD's own jurisdiction
+    (LA, Orange, and the non-desert portions of Riverside and San
+    Bernardino counties) is a strict subset of Scout's own 7-county DMG
+    territory, so every facility in a SOUTH COAST AQMD file is, by
+    construction, already in territory -- the source itself IS the
+    territory filter, not a separate check this app performs.
+
+    CARB's own Facility Search Tool (ww2.arb.ca.gov/facility-search-tool)
+    was found in Phase A and its robots.txt is clean, but it is a
+    JavaScript single-page application with no static download URL or
+    discoverable public API this codebase's tooling can drive -- NOT
+    loaded here. See the assumptions register; this is a disclosed gap,
+    not a silent one.
+
+    Full-replaced on every annual load, same discipline as
+    Ab802Building's own year-partitioned table, except this source carries
+    no year dimension of its own (it's a live notification list, not an
+    annual series) -- so the WHOLE table is replaced each run, same as
+    OpscProject's continuously-updated snapshot.
+    """
+    __tablename__ = "scaqmd_facilities"
+
+    id: int | None = Field(default=None, primary_key=True)
+    facility_id: str = Field(index=True, unique=True)
+    facility_name: str | None = None
+    address: str | None = None
+    city: str | None = Field(default=None, index=True)
+    zip_code: str | None = None
+
+    # Flags verbatim from the source file's own checkbox columns -- True
+    # when checked, False when blank, never inferred.
+    ab_2588: bool = Field(default=False)
+    meets_ctr_threshold: bool = Field(default=False)  # "Criteria Pollutants >= 4tpy (100 tpy for CO)"
+    core_ctr_facility: bool = Field(default=False)     # "'Core' CTR Facility (PTE>=250 tpy, ...)"
+    ctr_phase_3: bool = Field(default=False)
+    rule_317_1: bool = Field(default=False)
+
+    in_territory: bool = Field(default=True, index=True)  # see class docstring -- always True here
+
     source_url: str
     imported_at: datetime = Field(default_factory=utcnow, index=True)
 

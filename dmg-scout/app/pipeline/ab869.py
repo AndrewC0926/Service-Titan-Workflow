@@ -780,15 +780,27 @@ def ab869_board_rows(session: Session, cfg) -> list[dict]:
     against this same list. Includes a facility with NO Ab869Plan row at
     all (plan_status becomes the literal NO_PLAN_ON_FILE, not hidden) --
     the 11 facilities HCAI's own crosstab filter matched nothing for."""
+    from app.pipeline.scaqmd import scaqmd_matches_for_ab869
+
     territory_counties = set(cfg.get("territories.california.counties", []))
 
     facilities: dict[str, dict] = {}
-    for perm_id, facility_name, county in session.exec(
-        select(HospitalBuilding.perm_id, HospitalBuilding.facility_name, HospitalBuilding.county)
+    city_by_perm: dict[str, str] = {}
+    for perm_id, facility_name, county, city in session.exec(
+        select(HospitalBuilding.perm_id, HospitalBuilding.facility_name, HospitalBuilding.county,
+              HospitalBuilding.city)
     ).all():
         if county not in territory_counties:
             continue
         facilities.setdefault(perm_id, {"perm_id": perm_id, "facility_name": facility_name, "county": county})
+        if perm_id not in city_by_perm and city:
+            city_by_perm[perm_id] = city
+
+    # Normalized-facility-NAME match against ScaqmdFacility, restricted to
+    # the same city -- not an address match, AB 869/HospitalBuilding carry
+    # no street address at all. See app.pipeline.scaqmd's module docstring.
+    air_permit_by_perm = scaqmd_matches_for_ab869(
+        session, [(pid, f["facility_name"], city_by_perm.get(pid)) for pid, f in facilities.items()])
 
     plans = {p.perm_id: p for p in session.exec(select(Ab869Plan)).all() if p.perm_id in facilities}
 
@@ -831,6 +843,7 @@ def ab869_board_rows(session: Session, cfg) -> list[dict]:
             "delay_requested": plan.delay_requested if plan else None,
             "next_upcoming_date": next_date,
             "financially_responsible_party": plan.financially_responsible_party if plan else None,
+            "air_permit_facility_id": air_permit_by_perm.get(perm_id),
         })
     rows.sort(key=lambda r: r["npc_building_count"], reverse=True)
     return rows
