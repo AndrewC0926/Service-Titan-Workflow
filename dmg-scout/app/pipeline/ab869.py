@@ -780,9 +780,11 @@ def ab869_board_rows(session: Session, cfg) -> list[dict]:
     against this same list. Includes a facility with NO Ab869Plan row at
     all (plan_status becomes the literal NO_PLAN_ON_FILE, not hidden) --
     the 11 facilities HCAI's own crosstab filter matched nothing for."""
+    from app.pipeline.hcai_projects import open_hcai_projects_by_facility_id
     from app.pipeline.scaqmd import scaqmd_matches_for_ab869
 
     territory_counties = set(cfg.get("territories.california.counties", []))
+    hcai_open_by_facility = open_hcai_projects_by_facility_id(session)
 
     facilities: dict[str, dict] = {}
     city_by_perm: dict[str, str] = {}
@@ -844,6 +846,9 @@ def ab869_board_rows(session: Session, cfg) -> list[dict]:
             "next_upcoming_date": next_date,
             "financially_responsible_party": plan.financially_responsible_party if plan else None,
             "air_permit_facility_id": air_permit_by_perm.get(perm_id),
+            "hcai_open_projects": hcai_open_by_facility.get(perm_id, []),
+            "has_open_mechanical_project": any(
+                p.is_mechanical for p in hcai_open_by_facility.get(perm_id, [])),
         })
     rows.sort(key=lambda r: r["npc_building_count"], reverse=True)
     return rows

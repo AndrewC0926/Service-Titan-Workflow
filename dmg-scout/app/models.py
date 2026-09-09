@@ -1855,6 +1855,73 @@ class BpelsgEngineer(SQLModel, table=True):
     imported_at: datetime = Field(default_factory=utcnow, index=True)
 
 
+class HcaiProject(SQLModel, table=True):
+    """One row per HCAI Facilities Development Division project record --
+    the "Projects by County" report (report.hcai.ca.gov, division OSHPD,
+    report id 38). See app/pipeline/hcai_projects.py's module docstring
+    for the access investigation and app/assumptions.py's "HCAI Facilities
+    Development Division project reports" entry for the Phase A findings
+    this rests on (2026-09-08/09).
+
+    record_no is the primary key -- DCA's... no, HCAI's own "Record"
+    column (ProjNo in the raw export) is already a stable, globally
+    unique identifier (confirmed: 45,132 of 45,132 rows had a distinct
+    value in the Phase A pull), same "real-world key as PK" choice as
+    BpelsgEngineer.license_no. load_hcai_projects upserts on it --
+    idempotent, never duplicates a record across reloads.
+
+    parent_no is set when a row is an AMENDMENT of an earlier record
+    (4,974 of 45,132 in the Phase A pull) -- both the amendment and its
+    parent are loaded as separate rows; nothing is collapsed at load
+    time. See app.pipeline.hcai_projects' own docstring for the proposed
+    (not decided) parent-collapsing question at display time.
+
+    stage is THIS APPLICATION'S OWN collapse of HCAI's 23 raw Status
+    values into five buckets (plan_review, pending_start, in_construction,
+    closed, other) -- status_raw is kept verbatim alongside it, never
+    replaced, so a reader can always see HCAI's own exact word. See
+    app.pipeline.hcai_projects.STAGE_MAP for the full 23-value mapping,
+    and this file's own assumptions-register entry for why each choice
+    was made. Anything not in the map (a future new HCAI status this
+    table has never seen) maps to "other," never dropped and never
+    guessed into a more specific bucket.
+
+    is_mechanical is a plain regex match on scope_text (see
+    app.pipeline.hcai_projects.MECHANICAL_RE) -- no LLM, deliberately:
+    every fact here is already an exact government value, same
+    discipline as app.pipeline.opsc's direct-Signal-construction choice.
+    A False here means "the keyword set didn't match," never "confirmed
+    non-mechanical" -- scope_text is free text HCAI's own compliance
+    officers typed, and plenty of real mechanical work has no keyword
+    hit (a scope reading only "Emergency Generator Replacement" wouldn't
+    match, for instance) or is a red herring (see this table's own
+    assumptions-register precision-sample entry for the measured rate).
+
+    report_date is the SOURCE FILE's own "as of" date (parsed from the
+    report's own title line, e.g. "...as of 09/08/2026") -- the SAME
+    value for every row loaded from one file, never utcnow() or per-row
+    imported_at, so staleness is visible on the board without a separate
+    SourceRun lookup and a stale file re-loaded later is told apart from
+    a fresh one by this column, not by when the load happened to run."""
+    __tablename__ = "hcai_projects"
+
+    record_no: str = Field(primary_key=True)
+    parent_no: str | None = Field(default=None, index=True)
+    facility_id: str = Field(index=True)
+    facility_name: str
+    facility_address: str | None = None
+    county: str = Field(index=True)
+    scope_text: str = Field(sa_column=Column(Text, nullable=False, default=""))
+    date_in: datetime | None = None
+    cost_est: float | None = None
+    pct_complete: float | None = None
+    status_raw: str = Field(index=True)
+    stage: str = Field(index=True)  # plan_review | pending_start | in_construction | closed | other
+    is_mechanical: bool = Field(default=False, index=True)
+    report_date: datetime = Field(index=True)
+    imported_at: datetime = Field(default_factory=utcnow, index=True)
+
+
 class RetrofitBuilding(SQLModel, table=True):
     """One BUILDING (not permit) — the retrofit board's unit of record. See
     app/pipeline/retrofit.py: this is a deduplication of EquipmentPermit

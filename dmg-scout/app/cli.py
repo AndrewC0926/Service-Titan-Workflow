@@ -1285,6 +1285,31 @@ def load_bpelsg_engineers_cmd(
         typer.echo(f"  ERROR: {stats['error']}", err=True)
 
 
+@app.command("load-hcai-projects")
+def load_hcai_projects_cmd(
+    csv_path: str = typer.Option(
+        "docs/sources-pilot/hcai-reports/projects-by-county-7-counties-all-statuses.csv",
+        help="Path to the hand-pulled HCAI 'Projects by County' CSV export"),
+) -> None:
+    """Loads HCAI's Facilities Development Division 'Projects by County'
+    report (a static file already on disk -- see app/pipeline/
+    hcai_projects.py's module docstring for how it's pulled, one
+    report.hcai.ca.gov Playwright visit, never a scheduled fetch) into
+    hcai_projects: idempotent upsert by record_no. NOT part of `scout
+    pipeline` -- run by hand whenever a new export is pulled and saved
+    to docs/sources-pilot/hcai-reports/, same manual cadence as AB 869."""
+    from app.pipeline.hcai_projects import hcai_match_rate, load_hcai_projects
+    with session_scope() as session:
+        stats = load_hcai_projects(session, csv_path=csv_path)
+        match = hcai_match_rate(session) if not stats.get("error") else None
+    typer.echo(f"fetched {stats['fetched']} rows ({stats['new']} new, {stats['updated']} updated)")
+    if match:
+        typer.echo(f"  facility match vs HospitalBuilding: {match['matched']} of "
+                  f"{match['hcai_facilities']} ({match['unmatched']} unmatched)")
+    if stats.get("error"):
+        typer.echo(f"  ERROR: {stats['error']}", err=True)
+
+
 @app.command("fetch-local250")
 def fetch_local250_cmd() -> None:
     """UA Local 250's public signatory contractor list (socalhvacr.info/

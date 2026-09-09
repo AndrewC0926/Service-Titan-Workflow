@@ -38,15 +38,28 @@
   <div>
     <label><input type="checkbox" name="has_air_permit" value="true" {{ 'checked' if has_air_permit }} onchange="this.form.submit()"> Air permit on file</label>
   </div>
+  <div>
+    <label><input type="checkbox" name="has_open_mechanical" value="true" {{ 'checked' if has_open_mechanical }} onchange="this.form.submit()"> Has open mechanical project</label>
+  </div>
   <div><button type="submit">Apply</button> <a href="/ab869" style="margin-left:8px">Reset</a></div>
 </form>
+
+{% if hcai_report_date %}
+<p class="note">HCAI Facilities Development Division projects as of {{ hcai_report_date.strftime('%Y-%m-%d') }}
+  (hand-pulled, not live -- see
+  <a href="/assumptions#{{ assumption_slug('HCAI Facilities Development Division project reports') if assumption_slug is defined else '' }}">/assumptions</a>).
+  No ranking or score change from this -- informational only.</p>
+{% else %}
+<p class="note dim">HCAI Facilities Development Division projects not loaded yet
+  (<span class="mono">scout load-hcai-projects</span>).</p>
+{% endif %}
 
 <div style="overflow-x:auto">
 <table class="tbl" style="width:100%">
 <thead><tr>
   <th>Facility</th><th>County</th><th class="num">NPC buildings</th><th>Plan status</th>
   <th class="num">Missed milestones</th><th>Delay requested</th><th>Next Permit/Commencement</th>
-  <th>Financially responsible</th><th>Air permit</th>
+  <th>Financially responsible</th><th>Air permit</th><th>HCAI projects</th>
 </tr></thead>
 <tbody>
 {% for r in rows %}
@@ -61,6 +74,29 @@
   <td class="nowrap">{{ r.next_upcoming_date.strftime('%Y-%m-%d') if r.next_upcoming_date else '<span class="note">blank</span>'|safe }}</td>
   <td>{{ r.financially_responsible_party or '<span class="note">not parsed</span>'|safe }}</td>
   <td>{% if r.air_permit_facility_id %}on file <span class="note">#{{ r.air_permit_facility_id }}</span>{% else %}<span class="note">no match</span>{% endif %}</td>
+  <td>
+    {%- if r.hcai_open_projects -%}
+    <details>
+      <summary>{{ r.hcai_open_projects|length }} open
+        {%- if r.has_open_mechanical_project %} <span class="warn">({{ r.hcai_open_projects|selectattr('is_mechanical')|list|length }} mechanical)</span>{% endif -%}
+      </summary>
+      <div class="callout-content" style="max-width:420px">
+        {% for p in r.hcai_open_projects %}
+        <div style="margin-bottom:6px;{% if not loop.first %}border-top:1px solid var(--border,#ddd);padding-top:6px;{% endif %}">
+          {% if p.is_mechanical %}<span class="warn">mechanical</span>{% endif %}
+          <b>{{ p.stage }}</b>
+          <span class="note">{{ p.date_in.strftime('%Y-%m-%d') if p.date_in else 'no date' }}
+            {%- if p.cost_est %} · ${{ '{:,.0f}'.format(p.cost_est) }}{% endif %}</span>
+          <div>{{ p.scope_text or '(no scope text)' }}</div>
+          <div class="note">{{ p.status_raw }} · Record {{ p.record_no }}{% if p.parent_no %} · amends {{ p.parent_no }}{% endif %}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </details>
+    {%- else -%}
+      <span class="dim">none</span>
+    {%- endif -%}
+  </td>
 </tr>
 {% endfor %}
 </tbody>

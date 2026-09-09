@@ -1417,6 +1417,157 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "(2026-09-01 edition).",
     ))
 
+    # ---- HCAI Facilities Development Division project reports (Phase A) -------
+
+    out.append(Assumption(
+        group="HCAI Facilities Development Division project reports", name="Access classification",
+        config_path=None,
+        value="Clean -- no robots.txt exists on report.hcai.ca.gov, hcai.ca.gov, or esp.hcai.ca.gov "
+             "(all 404), and hcai.ca.gov's own Conditions of Use states public-domain, no automated-"
+             "access restriction",
+        source_type=MEASURED,
+        source_detail=(
+            "Checked 2026-09-08/09. report.hcai.ca.gov/robots.txt, hcai.ca.gov/robots.txt, and "
+            "esp.hcai.ca.gov/robots.txt all return 404 -- no file exists at any of the three hosts, "
+            "which by robots.txt convention means no crawl restriction is declared (an absent file is "
+            "not a block). hcai.ca.gov/home/conditions-of-use/ (the same Conditions of Use esp.hcai.ca.gov "
+            "itself links to) states, verbatim: 'information presented on this website...is considered "
+            "in the public domain. It may be distributed or copied as permitted by law' -- the same "
+            "CAEATFA-shaped public-domain language already relied on elsewhere in this codebase, not a "
+            "confidential-data DUA (that separate, stricter process governs patient-level data requests, "
+            "not this public project-status report). One Playwright session pulled 'Projects by County' "
+            "for all 7 territory counties (report.hcai.ca.gov, division OSHPD, report id 38), Status="
+            "'All' (the pre-run filter only offers Open/All/Closed, not the finer per-project status "
+            "values, which are a column IN the results, not a filter option) -- exported to Excel and "
+            "CSV under docs/sources-pilot/hcai-reports/. 45,132 project records across 1,095 facilities, "
+            "1986-12-17 to 2026-09-08. esp.hcai.ca.gov's own 'Search Projects' tool was NOT queried, per "
+            "instruction -- confirmed via search results only that it takes a Facility ID, HCAI Project "
+            "Number, or Professional License Number (no public account required, no name-based browse). "
+            "A second report on the SAME already-clean report.hcai.ca.gov host, 'Project List by "
+            "Professional' (report id 3), was inspected (parameter panel only, never run) and confirmed "
+            "the same shape: a free-text 'License Number with Prefix' field, no browsable list -- "
+            "corroborating evidence for the same manual-per-engineer conclusion without touching "
+            "esp.hcai.ca.gov at all. Facility ID join key verified directly against production, not "
+            "assumed: 216 of 422 HospitalBuilding.perm_id values overlap exactly with this report's own "
+            "facility IDs."
+        ),
+        verified=True,
+        last_reviewed="Checked and pulled 2026-09-08/09 directly against report.hcai.ca.gov, "
+                      "hcai.ca.gov, and esp.hcai.ca.gov.",
+    ))
+
+    out.append(Assumption(
+        group="HCAI Facilities Development Division project reports",
+        name="Status-to-stage mapping (Phase B build)",
+        config_path=None,
+        value="HCAI's own 23 raw Status values collapse to 5 buckets (plan_review, pending_start, "
+             "in_construction, closed, other) -- app.pipeline.hcai_projects.STAGE_MAP, status_raw kept "
+             "verbatim alongside stage, never replaced",
+        source_type=MEASURED,
+        source_detail=(
+            "This application's own classification of HCAI's own Status values, not an HCAI-published "
+            "field -- a judgment call this codebase made, verified complete against real data rather "
+            "than left partial. All 23 values seen in "
+            "the 2026-09-08 pull (45,132 rows, confirmed complete against that pull -- zero unmapped) "
+            "are mapped explicitly:\n"
+            "closed (41,035 rows): Closed, Closed Inactive, Cancelled, Closed Non-CAC Compliant, "
+            "Closed Non-CBSC Compliant, Withdrawn, Void, Closed Administrative, Expired -- every value "
+            "meaning 'no longer an active pipeline item,' regardless of why it stopped.\n"
+            "plan_review (1,016 rows): Open - Remarked, Active - Plan Review, Open - Returned, Open, "
+            "Active - Triage -- design/application still under review; bare 'Open' grouped here because "
+            "its two qualified siblings ('Open - Remarked', 'Open - Returned') both belong to this "
+            "review-cycle family.\n"
+            "pending_start (1,604 rows): Pending Construction Start, Approved, Pending Field "
+            "Operations, Issued -- design approved or permit issued, construction not yet begun. "
+            "'Approved' placed here rather than plan_review because in HCAI's own workflow it precedes "
+            "Pending Construction Start, not the reverse.\n"
+            "in_construction (1,162 rows): Field Operations in Progress, Field Operations Suspended, "
+            "Field Operations Resumed -- Suspended kept here rather than a separate bucket because the "
+            "project IS under construction, just paused, not back in design review.\n"
+            "other (315 rows): Pending, Active -- both too ambiguous standing alone (pending WHAT? "
+            "active in WHAT sense?) to place in a specific stage without guessing; deliberately not "
+            "forced toward pending_start or plan_review.\n"
+            "A status this map has never seen (a new HCAI status introduced after this pull) falls to "
+            "'other' via STAGE_MAP.get(status, 'other') -- never dropped, never guessed toward a more "
+            "specific bucket."
+        ),
+        verified=True,
+        last_reviewed="Built and verified against the full 2026-09-08 pull (45,132 rows, all 23 "
+                      "statuses, zero unmapped) 2026-09-09.",
+    ))
+
+    out.append(Assumption(
+        group="HCAI Facilities Development Division project reports",
+        name="is_mechanical keyword regex (Phase B build)",
+        config_path=None,
+        value="app.pipeline.hcai_projects.MECHANICAL_RE -- word-boundary, case-insensitive match on "
+             "HVAC, mechanical, chiller, boiler, cooling tower, central plant, air handler, AHU, RTU, "
+             "VRF, heat pump, exhaust against scope_text",
+        source_type=MEASURED,
+        source_detail=(
+            "Same keyword set used in the 2026-09-08 Phase A scope-of-work scan, now a registered "
+            "regex: r'\\\\b(HVAC|mechanical|chiller|boiler|cooling tower|central plant|air handler|AHU|"
+            "RTU|VRF|heat pump|exhaust)\\\\b', re.IGNORECASE. Measured against the full 45,132-row pull: "
+            "2,782 rows match (269 of those in an OPEN stage -- 75 plan_review, 107 pending_start, 87 "
+            "in_construction). False is 'the keyword set didn't match,' never 'confirmed non-"
+            "mechanical' -- e.g. a scope reading only 'Emergency Generator Replacement' would not "
+            "match despite being real mechanical-adjacent equipment work. A 15-row random eyeball "
+            "sample (seed 7) of is_mechanical=True rows found 15 of 15 plausible true positives (real "
+            "HVAC/chiller/air-handler/cooling-tower scope text, e.g. 'KP FMC PH3 & PH5 BUILDINGS AHU'S "
+            "UPGRADE FROM CAV TO VAV,' 'COOLING TOWER REPLACEMENT') -- no code change made, since the "
+            "sample showed no false-positive problem to fix."
+        ),
+        verified=True,
+        last_reviewed="Measured 2026-09-09 against the full 2026-09-08 pull; 15-row precision sample "
+                      "eyeballed the same day.",
+    ))
+
+    # ---- Five-year CIP / facilities master plan jurisdiction list (Phase A) ---
+
+    out.append(Assumption(
+        group="CIP jurisdiction list", name="Total jurisdiction count and access findings",
+        config_path=None,
+        value="295 jurisdictions in scope (201 cities + 7 counties from app/geo.py's territory table, "
+             "34 community college districts, ~39-40 top-enrollment K-12 districts, 14 UC/CSU campuses) "
+             "-- 2 of the first 15 hosts checked explicitly disallow ClaudeBot by name",
+        source_type=MEASURED,
+        source_detail=(
+            "Researched 2026-09-08/09, not asserted from memory. Cities/counties: app/geo.py's own "
+            "_CITY_TO_COUNTY table, 201 entries (LA 79, Orange 34, San Bernardino 24, Riverside 28, San "
+            "Diego 18, Kern 11, Imperial 7) plus the 7 counties themselves = 208. Community college "
+            "districts: checked against CCCCO's own district list (73 statewide) for any serving at "
+            "least one of the 7 territory counties = 34. K-12: CDE's own largest-district list cross-"
+            "referenced against app/geo.py's county table found 39 of a targeted 40 confirmed in-"
+            "territory from a top-60-statewide source; the marginal 40th sits just below that source's "
+            "rank 60 and was not individually confirmed -- reported as 39, not guessed to 40. UC/CSU: "
+            "verified via Wikipedia's own campus-location table, not the vendor sites (calstate.edu "
+            "blocked WebFetch with a 403 bot-challenge) -- 4 UC (LA, Irvine, Riverside, San Diego) + 10 "
+            "CSU (LA, Long Beach, Fullerton, Northridge, Dominguez Hills, Pomona, San Bernardino, "
+            "Bakersfield, San Marcos, San Diego State) = 14.\n"
+            "Access, first 15 hosts checked (7 counties + 8 largest cities by population): 9 of 15 "
+            "clean/generic CMS boilerplate (LA County, Orange County, San Diego County, Imperial County, "
+            "LA city, San Diego city, Anaheim, Santa Ana, San Bernardino city -- the last of which "
+            "additionally publishes an 'LLM-Policy: /llms.txt' directive, a newer convention not seen "
+            "elsewhere in this codebase's research); 2 of 15 explicitly disallow AI crawlers by name "
+            "via a Cloudflare-managed 'Content-Signal' block naming ClaudeBot, GPTBot, CCBot, Google-"
+            "Extended, and others (Riverside COUNTY at rivco.gov and Riverside CITY at riversideca.gov, "
+            "both verbatim, checked directly) -- the first time in this codebase's research that a host "
+            "has named Claude specifically, and per this app's own 'never alter the user-agent to evade "
+            "a block' rule, both downgrade to MANUAL; 1 of 15 (Kern County, kerncounty.com) returns an "
+            "Akamai edge 'Access Denied' on the /robots.txt request itself, a stronger, infrastructure-"
+            "level block, also MANUAL; 3 of 15 (San Bernardino County, Long Beach, Bakersfield) gave "
+            "redirects or non-standard responses this pass didn't fully resolve -- inconclusive, not "
+            "counted as either clean or blocked.\n"
+            "Coverage disclosure: only these 15 hosts plus the 5 jurisdictions pulled for the hand-"
+            "sample (2c) were actually checked for a real CIP URL this pass -- the remaining ~275 of 295 "
+            "jurisdictions were NOT searched. This is a disclosed gap, not a completed list; see "
+            "RUNBOOK.md."
+        ),
+        verified=True,
+        last_reviewed="Researched 2026-09-08/09; jurisdiction counts and the 15-host robots.txt sample "
+                      "both checked directly against live sources.",
+    ))
+
     # ---- Project delivery method --------------------------------------------
 
     dmc = delivery_method_coverage or {}

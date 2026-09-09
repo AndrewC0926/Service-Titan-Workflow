@@ -255,6 +255,22 @@ change.
 
 Recorded so they are decisions rather than surprises.
 
+**CIP/facilities-master-plan jurisdiction list (Phase A research, 2026-09-08/09)
+-- 20 of 295 jurisdictions actually checked.** 295 jurisdictions are in scope
+(201 cities + 7 counties from app/geo.py, 34 community college districts, ~39
+top-enrollment K-12 districts, 14 UC/CSU campuses -- see app/assumptions.py's
+"CIP jurisdiction list" entry for how each count was researched). Only the
+first 15 hosts (7 counties + 8 largest cities) had robots.txt checked, and
+only 5 jurisdictions (one each: small city, county, CCD, K-12, plus a large
+city) had a real CIP/facilities-master-plan PDF found and hand-pulled into
+docs/sources-pilot/cip/. The remaining ~275 jurisdictions were never
+searched -- this is a disclosed gap, not a completed list a future session
+should assume is exhaustive. Two of the 15 checked hosts (Riverside County
+and Riverside City) explicitly disallow ClaudeBot by name in a Cloudflare-
+managed robots.txt block -- the first time this codebase's research has hit
+a host naming Claude specifically; downgraded to MANUAL per this app's own
+"never alter the user-agent to evade a block" rule, not worked around.
+
 **Multi-signal documents (Phase 5).** One document yields one signal. A county
 agenda packet names several projects, so the extractor correctly returns nulls
 rather than picking one, and Storey County packets 4386, 4393 and 4402 produce no

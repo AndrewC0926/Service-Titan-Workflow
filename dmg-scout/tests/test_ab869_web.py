@@ -5,6 +5,7 @@ via db_session) -- no real HCAI PDFs needed for these, since they exercise
 web-layer behavior, not the parser.
 """
 import base64
+from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -285,3 +286,57 @@ def test_has_air_permit_filter(client, db_session, cfg):
     r = client.get("/ab869?has_air_permit=true", headers=AUTH)
     assert "LA Hospital" in r.text
     assert "Kern Hospital" not in r.text
+
+
+# ---- HCAI Facilities Development Division projects section ----------------
+
+def test_board_shows_hcai_open_projects_section(client, db_session, cfg):
+    from app.models import HcaiProject
+
+    _hospital_building(db_session, "10190", "El Centro Hospital", "Imperial", "BLD-001")
+    db_session.add(HcaiProject(
+        record_no="A1", facility_id="10190", facility_name="El Centro Hospital", county="Imperial",
+        scope_text="Chiller Replacement", status_raw="Pending Construction Start",
+        stage="pending_start", is_mechanical=True, report_date=datetime(2026, 9, 8),
+    ))
+    db_session.commit()
+
+    r = client.get("/ab869", headers=AUTH)
+    assert r.status_code == 200
+    assert "1 open" in r.text
+    assert "mechanical" in r.text
+    assert "Chiller Replacement" in r.text
+    assert "2026-09-08" in r.text  # report_date staleness display
+
+
+def test_board_hides_closed_hcai_projects(client, db_session, cfg):
+    from app.models import HcaiProject
+
+    _hospital_building(db_session, "10190", "El Centro Hospital", "Imperial", "BLD-001")
+    db_session.add(HcaiProject(
+        record_no="A1", facility_id="10190", facility_name="El Centro Hospital", county="Imperial",
+        scope_text="Old Closed Chiller Job", status_raw="Closed",
+        stage="closed", is_mechanical=True, report_date=datetime(2026, 9, 8),
+    ))
+    db_session.commit()
+
+    r = client.get("/ab869", headers=AUTH)
+    assert "Old Closed Chiller Job" not in r.text
+    assert ">none<" in r.text
+
+
+def test_has_open_mechanical_filter(client, db_session, cfg):
+    from app.models import HcaiProject
+
+    _hospital_building(db_session, "10190", "El Centro Hospital", "Imperial", "BLD-001")
+    _hospital_building(db_session, "20432", "Other Hospital", "Los Angeles", "BLD-002")
+    db_session.add(HcaiProject(
+        record_no="A1", facility_id="10190", facility_name="El Centro Hospital", county="Imperial",
+        scope_text="Chiller Replacement", status_raw="Pending Construction Start",
+        stage="pending_start", is_mechanical=True, report_date=datetime(2026, 9, 8),
+    ))
+    db_session.commit()
+
+    r = client.get("/ab869?has_open_mechanical=true", headers=AUTH)
+    assert "El Centro Hospital" in r.text
+    assert "Other Hospital" not in r.text
