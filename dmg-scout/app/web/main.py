@@ -1326,6 +1326,21 @@ def project_detail(project_id: int, request: Request,
         from app.developer_team import usual_team_for_developer
         usual_team = usual_team_for_developer(session, project.developer)
 
+    # BPELSG mechanical-engineer roster cross-check -- only ever runs when
+    # this project already has an mep_engineer-titled person named
+    # (never a firm: BPELSG's own file carries no firm/employer data, see
+    # app/pipeline/bpelsg.py's module docstring). A name match only, never
+    # a confirmed identity -- see match_bpelsg_for_project's own docstring
+    # for the abstain rule on two same-named licensees.
+    bpelsg_match = None
+    from app.pipeline.bpelsg import (
+        bpelsg_roster_by_normalized_name, match_bpelsg_for_project, mep_engineer_person_names_by_project,
+    )
+    mep_names = mep_engineer_person_names_by_project(session, [project_id]).get(project_id, [])
+    if mep_names:
+        roster = bpelsg_roster_by_normalized_name(session)
+        bpelsg_match = match_bpelsg_for_project(roster, project, mep_names)
+
     timeline = []
     people, firms = [], []
     signals = []
@@ -1407,7 +1422,7 @@ def project_detail(project_id: int, request: Request,
         "documents": documents, "doc_entries": doc_entries,
         "schedule_mapping": schedule_mapping, "actionable_mapping": actionable_mapping,
         "displaceable_rows": displaceable_rows, "role_gap_rows": role_gap_rows,
-        "call_target": call_target, "usual_team": usual_team,
+        "call_target": call_target, "usual_team": usual_team, "bpelsg_match": bpelsg_match,
         "tb": _title_block(session), "active": "board",
     })
 
@@ -1687,6 +1702,24 @@ def export_signals(session: Session = Depends(get_session), _: str = Depends(aut
     return _csv_response("signals.csv",
                          ["id", "type", "project", "developer", "county", "state", "mw_it",
                           "mw_total", "stage", "summary", "confidence", "source_url"], rows)
+
+
+@app.get("/export/bpelsg-roster.csv")
+def export_bpelsg_roster(session: Session = Depends(get_session), _: str = Depends(auth)):
+    """The whole in-territory Mechanical Engineer roster (7 counties,
+    already scoped at load time -- see app/pipeline/bpelsg.py), for a rep
+    to search by name or city directly. No board tab for this source --
+    export only, plus the per-project badge on project.html."""
+    from app.models import BpelsgEngineer
+    rows = session.exec(
+        select(BpelsgEngineer).order_by(BpelsgEngineer.county, BpelsgEngineer.name)).all()
+    csv_rows = [[e.license_no, e.name, e.license_type, e.city, e.county, e.status,
+                e.expiry.strftime("%Y-%m-%d") if e.expiry else "",
+                e.file_date.strftime("%Y-%m-%d")]
+               for e in rows]
+    return _csv_response("bpelsg-roster.csv",
+                         ["license_no", "name", "license_type", "city", "county", "status",
+                          "expiry", "file_date"], csv_rows)
 
 
 @app.get("/review", response_class=HTMLResponse)

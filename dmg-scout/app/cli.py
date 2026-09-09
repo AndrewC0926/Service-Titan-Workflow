@@ -1263,6 +1263,28 @@ def load_carb_facilities_cmd(
         typer.echo(f"  ERROR: {stats['error']}", err=True)
 
 
+@app.command("load-bpelsg-engineers")
+def load_bpelsg_engineers_cmd(
+    file_path: str = typer.Option(
+        "docs/bpelsg/ProfEngrsLandSurvyrsGeologist_Data00.xls",
+        help="Path to DCA's own tab-delimited licensee file"),
+) -> None:
+    """Loads DCA's free monthly BPELSG licensee file (a static file already
+    on disk -- see app/pipeline/bpelsg.py's module docstring for how it's
+    pulled, one Box visit, never a scheduled fetch) into bpelsg_engineers:
+    Mechanical Engineer licenses, in-territory counties only, idempotent
+    upsert by license_no. NOT part of `scout pipeline` -- run by hand
+    whenever docs/bpelsg/'s file is refreshed (monthly, per DCA's own
+    stated cadence)."""
+    from app.pipeline.bpelsg import load_bpelsg_engineers
+    with session_scope() as session:
+        stats = load_bpelsg_engineers(session, load_config(), file_path=file_path)
+    typer.echo(f"fetched {stats['fetched']} in-territory Mechanical Engineer rows "
+              f"({stats['new']} new, {stats['updated']} updated)")
+    if stats.get("error"):
+        typer.echo(f"  ERROR: {stats['error']}", err=True)
+
+
 @app.command("fetch-local250")
 def fetch_local250_cmd() -> None:
     """UA Local 250's public signatory contractor list (socalhvacr.info/

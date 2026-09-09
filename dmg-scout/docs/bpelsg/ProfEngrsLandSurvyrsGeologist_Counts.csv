@@ -1,0 +1,26 @@
+Agency Name,License Type Name,License Count
+Board For Prof Engineers; Land Surveyors; And Geologists,Agricultural Engineer,101
+Board For Prof Engineers; Land Surveyors; And Geologists,Civil Engineer,62819
+Board For Prof Engineers; Land Surveyors; And Geologists,Chemical Engineer,2073
+Board For Prof Engineers; Land Surveyors; And Geologists,Consulting Engineer,2
+Board For Prof Engineers; Land Surveyors; And Geologists,Corrosion Engineer,117
+Board For Prof Engineers; Land Surveyors; And Geologists,Control System Engineer,863
+Board For Prof Engineers; Land Surveyors; And Geologists,Electrical Engineer,13049
+Board For Prof Engineers; Land Surveyors; And Geologists,Engineering Geologist,1465
+Board For Prof Engineers; Land Surveyors; And Geologists,Fire Protection Engineer,1283
+Board For Prof Engineers; Land Surveyors; And Geologists,Geotechnical Engineer,1421
+Board For Prof Engineers; Land Surveyors; And Geologists,Professional Geologist,5486
+Board For Prof Engineers; Land Surveyors; And Geologists,Professional Geophysicist,162
+Board For Prof Engineers; Land Surveyors; And Geologists,Hydrogeologist,928
+Board For Prof Engineers; Land Surveyors; And Geologists,Industrial Engineer,255
+Board For Prof Engineers; Land Surveyors; And Geologists,Land Surveyor,4262
+Board For Prof Engineers; Land Surveyors; And Geologists,Mechanical Engineer,17742
+Board For Prof Engineers; Land Surveyors; And Geologists,Manufacturing Engineer,166
+Board For Prof Engineers; Land Surveyors; And Geologists,Metallurgical Engineer,244
+Board For Prof Engineers; Land Surveyors; And Geologists,Nuclear Engineer,212
+Board For Prof Engineers; Land Surveyors; And Geologists,Petroleum Engineer,310
+Board For Prof Engineers; Land Surveyors; And Geologists,Quality Engineer,177
+Board For Prof Engineers; Land Surveyors; And Geologists,Structural Engineer,4796
+Board For Prof Engineers; Land Surveyors; And Geologists,Safety Engineers,186
+Board For Prof Engineers; Land Surveyors; And Geologists,Traffic Engineers,1647
+,,=SUM(C2:C25)

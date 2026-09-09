@@ -1384,3 +1384,60 @@ def test_watchlist_unaffected_by_schools_tab_addition(client, db_session, cfg):
     assert r.status_code == 200
     assert "Watch list" in r.text
     assert "Schools" not in r.text
+
+
+# --- BPELSG mechanical engineer roster badge + export -----------------------
+
+def test_project_detail_shows_bpelsg_badge_on_a_name_match(client, db_session, cfg):
+    from app.models import BpelsgEngineer, Category, Project, ProjectSignal, Signal, SignalType, Stage
+
+    p = Project(name="Test Project", category=Category.industrial, county="Los Angeles",
+               state="CA", stage=Stage.design)
+    db_session.add(p)
+    db_session.commit()
+    db_session.refresh(p)
+
+    sig = Signal(signal_type=SignalType.ceqa_nop, category=Category.industrial, stage=Stage.design,
+                named_people=[{"name": "John Smith", "title": "Mechanical Engineer"}], confidence=0.9)
+    db_session.add(sig)
+    db_session.commit()
+    db_session.refresh(sig)
+    db_session.add(ProjectSignal(project_id=p.id, signal_id=sig.id))
+    db_session.add(BpelsgEngineer(license_no="111", name="John Smith",
+                                  license_type="Mechanical Engineer", county="Los Angeles",
+                                  status="Active", file_date=datetime(2026, 9, 1)))
+    db_session.commit()
+
+    r = client.get(f"/project/{p.id}", headers=AUTH)
+    assert r.status_code == 200
+    assert "licensed Mechanical Engineer in Los Angeles County" in r.text
+    assert "BPELSG #111" in r.text
+
+
+def test_project_detail_shows_no_badge_without_an_mep_engineer_person(client, db_session, cfg):
+    from app.models import Category, Project, Stage
+
+    p = Project(name="No Engineer Project", category=Category.industrial, county="Orange",
+               state="CA", stage=Stage.design)
+    db_session.add(p)
+    db_session.commit()
+    db_session.refresh(p)
+
+    r = client.get(f"/project/{p.id}", headers=AUTH)
+    assert r.status_code == 200
+    assert "licensed Mechanical Engineer" not in r.text
+
+
+def test_bpelsg_roster_csv_export(client, db_session, cfg):
+    from app.models import BpelsgEngineer
+
+    db_session.add(BpelsgEngineer(license_no="111", name="John Smith",
+                                  license_type="Mechanical Engineer", county="Los Angeles",
+                                  city="Los Angeles", status="Active",
+                                  file_date=datetime(2026, 9, 1)))
+    db_session.commit()
+
+    r = client.get("/export/bpelsg-roster.csv", headers=AUTH)
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/csv")
+    assert "John Smith" in r.text and "111" in r.text

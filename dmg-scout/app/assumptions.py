@@ -1364,6 +1364,59 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
         last_reviewed="Checked 2026-09-08 directly against www.arb.ca.gov/robots.txt.",
     ))
 
+    # ---- BPELSG mechanical engineer roster ------------------------------------
+
+    out.append(Assumption(
+        group="BPELSG mechanical engineer roster", name="Access, file shape, and cadence",
+        config_path="sources.bpelsg_mechanical_roster",
+        value="Free monthly DCA Box file, robots.txt-clean on every host involved; file dated "
+             "2026-09-01, 119,766 rows statewide, tab-delimited despite the .xls extension, "
+             "refreshed 'at the beginning of each month' per DCA's own stated cadence",
+        source_type=MEASURED,
+        source_detail=(
+            "Checked 2026-09-08/09. www.dca.ca.gov/robots.txt: 'User-agent: *' disallows only "
+            "/images, /js, /styles, /ssi, /css, /javascript, /webapplications/ (with "
+            "/webapplications/apps/*/ carved back open), and /maintenance/* -- nothing touching "
+            "/consumers/public_info, which embeds a Box shared folder "
+            "(dca.box.com/s/oss6hf8jys2bmgxqd2gdz7w4oepm2il9). box.com/robots.txt disallows "
+            "everything for User-agent: * EXCEPT an explicit carve-out including 'Allow: /s/' and "
+            "'Allow: /shared/', with Box's own comment: \"the 'noindex' robots directive is only "
+            "respected if these pages are crawlable\" -- i.e. Box deliberately permits fetching a "
+            "shared-link path and gates search-engine INDEXING via a noindex meta tag instead, not "
+            "via robots.txt. This shared folder's URL is exactly that /s/ pattern, so it is not a "
+            "blocked host. Per the explicit build instruction: ONE Playwright visit (navigate in, "
+            "select the BPELSG subfolder's two files, trigger Box's own bulk-download), never polled "
+            "again -- the resulting zip (both files bundled together, confirmed after the fact; "
+            "Box's shared-folder download button is a bulk/zip action regardless of selection count) "
+            "was unzipped once by hand into docs/bpelsg/.\n"
+            "File shape: despite the .xls extension, `file` reports 'ASCII text' -- this is a plain "
+            "tab-delimited text file, confirmed by inspection. Columns, verbatim: Agency Name, "
+            "License Type, Speciality Code, License Number, Indiv/Org, Org/Last Name, First Name, "
+            "Middle Name, Suffix, Address Line 1, Address Line 2, City, County, State, Zip, Country, "
+            "Original Issue Date, Expiration Date, School, Year Graduated, Degree, License Status. "
+            "119,766 data rows, 24 distinct license types (Mechanical Engineer among them, 17,742 "
+            "statewide across all counties/states/statuses). Only two License Status values appear "
+            "anywhere in the file: Active, Delinquent.\n"
+            "NO FIRM FIELD, measured directly, not assumed: Indiv/Org is 'I' for all 119,766 rows, "
+            "every license type, statewide -- zero organizational/firm-held licenses exist in this "
+            "file at all. This changes what the table can be for exactly as anticipated: it supports "
+            "a normalized-PERSON-name join only, never a firm-name join (see app.models.BpelsgEngineer "
+            "and app.pipeline.bpelsg.match_bpelsg_for_project).\n"
+            "In-territory Mechanical Engineer count (config.yaml's 7-county territories.california."
+            "counties -- Los Angeles, Orange, San Bernardino, Riverside, San Diego, Imperial, Kern): "
+            "5,347 of 17,742 statewide (4,769 Active, 578 Delinquent). By county: Los Angeles 2,168, "
+            "Orange 1,426, San Diego 1,114, Riverside 261, San Bernardino 244, Kern 127, Imperial 7. "
+            "Firm-named vs. personal-name-only: 0 vs. 5,347 -- every single one, since the file "
+            "carries no organizational licenses at all.\n"
+            "Cadence: DCA's Public Information page states, verbatim, 'Data is refreshed "
+            "automatically at the beginning of each month.' The pulled file was dated 2026-09-01 in "
+            "both the Box folder listing and the file's own mtime."
+        ),
+        verified=True,
+        last_reviewed="Pulled and measured directly 2026-09-08/09 against the live DCA Box file "
+                      "(2026-09-01 edition).",
+    ))
+
     # ---- Project delivery method --------------------------------------------
 
     dmc = delivery_method_coverage or {}

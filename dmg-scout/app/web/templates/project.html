@@ -108,6 +108,14 @@
   · <a href="/developer/{{ p.developer | urlencode }}">see developer</a>
 </p>
 {% endif %}
+{% if bpelsg_match %}
+<p style="max-width:1000px" class="dim">
+  Engineer on record is a licensed Mechanical Engineer in {{ bpelsg_match.county }} County
+  {%- if bpelsg_match.status != 'Active' %} (license status: {{ bpelsg_match.status }}){% endif %}.
+  <span class="dim">BPELSG #{{ bpelsg_match.license_no }} — name match only, not a confirmed identity;
+    see <a href="/export/bpelsg-roster.csv">the roster</a>.</span>
+</p>
+{% endif %}
 
 <h2>Contact ladder — who to call, best rung first</h2>
 <table style="max-width:1000px">

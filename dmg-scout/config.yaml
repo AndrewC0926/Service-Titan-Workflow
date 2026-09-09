@@ -803,6 +803,15 @@ sources:
     aer_xlsx_url: "https://www.aqmd.gov/docs/default-source/planning/annual-emission-reporting/2025-aer-facilities-notified-list.xlsx?sfvrsn=c7466b7e_2"
     portal_url: "https://www.aqmd.gov/home/rules-compliance/compliance/annual-emission-reporting"
     stale_hours: 8832
+  # DCA's own free monthly BPELSG licensee file -- see
+  # app/pipeline/bpelsg.py's module docstring for the access investigation
+  # (Box shared folder, one-off Playwright pull, static file on disk under
+  # docs/bpelsg/, never a scheduled fetch). stale_hours mirrors
+  # scaqmd_facility's own monthly-cadence math (~one month + slack).
+  bpelsg_mechanical_roster:
+    enabled: true
+    portal_url: "https://www.dca.ca.gov/consumers/public_info/index.shtml"
+    stale_hours: 800
   manual:
     enabled: true
 

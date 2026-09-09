@@ -1804,6 +1804,57 @@ class ScaqmdFacility(SQLModel, table=True):
     imported_at: datetime = Field(default_factory=utcnow, index=True)
 
 
+class BpelsgEngineer(SQLModel, table=True):
+    """One row per in-territory Mechanical Engineer license from DCA's own
+    free monthly "Board for Professional Engineers, Land Surveyors, and
+    Geologists" licensee file -- see app/pipeline/bpelsg.py's module
+    docstring for the access investigation and app/assumptions.py's
+    "BPELSG mechanical engineer roster" entry for the file date, cadence,
+    and column list this was verified against (2026-09-08).
+
+    license_no is the primary key, not a separate autoincrement id --
+    DCA's own License Number is already the stable, unique real-world
+    identifier for this row, and load_bpelsg_engineers upserts on it
+    (idempotent: re-running against the same or a newer month's file
+    updates existing rows in place rather than duplicating them).
+
+    Scope, deliberately narrow: License Type == "Mechanical Engineer"
+    only, and County in Scout's own 7-county California territory
+    (config.yaml's territories.california.counties) only -- every other
+    license type and every out-of-territory row is dropped at load time,
+    never stored. This is NOT a general BPELSG roster table.
+
+    Deliberately NO firm/employer field: verified directly against the
+    real file (2026-09-08) that its own Indiv/Org column is 'I' for
+    every single one of its 119,766 rows, statewide, across every
+    license type -- there is no organizational/firm-held license data in
+    this file at all, so there is nothing to store under a firm column.
+    name is a personal name only; the join this table supports is a
+    normalized-person-name match, never a firm match (see
+    app.pipeline.bpelsg.match_bpelsg_for_project).
+
+    status/expiry are DCA's own License Status ("Active"/"Delinquent")
+    and Expiration Date, verbatim -- a Delinquent license is still
+    stored, not dropped, since "was licensed, lapsed" is itself a fact
+    worth a rep knowing, never silently hidden.
+
+    file_date is the source file's own Box-listed date (the file has no
+    internal as-of date field of its own) -- recorded per row so a
+    future reload against a newer month's file can be told apart from
+    this one without a separate SourceRun lookup."""
+    __tablename__ = "bpelsg_engineers"
+
+    license_no: str = Field(primary_key=True)
+    name: str
+    license_type: str = Field(index=True)  # always "Mechanical Engineer" in this table, stored verbatim
+    city: str | None = None
+    county: str = Field(index=True)
+    status: str = Field(index=True)  # "Active" | "Delinquent", DCA's own verbatim value
+    expiry: datetime | None = None
+    file_date: datetime = Field(index=True)
+    imported_at: datetime = Field(default_factory=utcnow, index=True)
+
+
 class RetrofitBuilding(SQLModel, table=True):
     """One BUILDING (not permit) — the retrofit board's unit of record. See
     app/pipeline/retrofit.py: this is a deduplication of EquipmentPermit
