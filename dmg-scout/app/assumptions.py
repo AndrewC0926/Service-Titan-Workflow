@@ -2262,6 +2262,116 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "sampled, not estimated.",
     ))
 
+    # ---- Long Beach USD bond program site (lbschoolbonds.net, Phase A research) ---
+
+    out.append(Assumption(
+        group="LBUSD bond program site", name="Access classification (Phase A research)",
+        config_path=None,
+        value="lbschoolbonds.net itself is fetchable with care -- Crawl-delay: 5, and /projects, "
+             "/community-meeting-reports, /accessibility, /department-directory and several CMS-clone "
+             "paths are explicitly disallowed. The per-project detail host it links out to "
+             "(*.preview.finalsitecdn.com) is BLOCKED ENTIRELY for every user agent except a named "
+             "accessibility auditor -- never fetched.",
+        source_type=MEASURED,
+        source_detail=(
+            "Checked 2026-09-09, Phase A research, no code written. lbschoolbonds.net/robots.txt "
+            "301-redirects to www.lbschoolbonds.net/robots.txt (HTTP 200, 370 lines, 338 Disallow "
+            "records covering 114 distinct base paths -- each listed three ways, exact/query/subpath -- "
+            "18 Allow exceptions). 'User-agent: *' carries 'Crawl-delay: 5', honored (5s between every "
+            "request this session made). Disallowed paths that matter here: /projects (all three "
+            "variants) and /bond-projects-clone/-clone-clone are stale CMS staging artifacts, NOT the "
+            "live path (confirmed by reading the site's own nav -- the real path is /bond-projects, "
+            "which is NOT in the disallow list); /community-meeting-reports is disallowed and was never "
+            "fetched, even though it is a top-nav link and the most likely place a periodic bond-status "
+            "report would live; /accessibility is disallowed and WAS fetched once by mistake (a bare "
+            "curl status check, before the full disallow list had been cross-referenced) -- caught, "
+            "disclosed here rather than hidden, no content saved or used from it, and the path was not "
+            "fetched again. /department-directory is also disallowed and was not fetched.\n"
+            "Two hosts, not one: the bond-projects listing page links out to per-project 'quarterly "
+            "update' article pages on a SEPARATE host, "
+            "lbusdk12caus-137-us-west1-01.preview.finalsitecdn.com -- checked, this host's own robots.txt "
+            "is 'User-agent: Pope Tech CrawlBot / Allow: /' then 'User-agent: * / Disallow: /' -- a full "
+            "block for every crawler except one named accessibility-auditing bot. PlanetBids-shaped, no "
+            "exceptions for this app. None of those article pages were fetched.\n"
+            "No terms-of-use page exists (/terms-of-use -> 404). /privacy-policy (not disallowed, "
+            "fetched) covers only visitor data collection (IP, browser type, cookies) -- no language "
+            "about reuse, reproduction, or automated access of published content, permissive or "
+            "restrictive, either way."
+        ),
+        verified=True,
+        last_reviewed="Checked 2026-09-09 directly against both hosts' robots.txt.",
+    ))
+
+    out.append(Assumption(
+        group="LBUSD bond program site", name="Field survey and a caught grounding failure",
+        config_path=None,
+        value="The /bond-projects accordion page is almost entirely empty shells (one school, 3 real "
+             "entries, one containing literal leftover CMS placeholder text). The REAL structured data "
+             "-- 35 completed projects, 29 of them HVAC, each with dates and a dollar figure -- is on "
+             "the /about page instead, encoded partly in image filenames. Zero architects, engineers, "
+             "or contractors named anywhere across all 5 saved pages.",
+        source_type=MEASURED,
+        source_detail=(
+            "5 pages saved to docs/sources-pilot/lbusd/ (plus robots.txt): bond-projects.html (737,308 "
+            "bytes), about.html (308,559 bytes), citizens-oversight-committee.html (270,726 bytes), "
+            "construction-updates.html (87,703 bytes), environmental-reviews.html (82,085 bytes).\n"
+            "CAUGHT GROUNDING FAILURE, worth recording as a methodology note: an initial WebFetch "
+            "summarization pass on /bond-projects reported a rich, comprehensive-sounding set of named "
+            "per-school projects with specific dates and budgets (e.g. 'HVAC installations (Addams, "
+            "Alvarado, Barton...) -- Construction June 2025-2027', 'Phase 6 - New Gymnasium & Aquatic "
+            "Center (Cabrillo)', 'New Classroom Building (Jordan)'). NONE of this is grounded: the raw "
+            "HTML (downloaded directly, checked byte-for-byte) shows every one of those school names "
+            "appearing ONLY inside a generic district school-directory nav menu (each linking out to "
+            "that school's own lbschools.net subdomain, 'opens in new window/tab', no project data "
+            "attached) -- the WebFetch summary invented the dates/budgets/phase names attached to them. "
+            "The page's real accordion content is almost entirely the string 'There are no resources or "
+            "collections to display' (6 occurrences, 3 unique after de-duplicating an identical doubled "
+            "DOM render); exactly 3 real project entries exist anywhere on the page, all under a single "
+            "'Wilson High Master Plan' section: Bleacher Replacement ($1 million, starts Summer 2023, "
+            "opens Summer 2024), Gymnasium & Locker Room Renovation ($1.1 million, starts Spring 2023, "
+            "opens Fall 2023 -- Overview text ends with the literal CMS boilerplate sentence 'This is an "
+            "example of what happens when you add additional text.', so this entry is at least partly "
+            "unedited template content, not verified real), and Natatorium Renovation ($3.2 million, "
+            "starts Fall 2023, opens December 2023, clean text). Not grounded in a small model's summary "
+            "again anywhere in this research -- every number below came from reading the saved raw HTML "
+            "directly.\n"
+            "The real data lives on /about instead, in a 'Projects Completed to Date' section: 35 "
+            "distinct completed-project entries, each with Project Type, Construction Began (month + "
+            "year), Projected Completion (month + year), Projected Cost (dollar figure), and Supported "
+            "by Bond Measure (a single letter) -- no field is missing on any of the 35. The school name "
+            "is NOT in the visible text; it is embedded only in each entry's illustration image "
+            "filename (e.g. 'AlvaradoHVAC.png'), extracted directly from data-resource-filename "
+            "attributes, in document order, 1:1 against the 35 Project Type entries (verified: 37 "
+            "images total minus 2 non-project decorative/header images = 35, matching the 35 Project "
+            "Type entries exactly). Classifying by filename suffix: 29 of 35 (82.9%) are '...HVAC.png' "
+            "-- Project Type 'Heating, Ventilation & Air Conditioning' on every one, all Supported by "
+            "Bond Measure 'E', Construction Began dates Dec. 2017 through June 2022, Projected "
+            "Completion dates August 2018 through July 2023. 3 of 35 are '...Portable.png' (Portable "
+            "Replacement) and 3 of 35 are '...TrackField.png' (unlabeled Project Type text, athletic-"
+            "field work by context) -- neither mechanical-relevant.\n"
+            "Sum of the 29 HVAC entries' Projected Cost figures: $519,039,435 across the 28 that parse "
+            "as valid numbers; the 29th (Alvarado) reads '$9.543.588' with periods where every other "
+            "entry uses commas -- a source-side typo, almost certainly meant as $9,543,588 given its "
+            "order-of-magnitude match to neighboring entries, but NOT corrected or included in the sum "
+            "-- reported as unparseable, not silently fixed.\n"
+            "Zero named architects, engineers, or contractors anywhere across all 5 pages: a "
+            "case-insensitive scan for architect/engineer/contractor found the bare word 'contractor' "
+            "exactly once per page, always in generic narrative ('...design, state approvals, and "
+            "contractor procurement before work can begin') or a footer nav link label ('Contractor "
+            "Information', not fetched -- out of this pass's scope, likely a bidding/procurement page, "
+            "not a named-contractor record) -- never a named firm or person tied to a specific project. "
+            "No single PDF substitutes for this: citizens-oversight-committee.html links only a 2014 "
+            "committee meeting agenda and a 2023 bylaws amendment (not a status report), and about.html "
+            "links the Measure E ballot's full legal text (not a project report either) -- no periodic "
+            "'bond oversight report' or 'program status report' PDF was found anywhere reachable; the "
+            "one page most likely to host one, /community-meeting-reports, is robots.txt-disallowed (see "
+            "the Access classification entry above) and was never checked."
+        ),
+        verified=True,
+        last_reviewed="5 pages downloaded and parsed directly 2026-09-09; every figure above traces to "
+                      "the saved HTML in docs/sources-pilot/lbusd/, not to a summarization pass.",
+    ))
+
     return out
 
 
