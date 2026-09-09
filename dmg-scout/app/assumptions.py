@@ -2452,6 +2452,94 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "the saved PDF's own extracted text, not a fetch summary.",
     ))
 
+    # ---- CARB Refrigerant Management Program (R3), Phase A research -----------
+
+    out.append(Assumption(
+        group="CARB Refrigerant Management Program (R3)", name="Access classification and host migration",
+        config_path=None,
+        value="ssl.arb.ca.gov's R3 endpoint is a decommissioned legacy host (a 2024-12-09 notice page "
+             "auto-redirects to rmpr3.arb.ca.gov, the real live system); its robots.txt could not be "
+             "retrieved at all (connection times out post-TLS-handshake, not a 404 or a block). "
+             "ww2.arb.ca.gov and rmpr3.arb.ca.gov both have clean robots.txt.",
+        source_type=MEASURED,
+        source_detail=(
+            "Checked 2026-09-09, Phase A research, no code written. ssl.arb.ca.gov/robots.txt: TLS "
+            "handshake completes, then the connection hangs with no HTTP response at all (curl "
+            "HTTP_STATUS:000, tried twice, 15s then 30s timeout) -- this is neither a 404 (absent, "
+            "permissive per this codebase's own convention) nor an explicit block; it is a true non-"
+            "response, and the same host DOES answer other paths (see next), so it is not a blanket "
+            "outage either -- most likely a legacy app with no /robots.txt route configured, not "
+            "investigated further since the underlying tool is confirmed decommissioned anyway. "
+            "ssl.arb.ca.gov/rmp-r3/ itself DOES respond (HTTP 200, 1,268 bytes) with a plain HTML notice, "
+            "verbatim: 'SERVICE ANNOUNCEMENT 12-09-2024 / RMP REPORTING TOOL HAS MOVED ... The new URL is "
+            "https://rmpr3.arb.ca.gov/rmpr3/s ... You will be automatically redirected to the new "
+            "location in 5 seconds.' -- a client-side (JS setTimeout) redirect, so the OLD URL a search "
+            "engine or old bookmark returns is not where R3 actually lives anymore.\n"
+            "rmpr3.arb.ca.gov/rmpr3/robots.txt (the real system, a Salesforce Experience Cloud/Lightning "
+            "community site): HTTP 200, verbatim: '# default robots.txt for sfdc communities sites ... "
+            "User-agent: * # applies to all robots / Allow: / # allow all / Disallow: */secur/"
+            "forgotpassword.jsp?*' -- clean, no crawl-delay stated. ww2.arb.ca.gov/robots.txt (the "
+            "program's informational page, already registered elsewhere in this file for the CARB "
+            "Facility Search Tool): clean for the paths used here (/our-work/programs/... is not in its "
+            "Disallow list, which covers /core/, /profiles/, /admin/, /search/, /user/*, and any URL "
+            "with a query string) -- notably this file explicitly names 'User-agent: Claude-Web / Allow: "
+            "/ / Crawl-delay: 10', the first time a host in this codebase's research has named Claude "
+            "specifically to ALLOW rather than block it. No dataset-specific terms-of-use page found on "
+            "either live host; nothing resembling a reuse restriction anywhere in what was fetched."
+        ),
+        verified=True,
+        last_reviewed="Checked 2026-09-09 directly against all three hosts' robots.txt.",
+    ))
+
+    out.append(Assumption(
+        group="CARB Refrigerant Management Program (R3)", name="Public portal access and program scope",
+        config_path=None,
+        value="Could not inspect the R3 public search UI -- it is a fully client-rendered Salesforce "
+             "Lightning/Aura app, and no JS-executing browser tool was available in this session; the "
+             "fetch returned only the app's generic loading/error shell, never real content. Zero "
+             "searches were run (there was no rendered search form to use). CARB's own program-goals "
+             "text explicitly names BOTH refrigeration and air-conditioning; the registration-trigger "
+             "text names only 'refrigeration systems' -- a real, unresolved ambiguity in CARB's own "
+             "public wording, not resolved here.",
+        source_type=MEASURED,
+        source_detail=(
+            "https://rmpr3.arb.ca.gov/rmpr3/s/ (the real, current R3 entry point after the host "
+            "migration above) returns a Salesforce Aura/Lightning single-page application -- the raw "
+            "HTML (16,825 bytes) contains no visible menu items, form fields, or page text at all, only "
+            "framework bootstrap JSON and CSS runtime references (page <title> is literally 'r3'). A "
+            "second fetch attempt returned the app's own generic error-boundary text verbatim: 'r3 / "
+            "Loading / Sorry to interrupt / CSS Error / Cancel and close / Refresh' -- the Lightning "
+            "framework's built-in failure state, not page content. This is an honest tooling limitation "
+            "of this research session (no Playwright/headless-browser capability was available here), "
+            "NOT a finding that CARB blocks or restricts public access -- the two are not the same claim "
+            "and are not conflated. Per the item's own instruction to stop rather than guess when the "
+            "data visible is unclear: none of items 2/3's questions (search fields, whether results show "
+            "facility name/address/county/refrigerant type/charge size/system type, whether a bulk "
+            "export exists, whether 7-county filtering is possible) could be answered either way in this "
+            "pass. No search was run against the tool -- there was no rendered search form to run one "
+            "against. This needs a follow-up pass with an actual browser-automation tool before any "
+            "usability call can be made; it is UNRESOLVED, not confirmed dead. No static PDF/CSV/XLSX "
+            "facility list and no data.ca.gov mirror is linked from either ww2.arb.ca.gov RMP page as an "
+            "alternative -- checked directly, none found.\n"
+            "Program scope, both quotes verbatim, both from ww2.arb.ca.gov, and they do not agree: the "
+            "program landing page states the registration trigger in refrigeration-only terms -- "
+            "'facilities with refrigeration systems containing more than 50 pounds of high-GWP "
+            "refrigerant' must register, and '[s]tationary refrigeration facilities with more than 50 "
+            "pounds of high-GWP refrigerant in the largest on-site refrigeration system must register "
+            "with the RMP. Those with at least 200 pounds ... have annual reporting and additional "
+            "duties.' The /about page's program-GOALS section instead names both: 'Reduce emissions from "
+            "the installation and servicing of refrigeration and air-conditioning appliances using "
+            "high-GWP refrigerants.' Neither page defines 'refrigeration system' formally or states "
+            "whether a comfort-cooling chiller legally counts as one for registration purposes -- that "
+            "would require reading the actual regulation text (Title 17 CCR), not done in this pass. "
+            "Reported as a genuine, disclosed ambiguity in CARB's own public wording, not resolved "
+            "either way here."
+        ),
+        verified=True,
+        last_reviewed="Checked 2026-09-09 directly; the portal access finding is a documented tooling "
+                      "limitation of this session, not a claim about CARB's own access policy.",
+    ))
+
     return out
 
 
