@@ -2372,6 +2372,86 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "the saved HTML in docs/sources-pilot/lbusd/, not to a summarization pass.",
     ))
 
+    # ---- SAN Airport Future Construction List (Phase A research) --------------
+
+    out.append(Assumption(
+        group="SAN Airport Future Construction List", name="Access classification (Phase A research)",
+        config_path=None,
+        value="Clean. www.san.org/robots.txt disallows only /wp-admin/ (Crawl-delay: 10, honored); the "
+             "PDF is served from the same host (wp-content/uploads), no second host involved. No "
+             "dataset-specific terms found; the PDF's own text carries only a schedule-accuracy "
+             "disclaimer, not a reuse restriction.",
+        source_type=MEASURED,
+        source_detail=(
+            "Checked 2026-09-09, Phase A research, no code written. san.org (bare) 301s to "
+            "http://www.san.org/robots.txt. www.san.org/robots.txt, HTTP 200, verbatim: 'User-agent: * / "
+            "Disallow: /wp-admin/ / Allow: /wp-admin/admin-ajax.php / Crawl-delay: 10' (Yoast-generated, "
+            "also declares Sitemap: https://new.san.org/sitemap_index.xml -- that host does not resolve "
+            "at all currently, checked directly, not fetched further). 10s crawl-delay honored between "
+            "every request this session made. The Future Construction List PDF lives at www.san.org/"
+            "wp-content/uploads/2026/01/Future-Construction-List-Jan2026-1.pdf -- same host as the "
+            "portal, no separate file host the way HCAI/SD-permits/LBUSD each had, so only one robots.txt "
+            "applies. No terms-of-use page found; the PDF's own footer text is a schedule-accuracy "
+            "disclaimer only ('Information is considered an estimate. The Airport Authority reserves the "
+            "right to change the schedule at any time.'), not a reuse or automated-access restriction "
+            "either way."
+        ),
+        verified=True,
+        last_reviewed="Checked 2026-09-09 directly against www.san.org/robots.txt.",
+    ))
+
+    out.append(Assumption(
+        group="SAN Airport Future Construction List", name="Document survey and mechanical-row count",
+        config_path=None,
+        value="2-page native-text PDF, 23 project rows, columns Estimated Advertise Date / Project / "
+             "Construction Cost Estimate / Trade (numeric trade codes keyed to a 36-item legend on page "
+             "2). 11 of 23 rows carry trade code 16 (Mechanical) -- but 9 of those 11 are the same "
+             "recurring residential 'Quieter Home Program' batch, not 9 distinct capital projects. Zero "
+             "names anywhere: no designer, PM, or contractor, AECOM included.",
+        source_type=MEASURED,
+        source_detail=(
+            "One download, 2026-09-09, of https://www.san.org/wp-content/uploads/2026/01/"
+            "Future-Construction-List-Jan2026-1.pdf -- 247,351 bytes, PDF 1.7, 2 pages, letter size, "
+            "native text layer (read directly, not OCR'd or summarized). pdfinfo: Creator 'Microsoft "
+            "Word', CreationDate and ModDate identical -- 2026-01-28 10:02:50 PST -- and the HTTP "
+            "Last-Modified header matches (2026-01-28 18:13:25 GMT, same moment in UTC). The document's "
+            "own footer reads 'Updated 01/2026'. Despite this list being described as monthly, the file "
+            "actually live and linked from www.san.org/smallbusiness/ today, 2026-09-09, has not changed "
+            "since that January upload -- roughly 7.5 months stale by this document's own internal date, "
+            "not assumed from the filename alone.\n"
+            "Column headers, exact, from the page-1 table: 'Estimated Advertise Date', 'Project', "
+            "'Construction Cost Estimate', 'Trade'. 23 data rows total (17 on page 1, 6 on page 2, no "
+            "overlap). Every row (23/23, 100%) carries a project name and an advertise-date value, "
+            "though 2 of the 23 show the non-specific 'TBD 2026' rather than an actual quarter. Every "
+            "row (23/23, 100%) carries at least one numeric trade code. 18 of 23 (78.3%) carry an actual "
+            "dollar figure for Construction Cost Estimate; the other 5/23 show 'TBD'.\n"
+            "Mechanical rows -- trade code 16 ('Mechanical' per the page-2 legend) present in the Trade "
+            "column: 11 of 23 (47.8%). Disclosed nuance: 9 of those 11 are sequential batches of the "
+            "same ongoing residential sound-insulation program ('Quieter Home Program Phase 14 Group "
+            "7/8/9/10/11/12' and 'Quiter Home Program 15.1/15.2/15.3' [sic, misspelled 'Quiter' on 3 of "
+            "the 9 in the source PDF itself, not a transcription error here] -- each priced identically "
+            "at $1,500,000, each carrying the identical trade bundle 1,5,7,16,18), not 9 distinct capital "
+            "projects. Only 2 of the 11 mechanical rows are genuinely distinct capital projects: 'T2E "
+            "Restrooms Remodel' (cost TBD, Q1 2026, trades 1,5,7,16,18,20) and 'T2E Lounge Expansion' "
+            "($18,000,000, Q1 2026, a 21-trade bundle including 16).\n"
+            "Zero names anywhere in either page: no architect, engineer, program manager, or contractor "
+            "is named in the document, including no mention of AECOM -- checked directly against the "
+            "full extracted text, not inferred from absence in a summary. (A general web search for this "
+            "research separately surfaced a news item reporting AECOM 'selected by San Diego County "
+            "Regional Airport Authority' for an unspecified role; that claim is NOT sourced from this "
+            "PDF and was not independently verified as part of this Phase A pass -- noted, not relied "
+            "on.)\n"
+            "Archive check: www.san.org/smallbusiness/ (the page that links this PDF) shows exactly one "
+            "current link per list (Construction, Professional Services, Concession/Passenger Service), "
+            "all three dated Jan2026 -- no archive, index, or link to any prior month's list appears on "
+            "that page. 'How far back' is therefore not determinable from the page itself; no prior-"
+            "month URL was guessed or fetched, per instruction."
+        ),
+        verified=True,
+        last_reviewed="One download and full read performed 2026-09-09; every number above traces to "
+                      "the saved PDF's own extracted text, not a fetch summary.",
+    ))
+
     return out
 
 
