@@ -175,9 +175,10 @@ def _ab802_building(session, property_id, address_1=None, county="Los Angeles",
     return b
 
 
-def _scaqmd(session, facility_id, address=None, city="Los Angeles") -> ScaqmdFacility:
-    f = ScaqmdFacility(facility_id=facility_id, facility_name=f"Facility {facility_id}",
-                       address=address, city=city, source_url="https://example.com")
+def _scaqmd(session, facility_id, address=None, city="Los Angeles", source=SOURCE_AER,
+           facility_name=None) -> ScaqmdFacility:
+    f = ScaqmdFacility(facility_id=facility_id, facility_name=facility_name or f"Facility {facility_id}",
+                       address=address, city=city, source=source, source_url="https://example.com")
     session.add(f)
     session.commit()
     return f
@@ -246,6 +247,39 @@ def test_link_ab802_clears_a_stale_match_on_rerun(db_session):
     assert b.air_permit_facility_id is None
 
 
+def test_link_ab802_same_facility_from_both_sources_flags_not_abstains(db_session):
+    """Regression: the SAME real facility appearing once from AER and once
+    from CARB, at the same address, must collapse to one candidate and
+    flag -- not be read as two facilities sharing an address and dropped
+    as ambiguous."""
+    _scaqmd(db_session, "F1", address="123 Main St", source=SOURCE_AER)
+    _scaqmd(db_session, "F1", address="123 Main St", source=SOURCE_CARB)
+    b = _ab802_building(db_session, "P1", address_1="123 Main St")
+
+    flagged = _link_ab802(db_session)
+    db_session.refresh(b)
+    assert flagged == 1
+    assert b.air_permit_facility_id == "F1"
+
+
+def test_link_ab802_different_facility_ids_at_the_same_address_still_abstains(db_session):
+    """Unlike the AB 869 join (which groups by name+city and uses address
+    only as a secondary same-facility signal), AB 802's join IS the
+    address match itself -- two different facility_ids sharing one
+    address here is the same genuine ambiguity
+    test_link_ab802_ambiguous_scaqmd_side_is_dropped already covers, not a
+    same-facility-two-sources case to collapse. Confirms the two-source
+    fix (matching on facility_id) did not weaken this."""
+    _scaqmd(db_session, "F1", address="123 Main St", source=SOURCE_AER)
+    _scaqmd(db_session, "F2", address="123 Main St", source=SOURCE_CARB)
+    b = _ab802_building(db_session, "P1", address_1="123 Main St")
+
+    flagged = _link_ab802(db_session)
+    db_session.refresh(b)
+    assert flagged == 0
+    assert b.air_permit_facility_id is None
+
+
 # ---- scaqmd_matches_for_ab869: normalized-name match, same city only ------
 
 def test_ab869_match_on_normalized_name_and_city(db_session):
@@ -276,6 +310,48 @@ def test_ab869_match_drops_ambiguous_name_city_pair(db_session):
     db_session.commit()
 
     matches = scaqmd_matches_for_ab869(db_session, [("PERM1", "Community Hospital", "Los Angeles")])
+    assert matches == {}
+
+
+def test_ab869_match_same_facility_from_both_sources_flags_not_abstains(db_session):
+    """Regression (2026-09-08): the same real facility appearing once from
+    AER and once from CARB, same facility_id, was read as two candidates
+    sharing a (name, city) key and dropped as ambiguous -- must collapse
+    and flag instead."""
+    _scaqmd(db_session, "F1", address="1 Hospital Way", city="Los Angeles", source=SOURCE_AER,
+           facility_name="Test Hospital")
+    _scaqmd(db_session, "F1", address="1 Hospital Way", city="Los Angeles", source=SOURCE_CARB,
+           facility_name="Test Hospital")
+
+    matches = scaqmd_matches_for_ab869(db_session, [("PERM1", "Test Hospital", "Los Angeles")])
+    assert matches == {"PERM1": "F1"}
+
+
+def test_ab869_match_same_facility_different_ids_across_sources_flags_via_address(db_session):
+    """The two sources disagreeing on facility_id for the same real place,
+    at the same (name, city), collapses via shared address rather than
+    aborting as ambiguous."""
+    _scaqmd(db_session, "F1", address="1 Hospital Way", city="Los Angeles", source=SOURCE_AER,
+           facility_name="Test Hospital")
+    _scaqmd(db_session, "F2", address="1 Hospital Way", city="Los Angeles", source=SOURCE_CARB,
+           facility_name="Test Hospital")
+
+    matches = scaqmd_matches_for_ab869(db_session, [("PERM1", "Test Hospital", "Los Angeles")])
+    assert matches == {"PERM1": "F1"} or matches == {"PERM1": "F2"}
+
+
+def test_ab869_match_still_abstains_on_a_genuinely_different_second_facility(db_session):
+    """Two-source collapsing must not swallow a REAL ambiguity: a third,
+    genuinely different facility sharing the (name, city) key still
+    aborts the match."""
+    _scaqmd(db_session, "F1", address="1 Hospital Way", city="Los Angeles", source=SOURCE_AER,
+           facility_name="Test Hospital")
+    _scaqmd(db_session, "F1", address="1 Hospital Way", city="Los Angeles", source=SOURCE_CARB,
+           facility_name="Test Hospital")
+    _scaqmd(db_session, "F3", address="99 Other Ave", city="Los Angeles", source=SOURCE_CARB,
+           facility_name="Test Hospital")
+
+    matches = scaqmd_matches_for_ab869(db_session, [("PERM1", "Test Hospital", "Los Angeles")])
     assert matches == {}
 
 

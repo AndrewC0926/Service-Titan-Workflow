@@ -263,14 +263,21 @@ def _link_ab802(session: Session) -> int:
     row's air_permit_facility_id fresh against the just-loaded
     scaqmd_facilities table (a stale match from a facility no longer on
     file must clear, not linger). Returns the total count of Ab802Building
-    rows now flagged, across every year on file."""
+    rows now flagged, across every year on file.
+
+    Grouped by facility_id (a SET, not a list) per normalized address --
+    the same real facility legitimately appears twice now, once per
+    source (AER and CARB), often at the identical address, and that must
+    collapse to one candidate, not read as "two facilities sharing an
+    address" and dropped as ambiguous. Only a normalized address actually
+    claimed by two DIFFERENT facility_ids is real ambiguity."""
     facilities = session.exec(select(ScaqmdFacility)).all()
-    by_addr: dict[str, list[str]] = {}
+    by_addr: dict[str, set[str]] = {}
     for f in facilities:
         na = normalize_address(f.address)
         if na:
-            by_addr.setdefault(na, []).append(f.facility_id)
-    addr_to_facility = {addr: ids[0] for addr, ids in by_addr.items() if len(ids) == 1}
+            by_addr.setdefault(na, set()).add(f.facility_id)
+    addr_to_facility = {addr: next(iter(ids)) for addr, ids in by_addr.items() if len(ids) == 1}
 
     for b in session.exec(select(Ab802Building)).all():
         na = normalize_address(b.address_1)
@@ -285,21 +292,67 @@ def _link_ab802(session: Session) -> int:
     ).one()
 
 
+def _collapse_same_facility(candidates: list[ScaqmdFacility]) -> str | None:
+    """Given every ScaqmdFacility row sharing one (normalized name, city)
+    key, collapses candidates that are the SAME real facility -- sharing a
+    facility_id (trivial, they're already the same key), or sharing a
+    normalized street address across different facility_ids (the two
+    sources don't always agree on facility_id for the same real place) --
+    into one survivor, via union-find. Returns that survivor's facility_id
+    if exactly one real facility remains after collapsing, else None (a
+    genuine, different-facility ambiguity -- abstain, don't guess).
+
+    This exists because the SAME real facility legitimately has a row
+    from BOTH sources (AER and CARB) now -- two rows, one real facility --
+    and the pre-fix version (2026-09-08) read that as "two candidates,
+    ambiguous" and dropped several real AB 869 matches that had been found
+    correctly before CARB was added."""
+    parent: dict[str, str] = {c.facility_id: c.facility_id for c in candidates}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    addr_index: dict[str, str] = {}
+    for c in candidates:
+        na = normalize_address(c.address) if c.address else None
+        if na is None:
+            continue
+        if na in addr_index:
+            union(c.facility_id, addr_index[na])
+        else:
+            addr_index[na] = c.facility_id
+
+    survivors = {find(c.facility_id) for c in candidates}
+    return next(iter(survivors)) if len(survivors) == 1 else None
+
+
 def scaqmd_matches_for_ab869(session: Session, facility_rows: list[tuple[str, str]]) -> dict[str, str]:
     """facility_rows: (perm_id, facility_name, city) triples the caller
     already has in hand (app.pipeline.ab869.ab869_board_rows' own
     HospitalBuilding query) -- see module docstring for why this is a
     NAME match, not an address match, and why it is computed live here
     rather than stored. Returns perm_id -> ScaqmdFacility.facility_id for
-    unambiguous matches only."""
+    unambiguous matches only -- see _collapse_same_facility for how a
+    same-facility, two-source pair is told apart from a real ambiguity."""
     scaqmd_rows = session.exec(select(ScaqmdFacility)).all()
-    by_name_city: dict[tuple[str, str], list[str]] = {}
+    by_name_city: dict[tuple[str, str], list[ScaqmdFacility]] = {}
     for f in scaqmd_rows:
         nn = normalize_name(f.facility_name) if f.facility_name else None
         nc = (f.city or "").strip().lower()
         if nn and nc:
-            by_name_city.setdefault((nn, nc), []).append(f.facility_id)
-    name_city_to_facility = {k: ids[0] for k, ids in by_name_city.items() if len(ids) == 1}
+            by_name_city.setdefault((nn, nc), []).append(f)
+    name_city_to_facility = {
+        k: survivor for k, candidates in by_name_city.items()
+        if (survivor := _collapse_same_facility(candidates)) is not None
+    }
 
     out = {}
     for perm_id, facility_name, city in facility_rows:

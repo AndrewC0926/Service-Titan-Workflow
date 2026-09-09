@@ -1296,7 +1296,12 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
             "rows sharing one normalized address) is dropped, never guessed at, same discipline as "
             "every prior join in this codebase. Recomputed fresh across ALL years of Ab802Building on "
             "file on every scaqmd_facility load, not just the latest year shown on the board -- a real "
-            "building's address doesn't change year to year. AB 869 join: inspected Ab869Plan, "
+            "building's address doesn't change year to year. Collapses same-facility duplicates "
+            "across the two ScaqmdFacility sources (AER and CARB) by facility_id before checking "
+            "ambiguity -- fixed 2026-09-08 after adding the CARB source caused a real regression: "
+            "the same real facility now legitimately has one row per source, and the pre-fix version "
+            "read two rows for one facility as two DIFFERENT facilities sharing an address and "
+            "dropped the match. AB 869 join: inspected Ab869Plan, "
             "Ab869Building, and HospitalBuilding directly (2026-09-08) and confirmed none of the three "
             "carries a street address field -- only city/county and, on HospitalBuilding only, lat/"
             "long. A text-address join was therefore not possible as literally scoped; the best "
@@ -1307,11 +1312,56 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
             "doesn't exist for the ~11 facilities with NO_PLAN_ON_FILE, and HospitalBuilding is "
             "building-, not facility-, grain. Disclosed everywhere it surfaces (model docstrings, "
             "module docstring, board UI copy, and here) as a name match, never presented as address-"
-            "based."
+            "based. Same two-source regression applied here too, fixed the same day with a union-find "
+            "collapse (app.pipeline.scaqmd._collapse_same_facility): candidates sharing a (name, city) "
+            "key that also share a facility_id, OR whose normalized address matches, collapse to one "
+            "before the ambiguity check -- abstain only survives for a genuinely different second "
+            "facility. Measured directly against production data 2026-09-08: 28 facilities flagged "
+            "before the CARB load (AER only) -> 33 after the fix (AER+CARB, collapsed). Exactly one "
+            "facility that was flagged before is NOT flagged after: perm_id 12012, St. Mary Medical "
+            "Center, Long Beach -- CARB's own export reveals a SECOND, genuinely distinct SCAQMD "
+            "facility registration under the same name and city (facility_id 108235, '1043 Elm Ave', "
+            "vs the AER-sourced facility_id 108234 at '1045 Atlantic Ave' -- different facility_id AND "
+            "different street), which the pre-CARB dataset simply didn't reveal. This is the fix "
+            "working as intended, not a defect: two real, distinct SCAQMD facility records with "
+            "nothing in common but a name and a city is exactly the case that should abstain. "
+            "Separately, a hand-eyeballed precision sample of the AB 802 join (2026-09-08, seed 42): 25 "
+            "random rows matched only via a CARB-sourced facility and 25 matched via an AER-sourced "
+            "facility, each showing the AB 802 address/name against the matched facility's address/name "
+            "and a rapidfuzz similarity score (reported for eyeballing only -- the actual match rule is "
+            "exact string equality after normalize_address, not a fuzzy threshold). Result: 0 of 25 "
+            "CARB-only rows judged a false match (1 marked unsure -- 'Park Place I,' an Irvine office "
+            "complex, matched to a facility named 'Park Place Apartments' at the identical street "
+            "number/name; plausibly the same site under a generic SCAQMD-side name, not independently "
+            "confirmed), 0 of 25 AER rows judged false. Both well under the 10% threshold that would "
+            "have required tightening the match to street-number-plus-name-exact with city-exact -- no "
+            "code change made."
         ),
         verified=True,
         last_reviewed="Measured 2026-09-08 against real production Ab802Building/HospitalBuilding "
                       "data.",
+    ))
+
+    out.append(Assumption(
+        group="SCAQMD facility grain", name="CARB crawl-delay",
+        config_path=None,
+        value="2 seconds",
+        source_type=MEASURED,
+        source_detail=(
+            "www.arb.ca.gov/robots.txt (the host actually serving the Facility Search Tool's search "
+            "form, www.arb.ca.gov/app/emsinv/iframe/facinfo/facinfo.php) states 'Crawl-delay: 2' under "
+            "'User-agent: *', alongside 'Allow: /'. Checked directly 2026-09-08. tools/"
+            "pull_carb_facilities.py's own one-off Playwright pull respects this in spirit (a single "
+            "trigger, not a scheduled or repeated fetch) but repeated INTERACTIVE requests during "
+            "debugging that session -- well-paced individually, but far more frequent in aggregate "
+            "than a human using the tool by hand -- tripped a CloudFront rate-limit block (403) "
+            "despite the permissive robots.txt. See RUNBOOK.md's Data posture section for the rule "
+            "this produced: interactive debugging against a live host must respect the same pacing "
+            "discipline as production, and a CDN 403 counts as a blocked host until its own cooldown "
+            "clears, not just until robots.txt says otherwise."
+        ),
+        verified=True,
+        last_reviewed="Checked 2026-09-08 directly against www.arb.ca.gov/robots.txt.",
     ))
 
     # ---- Project delivery method --------------------------------------------

@@ -487,3 +487,18 @@ authenticated service. It stores names, titles, and contact details of people
 use. Raw documents and the request log are retained indefinitely by default;
 if that changes, add a retention job and note it here. Point-in-time recovery
 is Render's, on the Postgres instance itself — see "Restore from backup" above.
+
+**Interactive debugging respects the same crawl-delay as production.**
+Found the hard way pulling CARB's Facility Search Tool (2026-09-08):
+repeated back-to-back Playwright requests against www.arb.ca.gov during
+interactive exploration -- well under its own stated 2s crawl-delay,
+but far more frequent than a human using the tool by hand -- tripped a
+CloudFront rate-limit block (403), even though the host's robots.txt
+permits automation outright. Never issue back-to-back requests to a host
+while exploring or debugging a Playwright/HTTP script against it; pace
+exploration the same way a scheduled fetcher would. A 403 from a CDN
+(CloudFront, Cloudflare, etc.) counts as a blocked host until its cooldown
+clears -- stop retrying immediately, wait (minutes, not seconds; ~15
+minutes cleared it in that case), and confirm the block is gone with one
+plain request before resuming, rather than polling the host itself to
+check.
