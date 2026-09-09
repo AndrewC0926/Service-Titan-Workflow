@@ -2130,6 +2130,37 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
         last_reviewed="Verified against production 2026-09-09.",
     ))
 
+    out.append(Assumption(
+        group="Nightly diff", name="Diff stage runtime",
+        config_path=None,
+        value="~60-75s end to end against production (118,742 rows across all 5 tables), after a "
+             "fix -- an earlier version took over 2.5 hours on the exact same data",
+        source_type=MEASURED,
+        source_detail=(
+            "The FIRST version of app.pipeline.diffs.diff_source mutated every row's ORM object "
+            "individually, even when nothing about the row had changed -- the common case on every "
+            "normal night. SQLAlchemy 2.0 batches bulk INSERT automatically ('insertmanyvalues'), so "
+            "the very first baseline run against production (118,742 rows, all inserts) completed in "
+            "74.51s. There is no equivalent automatic batching for UPDATE: the next run, with the same "
+            "118,742 rows now all genuinely unchanged, dirtied all 118,742 already-loaded ORM objects, "
+            "and SQLAlchemy emitted one UPDATE per object -- one network round trip per row, against "
+            "Render's Oregon Postgres. Measured directly: one such re-run took 9,581.65s (2h 40m); a "
+            "second was killed after 26+ minutes still running, `ps` showing only 6s of accumulated CPU "
+            "time in that span -- confirmed I/O-bound, not compute-bound, before assuming a cause. "
+            "Fixed same day: a row that is genuinely unchanged (same fingerprint, never flagged removed) "
+            "is no longer touched as an individual ORM object at all -- its key is collected and every "
+            "unchanged row for a table is advanced with one chunked bulk UPDATE "
+            "(app.pipeline.diffs._bulk_update_in_chunks, 5,000 keys/statement) instead. New/changed/"
+            "reappeared/removed rows, always a small count on a real night, stay on the simple per-row "
+            "ORM path. Re-measured against the same production data after the fix: 59.70s and 66.04s "
+            "on two consecutive full runs, correctness unchanged (verified identical new/changed/"
+            "unchanged/removed counts both times)."
+        ),
+        verified=True,
+        last_reviewed="Bug found and fixed against production 2026-09-09; both before and after "
+                      "numbers measured directly, not estimated.",
+    ))
+
     return out
 
 

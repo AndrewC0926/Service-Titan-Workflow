@@ -59,6 +59,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from sqlalchemy import update as sa_update
 from sqlmodel import Session, select
 
 from app.models import (
@@ -132,12 +133,32 @@ class DiffResult:
     reappeared: list[str] = field(default_factory=list)
 
 
+_BULK_UPDATE_CHUNK = 5000  # see "bulk update" note below
+
+
+def _bulk_update_in_chunks(session: Session, source: str, natural_keys: list[str], **values) -> None:
+    """One UPDATE per chunk of natural_keys, not one per row -- see
+    diff_source's docstring for why this exists at all. Chunked (not one
+    single `IN (...)` covering the whole list) to keep each statement's
+    parameter count well under PostgreSQL's ~65,535 extended-protocol limit
+    as tables grow past today's largest (ab802_buildings, 50,259 rows)."""
+    for i in range(0, len(natural_keys), _BULK_UPDATE_CHUNK):
+        chunk = natural_keys[i:i + _BULK_UPDATE_CHUNK]
+        session.execute(
+            sa_update(SourceRowSeen)
+            .where(SourceRowSeen.source == source, SourceRowSeen.natural_key.in_(chunk))
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
+
+
 def diff_source(session: Session, source: str, current: dict[str, str]) -> DiffResult:
     """Compare `current` (natural_key -> fingerprint, as of right now) against
     what SourceRowSeen last recorded for `source`. Stages every write via
-    `session.add`/mutation -- NOT committed here, same "commit belongs to the
-    caller" discipline app.pipeline.notify's `_mark` already uses, so a
-    caller that wants to inspect the result before deciding to persist it can.
+    `session.add`/mutation/bulk UPDATE -- NOT committed here, same "commit
+    belongs to the caller" discipline app.pipeline.notify's `_mark` already
+    uses, so a caller that wants to inspect the result before deciding to
+    persist it can.
 
     Baseline (no SourceRowSeen row exists yet for this source): every
     current row is seeded, `new`/`changed`/`removed`/`reappeared` are all
@@ -145,6 +166,36 @@ def diff_source(session: Session, source: str, current: dict[str, str]) -> DiffR
     reporting "everything is new" would be alerting on the table's entire
     existing history in one run, not on what actually happened since
     yesterday. `seeded` still reports the true count either way.
+
+    THE BULK UPDATE, and why it exists: measured directly against
+    production 2026-09-09. A first version of this function mutated every
+    row's ORM object individually (`row.last_seen_at = now`, etc.) even
+    when nothing about the row had changed -- the common case on every
+    normal night. SQLAlchemy 2.0 batches bulk INSERT automatically
+    ("insertmanyvalues"), so the very first baseline run -- 118,742 rows,
+    all inserts -- completed in 74.51s. There is no equivalent automatic
+    batching for UPDATE: the very next run, with the exact same 118,742
+    rows now all "unchanged," dirtied all 118,742 already-loaded ORM
+    objects, and SQLAlchemy's flush emitted one UPDATE per object -- one
+    network round trip per row, against Render's Oregon Postgres. Two
+    re-runs measured this directly: 9,581.65s and, before being killed
+    mid-run for taking even longer, still going after 26+ minutes with 6
+    seconds of accumulated CPU time (`ps` confirmed the process was almost
+    entirely blocked on I/O, not computing). See app/assumptions.py's
+    "Diff stage runtime" entry for the full measured numbers, before and
+    after this fix.
+
+    The fix: a row that is genuinely unchanged (same fingerprint, was not
+    previously flagged removed) is never mutated as an individual ORM
+    object at all. Its natural_key is collected instead, and every
+    unchanged row for a table is advanced with ONE chunked bulk UPDATE
+    statement (`_bulk_update_in_chunks`) after the per-row loop -- a
+    handful of round trips per table instead of one per row. Rows that
+    genuinely need individual attention (new, changed, reappeared) are
+    still small in number on any real night and stay on the simple
+    per-object ORM path. The `removed` case gets the same bulk treatment,
+    for the same reason, even though it is usually a small delta -- a
+    source file going empty is exactly the case this must not choke on.
     """
     existing = {r.natural_key: r for r in session.exec(
         select(SourceRowSeen).where(SourceRowSeen.source == source)).all()}
@@ -152,6 +203,7 @@ def diff_source(session: Session, source: str, current: dict[str, str]) -> DiffR
     is_baseline = len(existing) == 0
 
     result = DiffResult(source=source, baseline=is_baseline, seeded=0)
+    untouched_unchanged_keys: list[str] = []
 
     for natural_key, fingerprint in current.items():
         row = existing.get(natural_key)
@@ -164,11 +216,19 @@ def diff_source(session: Session, source: str, current: dict[str, str]) -> DiffR
             continue
 
         was_removed = row.removed_at is not None
-        if row.fingerprint != fingerprint:
+        fingerprint_changed = row.fingerprint != fingerprint
+
+        if not fingerprint_changed and not was_removed:
+            # The common nightly case, and the ONLY case this function
+            # deliberately does not touch the ORM object for -- see the
+            # bulk-update note above.
             if not is_baseline:
-                result.changed.append((natural_key, row.fingerprint, fingerprint))
-        elif not is_baseline:
-            result.unchanged.append(natural_key)
+                result.unchanged.append(natural_key)
+            untouched_unchanged_keys.append(natural_key)
+            continue
+
+        if fingerprint_changed and not is_baseline:
+            result.changed.append((natural_key, row.fingerprint, fingerprint))
         if was_removed and not is_baseline:
             result.reappeared.append(natural_key)
 
@@ -176,12 +236,16 @@ def diff_source(session: Session, source: str, current: dict[str, str]) -> DiffR
         row.last_seen_at = now
         row.removed_at = None
 
+    if untouched_unchanged_keys:
+        _bulk_update_in_chunks(session, source, untouched_unchanged_keys, last_seen_at=now)
+
     current_keys = set(current)
-    for natural_key, row in existing.items():
-        if natural_key not in current_keys and row.removed_at is None:
-            if not is_baseline:
-                result.removed.append(natural_key)
-            row.removed_at = now
+    removed_keys = [nk for nk, row in existing.items()
+                   if nk not in current_keys and row.removed_at is None]
+    if removed_keys:
+        if not is_baseline:
+            result.removed.extend(removed_keys)
+        _bulk_update_in_chunks(session, source, removed_keys, removed_at=now)
 
     return result
 
