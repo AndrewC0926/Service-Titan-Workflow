@@ -2161,6 +2161,107 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "numbers measured directly, not estimated.",
     ))
 
+    # ---- City of San Diego Development Permits (Phase A research only) --------
+
+    out.append(Assumption(
+        group="City of San Diego Development Permits", name="Access classification (Phase A research)",
+        config_path=None,
+        value="Clean -- no robots.txt on either host (data.sandiego.gov or the seshat.datasd.org file "
+             "host), and the City's own Open Data Policy states Public Data Sets carry no registration, "
+             "license, or automated-access restriction. License badge: ODC-PDDL (public domain).",
+        source_type=MEASURED,
+        source_detail=(
+            "Checked 2026-09-09, Phase A research, no code written. TWO hosts involved: the portal "
+            "(data.sandiego.gov) and the actual file host the portal links to (seshat.datasd.org, an "
+            "S3 bucket behind CloudFront -- confirmed by response headers, 'server: AmazonS3'). "
+            "data.sandiego.gov/robots.txt -> HTTP 404, body 'NoSuchKey / The specified key does not "
+            "exist. Key: robots.txt' (S3's standard missing-object response). seshat.datasd.org/"
+            "robots.txt -> HTTP 403, body '<Error><Code>AccessDenied</Code><Message>Access Denied</"
+            "Message></Error>'. Verified this 403 is generic, not robots-specific: a second, unrelated "
+            "nonexistent path on the same host (seshat.datasd.org/nonexistent-path-xyz123) returns the "
+            "identical 403 AccessDenied, while a known real file on the same host returns 200 -- this "
+            "bucket's policy returns 403 for ANY missing key rather than a 404, robots.txt included. "
+            "No robots.txt file exists on either host, same 'absent file = default permissive, not a "
+            "block' status already established for HCAI (report.hcai.ca.gov, hcai.ca.gov, esp.hcai.ca.gov) "
+            "and CSLB elsewhere in this codebase.\n"
+            "License: the dataset page (data.sandiego.gov/datasets/development-permits/) links 'View "
+            "License' to opendefinition.org/licenses/odc-pddl/ -- Open Data Commons Public Domain "
+            "Dedication and Licence (ODC-PDDL), summary 'Public Domain for data/databases'; the full "
+            "text (opendatacommons.org/licenses/pddl/1.0/) dedicates the work 'to the public domain for "
+            "the benefit of the public and relinquishes all rights,' explicitly permitting commercial "
+            "use, combination with other databases, and technical protection measures, with no "
+            "attribution requirement. Separately, the City's own Open Data Policy (effective 2015-01-01, "
+            "sandiego.gov/sites/default/files/open-data-policy.pdf) Section 3.5 states verbatim: 'Public "
+            "Data Sets shall be made available without any registration requirement, license "
+            "requirement, or restrictions on their lawful use' -- explicit, city-wide, not dataset-"
+            "specific boilerplate. Section 2.7's disclaimer is liability-only (no warranty of "
+            "completeness/accuracy/fitness) and explicitly states nothing in it 'prevents Public Data "
+            "Sets from being used for any lawful purpose, including... commercial applications.' This is "
+            "a cleaner, more explicit permission than most sources already in this codebase -- an "
+            "affirmative city policy statement, not just an absent robots.txt."
+        ),
+        verified=True,
+        last_reviewed="Checked 2026-09-09 directly against both hosts' robots.txt and the cited license/"
+                      "policy documents.",
+    ))
+
+    out.append(Assumption(
+        group="City of San Diego Development Permits", name="Field survey and contractor-naming gap",
+        config_path=None,
+        value="No contractor, applicant, owner, or engineer field exists. Fingerprint/naming candidate: "
+             "APPROVAL_PERMIT_HOLDER only, 70.90% filled, and it freely mixes contractor company names, "
+             "individual property owners, and third-party permit-expediting services with no field to "
+             "tell them apart. Not usable as a contractor-naming source as-is.",
+        source_type=MEASURED,
+        source_detail=(
+            "One download, 2026-09-09, of the current 'active approvals' file (https://seshat.datasd.org/"
+            "development_permits/approvals_active_datasd.csv, 284,568,133 bytes, etag "
+            "bb25c51fee79c3d8302ba619367d3466). The published data dictionary at https://seshat.datasd.org/"
+            "development_permits_set2/permits_set2_datasd_dict.csv does NOT match this file -- the "
+            "dictionary describes ~20 lowercase snake_case fields (project_id, approval_permit_holder, "
+            "...) with no valuation, floor-area, or DU/ADU/JADU fields at all, while the live file's "
+            "actual header (read directly, not assumed from the dictionary) has 54 UPPER_SNAKE columns: "
+            "DEVELOPMENT_ID, PROJECT_ID, PROJECT_TYPE, PROJECT_STATUS, PROJECT_PROCESSING_CODE, "
+            "PROJECT_CREATE_DATE, PROJECT_DEEMEDCOMPLETE_DATE, PROJECT_TRUST_ACCOUNT_NO, PROJECT_TITLE, "
+            "PROJECT_SCOPE, JOB_ID, JOB_DRAWING_NUMBER, GIS_ADDRESS, GIS_APN, JOB_BC_CODE, "
+            "JOB_BC_CODE_DESCRIPTION, GIS_LATITUDE, GIS_LONGITUDE, APPROVAL_ID, APPROVAL_CATEGORY_CODE, "
+            "APPROVAL_PROCESSING_CODE, APPROVAL_TYPE, APPROVAL_STATUS, APPROVAL_SCOPE, "
+            "APPROVAL_CREATE_DATE, APPROVAL_ISSUE_DATE, APPROVAL_CLOSE_DATE, APPROVAL_EXPIRE_DATE, "
+            "APPROVAL_VALUATION, APPROVAL_DU_NET_CHANGE, APPROVAL_STORIES, APPROVAL_FLOOR_AREA, 13 "
+            "DU/ADU/JADU income-tier breakdown columns, and APPROVAL_PERMIT_HOLDER (last column). Row "
+            "count 541,108. Date range (APPROVAL_CREATE_DATE) 2001-07-03 to 2026-09-09; "
+            "APPROVAL_EXPIRE_DATE's max value is a data-entry error (5021-03-06, i.e. a likely typo for "
+            "2021), disclosed not corrected. Despite the filename, APPROVAL_STATUS includes plainly "
+            "non-active values (Closed 1,725; Final Closed 2,878; Cancelled 47,670; Withdrawn 803; "
+            "Finaled 25 -- 'active' evidently gates at the parent PROJECT level, not every child "
+            "approval).\n"
+            "APPROVAL_PERMIT_HOLDER ('Contact name whom the Approval is issued to', per the mismatched "
+            "dictionary -- the closest thing to a name field in the file) is 70.90% filled (383,649 / "
+            "541,108). Every other field is either a code, a date, a number, or geometry -- no "
+            "APPLICANT, OWNER, or ENGINEER-labeled column exists anywhere in the 54 columns, filled or "
+            "not. Sampling 40 non-empty APPROVAL_PERMIT_HOLDER values shows it is a single free-text "
+            "field conflating at least four different roles with no way to tell them apart "
+            "programmatically: mechanical/fire contractors ('California Delta Mechanical', 'Airgas West "
+            "Fire Protection', 'Simplex Grinnell'), individual property owners ('Teresa & Ramon "
+            "Hernandez', 'Scott & Anna Bier'), third-party permit expediters who are not contractors at "
+            "all ('The Permit Company', 'On Time Permits'), and utilities/telecoms pulling ROW permits "
+            "('Cox Communications', 'Pac Bell Co. DBA AT&T Calif', 'TW Cable'). Treated as satisfying "
+            "this build's stop condition ('if there is no contractor field, say so and stop') -- a "
+            "single ambiguous field mixing four unrelated identity types is not a contractor field, and "
+            "guessing which rows are which by name-shape would be exactly the invented inference this "
+            "app's own invariants forbid. Mechanical Permit is a real APPROVAL_TYPE value (14,355 of "
+            "541,108 rows, 2.65%) -- sized for scale only, not filtered or matched against anything, "
+            "since the field the match would run on doesn't reliably exist.\n"
+            "GIS_APN (85.64% filled, 463,431 / 541,108) is unaffected by any of this and is a real, "
+            "usable join key in the same raw no-dash format (e.g. '4674111600') RetrofitBuilding.apn "
+            "already uses elsewhere in this codebase -- a per-building permit-history use of this "
+            "source does not depend on solving the contractor-naming gap."
+        ),
+        verified=True,
+        last_reviewed="One download and full-file scan performed and measured directly 2026-09-09; not "
+                      "sampled, not estimated.",
+    ))
+
     return out
 
 
