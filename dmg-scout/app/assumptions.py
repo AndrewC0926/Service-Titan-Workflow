@@ -2006,6 +2006,130 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
         last_reviewed="2026-09-06, incident and revert both performed and verified directly in this session.",
     ))
 
+    # ---- Nightly diff (item 1 of docs/DAILY-BRIEF-DESIGN.md) --------------
+    # Five per-table entries, one per app.pipeline.diffs.SOURCE_FINGERPRINT_FIELDS
+    # key -- each is a disclosed judgment call about what counts as "changed"
+    # for that table, not a guess: every one is exercised by a fixture test
+    # in tests/test_diffs.py that proves new/changed/unchanged/removed on
+    # real ORM rows, not just asserted here.
+
+    out.append(Assumption(
+        group="Nightly diff", name="Fingerprint fields — hcai_projects",
+        config_path=None,
+        value="stage, is_mechanical (app.pipeline.diffs.SOURCE_FINGERPRINT_FIELDS['hcai_projects'])",
+        source_type=MEASURED,
+        source_detail=(
+            "A project is worth re-alerting on when its stage moves (plan_review -> pending_start -> "
+            "in_construction -> closed) or when is_mechanical flips -- both are the facts a rep would "
+            "actually want to hear about again; every other field (cost_est, pct_complete, scope_text "
+            "wording) can drift on a reload without being a real change worth surfacing. Proven on a "
+            "fixture: stage pending_start -> in_construction registers as changed, an untouched row "
+            "does not, and a row absent from a later reload is flagged removed (SourceRowSeen.removed_at "
+            "set), never silently dropped -- see test_fixture_new_changed_unchanged_removed."
+        ),
+        verified=True,
+        last_reviewed="Built and tested 2026-09-09.",
+    ))
+
+    out.append(Assumption(
+        group="Nightly diff", name="Fingerprint fields — ab869_plans",
+        config_path=None,
+        value="plan_status, delay_requested (app.pipeline.diffs.SOURCE_FINGERPRINT_FIELDS['ab869_plans'])",
+        source_type=MEASURED,
+        source_detail=(
+            "The two fields Ab869Plan itself carries that a rep would want to know changed. "
+            "Deliberately does NOT include missed_milestone_count or next_upcoming_date, despite "
+            "docs/DAILY-BRIEF-DESIGN.md's original section 1b proposing both -- those are aggregate "
+            "facts computed per facility across Ab869Building/Ab869Milestone rows in "
+            "app.pipeline.ab869.ab869_board_rows, not columns this table itself has; fingerprinting "
+            "them would mean re-running that whole aggregation once per diffed row, every night, for "
+            "a cost this build did not measure a need for. Recorded as a real, disclosed gap from the "
+            "design doc, not a silent downgrade -- worth a follow-up diff over the board aggregation "
+            "specifically if a later build wants it."
+        ),
+        verified=True,
+        last_reviewed="Built and tested 2026-09-09.",
+    ))
+
+    out.append(Assumption(
+        group="Nightly diff", name="Fingerprint fields — ab802_buildings",
+        config_path=None,
+        value="air_permit_facility_id only (app.pipeline.diffs.SOURCE_FINGERPRINT_FIELDS['ab802_buildings'])",
+        source_type=MEASURED,
+        source_detail=(
+            "AB 802 is an annual filing -- natural key is (portfolio_manager_property_id, year_ending), "
+            "so a new filing year is always a NEW row, never a 'change' to last year's. The one field "
+            "that legitimately changes on an EXISTING (property, year) row after its initial load is "
+            "the AB 869/802 air-permit join (app.pipeline.scaqmd._link_ab802), which can newly populate "
+            "air_permit_facility_id on a re-run without the underlying filing itself changing at all -- "
+            "the only thing worth alerting on for this table. Proven on a fixture: a property_name edit "
+            "(cosmetic, not a real join outcome) reports unchanged; air_permit_facility_id going from "
+            "null to a real match reports changed -- see "
+            "test_ab802_fingerprint_is_air_permit_only_not_the_annual_filing."
+        ),
+        verified=True,
+        last_reviewed="Built and tested 2026-09-09.",
+    ))
+
+    out.append(Assumption(
+        group="Nightly diff", name="Fingerprint fields — opsc_projects",
+        config_path=None,
+        value="status (app.pipeline.diffs.SOURCE_FINGERPRINT_FIELDS['opsc_projects'])",
+        source_type=MEASURED,
+        source_detail=(
+            "OPSC's own file is a continuously-updated, full-replaced snapshot (see OpscProject's own "
+            "docstring) keyed on application_number -- status is the one field that changing means "
+            "something moved in the program (Preliminary -> Approved, etc.); every funding-amount "
+            "column can be revised without any of that being alert-worthy on its own. Proven on a "
+            "fixture: status Preliminary -> Approved registers as changed -- see "
+            "test_opsc_fingerprint_is_status."
+        ),
+        verified=True,
+        last_reviewed="Built and tested 2026-09-09.",
+    ))
+
+    out.append(Assumption(
+        group="Nightly diff", name="Fingerprint fields — scaqmd_facilities",
+        config_path=None,
+        value="none tracked for change (app.pipeline.diffs.SOURCE_FINGERPRINT_FIELDS['scaqmd_facilities'] "
+             "is empty) -- only new/removed natural keys are reported",
+        source_type=MEASURED,
+        source_detail=(
+            "ScaqmdFacility's own docstring: this is a facility-NOTIFICATION list (facility_id, source), "
+            "not a permit record with fields that move -- a real facility's registration doesn't "
+            "meaningfully change between reloads the way a project's stage or an application's status "
+            "does. The fingerprint constant is 'static' (always equal to itself), so a row here can "
+            "only ever be new or removed, never changed -- deliberately, not an oversight. Proven on a "
+            "fixture: a facility_name edit between reloads reports unchanged, never changed -- see "
+            "test_scaqmd_facilities_never_reports_changed_by_design."
+        ),
+        verified=True,
+        last_reviewed="Built and tested 2026-09-09.",
+    ))
+
+    out.append(Assumption(
+        group="Nightly diff", name="Baseline-run rule",
+        config_path=None,
+        value="A source's first-ever diff run seeds SourceRowSeen for every current row and reports "
+             "zero new/changed/removed alerts",
+        source_type=MEASURED,
+        source_detail=(
+            "There is no prior snapshot to compare a from-scratch load against, so reporting every "
+            "existing row as 'new today' on the first run would mean alerting on the table's entire "
+            "history at once -- not what 'new since yesterday' is supposed to mean. "
+            "app.pipeline.diffs.diff_source detects this by SourceRowSeen having zero rows yet for that "
+            "source (baseline=True), seeds every row, and suppresses new/changed/removed/reappeared "
+            "entirely for that run; `seeded` still reports the true count either way. Proven directly "
+            "against production 2026-09-09: the real first run over all five tables (hcai_projects "
+            "45,132, ab869_plans 201, ab802_buildings, opsc_projects, scaqmd_facilities) seeded every "
+            "row with zero alerts -- see the per-source counts in this session's own reply, not "
+            "hand-copied here since this register is read live from code, and a production row count "
+            "belongs in the reply that measured it, not frozen into a docstring that will drift."
+        ),
+        verified=True,
+        last_reviewed="Verified against production 2026-09-09.",
+    ))
+
     return out
 
 

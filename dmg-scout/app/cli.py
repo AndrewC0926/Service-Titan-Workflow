@@ -236,9 +236,10 @@ def pipeline(force: bool = typer.Option(
         "Never bypasses the currently-running guard -- that one is not optional.",
 )) -> None:
     """Run the full pipeline: fetch → triage → extract → resolve → score →
-    notify → fetch-ebewe-benchmarks → build-retrofit-buildings →
+    notify → diff-sources → fetch-ebewe-benchmarks → build-retrofit-buildings →
     find-replacement-candidates (the last two -- ebewe and replacement-
-    candidates -- Sundays only, see RETROFIT_WEEKLY_WEEKDAY above). Pings the
+    candidates -- Sundays only, see RETROFIT_WEEKLY_WEEKDAY above;
+    diff-sources runs daily, see its own docstring). Pings the
     dead man's switch (HEALTHCHECK_URL) on completion, and records a
     pipeline_run row for the in-app staleness alarm (`scout check-freshness`
     / the root dashboard banner) — see app.pipeline_health, which also now
@@ -360,7 +361,18 @@ def pipeline(force: bool = typer.Option(
         # geocoded contractors 2026-08-25 (the same order of cost as the
         # retrofit rebuild itself, hence the same cadence), and
         # match_contractors_overdue ~5min against the mechanical-only subset.
-        for step in (fetch, triage, extract, grounding, resolve, score, notify,
+        # diff_sources_cmd sits right after notify, before the weekly retrofit
+        # steps: it reads five Pipeline B tables (hcai_projects, ab869_plans,
+        # ab802_buildings, opsc_projects, scaqmd_facilities) that are neither
+        # fetched by anything above it nor rebuilt by anything below it in
+        # this same run -- same "fully separate subsystem, ordering doesn't
+        # affect correctness" reasoning the retrofit steps' own comment gives
+        # -- but unlike those, it runs DAILY, not Sundays-only: its entire
+        # point is to catch a manual reload (someone runs `scout
+        # load-hcai-projects` or `scout import-ab869` mid-day) by the very
+        # next morning, regardless of which source's own cadence changed.
+        # Pure SQL, no LLM, no fetch -- see app/pipeline/diffs.py.
+        for step in (fetch, triage, extract, grounding, resolve, score, notify, diff_sources_cmd,
                     fetch_ebewe_benchmarks_cmd, fetch_local250_cmd, fetch_ownership_recency_cmd,
                     build_retrofit_buildings_cmd, find_replacement_candidates_cmd,
                     match_contractors_cmd, match_contractors_overdue_cmd):
@@ -1308,6 +1320,37 @@ def load_hcai_projects_cmd(
                   f"{match['hcai_facilities']} ({match['unmatched']} unmatched)")
     if stats.get("error"):
         typer.echo(f"  ERROR: {stats['error']}", err=True)
+
+
+@app.command("diff-sources")
+def diff_sources_cmd() -> None:
+    """Nightly diff -- item 1 of docs/DAILY-BRIEF-DESIGN.md only (no brief,
+    no Opportunity table, no UI). Compares hcai_projects, ab869_plans,
+    ab802_buildings, opsc_projects, and scaqmd_facilities against
+    SourceRowSeen and reports new/changed/unchanged/removed/reappeared
+    counts per source -- see app/pipeline/diffs.py for the fingerprint
+    field lists and the baseline-run rule (a source's first-ever diff seeds
+    SourceRowSeen and reports zero alerts; there is no prior snapshot to
+    compare a from-scratch load against). Part of `scout pipeline`, daily
+    (not weekly-gated): it must run every day so a manual reload earlier
+    that same day is caught by the next morning's run, independent of
+    whichever source's own cadence actually changed."""
+    import time
+
+    from app.pipeline.diffs import run_all_diffs
+
+    t0 = time.monotonic()
+    with session_scope() as session:
+        results = run_all_diffs(session)
+    elapsed = time.monotonic() - t0
+    for source, r in results.items():
+        if r.baseline:
+            typer.echo(f"{source}: BASELINE -- seeded {r.seeded} rows, 0 alerts (first diff run)")
+        else:
+            typer.echo(f"{source}: {len(r.new)} new, {len(r.changed)} changed, "
+                      f"{len(r.unchanged)} unchanged, {len(r.removed)} removed, "
+                      f"{len(r.reappeared)} reappeared ({r.seeded} newly seeded)")
+    typer.echo(f"diff-sources: {elapsed:.2f}s")
 
 
 @app.command("fetch-local250")

@@ -525,6 +525,51 @@ class BackfillCheckpoint(SQLModel, table=True):
     completed_at: datetime = Field(default_factory=utcnow)
 
 
+class SourceRowSeen(SQLModel, table=True):
+    """The nightly diff's own memory: one row per (source, natural_key) ever
+    observed in one of the five Pipeline B tables that have no integer id to
+    hang DigestLog's existing new/stage_change/contactable machinery off of
+    (hcai_projects, ab869_plans, ab802_buildings, opsc_projects,
+    scaqmd_facilities -- see docs/DAILY-BRIEF-DESIGN.md section 1b and
+    app/pipeline/diffs.py for the full design and the per-table fingerprint
+    field lists, registered in app/assumptions.py).
+
+    natural_key is always a string, even for a table whose real key is
+    composite (Ab802Building's (portfolio_manager_property_id, year_ending),
+    ScaqmdFacility's (facility_id, source)) -- see app.pipeline.diffs for
+    the exact join format, kept in one place so a writer and reader can't
+    drift apart, same discipline as source_run_name/run_name_source above.
+
+    fingerprint is a deliberately narrow, per-table subset of fields (never
+    every column -- imported_at alone would fire a false "changed" on every
+    reload), so a real content change is what advances it, not a reload
+    that reread the same row.
+
+    A row disappearing from its source table is NOT deleted here --
+    removed_at is set instead and the row stays. Silently dropping a row
+    that vanished from a source file is exactly the kind of miss this
+    system's invariant 6 ("no join hides its miss rate") exists to prevent;
+    a removed row is itself a fact worth surfacing, not just an absence to
+    stop tracking. A row that reappears later (removed_at cleared, fresh
+    fingerprint stored) is still fully trackable going forward.
+
+    The FIRST diff run ever against a given source is a BASELINE: every
+    row present is seeded here with no new/changed/removed reported at all
+    -- there is no prior snapshot to compare a from-scratch load against,
+    so treating the whole table's existing history as "new today" would be
+    wrong, not just noisy. See app.pipeline.diffs.diff_source."""
+    __tablename__ = "source_rows_seen"
+    __table_args__ = (UniqueConstraint("source", "natural_key", name="uq_source_row_seen"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    source: str = Field(index=True)
+    natural_key: str = Field(index=True)
+    fingerprint: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    first_seen_at: datetime = Field(default_factory=utcnow, index=True)
+    last_seen_at: datetime = Field(default_factory=utcnow, index=True)
+    removed_at: datetime | None = Field(default=None, index=True)
+
+
 class TokenSpend(SQLModel, table=True):
     """Per-call LLM spend. The daily budget kill switch sums this table."""
     __tablename__ = "token_spend"
