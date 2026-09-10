@@ -8,7 +8,7 @@
   {%- if contractor and contractor.ua_local_250_signatory %}&nbsp;<span class="stamp stamp-quiet" title="Matched UA Local 250's signatory list as {{ contractor.ua_local_250_matched_name }}.">UA 250</span>{% endif -%}
   <a href="/accounts/{{ account.id }}" style="float:right;font-size:12px">← back to accounts</a>
 </h2>
-<p class="note">{{ account.account_type.replace('_', ' ') }} · {{ account.city or '?' }}{% if account.county %}, {{ account.county }} County{% endif %}
+<p class="note">{{ account.account_type.replace('_', ' ') if account.account_type else 'type unknown' }} · {{ account.city or '?' }}{% if account.county %}, {{ account.county }} County{% endif %}
   · rep: {{ account.assigned_rep or 'unassigned' }}
   · <a href="/accounts/{{ account.id }}">coverage editor</a> · <a href="/accounts/{{ account.id }}/brief">printable brief</a></p>
 

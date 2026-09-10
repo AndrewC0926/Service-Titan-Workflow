@@ -1235,8 +1235,36 @@ class Account(SQLModel, table=True):
     name: str = Field(index=True)
     name_norm: str = Field(index=True)
     parent_id: int | None = Field(default=None, foreign_key="accounts.id", index=True)
-    # mechanical_contractor | service_contractor | gc | owner | developer | distributor | engineer
-    account_type: str = Field(default="mechanical_contractor", index=True)
+    # See app.accounts.ACCOUNT_TYPES for the full accepted set. Nullable, no
+    # default, as of the NetSuite import (2026-09-11): ~52% of the 7,093-row
+    # NetSuite "Scout" export has no Category at all, and silently defaulting
+    # every one of those to "mechanical_contractor" (this field's own former
+    # default, and app.importers.accounts_csv's former fallback) is exactly
+    # the invented-precision this system's own register exists to catch --
+    # see app.importers.netsuite_customers's module docstring. NULL means
+    # "NetSuite never said," never "assumed mechanical contractor."
+    account_type: str | None = Field(default=None, index=True)
+    # NetSuite's own internal customer/entity id (the "Internal ID" column,
+    # e.g. 5322) -- THE join key for anything NetSuite-sourced (sales order
+    # lines, future re-imports), never this account's name. Unique because
+    # NetSuite's own internal id is unique per customer record; NULL for any
+    # account that didn't come from a NetSuite import. See
+    # app.importers.netsuite_customers.
+    netsuite_internal_id: int | None = Field(default=None, unique=True, index=True)
+    # NetSuite's own "ID" column (a human-facing entity number, e.g. "1" or,
+    # for a sub-customer, "18:1" -- parent id colon child sequence). Text,
+    # not int: the colon form is not itself numeric. Purely descriptive,
+    # never a join key -- see netsuite_internal_id for that.
+    netsuite_entity_id: str | None = None
+    # The PARENT's own netsuite_internal_id, populated only when NetSuite's
+    # export actually carried a differing parent Internal ID for this row
+    # (checked directly against the real file's 86 child rows at
+    # migration time -- see that migration's own docstring for whether it
+    # did). Resolved to Account.parent_id by a second pass after every row
+    # is inserted (a child can be inserted before its parent within the
+    # same file). NULL, not 0 or self-referential, when NetSuite gave no
+    # parent for this row.
+    netsuite_parent_internal_id: int | None = Field(default=None, index=True)
     address: str | None = None
     city: str | None = None
     county: str | None = Field(default=None, index=True)
@@ -1258,6 +1286,29 @@ class Account(SQLModel, table=True):
     status: str = Field(default="active", index=True)  # active | dormant | archived
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+
+    # ---- NetSuite import fields (2026-09-11) --------------------------------
+    # is_active is NetSuite's own "Inactive" flag (this app's own lifecycle
+    # concept is `status` above -- a NetSuite-inactive customer and a Scout
+    # dormant/archived account are different questions, never conflated).
+    # NULL for any account not sourced from a NetSuite import.
+    is_active: bool | None = Field(default=None, index=True)
+    # NetSuite's own "Sales Rep" field on the customer RECORD -- kept for
+    # provenance/audit only. UNMAINTAINED: the sales-order-line export is the
+    # live source of who actually sells to an account (a line's own Sales
+    # Rep can differ from the customer record's, and does, per the House DMG
+    # reassignment pattern -- see app.importers.netsuite_customers's own
+    # docstring). Never read for "who owns this account" -- use `assigned_rep`
+    # (this app's own field, set by import/by hand) for that.
+    netsuite_sales_rep: str | None = None
+    netsuite_last_modified: datetime | None = None
+    # True for Category == "DMG Office" AND for the single known non-customer
+    # test record ("SCS Cloud Payments Test (DMG Corp)", itself Category-blank
+    # -- a name-matched special case, not a Category rule). These rows import
+    # (deleting DMG's own history would be its own kind of data loss) but are
+    # excluded from every ranked view and join -- see
+    # app.importers.netsuite_customers.DMG_INTERNAL_NAMES.
+    is_dmg_internal: bool = Field(default=False, index=True)
 
 
 class AccountCoverage(SQLModel, table=True):

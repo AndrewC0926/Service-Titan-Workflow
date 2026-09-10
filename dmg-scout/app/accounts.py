@@ -56,6 +56,18 @@ COVERAGE_STATUSES = (BOUGHT, QUOTED_NOT_WON, NEVER_QUOTED, UNKNOWN)
 ACCOUNT_TYPES = (
     "mechanical_contractor", "service_contractor", "gc", "owner", "developer",
     "distributor", "engineer",
+    # Added 2026-09-11 for the NetSuite "Scout" customer import -- one value
+    # per NetSuite Category with no existing home above. See
+    # config.yaml's netsuite.category_to_account_type table for the full
+    # 20-category mapping this set of values exists to satisfy, and
+    # app.importers.netsuite_customers's own docstring for the two real
+    # NetSuite categories (Acoustician, 7 rows; Ambient, 2 rows) that STILL
+    # have no value here and fail the import loudly rather than being
+    # folded into one of these by guess.
+    "controls_contractor", "electrical_contractor", "plumbing_contractor",
+    "supplier", "manufacturer", "architect", "rep_firm", "consulting_engineer",
+    "construction_manager", "energy_consultant", "water_treatment_contractor",
+    "exporter", "minority_owned_contractor", "dmg_internal",
 )
 
 

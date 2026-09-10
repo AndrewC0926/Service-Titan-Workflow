@@ -287,7 +287,7 @@
 {% for row in accounts_matrix.by_status.get(status, []) %}
 <tr>
   <td><a href="/accounts/{{ row.account.id }}">{{ row.account.name }}</a></td>
-  <td class="nowrap">{{ row.account.account_type.replace('_',' ') }}</td>
+  <td class="nowrap">{{ row.account.account_type.replace('_',' ') if row.account.account_type else '—' }}</td>
   <td class="nowrap">
     {%- if status == 'bought' -%}<span class="ok">bought</span>
     {%- elif status == 'quoted_not_won' -%}<span class="warn">quoted, lost</span>

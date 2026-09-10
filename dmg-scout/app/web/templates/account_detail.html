@@ -2,7 +2,7 @@
 {% from "_icon.html" import icon %}
 {% block title %}{{ account.name }}{% endblock %}
 {% block content %}
-<h2>{{ account.name }} <span class="tag">{{ account.account_type.replace('_', ' ') }}</span>
+<h2>{{ account.name }} <span class="tag">{{ account.account_type.replace('_', ' ') if account.account_type else 'type unknown' }}</span>
   <span class="tag">{{ account.ownership_type.replace('_', ' ') }}</span>
   <a href="/accounts/{{ account.id }}/brief" style="float:right;font-size:12px">{{ icon('file-text') }} One-page brief</a>
   <a href="/accounts/{{ account.id }}/edit" style="float:right;font-size:12px;margin-right:14px">{{ icon('pencil') }} Edit</a></h2>

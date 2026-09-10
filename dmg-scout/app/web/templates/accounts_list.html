@@ -36,7 +36,7 @@
 {% for a in accounts %}
 <tr>
   <td><a href="/accounts/{{ a.id }}">{{ a.name }}</a></td>
-  <td class="nowrap">{{ a.account_type.replace('_', ' ') }}</td>
+  <td class="nowrap">{{ a.account_type.replace('_', ' ') if a.account_type else '—' }}</td>
   <td>{{ a.county or '?' }}{{ ', ' + a.state if a.state }}</td>
   <td>{{ a.assigned_rep or '—' }}</td>
   <td class="num mono">{{ bought_counts.get(a.id, 0) }} / {{ total_counts.get(a.id, 0) }}</td>

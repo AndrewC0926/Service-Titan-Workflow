@@ -18,7 +18,7 @@
 
 <h2 style="font-size:18px">{{ account.name }} — account brief</h2>
 <p class="dim">DMG Scout — generated {{ b.generated_at.strftime('%Y-%m-%d %H:%M') }}Z.
-{{ account.account_type.replace('_', ' ') }} · {{ account.county or '?' }} County, {{ account.state or '?' }}
+{{ account.account_type.replace('_', ' ') if account.account_type else 'type unknown' }} · {{ account.county or '?' }} County, {{ account.state or '?' }}
 · rep: {{ account.assigned_rep or 'unassigned' }}</p>
 
 <table style="max-width:820px">

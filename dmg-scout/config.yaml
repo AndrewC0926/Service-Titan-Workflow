@@ -1567,6 +1567,51 @@ regulatory_triggers:
 # (install year against replacement.service_life above — no new table, the
 # same ownership-branched one Phase B already settled).
 # =============================================================================
+netsuite:
+  # Explicit NetSuite Category -> app.accounts.ACCOUNT_TYPES mapping for
+  # app.importers.netsuite_customers -- every one of the 20 non-blank
+  # Category values actually observed in the real "Scout" saved-search
+  # export (7,093 rows, checked directly 2026-09-10/11), not guessed ahead
+  # of seeing the file. A blank Category is handled separately by the
+  # importer itself (stays NULL, never looked up here). Deliberately NOT a
+  # catch-all/default entry: a Category that shows up in a future export but
+  # isn't a key below must fail the whole file loudly (see the importer's
+  # own docstring) rather than silently map to whatever's most common today
+  # -- that silent-default failure mode is exactly what put every blank
+  # Category on "mechanical_contractor" before this table existed.
+  #
+  # Two real categories have NO entry on purpose, not by oversight: 7 rows
+  # of "Acoustician" and 2 of "Ambient" have no ACCOUNT_TYPES value that
+  # fits them (neither was in the value list this table was built against) —
+  # importing the real file will fail loudly on these 9 rows until a human
+  # either adds a value for them here (and to app.accounts.ACCOUNT_TYPES) or
+  # decides they belong under an existing one.
+  category_to_account_type:
+    "Mechanical Contractor": mechanical_contractor
+    "Mechanical Engineer": engineer  # generic -- ACCOUNT_TYPES has no separate mechanical_engineer value
+    "Owner": owner
+    "General Contractor": gc
+    "Controls Contractor": controls_contractor
+    "DMG Office": dmg_internal
+    "Supplier": supplier
+    "Electrical Contractor": electrical_contractor
+    "Manufacturer": manufacturer
+    "Architect": architect
+    "Plumbing Contractor": plumbing_contractor
+    "Exporter": exporter
+    "Rep Firm": rep_firm
+    "Water Treatment Contractor": water_treatment_contractor
+    "Consulting Engineer": consulting_engineer
+    "Minority Owned Contractor": minority_owned_contractor
+    "Construction Manager": construction_manager
+    "Energy Consultant": energy_consultant
+
+  # Exact-name special case, checked in ADDITION to the Category rule above
+  # (this specific row's own Category is blank, not "DMG Office") -- see
+  # app.models.Account.is_dmg_internal's own docstring.
+  dmg_internal_names:
+    - "SCS Cloud Payments Test (DMG Corp)"
+
 accounts:
   # Typical single-PO dollar range for one tier of equipment, used to rank
   # coverage gaps by estimated dollar VALUE rather than by row count — a

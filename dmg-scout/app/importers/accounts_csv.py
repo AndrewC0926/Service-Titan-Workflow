@@ -107,10 +107,17 @@ def _mapped_row(raw_row: dict[str, str], mapping: dict[str, str]) -> dict[str, s
             out[field_key] = val
     if "account_type" in out:
         # A spreadsheet says "Mechanical Contractor" or "GC", not the DB's
-        # snake_case — match loosely rather than storing junk that renders as
-        # its own type on every list/filter forever.
+        # snake_case — match loosely, but an unrecognized value is dropped
+        # (leaves account_type unset for this row) rather than guessed as
+        # "mechanical_contractor" -- that former fallback is exactly the
+        # invented-precision this system's own register exists to catch
+        # (removed 2026-09-11 alongside Account.account_type becoming
+        # nullable; see app.importers.netsuite_customers's own docstring).
         norm = out["account_type"].strip().lower().replace(" ", "_").replace("-", "_")
-        out["account_type"] = norm if norm in ACCOUNT_TYPES else "mechanical_contractor"
+        if norm in ACCOUNT_TYPES:
+            out["account_type"] = norm
+        else:
+            del out["account_type"]
     return out
 
 
@@ -214,7 +221,9 @@ def commit_import(session: Session, headers: list[str], rows: list[dict[str, str
         else:
             fuzzy = _fuzzy_matches(norm, pool)
             account = create_account(
-                session, name=name, account_type=fields_.get("account_type", "mechanical_contractor"),
+                # No fallback: an unmapped/blank type stays NULL, never
+                # guessed as "mechanical_contractor" -- see _mapped_row.
+                session, name=name, account_type=fields_.get("account_type"),
                 address=fields_.get("address"), city=fields_.get("city"),
                 county=fields_.get("county"), state=fields_.get("state"),
                 assigned_rep=fields_.get("assigned_rep"), notes=fields_.get("notes", ""),
