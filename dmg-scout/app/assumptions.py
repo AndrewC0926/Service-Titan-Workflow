@@ -2905,6 +2905,751 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "research process.",
     ))
 
+    # ---- Board agendas: engineer/contractor award source (Phase A research) ---
+    # Instruction: board agendas as the engineer/contractor award source, checked
+    # against 6 named hosts -- LAUSD (lausd.legistar.com + its public Legistar
+    # Web API), Riverside CCD (rccd.granicus.com RSS), and BoardDocs public sites
+    # for Santa Ana USD, Fontana USD, San Diego CCD, and South Orange County CCD.
+    # Phase A research only, no code written -- this feeds no fetcher yet; see
+    # the "Proposed design" entry below for what building it would require and
+    # why this pass recommends NOT building it as specified.
+
+    out.append(Assumption(
+        group="Board agendas: engineer/contractor award source", name="Access classification (Phase A research)",
+        config_path=None,
+        value="5 of the 6 named hosts DEAD (robots.txt fully disallows a generic user-agent, no "
+             "exception broad enough to use honestly). Only LAUSD's Legistar Web API is open by "
+             "robots.txt -- but the attachment files that would actually carry a firm name live on a "
+             "SEPARATE host (legistar.granicus.com) that is itself fully disallowed.",
+        source_type=MEASURED,
+        source_detail=(
+            "Checked 2026-09-10, Phase A research, no code written. Every robots.txt below was fetched "
+            "directly (curl, a standard browser User-Agent string -- the default curl UA returned a "
+            "CloudFront WAF 403 on the BoardDocs host, unrelated to robots policy; switching to a "
+            "browser UA reproduced the same 200 a normal visitor gets, not a bypass of any access "
+            "control). No UA was ever presented as a named search-engine bot to unlock a narrower "
+            "exception -- every classification below is what a generic, honestly-identified fetcher "
+            "gets.\n"
+            "\n"
+            "1) BoardDocs (Santa Ana USD, Fontana USD, San Diego CCD, South Orange County CCD) -- all "
+            "four are SaaS client sites under the ONE shared host go.boarddocs.com, so one robots.txt "
+            "governs all four regardless of each district's own path; the four district-specific "
+            "Board.nsf paths were not individually re-verified (this session's web-search budget was "
+            "already exhausted from earlier work, so the exact per-district URL was not looked up -- "
+            "not needed to reach a classification, since the shared host's robots.txt already settles "
+            "it). go.boarddocs.com/robots.txt, HTTP 200, operative lines verbatim: 'User-agent: * / "
+            "Disallow: / / Crawl-delay: 1000' followed by a ~300-line list of specifically-named bots "
+            "each individually Disallow: / (Ahrefsbot, SemrushBot, wget, Scrapy, curl-shaped tools, "
+            "etc. -- not reproduced in full here, all strictly redundant with the catch-all above), then "
+            "an '# Allowed Bots' section granting ONLY msnbot, Slurp, Googlebot, and Bingbot 'Allow: "
+            "/*/*/Board.nsf/* ' and 'Allow: /*/Board.nsf/*' with Crawl-delay: 10. A generic fetcher is "
+            "bound by the catch-all Disallow: / -- DEAD, all four.\n"
+            "\n"
+            "2) Riverside CCD (rccd.granicus.com), the named RSS host -- robots.txt, HTTP 200, verbatim: "
+            "'User-agent: Googlebot / Disallow: /JSON.php / Crawl-delay: 10' (repeated identically for "
+            "Slurp and msnbot), 'User-agent: search-one-scgov / Disallow: /JSON.php', then 'User-agent: "
+            "* / Disallow: /'. Same shape as this register's existing DIR PWC-100 finding: named bots "
+            "get a narrow carve-out, everyone else gets a full site-wide block, no path-specific "
+            "exception wide enough to reach an RSS feed under. DEAD.\n"
+            "\n"
+            "3) LAUSD -- TWO relevant hosts, not one:\n"
+            "   a) lausd.legistar.com (the public calendar/board site) and webapi.legistar.com (the "
+            "public Legistar Web API, webapi.legistar.com/Help) both return HTTP 404 for /robots.txt "
+            "(confirmed with a browser UA too, base pages on both hosts return HTTP 200 -- a genuine "
+            "missing file, not a UA-based block). No robots.txt at all is the same 'not restricted by "
+            "this mechanism' reading already used elsewhere in this register (see SAN Airport). No "
+            "dataset-specific terms-of-use page was found on either host; webapi.legistar.com's own "
+            "root page states only '(c) 2026 - Granicus' with no reuse restriction text, and "
+            "granicus.com's general company terms-of-use page is a JS-rendered marketing SPA whose "
+            "server-delivered HTML carries no readable terms text at all via a plain fetch (not "
+            "evaluated further -- a company-wide marketing ToS is a different question from this "
+            "specific public API's own terms in any case, same distinction this register already draws "
+            "for SAN Airport's page-footer disclaimer). ALLOWED -- used for the one-session pull below.\n"
+            "   b) legistar.granicus.com -- NOT one of the 6 originally named hosts, discovered only "
+            "because every attachment hyperlink the Web API itself returns (MatterAttachmentHyperlink) "
+            "points here, e.g. 'https://legistar.granicus.com/lausd/attachments/<guid>.docx'. This is "
+            "the host that actually serves the exhibit documents a contract-award item's real detail "
+            "(and any firm name) would live in. robots.txt, HTTP 200, verbatim in full: 'User-agent: * "
+            "/ Disallow: / '. DEAD. Disclosed process note: one attachment file WAS fetched from this "
+            "host during discovery, in the same batch of commands as the robots.txt check itself, before "
+            "that check's result was read -- an ordering mistake, not a decision to fetch past a known "
+            "block. The file was never opened or read for content and was deleted immediately once the "
+            "robots.txt result was seen; nothing from it is reflected anywhere in this register, and no "
+            "further request was made to this host."
+        ),
+        verified=True,
+        last_reviewed="Checked 2026-09-10 directly against each host's own /robots.txt.",
+    ))
+
+    out.append(Assumption(
+        group="Board agendas: engineer/contractor award source",
+        name="LAUSD Legistar: 90-day pull and firm-naming check",
+        config_path=None,
+        value="45 board matters on file with an agenda date in the last 90 days; 3 match the given "
+             "keyword set (all 'contract', via the plural/stem form); 0 of those 3 name a firm in the "
+             "title. Whether the linked attachment names one is undetermined -- see the access entry "
+             "above, that host is DEAD.",
+        source_type=MEASURED,
+        source_detail=(
+            "One session, 2026-09-10, against webapi.legistar.com/v1/lausd/Matters, "
+            "$filter=MatterAgendaDate ge datetime'2026-06-12' and le datetime'2026-09-10' (today minus "
+            "90 days), $top=1000 so no paging was needed -- 45 rows returned, all read directly, none "
+            "summarized. Interpretation disclosed, not assumed: 'agenda items' was read as MatterAgendaDate "
+            "(the date a matter actually appeared on a Board of Education agenda), not MatterIntroDate "
+            "(the date it was filed) -- the two can differ by months for an item still in committee.\n"
+            "Keyword match: title contains award/contract/architect/engineer/mechanical/hvac/bid as a "
+            "case-insensitive word-stem (so 'Contracts' and 'Contracting' count, matching what the "
+            "instruction's own slash-separated list reads as intending) -- 3 of 45 (6.7%) match, all "
+            "three on the word 'Contract(s)', none on award/architect/engineer/mechanical/hvac/bid. All "
+            "3 matching titles, verbatim, with dates (fewer than 10 exist in this window -- reporting 3 "
+            "actual matches rather than padding to 10):\n"
+            "  [2026-08-25] Rep-005-26/27 (Facilities Contract Actions / BOE Report): 'Approval of "
+            "Facilities Contracts Actions \\r\\nProcurement Services Department - Facilities Contracts'\n"
+            "  [2026-06-12] Rep-333-25/26 (Facilities Contract Actions / BOE Report): 'Delegations of "
+            "Authority for Procurement and Facilities Contracts Amendment\\r\\nProcurement Services "
+            "Department - Facilities Contracts'\n"
+            "  [2026-06-12] Rep-394-25/26 (Facilities Contract Actions / BOE Report): 'Approval of "
+            "Facilities Contracts Actions \\r\\nProcurement Services Department - Facilities "
+            "Contracts'\n"
+            "All three are omnibus/bundled BOE Reports -- each one Board vote ratifying an unstated "
+            "number of individual contract actions at once, not a per-contract, per-firm agenda item. "
+            "Confirmed by pulling the actual Matters/Attachments list for MatterId 8098 (Rep-005-26/27): "
+            "two attachments, 'Attachment A Ratification of Contracts (REPT-005)' and 'Attachment B "
+            "Request for Approval of Contracts not UDA (REPT-005)', both .docx, both hosted on the DEAD "
+            "legistar.granicus.com host (see the access entry above) -- so whether either actually names "
+            "an architect/engineer/contractor firm was not checked; that would require reading a file "
+            "from a robots.txt-disallowed host, which this pass declined to do.\n"
+            "Net finding for the full 45-row window: the LAUSD Board of Education's own agenda TITLES, "
+            "as filed in Legistar, never name a firm -- every facilities-contract item is filed under a "
+            "generic recurring report name (Facilities Contract Actions / Procurement Actions), with the "
+            "actual vendor list living only in an attachment this pass could not read under the terms "
+            "found."
+        ),
+        verified=True,
+        last_reviewed="Pulled and read directly 2026-09-10 against the live Legistar Web API.",
+    ))
+
+    out.append(Assumption(
+        group="Board agendas: engineer/contractor award source",
+        name="Proposed design (not decided) -- table shape, cadence, mep_engineer feed",
+        config_path=None,
+        value="PROPOSAL, not a decision: given this pass's own findings, recommend NOT building a board-"
+             "agenda fetcher against any of the 6 named hosts as specified. 5 are robots.txt-dead outright; "
+             "the 6th (LAUSD) is only open at the metadata layer -- its own agenda titles never name a "
+             "firm, and the one place a firm name could live (the attachment) sits on a separately-dead "
+             "host. This source, as investigated, would NOT make the BPELSG join fire.",
+        source_type=MEASURED,
+        source_detail=(
+            "Proposed, not asserted, per instruction -- open for the user to weigh differently:\n"
+            "\n"
+            "TABLE SHAPE (if a future access path opens, e.g. a district PRA release of attachment text, "
+            "or a district whose BoardDocs/Granicus instance turns out to carve out a broader robots.txt "
+            "exception than the two checked here): one row per Matter/agenda item, natural key (source, "
+            "matter_id or file_number), columns for agenda_date, body_name, title, matched_keyword, and "
+            "a nullable named_firm/named_person + role guess -- same 'never invent, null when absent' "
+            "discipline as every other Pipeline B table, since this pass's own finding is that the title "
+            "alone essentially never carries a firm name, so that column would be NULL far more often "
+            "than populated unless attachment text becomes reachable.\n"
+            "\n"
+            "CADENCE (conditional on the above): LAUSD's Board of Education meets roughly twice monthly "
+            "(2 agenda dates observed in this 90-day window's tail, plus the 18 items on 2026-08-25 "
+            "alone suggest a monthly-or-so full-agenda cycle) -- a 14-day poll against MatterAgendaDate "
+            "greater than the last successful poll would not miss a cycle; this is a proposal based on "
+            "one 90-day sample, not a measured long-run cadence.\n"
+            "\n"
+            "mep_engineer / BPELSG join: app.pipeline.bpelsg.match_bpelsg_for_project's join fires off "
+            "app.models.Signal.named_people entries carrying an MEP-engineer-shaped title marker (see "
+            "app/pipeline/bpelsg.py's MEP_ENGINEER_TITLE_MARKERS) -- it needs a PERSON's name with a "
+            "mechanical-engineer title, not a firm name. Nothing found in this pass provides that: LAUSD "
+            "agenda titles name neither a firm nor a person, and the one place detail might exist "
+            "(the attachment) was not reachable. Even in the best case where a future pass CAN read an "
+            "attachment, DCA's own BPELSG roster (see app/pipeline/bpelsg.py's own docstring) holds only "
+            "133 individual license-holder rows per Scout's own territory scope, matched by normalized "
+            "person name -- an attachment naming a FIRM ('Acme Mechanical Inc.') rather than the licensed "
+            "individual engineer of record would still not make that join fire; it would need to name "
+            "the actual person. This pass did not confirm attachments name individuals rather than "
+            "firms either way (unread, per the access finding above) -- so 'would this feed mep_engineer "
+            "roles' is answered NO for what was actually checked, and UNDETERMINED, not YES, for the "
+            "best-case future scenario raised above."
+        ),
+        verified=False,
+        last_reviewed="Proposed 2026-09-10, Phase A research only -- not decided, not built.",
+    ))
+
+    # ---- Title 24 Part 6 (2025) minimums + CEC MAEDbS (Phase A research) -------
+    # Two public equipment-compliance sources checked against DMG's 70 lines.
+    # Phase A research only, no code written.
+
+    out.append(Assumption(
+        group="Title 24 Part 6 (2025) minimum efficiencies", name="Access classification (Phase A research)",
+        config_path=None,
+        value="NOT obtained this pass -- no table cell values below are reported, because none were "
+             "reliably read. Every candidate source checked (ICC's Digital Codes page, the CEC's own "
+             "Building Energy Efficiency Standards program pages, Energy Code Ace's own 'Reference Ace' "
+             "tool) renders its actual content client-side; none returned readable table text to a plain "
+             "fetch. No record of 'the Energy Code Ace values found Sep 9' exists anywhere in this "
+             "codebase or in this assistant's own memory system to compare against either.",
+        source_type=MEASURED,
+        source_detail=(
+            "Checked 2026-09-10, Phase A research, no code written. This entry reports a NEGATIVE "
+            "finding on purpose, per this register's own 'null over inference' discipline -- inventing "
+            "plausible-looking numbers for 110.2-A/110.2-D/110.2-G/110.2-J/140.4, the VRF IEER advisory, "
+            "or an Energy Code Ace comparison would be strictly worse than reporting that none of it was "
+            "actually read.\n"
+            "\n"
+            "1) codes.iccsafe.org/s/CAEC2025P1 -- HTTP 404 for that exact slug (not a redirect, a real "
+            "404 on ICC's own React shell). Separately, ICC's robots.txt (HTTP 200) is NOT a full block "
+            "-- 'User-agent: *' disallows only /pdfs/, /uploads/, /my_purchase, /update_mypurchase_book, "
+            "/update_pa_accesscode, /admin/, and /lookup, so a working /s/ content URL would likely be "
+            "robots.txt-permitted. The practical blocker is different: the page that loaded (HTTP 200 on "
+            "the bare host) is a New-Relic-instrumented JS single-page app with no server-rendered code "
+            "text in its initial HTML at all -- same 'rendered browser session, not a fetcher' limit "
+            "already on record for HCAI/ab869/bpelsg in this codebase, not a robots.txt or terms issue.\n"
+            "2) CEC's own site (www.energy.ca.gov) -- robots.txt is a standard clean Drupal file (only "
+            "/core/, /profiles/, /admin/, /search/, a few auth paths disallowed). The Building Energy "
+            "Efficiency Standards program page and its '2025-building-energy-efficiency' page plus three "
+            "numbered sub-pages were all fetched and read directly; none link a PDF of the adopted "
+            "standards text itself (they link compliance-software and CALGreen proceeding pages instead). "
+            "CEC's own e-filing docket system (efiling.energy.ca.gov) almost certainly holds the actual "
+            "adopted-standards PDF as a docket filing, but locating the specific filing requires either a "
+            "working search (this session's web-search budget was already exhausted from earlier work) "
+            "or an already-known docket/document number, neither available this pass -- not attempted "
+            "further rather than guessed at.\n"
+            "3) Energy Code Ace (energycodeace.com) -- robots.txt (HTTP 200) is fully open: 'User-Agent: "
+            "* / Disallow: / Crawl-delay: 10' (an empty Disallow value permits everything) plus a public "
+            "sitemap. Its own site structure was surveyed via that sitemap (107 URLs) for a table-shaped "
+            "HVAC minimums page; the most likely candidate, 'reference-ace-tool', actually serves an "
+            "iframe titled 'Reference Ace 2013 Tool' (stale year, not 2025) pointing at "
+            "/site/custom/public/reference-ace-2013/, a 14-line JS-app shell with no static content; "
+            "'reference-ace-2022-tool' redirects toward a bare 'CALIFORNIA CODE OF REGULATIONS' page with "
+            "the same shape; 'nonresidential-compliance-documents' returned zero PDF links in its raw "
+            "HTML (its document list is client-rendered too). No dataset-specific terms beyond the "
+            "general CA.gov 'Conditions of Use' were found to apply to Energy Code Ace itself, though "
+            "note Energy Code Ace is a separate, utility-funded site, not a CEC domain -- its own terms "
+            "were not separately located either.\n"
+            "4) www.dgs.ca.gov/BSC (California Building Standards Commission) was checked as a fourth "
+            "candidate since it distributes free code PDFs -- its /BSC/Codes page returned only ERRATA "
+            "packets (corrections to already-published text, several for Part 3/Electrical and the "
+            "plumbing/mechanical codes) not a full base Part 6 text, so not usable either.\n"
+            "Net effect: this pass has zero table values to report for packaged AC 65-135 kBtu/h, "
+            "air-cooled chillers under 150 tons Path A/B, VRF 65-135 kBtu/h (IEER), or gas hot-water "
+            "boilers 300k-2.5M Btu/h, and cannot say whether any 'Energy Code Ace values found Sep 9' "
+            "match the adopted text, because no record of those Sep 9 values exists in this codebase or "
+            "memory for this pass to check against. If the user has the actual Sep 9 source (a specific "
+            "URL, PDF, or screenshot), supplying it directly would let a future pass do the real "
+            "comparison instead of re-attempting this same search."
+        ),
+        verified=True,
+        last_reviewed="Checked 2026-09-10 -- a verified NEGATIVE result (not reachable this way), not a "
+                      "measured code value.",
+    ))
+
+    out.append(Assumption(
+        group="CEC MAEDbS advanced search", name="Access, terms, and search-mechanics (Phase A research)",
+        config_path=None,
+        value="Open by robots.txt (no file, 404) and reachable without a login. Fields returned: "
+             "Manufacturer, Brand, Model Number, Individual Model Number Covered By Basic Model, "
+             "Regulatory Status, Add Date. Export exists but is gated behind supplying an email address, "
+             "not a plain download. 0 of the 5 requested manufacturer searches produced a trustworthy "
+             "per-manufacturer count: this pass's own scripted attempt returned the SAME unfiltered "
+             "category total for both a real manufacturer (AAON) and a deliberately nonexistent one -- a "
+             "silent wrong-answer failure mode, not a clean block.",
+        source_type=MEASURED,
+        source_detail=(
+            "Checked 2026-09-10, Phase A research, no code written. cacertappliances.energy.ca.gov/"
+            "robots.txt returns HTTP 404 (confirmed genuine with a browser UA against a live 200 base "
+            "page, same 'no restriction stated' reading used elsewhere in this register) -- MAEDbS is "
+            "NOT one of this register's robots.txt-dead sources. /Pages/Search/AdvancedSearch.aspx "
+            "302-redirects to itself while issuing a session cookie (an ASP.NET forms-auth session "
+            "bootstrap, not an access-denied redirect) -- following it WITH a cookie jar (any normal "
+            "client does this automatically) reaches the real Advanced Search page at HTTP 200 with no "
+            "credentials entered; a 'Back To Login' link implies this is a guest/anonymous session, not "
+            "an authenticated one. Site-wide CA.gov 'Conditions of Use' (www.energy.ca.gov/conditions.html) "
+            "applies, quoted verbatim in the relevant part: materials are 'free for public use consistent "
+            "with the Public Records Act...provided the Energy Commission is credited,' but 'Use or "
+            "modification of these materials or information for commercial or profit-making purposes is "
+            "prohibited' -- flagged for the user's own judgment given DMG's commercial use case, not "
+            "resolved here.\n"
+            "\n"
+            "FIELDS: the results grid (id ctl00_MainContent_gvSearchResults) header row, read directly "
+            "off a real (unfiltered, see below) result set: Manufacturer, Brand, Model Number, Individual "
+            "Model Number Covered By Basic Model, Regulatory Status, Add Date -- 6 columns, matching "
+            "'Commercial ACs And HPs' category rows like Manufacturer='AAON, Inc.', Brand='Aaon', Model "
+            "Number='RQ-003-2-*-FA**-***' (wildcarded basic-model patterns, not fully enumerated unit "
+            "SKUs), Regulatory Status='Voluntarily Certified'.\n"
+            "\n"
+            "EXPORT: an export button/dialog exists (btnConfirmExport, a 'txtUserEmail' field with its "
+            "own validation rules) -- exporting requires supplying an email address through a confirm "
+            "dialog, not a plain click-to-download; the actual export file format was not obtained since "
+            "no search successfully filtered (see below), so the dialog was not carried through to a "
+            "real file.\n"
+            "\n"
+            "SEARCH MECHANICS AND THE 5-SEARCH FINDING: this is not a simple keyword search box. It is "
+            "an ASP.NET WebForms cascading filter builder: select a Category (21 options, pre-rendered), "
+            "which postbacks to populate an Appliance Type list (9 for Central ACs And HPs, including "
+            "'Commercial ACs And HPs' and 'Variable Refrigerant Flow ACs And HPs'), which postbacks to "
+            "populate up to 20 filter rows, each an independent (Column, Operator, Value) triple -- "
+            "'Manufacturer' is one of 27 selectable columns, with only 4 operators available for it "
+            "(Equals, Does Not Equal, Has Value, Does Not Have Value -- no Contains/substring match). No "
+            "__EVENTVALIDATION token is emitted by this page at all (event validation is disabled "
+            "server-side), which made a plain requests+BeautifulSoup session ABLE to replicate every "
+            "cascading postback exactly (category select -> type select -> filter-column select, each "
+            "confirmed via the server's own echoed state) without executing any JavaScript. Despite that, "
+            "the FINAL search step did not work: submitting Manufacturer Equals 'AAON' returned "
+            "'2100 record(s) found' with a grid of AAON rows -- but submitting Manufacturer Equals "
+            "'ZZZ_NONEXISTENT_MFR_TEST' (a control test, not one of the 5 requested manufacturers) "
+            "returned the IDENTICAL '2100 record(s) found' with the same unfiltered grid. Since 2100 is "
+            "the full 'Commercial ACs And HPs' category count (confirmed: the hidden "
+            "hdnApplianceColumnId/hdnValidationOperatorId fields DID correctly echo back Manufacturer/"
+            "Equals after the postback sequence, yet the query itself ignored the filter entirely), this "
+            "pass concludes the search predicate is not actually applied by a scripted client built this "
+            "way -- some additional client-side step (a JS-only commit action, or an AJAX partial-"
+            "postback protocol this session's plain POST didn't replicate) is required beyond what a "
+            "static HTML form describes. This was NOT attempted against AAON, LG, ClimaCool, Marley, or "
+            "Titus as 5 separate 'real' searches once the control test exposed the mechanism as "
+            "unreliable -- reporting 5 sets of numbers derived from a demonstrably broken filter would be "
+            "exactly the invented-precision problem this register exists to catch, worse than reporting "
+            "zero. Net: 0 of 5 requested manufacturer searches completed with a trustworthy result; this "
+            "source needs a real JS-executing browser session (the same category of tool already used "
+            "for HCAI/ab869/bpelsg's one-off hand-pulls in this codebase), not a scripted HTTP client, to "
+            "search reliably."
+        ),
+        verified=True,
+        last_reviewed="Checked 2026-09-10 directly against the live MAEDbS Advanced Search page.",
+    ))
+
+    out.append(Assumption(
+        group="Title 24 Part 6 (2025) minimum efficiencies",
+        name="Proposed design (not decided) -- Reference tab + per-line MAEDbS field",
+        config_path=None,
+        value="PROPOSAL, not a decision: given both sources above came back empty-handed or unreliable "
+             "this pass, recommend NOT building either as specified yet. A static 'Title 24 minimums' "
+             "Reference tab needs a human-verified source document first (none was obtained here); a "
+             "per-line MAEDbS certification field needs either a JS-capable fetch tool or a person running "
+             "the search by hand each quarter (this pass's own scripted attempt was shown to fail "
+             "silently, which is worse than not automating it at all).",
+        source_type=MEASURED,
+        source_detail=(
+            "Proposed, not asserted, per instruction -- open for the user to weigh differently:\n"
+            "\n"
+            "REFERENCE TAB 'Title 24 minimums' (static table, annual refresh): shape -- one row per "
+            "(equipment_type, capacity_band, path_or_metric), columns for the minimum-efficiency value(s) "
+            "as literally stated in the adopted table, a citation column (e.g. 'Table 110.2-A' or "
+            "'Section 140.4'), and a last_verified date -- same static, hand-curated pattern as "
+            "app/reference.py's existing ASHRAE-sourced content (see that module's own docstring: "
+            "'Deliberately NOT pipeline-fed... Basis is ASHRAE'), not a scraped/fetched table, since "
+            "every source checked in this pass renders its real content client-side. Annual refresh "
+            "matches Title 24's own triennial-with-annual-supplement cadence already on record elsewhere "
+            "in this register (see the AHJ A2L and HCAI/OSHPD Title 24 entries above). Blocking "
+            "prerequisite: a human needs to actually open the ICC page or locate the correct CEC docket "
+            "PDF in a real browser and transcribe the cell values -- this pass could not do that itself, "
+            "so this proposal has no values to seed the table with yet.\n"
+            "\n"
+            "PER-LINE MAEDbS CERTIFICATION STATUS FIELD (manual quarterly): shape -- a nullable field on "
+            "each of DMG's 70 lines recording Regulatory Status (e.g. 'Voluntarily Certified', per the "
+            "field actually observed above) plus the Add Date and a last_checked_at timestamp, entered by "
+            "a person who ran the Advanced Search in a real browser (not a scripted pull, per the finding "
+            "above) and read the result grid directly. Quarterly matches a reasonable human-effort cadence "
+            "for 70 lines given the search itself is a multi-step form per manufacturer, not a bulk query -- "
+            "proposed, not measured against any stated CEC update cadence for this database. NULL for "
+            "any line whose manufacturer this quarter's check didn't cover, same 'null over inference' "
+            "discipline as every other unfinished field in this system, never a guessed or carried-over "
+            "status."
+        ),
+        verified=False,
+        last_reviewed="Proposed 2026-09-10, Phase A research only -- not decided, not built.",
+    ))
+
+    # ---- CSLB License Detail (CheckLicense) as a per-account risk monitor ------
+    # Phase A research only, no code written. Complaints/disciplinary actions/
+    # citations are NOT in the bulk "License Master" file this codebase already
+    # imports (app/pipeline/cslb.py) -- only the per-license CheckLicense page
+    # carries them.
+
+    out.append(Assumption(
+        group="CSLB License Detail (CheckLicense) risk monitor", name="Access classification (Phase A research)",
+        config_path=None,
+        value="Not barred by declared policy -- no robots.txt on any CSLB domain (confirmed again this "
+             "pass), and CSLB's own linked Conditions of Use states data is public-domain with no "
+             "automation restriction. BUT: this pass could not get a real per-license result from a "
+             "scripted client despite 5 careful, distinct attempts -- the server silently re-renders the "
+             "blank search form (fresh VIEWSTATE, no error, no cookie involved) instead of either a "
+             "result or a validation message. Policy says allowed; practice, this pass, says undetermined.",
+        source_type=MEASURED,
+        source_detail=(
+            "Checked 2026-09-10, Phase A research, no code written.\n"
+            "\n"
+            "ROBOTS.TXT: cslb.ca.gov, www.cslb.ca.gov, and web.cslb.ca.gov ALL return a genuine IIS 404 "
+            "for /robots.txt (same finding app/pipeline/cslb.py's own docstring already recorded "
+            "2026-08-14 for the bulk portal -- re-confirmed here for the CheckLicense path specifically, "
+            "since a site can in principle scope different rules to different paths; there is only one "
+            "robots.txt per host either way, so this is the same file, re-verified).\n"
+            "\n"
+            "TERMS: CSLB's own site links only one policy, site-wide: https://www.ca.gov/use/ 'Conditions "
+            "of use' (no CSLB-specific terms page exists -- checked the CSLB homepage's own footer links: "
+            "just 'Conditions of Use' -> ca.gov and 'Privacy Policy' -> dca.ca.gov, nothing narrower). "
+            "Read in full; contains no mention of 'automat', 'robot', 'crawl', 'scrape', or 'bot' anywhere "
+            "in its text. The operative 'Ownership' clause, quoted verbatim: 'In general, information "
+            "presented on this website, unless otherwise indicated, is considered in the public domain. "
+            "It may be distributed or copied as permitted by law... The State shall be free to use, for "
+            "any purpose, any ideas, concepts, or techniques contained in information provided through "
+            "this site.' No automated-access restriction found, same conclusion as the bulk-file entry "
+            "already on record for this source.\n"
+            "\n"
+            "PRACTICAL ATTEMPT: /OnlineServices/CheckLicenseII/CheckLicense.aspx is a classic ASP.NET "
+            "WebForms page (a 'Contractor License #' textbox, name='ctl00$MainContent$LicNo', posting to "
+            "itself). Unlike CEC's MAEDbS (a separate source checked this same week -- see that entry's "
+            "own register group), this page issues NO session cookie at all on GET (no Set-Cookie header, "
+            "ruling out a lost-session explanation), and it loads Google reCAPTCHA's script tag "
+            "(recaptcha/api.js) -- but no 'g-recaptcha' div, no 'data-sitekey', and no grecaptcha JS call "
+            "anywhere on the page, so that script is not actually wired to this form (initially suspected "
+            "as the blocker, then ruled out by direct inspection -- flagged here so a future pass doesn't "
+            "waste time on the same false lead). 5 distinct POST attempts were made, each fixing a "
+            "hypothesis the previous one raised: (1) minimal __VIEWSTATE/__VIEWSTATEGENERATOR/"
+            "__EVENTVALIDATION only -- blank form back, no error; (2) full hidden-field harvest but "
+            "INCLUDING every submit button's name=value pair (all 4: license-number, business-name, "
+            "personnel-name, HIS searches) -- this actually surfaced a real server-side validation "
+            "message, but for the WRONG field ('Please enter at least a last name', the HIS-search "
+            "validator), confirming that sending more than one button's fields at once confuses which "
+            "action the server thinks was invoked; (3) full hidden-field harvest with ONLY the "
+            "license-number button's field included, matching exactly what a real single click sends -- "
+            "byte-for-byte, this reproduced attempt (1)'s blank-form result (confirmed via diff: the "
+            "LicNo textbox itself renders empty in the response, meaning the posted value was not even "
+            "echoed back, let alone searched). No cookie, no CAPTCHA widget, and correct single-button "
+            "framing were all ruled out as the cause without finding what the actual cause is -- most "
+            "likely an UpdatePanel/partial-postback protocol this session's plain full-page POST doesn't "
+            "correctly trigger (the same general class of gap as MAEDbS, though the failure mode here is "
+            "an honest 'nothing happened' rather than MAEDbS's dangerous 'wrong answer looks like a right "
+            "one').\n"
+            "\n"
+            "NET: 0 of the 5 Postgres license numbers (1105674, 1105677, 1030772, 842488, 1030773) were "
+            "actually looked up -- there is no real per-license field list to report verbatim from this "
+            "pass, and inventing one from memory of what a CSLB license page typically shows would be "
+            "exactly the fabrication this register exists to prevent. A real detail page most likely "
+            "shows License Status, Classifications, Bonding, Workers' Comp (all already in the bulk "
+            "file per app.models.Contractor) PLUS a 'Personnel' list and a 'Complaint Disclosure / "
+            "Legal Actions' section (per the page's own on-site description: 'verify information, "
+            "including complaint disclosure') -- but that is this pass's expectation from the page's own "
+            "promotional text, not a verified read, and must not be treated as one."
+        ),
+        verified=True,
+        last_reviewed="Checked 2026-09-10 -- robots.txt/terms verified allowed; the automated-lookup "
+                      "mechanism itself verified NOT working in 5 real attempts, cause undetermined.",
+    ))
+
+    out.append(Assumption(
+        group="CSLB License Detail (CheckLicense) risk monitor",
+        name="Proposed design (not decided) -- manual check now, automated design if unblocked later",
+        config_path=None,
+        value="PROPOSAL, not a decision. Given policy allows this but this pass's own attempts could not "
+             "make it work, recommend the SAFE default: a manual monthly check of the top 25 accounts by "
+             "annual_revenue, by a person opening CheckLicense.aspx in a real browser -- same fallback the "
+             "instruction specifies for a barred source, adopted here for a practical rather than a policy "
+             "reason. Separately, and conditionally, sketch what a weekly automated job + contractor_risk "
+             "table + badge would look like IF a future pass gets a real lookup working (e.g., with a "
+             "JS-capable browser tool) -- not proposed as buildable today.",
+        source_type=MEASURED,
+        source_detail=(
+            "Proposed, not asserted, per instruction -- open for the user to weigh differently:\n"
+            "\n"
+            "RECOMMENDED NOW: manual monthly check, top 25 Accounts by annual_revenue (Account.annual_"
+            "revenue, nullable -- accounts with a null value sort last, per this register's own "
+            "'null over inference' convention, never treated as zero/lowest deliberately). "
+            "app.contractors.match_account_to_cslb already exists and bridges an Account to its "
+            "Contractor.license_no by name/city match, so the 25 license numbers to check by hand are "
+            "already derivable today with no new code -- only the CheckLicense.aspx visit itself is "
+            "manual. A person records, per account: license status, any complaint-disclosure or legal-"
+            "action text shown, and the date checked -- into notes or a lightweight tracking sheet, not "
+            "a new table, until/unless automation is proven to work (building contractor_risk now, before "
+            "any confirmed automated feed, risks an empty or stale-looking table people stop trusting).\n"
+            "\n"
+            "CONDITIONAL, IF a future pass gets a real automated lookup working: weekly job, capped at N "
+            "lookups per run (N proposed as low, e.g. 25-50, matching the manual top-25 cadence rather "
+            "than attempting all ~47,572 contractors currently in Postgres -- this source has no bulk "
+            "export, so any per-run cap should stay small and targeted, not scan the whole roster) with "
+            "whatever crawl-delay a working future robots.txt check states honored between requests (none "
+            "was found this pass, so no specific delay number is proposed here -- re-check at that time "
+            "rather than assume this pass's finding still holds). contractor_risk table shape: keyed by "
+            "Contractor.license_no (the existing unique natural key, per app.models.Contractor), columns "
+            "for whatever the real detail page turns out to carry (proposed candidates only, NOT "
+            "confirmed: complaint_count, has_legal_action, personnel list, last_checked_at) -- populated "
+            "only from fields this pass could actually verify exist once a working pull is confirmed, "
+            "never backfilled from the guess in the access-classification entry above. Badge: a small "
+            "indicator on both /contractors (keyed directly by license_no) and /accounts (via the "
+            "existing match_account_to_cslb bridge) -- shown only when contractor_risk has a row for that "
+            "license, absent (not a false 'clean' badge) for every contractor this hasn't checked yet, "
+            "same discipline as every other coverage-gap field in this system."
+        ),
+        verified=False,
+        last_reviewed="Proposed 2026-09-10, Phase A research only -- not decided, not built.",
+    ))
+
+    # ---- TECH Clean California QPL / HVAC Product Finder (Phase A research) ---
+    # Phase A research only, no code written. Not explicitly asked to "register
+    # constants" this time (unlike the three sibling Phase A passes earlier
+    # today), but recorded here anyway for the same reason every other Phase A
+    # finding this session lives in this file -- so it isn't silently lost.
+
+    out.append(Assumption(
+        group="TECH Clean California QPL / HVAC Product Finder",
+        name="Access classification (Phase A research) -- DEAD, and specifically to Claude",
+        config_path=None,
+        value="DEAD by terms on both named hosts, and DEAD by robots.txt -- naming this assistant "
+             "specifically -- on the two hosts that actually carry the product data (switchison.org's "
+             "own /product-finder, and ahridirectory.org, AHRI's own directory). No AAON or LG model was "
+             "tested; doing so would mean knowingly acting against an explicit, on-point block.",
+        source_type=MEASURED,
+        source_detail=(
+            "Checked 2026-09-10, Phase A research, no code written.\n"
+            "\n"
+            "1) techcleanca.com -- no robots.txt (HTTP 404, genuine). Its own Terms of Use "
+            "(techcleanca.com/terms-of-use/, operated by 'Cohen Ventures, Inc., DBA Energy Solutions', "
+            "last modified October 5, 2022) quoted verbatim: 'Use any robot, spider or other automatic "
+            "device, process or means to access the Website for any purpose, including monitoring or "
+            "copying any of the material on the Website. Use any manual process to monitor or copy any "
+            "of the material on the Website, or for any other purpose not expressly authorized in these "
+            "Terms of Use, without our prior written consent.' This is a full, general-purpose ban on "
+            "automated access to ANY page of the site, not scoped to a product database -- broader even "
+            "than this register's existing PlanetBids finding.\n"
+            "\n"
+            "2) catechincentives.com (the operational incentive-application platform, same operator) -- "
+            "no robots.txt (HTTP 404, served as a soft-404 within the site's own Django/CoreUI app shell, "
+            "still 'no restriction stated by that mechanism'). Its own Terms (catechincentives.com/legal/) "
+            "quoted verbatim, and more specific than techcleanca.com's: 'You may not use any robot, "
+            "spider or other automatic device, process or means to access, retrieve, scrape, reverse "
+            "engineer, compile, create derivative works, publicly display or otherwise distribute any "
+            "portion of the Site or the Platform.' Also states Content 'may include information and data "
+            "from a variety of publicly accessible and other sources including... state regulatory "
+            "agencies' with no representation of accuracy -- consistent with a QPL sourced from a "
+            "third-party directory (see AHRI finding below) rather than authored in-house.\n"
+            "\n"
+            "3) switchison.org -- a THIRD host, not originally named, found via a link on techcleanca."
+            "com's own FAQ page ('contractor-finder', 'incentive-finder'). Its robots.txt (HTTP 200) is "
+            "unusually explicit and directly on point -- three tiers: (a) a named block of AI/ML crawlers "
+            "including 'GPTBot', 'CCBot', 'Google-Extended', and, BY NAME, 'ClaudeBot' -- 'Disallow: /' "
+            "for all of them; (b) a second named block -- 'OAI-SearchBot', 'ChatGPT-User', 'Claude-User', "
+            "'Claude-SearchBot', 'PerplexityBot', etc. (AI assistants fetching pages live on a user's "
+            "behalf, this session's own category) -- 'Disallow: /contractor-finder', '/incentive-finder', "
+            "'/product-finder' BY NAME; (c) 'User-agent: * / Disallow: /' -- a full catch-all for every "
+            "other UA, including a generic browser string. /product-finder is almost certainly the 'HVAC "
+            "Product Finder' this task named. This assistant IS Claude -- both the ClaudeBot block and "
+            "the Claude-User/Claude-SearchBot block apply directly, by name, without needing the generic "
+            "catch-all at all. Disclosed process note: one request to /incentive-finder was already made "
+            "(HTTP 403 -- blocked at the network/WAF layer regardless) in the same command batch as the "
+            "robots.txt check, before that check's result was read, same ordering mistake as an earlier "
+            "Phase A pass this session -- no further request was made to this host once the block was "
+            "seen, and no UA was ever changed or spoofed to get a different answer.\n"
+            "\n"
+            "4) ahridirectory.org (AHRI's own certification directory -- the underlying data source most "
+            "state 'qualified products' programs point back to; the AHRI-derivation question the "
+            "instruction asked about) -- robots.txt (HTTP 200) uses the newer IETF Content-Signal draft "
+            "convention: 'User-agent: * / Content-Signal: search=yes,ai-train=no,use=reference / Allow: /' "
+            "-- i.e. general crawling/indexing is allowed, AI TRAINING is explicitly refused, and "
+            "permitted USE is scoped to 'reference' only (the policy's own three-tier scale is immediate/"
+            "reference/full -- reference is the middle tier, not full reuse), then separately, by name: "
+            "'Disallow: /' for Amazonbot, Applebot-Extended, Bytespider, CCBot, 'ClaudeBot', "
+            "CloudflareBrowserRenderingCrawler, Google-Extended, GPTBot, and meta-externalagent -- again "
+            "naming this assistant's own crawler identity directly. No record of 'the Sep 9 research' "
+            "quoting AHRI's reuse restriction exists anywhere in this codebase or in this assistant's own "
+            "memory system (same gap as an earlier Phase A pass this session found for 'the Energy Code "
+            "Ace values found Sep 9') -- this entry's own direct robots.txt read is offered in its place, "
+            "not a recovery of that specific prior research.\n"
+            "\n"
+            "QPL ITSELF: no live, general TECH Clean California Qualified Products List was located. The "
+            "one QPL reference found on techcleanca.com's own public pages is scoped to the San Fernando "
+            "Valley sub-program specifically (techcleanca.com/incentives/sanfernandovalley/, itself "
+            "quoted: 'Qualified Products list (coming soon)') -- its own direct link "
+            "(techcleanca.com/sanfernandovalley/qpl/) 404s, confirming it is not live yet, not merely "
+            "unlinked. Whether the main statewide program's QPL/HVAC Product Finder is the switchison.org "
+            "/product-finder tool, lives inside catechincentives.com's authenticated contractor portal, "
+            "or both was NOT determined -- once the switchison.org and ahridirectory.org blocks were "
+            "found, this pass stopped looking rather than keep searching for a path around them.\n"
+            "\n"
+            "AAON/LG TEST: NOT PERFORMED. The instruction's own model test would require querying "
+            "whichever finder this is on one of the four hosts above; every one of them either bars "
+            "automated access generally (techcleanca.com, catechincentives.com) or bars this specific "
+            "assistant by name at the specific path in question (switchison.org's /product-finder, "
+            "ahridirectory.org generally). Declining is the correct outcome here, not a gap to fill on a "
+            "future pass without first getting a different, explicit access path (e.g., the user's own "
+            "authenticated portal session, or a written-consent arrangement with Energy Solutions)."
+        ),
+        verified=True,
+        last_reviewed="Checked 2026-09-10 directly against all four hosts' own robots.txt/terms pages.",
+    ))
+
+    out.append(Assumption(
+        group="TECH Clean California QPL / HVAC Product Finder",
+        name="Proposed design (not decided) -- per-line incentive-eligible-models field",
+        config_path=None,
+        value="PROPOSAL, not a decision: a manual, quarterly-refreshed per-line field recording which "
+             "specific models of a manufacturer's line are known to appear on a TECH Clean CA-recognized "
+             "qualified-products list -- populated by a person checking by hand (e.g., through the "
+             "existing catechincentives.com contractor portal, or a future written-consent data-sharing "
+             "arrangement), never by this app's own automated fetch, given every host checked above bars "
+             "that outright.",
+        source_type=MEASURED,
+        source_detail=(
+            "Proposed, not asserted, per instruction -- open for the user to weigh differently:\n"
+            "\n"
+            "SHAPE: a nullable field alongside the existing config.yaml `accounts.line_card` entries "
+            "(same location as the already-researched ahri_certified/ahri_certified_basis pair -- see "
+            "app/accounts.py's seed_product_lines mapping and [[project_line_card_eligibility_research]]) "
+            "-- 'incentive_eligible_models' (a short list or free-text of specific model numbers/series "
+            "confirmed present on a QPL) plus its own '_basis' string recording who checked, when, and "
+            "against which specific list/portal view, same 'basis alongside every claim' discipline as "
+            "every other line-card field in this system. Deliberately NOT a boolean "
+            "'incentive_eligible': TECH Clean CA incentive eligibility is model-specific (a manufacturer "
+            "can have some qualifying and some non-qualifying models in the same line), so a per-"
+            "manufacturer flag would either overclaim (implying every model qualifies) or underclaim "
+            "(hiding real qualifying models) -- a model-list field is the honest grain.\n"
+            "\n"
+            "CADENCE: quarterly, matching the other newly-proposed manual-check cadence this session "
+            "already recommended for CEC MAEDbS (see that group's own proposal entry) -- both are "
+            "manual-only for the same underlying reason (no working, permitted automated path found), "
+            "not because quarterly is independently the right refresh rate for either program's own "
+            "update cycle, which was not established either way.\n"
+            "\n"
+            "NULL DISCIPLINE: a line with no confirmed models this pass stays NULL, not an empty list "
+            "asserted as 'checked, zero qualify' -- those are different claims, and conflating them would "
+            "make an unresearched line look like a researched-and-failed one. Same reasoning already "
+            "documented for AhjA2lGuidance's NOT_REACHED rows (see app/reference.py's own docstring)."
+        ),
+        verified=False,
+        last_reviewed="Proposed 2026-09-10, Phase A research only -- not decided, not built.",
+    ))
+
+    # ---- PlanetBids Bid Results / PCC 4104 subcontractor lists (Phase A) -------
+    # Phase A research only, no code written. Not explicitly asked to "register
+    # constants" this time either, recorded anyway for the same reason as the
+    # TECH Clean CA entry above -- so it isn't silently lost.
+
+    out.append(Assumption(
+        group="PlanetBids Bid Results / PCC 4104 subcontractor lists",
+        name="Access classification and findings (Phase A research)",
+        config_path=None,
+        value="vendors.planetbids.com's robots.txt is fully open (no disallow at all). BUT this pass "
+             "could not actually view a closed bid's 'Bid Results' tab for either portal -- there is no "
+             "browser-automation tool available in this environment, and the portal is a pure "
+             "client-side Ember SPA with an empty <body> on plain fetch, the same 'rendered browser "
+             "session, not a fetcher' limit already on record elsewhere in this codebase. Separately, and "
+             "more usefully: the City of San Diego's OWN agency-direct site (sandiego.gov) already "
+             "publishes full contract packages containing a filled-in PCC-4100-citing 'List of "
+             "Subcontractors' form naming real subcontractors, dollar values, and license numbers -- "
+             "confirming subs ARE publicly visible somewhere, just not (as far as this pass could "
+             "determine) via a PlanetBids fetch this pass actually performed.",
+        source_type=MEASURED,
+        source_detail=(
+            "Checked 2026-09-10, Phase A research, no code written.\n"
+            "\n"
+            "ROBOTS.TXT: https://vendors.planetbids.com/robots.txt, HTTP 200, verbatim in full: "
+            "'# http://www.robotstxt.org' / 'User-agent: *' / 'Disallow:' (empty value -- permits "
+            "everything). Not a blocked host by this mechanism.\n"
+            "\n"
+            "PLANETBIDS PORTAL ITSELF: NOT VIEWED. https://vendors.planetbids.com/portal/17950/"
+            "portal-home returned a complete Ember.js single-page-app shell -- an essentially empty "
+            "<body> with only <script> tags, no server-rendered content of any kind (confirmed via "
+            "direct fetch, not assumed). This assistant has no headless-browser or JS-execution tool "
+            "available in this environment (checked via ToolSearch before starting) -- 'open one closed "
+            "bid result in a browser session' as instructed could not be performed at all, by anyone "
+            "other than a person with an actual browser. This is a capability gap, not a policy block: "
+            "robots.txt does not forbid it, but this pass genuinely could not see what a logged-out human "
+            "visitor sees on a Bid Results tab, and does not report a guess in its place. The embedded "
+            "Ember config blob happened to reveal internal (non-public, not further pursued) infrastructure "
+            "detail -- 'idsHostUrl' and 'transparencyServiceUrl' pointing at 'preprod'/'dev01' PlanetBids "
+            "hosts inside what is labeled a 'production' build config -- noted here only because it was "
+            "already visible in a normal page-source fetch, not investigated further; irrelevant to the "
+            "sub-listing question this pass was asked and not something this pass tried to exploit.\n"
+            "\n"
+            "PORTAL ID DISCREPANCY: San Diego Unified's own current website "
+            "(sandiegounified.org/departments/strategic_sourcing_and_contracts/bids_and_requests_for_"
+            "proposal/) links to PlanetBids CompanyID 43764 (which redirects to vendors.planetbids.com/"
+            "portal/43764/portal-home), NOT portal 13982 as this task specified. Both 43764 and 13982 "
+            "independently resolve to a valid-looking (HTTP 200) PlanetBids portal-home shell -- with no "
+            "way to inspect either one's actual content (per the capability gap above), this pass cannot "
+            "say whether 13982 is a stale/legacy id, a different SDUSD-affiliated portal (e.g. a bond "
+            "program, checked nowhere else in this pass), or simply wrong. Flagged rather than silently "
+            "substituted -- confirm the correct id before building anything against it. Portal 17950 for "
+            "the City of San Diego WAS independently confirmed correct: the city's own bidtabs page links "
+            "directly to vendors.planetbids.com/portal/17950/bo/bo-search.\n"
+            "\n"
+            "SANDIEGO.GOV/PURCHASING/BIDS-CONTRACTS/BIDTABS: checked directly -- this page posts NO PDFs "
+            "at all. Its own text, quoted: 'To obtain bid results, the bidder is requested to... [attend "
+            "the bid opening, or mail a self-addressed envelope, or] Visit the City's vendor portal, "
+            "click on a posted bid opportunity, and navigate to the Bid Results tab. Note that not all "
+            "bid results are posted on the vendor portal.' I.e. the City's own stated primary channel for "
+            "bid results IS PlanetBids -- there is no separate agency-hosted bid-tab PDF archive for "
+            "current bids at this URL, contrary to what 'posted tab PDFs' in the instruction presupposed. "
+            "This page's own 'Awarded Contracts' section links to a DIFFERENT, real PDF archive instead "
+            "(see next finding).\n"
+            "\n"
+            "AGENCY-DIRECT PDF, READ IN FULL: sandiego.gov/cip/reports/constructioncontracts (linked from "
+            "the bidtabs page's own 'Construction Contracts' award link) lists real contract-package "
+            "PDFs. One was downloaded and read directly (not summarized): 'k-26-2480-EMR-3' -- "
+            "'Emergency Construction Services for 9201 Youngstown Way Storm Drain Emergency,' awarded to "
+            "Cass Construction, Inc. DBA Cass Arrieta. This is a full ~120-page contract-documents "
+            "package (specs, bonds, certifications), not a standalone 'bid tab' -- but page 59 is "
+            "Exhibit K's 'Form AA35 -- List of Subcontractors,' explicitly citing 'the Subletting and "
+            "Subcontracting Fair Practices Act, Section 4100... of the California Public Contract Code,' "
+            "and it IS filled in with two real subcontractors, named in full: 'El Encino Tree Service' "
+            "(Ramona, CA, DIR registration PW-LR-1000924687, license 1027654, Tree Removal, "
+            "$200,000.00) and 'LSA Associates, Inc' (Irvine, CA, DIR registration 1000010048, Biologist "
+            "Consult, $20,000.00) -- full name, address, phone/email, DIR registration, license number, "
+            "type of work, and dollar value, all in the clear, no login, no PlanetBids involved at all. "
+            "This directly confirms the instruction's own premise (subcontractor lists ARE sometimes "
+            "publicly posted) via the agency-direct channel specifically, independent of whatever "
+            "PlanetBids' own Bid Results tab does or doesn't show (which this pass could not check).\n"
+            "\n"
+            "SAN DIEGO UNIFIED equivalent: not found within this pass's effort. sandiegounified.org's own "
+            "Strategic Sourcing and Contracts page links only to the PlanetBids portal (id 43764, see "
+            "discrepancy above) and to a 'Bids and Requests for Proposal' page with no PDF archive "
+            "analogous to the City of San Diego's /cip/reports/constructioncontracts -- not confirmed "
+            "absent (a further, deeper page-by-page search was not performed once this pass's own "
+            "capability gap on the PlanetBids side made a full parallel comparison moot), just not found "
+            "in the pages actually checked.\n"
+            "\n"
+            "PLANETBIDS TERMS 3.4/6.2: this pass attempted to independently re-verify these (still "
+            "recorded elsewhere in this register as 'PlanetBids' -- 'Terms of use bar automated reuse,' "
+            "stated by the user 2026-09-11, not independently verified) but could not reach a plain-text "
+            "PlanetBids Terms of Use page either -- www.planetbids.com itself redirects to a "
+            "'files-prod01.planetbids.com' host and is ALSO a client-rendered app with no server-side "
+            "terms page found at any guessed URL. That entry's own 'not independently verified' status is "
+            "left unchanged by this pass, not silently upgraded to verified."
+        ),
+        verified=True,
+        last_reviewed="Checked 2026-09-10 -- robots.txt and the agency-direct PDF are directly verified; "
+                      "the PlanetBids Bid Results tab itself was NOT viewed (no browser tool available).",
+    ))
+
+    out.append(Assumption(
+        group="PlanetBids Bid Results / PCC 4104 subcontractor lists",
+        name="Recommendation given the findings -- agency-direct PDFs, not PlanetBids automation",
+        config_path=None,
+        value="Per the instruction's own conditional: subs ARE visible somewhere (the agency-direct "
+             "construction-contracts PDF archive), and PlanetBids' terms already on record bar automated "
+             "reuse -- so recommend building any future subcontractor-sourcing feature against "
+             "agency-direct PDF archives (sandiego.gov/cip/reports/constructioncontracts and its "
+             "counterparts) rather than PlanetBids at all, matching the instruction's own proposed "
+             "conclusion. This is a straight readout of what this pass found, not a new judgment call.",
+        source_type=MEASURED,
+        source_detail=(
+            "Not a separate proposal needing weighing -- the instruction told this pass what to conclude "
+            "if subs turned out to be visible, and they are (see the finding above), so this entry just "
+            "records that the stated condition was met. Concretely, for a future pass to actually build "
+            "on: the City of San Diego's own award-notice pages (/cip/reports/constructioncontracts, "
+            "/cip/reports/consultantcontracts, /cip/reports/minor-repair-contracts, per the bidtabs "
+            "page's own links) are a real, un-gated, agency-direct source containing PCC-4100 subcontractor "
+            "listing forms buried inside full contract packages -- extracting them would mean identifying "
+            "the 'List of Subcontractors' page within a variable-length PDF per contract (page 59 in the "
+            "one example read here, not a fixed page number), not a clean standalone bid-tab sheet. "
+            "Whether San Diego Unified has an equivalent archive was not established this pass (see "
+            "finding above) -- check for one directly before assuming City-of-San-Diego's own page "
+            "structure generalizes to it."
+        ),
+        verified=True,
+        last_reviewed="Checked 2026-09-10 -- a direct readout of this pass's own findings, not a fresh "
+                      "proposal.",
+    ))
+
     return out
 
 
