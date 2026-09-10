@@ -557,7 +557,17 @@ class SourceRowSeen(SQLModel, table=True):
     row present is seeded here with no new/changed/removed reported at all
     -- there is no prior snapshot to compare a from-scratch load against,
     so treating the whole table's existing history as "new today" would be
-    wrong, not just noisy. See app.pipeline.diffs.diff_source."""
+    wrong, not just noisy. See app.pipeline.diffs.diff_source.
+
+    changed_at (added 2026-09-11, for the daily brief's "new or changed
+    since yesterday" section): the timestamp of the most recent GENUINE
+    fingerprint change, set ONLY on diff_source's changed branch -- never
+    touched by the bulk "unchanged" update, which advances last_seen_at
+    for every present row every night regardless of whether anything about
+    it changed. That distinction matters: last_seen_at being recent means
+    only "the row was present in last night's file," true of nearly every
+    row nearly every night, so it cannot answer "did this change." NULL
+    until the first real change is observed; never reset."""
     __tablename__ = "source_rows_seen"
     __table_args__ = (UniqueConstraint("source", "natural_key", name="uq_source_row_seen"),)
 
@@ -567,6 +577,7 @@ class SourceRowSeen(SQLModel, table=True):
     fingerprint: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
     first_seen_at: datetime = Field(default_factory=utcnow, index=True)
     last_seen_at: datetime = Field(default_factory=utcnow, index=True)
+    changed_at: datetime | None = Field(default=None, index=True)
     removed_at: datetime | None = Field(default=None, index=True)
 
 

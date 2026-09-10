@@ -235,6 +235,15 @@ def diff_source(session: Session, source: str, current: dict[str, str]) -> DiffR
         row.fingerprint = fingerprint
         row.last_seen_at = now
         row.removed_at = None
+        if fingerprint_changed:
+            # Stamped here, never on the bulk unchanged-path above -- see
+            # SourceRowSeen.changed_at's own docstring for why last_seen_at
+            # alone can't tell a real change from an ordinary reload. Set
+            # even on a baseline run's own fingerprint_changed branch, but
+            # that branch is unreachable on a baseline (row is always None
+            # there, handled above), so this only ever fires on a genuine
+            # post-baseline change.
+            row.changed_at = now
 
     if untouched_unchanged_keys:
         _bulk_update_in_chunks(session, source, untouched_unchanged_keys, last_seen_at=now)

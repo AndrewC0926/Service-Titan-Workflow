@@ -118,6 +118,39 @@
   </section>
   {% endif %}
 
+  {# docs/DAILY-BRIEF-DESIGN.md §3a item 3 -- SourceRowSeen-fed, zero LLM
+     calls. Rendered even when empty (matches "says so plainly when nothing
+     did") so an empty diff doesn't just silently omit the section. #}
+  <section class="today-section">
+    <h2>New or changed since yesterday</h2>
+    {% if new_or_changed %}
+      <ul class="today-list">
+        {% for r in new_or_changed %}
+        <li><span class="tag">{{ r.event }}</span> {{ r.source }}: {{ r.why }} — {{ r.stage_or_status }}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty">
+        {{ icon('file-text') }}
+        <p>Nothing new or changed in the last 24 hours across HCAI, AB 869, AB 802, OPSC, or SCAQMD.</p>
+      </div>
+    {% endif %}
+  </section>
+
+  {% if manual_stale %}
+  <section class="today-section">
+    <h2>{{ icon('triangle-alert') }} Manual sources past re-pull date</h2>
+    <ul class="today-list">
+      {% for r in manual_stale %}
+      <li>{{ r.name }}:
+        {%- if r.last_pull %} {{ r.days_since }} days since last pull (cadence {{ '{:.0f}'.format(r.cadence_days) }} days), last pulled {{ r.last_pull.strftime('%Y-%m-%d') }}
+        {%- else %} never pulled{% endif -%}
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
   {# Plain activity counter, not a health check -- field_intel is human-
      entered with no scheduled run, so it can't go "stale" the way a fetch
      source can, and a quiet week isn't a failure worth a banner. See

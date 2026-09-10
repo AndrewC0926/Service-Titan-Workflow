@@ -113,6 +113,30 @@ def test_fixture_new_changed_unchanged_removed(db_session):
     assert seen_c.removed_at is not None
     assert len(db_session.exec(select(SourceRowSeen)).all()) == 4  # A, B, C (removed), D -- not 3
 
+    # changed_at: set ONLY on B (the one genuine fingerprint change), never
+    # on A (unchanged, bulk-updated), D (new, not a change), or C (removed,
+    # not a fingerprint change) -- see SourceRowSeen.changed_at's own
+    # docstring for why last_seen_at alone can't answer this question (it
+    # advances for A, C, and D too).
+    by_key = {r.natural_key: r for r in db_session.exec(select(SourceRowSeen)).all()}
+    assert by_key["B"].changed_at is not None
+    assert by_key["A"].changed_at is None
+    assert by_key["D"].changed_at is None
+    assert by_key["C"].changed_at is None
+
+
+def test_changed_at_never_set_on_baseline_run(db_session):
+    """A baseline run seeds every row via the `row is None` branch, which
+    never touches changed_at at all -- confirms the column stays NULL for
+    a source's first-ever diff, not accidentally stamped 'changed' just
+    because it's the first time anything was recorded."""
+    db_session.add(_hcai("A", "plan_review"))
+    db_session.commit()
+    diff_source(db_session, "hcai_projects", _hcai_projects_rows(db_session))
+    db_session.commit()
+    seen = db_session.exec(select(SourceRowSeen).where(SourceRowSeen.natural_key == "A")).one()
+    assert seen.changed_at is None
+
 
 def test_removed_row_that_reappears_is_flagged_reappeared_and_unremoved(db_session):
     db_session.add(_hcai("X", "plan_review"))

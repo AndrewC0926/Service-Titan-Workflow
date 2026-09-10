@@ -675,6 +675,17 @@ sources:
     enabled: true
     stale_hours: 2160
     raw_dir: "docs/hcai/ab869/raw"
+  # HCAI Facilities Development Division "Projects by County" report -- see
+  # app/pipeline/hcai_projects.py's module docstring. Same SSRS ReportViewer
+  # constraint as ab869_compliance_plans/hcai_seismic_ratings above (a
+  # rendered browser session, not a fetcher) and the same "no fetch cadence
+  # to measure, so 2160h (90 days) is a judgment call, not a derived number"
+  # reasoning. Added 2026-09-11 for the daily brief's "manual sources past
+  # re-pull date" section -- this source had no config.yaml entry before
+  # that (docs/DAILY-BRIEF-DESIGN.md section 1a noted the gap explicitly).
+  hcai_projects:
+    enabled: true
+    stale_hours: 2160
   # UA Local 250's own public signatory contractor list -- see
   # app/pipeline/local250.py for the compliance check, fetch, and CSLB join.
   # Weekly, same day as the retrofit steps: a public union roster doesn't
@@ -812,6 +823,24 @@ sources:
     enabled: true
     portal_url: "https://www.dca.ca.gov/consumers/public_info/index.shtml"
     stale_hours: 800
+  # AHJ A2L guidance register -- see app.pipeline.ahj_a2l's module
+  # docstring. Hand-researched Phase A data, `scout seed-ahj-a2l`, no
+  # fetcher. app/assumptions.py's "AHJ A2L register" group states this
+  # source's own quarterly manual-refresh cadence; 2160h (90 days) mirrors
+  # that same figure, same judgment-call convention as
+  # hcai_seismic_ratings/ab869_compliance_plans/hcai_projects above.
+  ahj_a2l_guidance:
+    enabled: true
+    stale_hours: 2160
+  # County-level forward-MW layer imported by hand from utility CEC IEPR
+  # filings -- see app/pipeline/iepr.py. IeprForwardLoad's own docstring
+  # states the cadence directly: "imported by hand, twice a year." 4536h
+  # is half a year (182 days = 4368h) plus one week (168h) of slack, same
+  # "one cycle plus slack" reasoning as every stale_hours figure above,
+  # just applied to a twice-yearly cadence instead of monthly/annual.
+  iepr:
+    enabled: true
+    stale_hours: 4536
   manual:
     enabled: true
 

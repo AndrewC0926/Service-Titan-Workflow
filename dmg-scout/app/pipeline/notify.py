@@ -46,12 +46,13 @@ from datetime import timedelta
 from email.mime.text import MIMEText
 
 import httpx
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from app.config import Config
 from app.ladder import build_ladders, contact_status
 from app.models import (
-    ACTIVE_STATUSES, DigestLog, FieldIntel, Outreach, Project, SourceRun, run_name_source, utcnow,
+    ACTIVE_STATUSES, Ab802Building, Ab869Plan, DigestLog, FieldIntel, HcaiProject, OpscProject,
+    Outreach, Project, ScaqmdFacility, SourceRowSeen, SourceRun, run_name_source, utcnow,
 )
 
 log = logging.getLogger(__name__)
@@ -541,6 +542,211 @@ def _render_field_intel(rows: list[FieldIntel]) -> str | None:
     return "\n".join(lines)
 
 
+# ---- new/changed since yesterday (SourceRowSeen) ---------------------------
+# docs/DAILY-BRIEF-DESIGN.md §3a item 3, brief integration only -- no
+# Opportunity table, no /pipeline, no weekly xlsx (all three blocked on a
+# decision, per instruction). Zero LLM calls: every line below is a plain
+# f-string over fields already on the row, same discipline as
+# _render_field_intel above (appended after narration, never handed to it).
+#
+# "the existing ranking" from the ask has no single pre-existing cross-table
+# score to reuse -- Pipeline A's Project.score doesn't apply to any of these
+# five tables, and only one of them (hcai_projects, via
+# open_hcai_projects_by_facility_id) has its own internal sort at all.
+# Recency (most recent change or first-seen, descending) is used instead:
+# it is the one ordering every SourceRowSeen row already carries for free,
+# requires no new scoring judgment, and matches how a diff naturally reads
+# (most recent activity first). Flagged here as a disclosed interpretation,
+# not silently assumed.
+
+def _hcai_lookup(session: Session, natural_key: str):
+    return session.get(HcaiProject, natural_key)
+
+
+def _hcai_describe(row) -> tuple[str, str]:
+    stage = row.stage
+    why = f"{row.facility_name} ({row.county})"
+    if row.is_mechanical:
+        why += " — mechanical scope"
+    return stage, why
+
+
+def _ab869_lookup(session: Session, natural_key: str):
+    # perm_id is NOT Ab869Plan's primary key (that's the autoincrement
+    # `id`) -- session.get() would look up the wrong column entirely, so
+    # this has to be a real WHERE query, same as ab802/opsc/scaqmd below.
+    return session.exec(select(Ab869Plan).where(Ab869Plan.perm_id == natural_key)).first()
+
+
+def _ab869_describe(row) -> tuple[str, str]:
+    status = row.plan_status or "status not parsed"
+    who = row.financially_responsible_party or row.owner_name or f"perm {row.perm_id}"
+    why = who + (", delay requested" if row.delay_requested else "")
+    return status, why
+
+
+def _ab802_lookup(session: Session, natural_key: str):
+    pmid, _, year = natural_key.partition(":")
+    return session.exec(
+        select(Ab802Building).where(Ab802Building.portfolio_manager_property_id == pmid,
+                                    Ab802Building.year_ending == int(year))
+    ).first()
+
+
+def _ab802_describe(row) -> tuple[str, str]:
+    status = "air permit matched" if row.air_permit_facility_id else "no air permit match"
+    why = row.property_name or f"{row.portfolio_manager_property_id} ({row.year_ending})"
+    return status, why
+
+
+def _opsc_lookup(session: Session, natural_key: str):
+    return session.exec(select(OpscProject).where(OpscProject.application_number == natural_key)).first()
+
+
+def _opsc_describe(row) -> tuple[str, str]:
+    status = row.status or "status not stated"
+    why = row.school_name or row.district or row.application_number
+    return status, why
+
+
+def _scaqmd_lookup(session: Session, natural_key: str):
+    facility_id, _, source = natural_key.partition(":")
+    return session.exec(
+        select(ScaqmdFacility).where(ScaqmdFacility.facility_id == facility_id,
+                                     ScaqmdFacility.source == source)
+    ).first()
+
+
+def _scaqmd_describe(row) -> tuple[str, str]:
+    return "new facility registration", (row.facility_name or row.facility_id)
+
+
+# source -> (label, lookup fn, describe fn) -- keys match
+# app.pipeline.diffs.SOURCE_ROW_FETCHERS exactly.
+_BRIEF_SOURCES = {
+    "hcai_projects": ("HCAI project", _hcai_lookup, _hcai_describe),
+    "ab869_plans": ("AB 869 plan", _ab869_lookup, _ab869_describe),
+    "ab802_buildings": ("AB 802 filing", _ab802_lookup, _ab802_describe),
+    "opsc_projects": ("OPSC application", _opsc_lookup, _opsc_describe),
+    "scaqmd_facilities": ("SCAQMD/CARB facility", _scaqmd_lookup, _scaqmd_describe),
+}
+
+
+def new_or_changed_since_yesterday(session: Session, limit: int = 10) -> list[dict]:
+    """Top `limit` rows across all five Pipeline B diff tables that are
+    either new (first_seen_at) or genuinely changed (changed_at) in the
+    last 24 hours, most recent first. Each dict: source (label), key
+    (natural_key), event ("new" or "changed"), stage_or_status, why (one
+    line). A row whose linked source-table record has since been deleted
+    (lookup returns None -- possible if a full-replace table dropped it
+    same-day) is skipped rather than rendered with invented fields."""
+    cutoff = utcnow() - timedelta(hours=24)
+    seen_rows = session.exec(
+        select(SourceRowSeen).where(
+            SourceRowSeen.source.in_(_BRIEF_SOURCES),
+            (SourceRowSeen.first_seen_at >= cutoff) | (SourceRowSeen.changed_at >= cutoff),
+        )
+    ).all()
+
+    def _event_time(r: SourceRowSeen):
+        return r.changed_at or r.first_seen_at
+
+    seen_rows.sort(key=_event_time, reverse=True)
+
+    out: list[dict] = []
+    for r in seen_rows:
+        if len(out) >= limit:
+            break
+        label, lookup, describe = _BRIEF_SOURCES[r.source]
+        row = lookup(session, r.natural_key)
+        if row is None:
+            continue
+        stage_or_status, why = describe(row)
+        event = "changed" if (r.changed_at and r.changed_at >= cutoff) else "new"
+        out.append({"source": label, "key": r.natural_key, "event": event,
+                   "stage_or_status": stage_or_status, "why": why, "at": _event_time(r)})
+    return out
+
+
+def _render_new_or_changed(rows: list[dict]) -> str:
+    if not rows:
+        return "NEW OR CHANGED SINCE YESTERDAY\n  Nothing new or changed in the last 24 hours."
+    lines = ["NEW OR CHANGED SINCE YESTERDAY"]
+    for r in rows:
+        lines.append(f"  [{r['event']}] {r['source']}: {r['why']} — {r['stage_or_status']}")
+    return "\n".join(lines)
+
+
+# ---- manual sources past re-pull date ---------------------------------------
+# docs/DAILY-BRIEF-DESIGN.md §1a's own manual-source list, narrowed to the
+# five the ask named. Cadence comes from config.yaml's sources.<key>.stale_hours
+# (see that file for each source's own citation of where its number comes
+# from) -- "last pull" is the most recent timestamp this app itself recorded
+# for that table, never the source file's own internal "as of" date (that
+# tells you how current the DATA is, not when a human last ran the import).
+
+_MANUAL_RECADENCE_SOURCES = [
+    # (display name, config key, model, timestamp column)
+    ("HCAI report", "hcai_projects", HcaiProject, "imported_at"),
+    ("AB 869", "ab869_compliance_plans", Ab869Plan, "imported_at"),
+    ("IEPR", "iepr", None, "imported_at"),  # IeprForwardLoad, imported lazily below (avoid a hard import cycle)
+    ("DCA BPELSG file", "bpelsg_mechanical_roster", None, "imported_at"),  # BpelsgEngineer, same reason
+    ("AHJ register", "ahj_a2l_guidance", None, "checked_at"),  # AhjA2lGuidance, same reason
+]
+
+
+def manual_sources_past_recadence(session: Session, cfg: Config) -> list[dict]:
+    """Every one of the five sources whose actual days-since-last-pull
+    exceeds its own registered config.yaml stale_hours -- a source with no
+    rows at all (never pulled) counts as past due, not skipped silently.
+    A source still inside its own cadence is NOT returned; this list is
+    "what needs attention," not a status board of all five (see
+    manual_recadence_status below for that)."""
+    return [row for row in manual_recadence_status(session, cfg) if row["is_stale"]]
+
+
+def manual_recadence_status(session: Session, cfg: Config) -> list[dict]:
+    """All five sources, stale or not -- the full accounting used by
+    manual_sources_past_recadence (brief section) and available directly
+    for anything that wants the complete picture, not just the overdue
+    subset."""
+    from app.models import AhjA2lGuidance, BpelsgEngineer, IeprForwardLoad
+
+    model_by_key = {"iepr": IeprForwardLoad, "bpelsg_mechanical_roster": BpelsgEngineer,
+                    "ahj_a2l_guidance": AhjA2lGuidance}
+    now = utcnow()
+    out = []
+    for display_name, config_key, model, ts_col in _MANUAL_RECADENCE_SOURCES:
+        model = model or model_by_key[config_key]
+        stale_hours = cfg.get(f"sources.{config_key}.stale_hours")
+        last_pull = session.exec(select(func.max(getattr(model, ts_col)))).one()
+        if last_pull is None:
+            out.append({"name": display_name, "last_pull": None, "days_since": None,
+                       "cadence_days": stale_hours / 24 if stale_hours else None, "is_stale": True})
+            continue
+        hours_since = (now - last_pull).total_seconds() / 3600
+        is_stale = stale_hours is not None and hours_since > stale_hours
+        out.append({"name": display_name, "last_pull": last_pull,
+                   "days_since": round(hours_since / 24, 1),
+                   "cadence_days": round(stale_hours / 24, 1) if stale_hours else None,
+                   "is_stale": is_stale})
+    return out
+
+
+def _render_manual_recadence(rows: list[dict]) -> str | None:
+    if not rows:
+        return None
+    lines = ["MANUAL SOURCES PAST RE-PULL DATE"]
+    for r in rows:
+        if r["last_pull"] is None:
+            lines.append(f"  {r['name']}: never pulled")
+            continue
+        lines.append(f"  {r['name']}: {r['days_since']:.1f} days since last pull "
+                     f"(cadence {r['cadence_days']:.0f} days) — last pulled "
+                     f"{r['last_pull']:%Y-%m-%d}")
+    return "\n".join(lines)
+
+
 # ---- assembly ---------------------------------------------------------------
 
 def build_digest(session: Session, cfg: Config) -> tuple[str, dict] | None:
@@ -557,10 +763,18 @@ def build_digest(session: Session, cfg: Config) -> tuple[str, dict] | None:
     overdue_lines = _overdue_and_due(session, cfg, projects=projects)
     one_thing = _one_thing_worth_knowing(session, cfg, len(change_lines))
     field_intel_rows = _new_field_intel(session)
+    new_or_changed = new_or_changed_since_yesterday(session)
+    manual_stale = manual_sources_past_recadence(session, cfg)
 
     # A quiet day with nothing to call and nothing due is a genuinely empty
     # digest — everything else always has SOMETHING to say (even "nothing
     # changed"), so this is the one case worth skipping the send entirely.
+    # Deliberately NOT extended to new_or_changed/manual_stale: an empty
+    # source table reads as "never pulled" (see manual_recadence_status),
+    # which is always true in a fresh test database and would make this
+    # skip-check nearly impossible to hit in isolation -- these two
+    # sections are additive to a digest already going out, never a reason
+    # to send one otherwise skipped as quiet.
     if not calls and not change_lines and not overdue_lines and not one_thing and not field_intel_rows:
         return None
 
@@ -578,9 +792,20 @@ def build_digest(session: Session, cfg: Config) -> tuple[str, dict] | None:
     if field_intel_section:
         body = body.rstrip("\n") + "\n\n" + field_intel_section + "\n"
 
+    # Both appended AFTER narration, never handed to it -- same reasoning as
+    # field_intel above (zero LLM calls, plain f-strings only). Rendered
+    # unconditionally so an empty new/changed section still says so
+    # explicitly on a genuinely quiet night, matching this digest's own
+    # "says so plainly when nothing did" rule for §2.
+    body = body.rstrip("\n") + "\n\n" + _render_new_or_changed(new_or_changed) + "\n"
+    manual_section = _render_manual_recadence(manual_stale)
+    if manual_section:
+        body = body.rstrip("\n") + "\n\n" + manual_section + "\n"
+
     stats = {
         "calls": len(calls), "changes": len(change_lines), "overdue": len(overdue_lines),
-        "field_intel": len(field_intel_rows),
+        "field_intel": len(field_intel_rows), "new_or_changed": len(new_or_changed),
+        "manual_stale": len(manual_stale),
         **narration_stats,
     }
     return body, stats
@@ -602,8 +827,11 @@ def today_brief(session: Session, cfg: Config) -> dict:
     overdue = _overdue_and_due(session, cfg, projects=projects)
     one_thing = _one_thing_worth_knowing(session, cfg, len(changes))
     from app.field_intel import field_intel_activity
+    new_or_changed = new_or_changed_since_yesterday(session)
+    manual_stale = manual_sources_past_recadence(session, cfg)
     return {"calls": calls, "changes": changes, "overdue": overdue, "one_thing": one_thing,
-           "field_intel_activity": field_intel_activity(session)}
+           "field_intel_activity": field_intel_activity(session),
+           "new_or_changed": new_or_changed, "manual_stale": manual_stale}
 
 
 def send_digest(cfg: Config, body: str) -> str:
