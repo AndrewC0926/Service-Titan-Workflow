@@ -2543,6 +2543,188 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "above for the record but is no longer the reason this source is not used.",
     ))
 
+    # ---- AHJ A2L register (Phase A research) -----------------------------------
+
+    out.append(Assumption(
+        group="AHJ A2L register", name="Column set and seed row (LADBS)",
+        config_path=None,
+        value="8-column field set fixed by this build's own instruction, extracted from each AHJ's "
+             "published A2L guidance document where one exists: ASHRAE 15 edition required, ASHRAE 15.2 "
+             "edition, ASHRAE 34 edition, ASHRAE 15-2024 Addendum A shaft alternative accepted (Y/N/"
+             "NULL), 2022 addenda accepted (list + no-mixing rule), EDVC required regardless of charge "
+             "(Y/N/NULL), A1 plan resubmittal rule, express permit note. NULL means the document does "
+             "not state it -- never inferred. Seed row: LADBS Guideline P/MC 2026-007.",
+        source_type=MEASURED,
+        source_detail=(
+            "Seed row read directly 2026-09-10, full 25 pages, from https://dbs.lacity.gov/sites/default/"
+            "files/efs/forms/pc17/P-MC-2026-007-Guideline-HVAC-Systems.pdf (saved to docs/sources-pilot/"
+            "ahj-a2l/los-angeles-city-ladbs.pdf, 1,574,933 bytes). Reference No. CMC 1104.6, Effective "
+            "07-01-2024, Revised 01-01-2026. dbs.lacity.gov/robots.txt returns HTTP 403 regardless of "
+            "user-agent (nginx-generated, not a custom disallow page), while the actual PDF and the "
+            "site's homepage both return 200 with either a bare or a descriptive user-agent -- a "
+            "path-specific anomaly on /robots.txt only, not a host-wide block; disclosed, not treated as "
+            "either permissive or a block since no robots.txt content could actually be read.\n"
+            "Extracted fields, every one traced to a specific page of the actual PDF text (not a "
+            "summary): ASHRAE 15 edition required = 2022 (p.3, 'The 2025 California Mechanical Code (CMC) "
+            "requires A2L refrigerant systems in human comfort applications to comply with... ASHRAE "
+            "15-2022 edition'). ASHRAE 15.2 edition = 2022 (same sentence). ASHRAE 34 edition = 2022 "
+            "(same sentence). ASHRAE 15-2024 Addendum A shaft alternative accepted = NO, verbatim from "
+            "Appendix B (p.24): 'The addendum is part of the 2024 ASHRAE 15 edition which has not been "
+            "adopted by the LAMC. We will NOT accept this shaft alternative from the ASHRAE 15 2024 code "
+            "cycle. Continue to use ASHRAE 15 2022 code for compliance requirements.' 2022 addenda "
+            "accepted, per Appendix B (pp.24-25): ASHRAE 34(2022) Addendum A (updated LFL values, old "
+            "values also acceptable); ASHRAE 15(2022) Addenda E, F, H, L (all enforced/accepted); ASHRAE "
+            "15.2(2022) Addenda A, C, F/Errata (accepted, EACH one explicitly carrying its own stated "
+            "no-mixing rule, verbatim: 'No mixing between the two versions -- the equation and values "
+            "must be consistent.'; the ASHRAE 34 and ASHRAE 15 series addenda accept old-or-new values "
+            "but do not repeat that exact no-mixing sentence). EDVC required regardless of charge = YES, "
+            "verbatim FAQ (p.9): 'The A2L systems on the plans contain a system charge less than 6.6 "
+            "lbs. Are these systems exempt from providing EDVC calculations per ASHRAE 15 Sec. 7.6? No. "
+            "For A2L systems covered under ASHRAE 15, EDVC calculations (per Sec. 7.6) are required "
+            "regardless of the system charge.' A1 plan resubmittal rule, verbatim (p.3 and p.8 FAQ): "
+            "'Approved plans using A1 refrigerant systems shall be re-submitted and re-approved by "
+            "Building and Safety, Mechanical Plan Check to accommodate another refrigerant type if the "
+            "A1 refrigerant is not available at the time of construction... it will be the "
+            "responsibility of the owner to ensure full compliance.' Express permit note, verbatim (p.8 "
+            "FAQ): 'If the installation meets the express permit qualifications, an express permit can "
+            "be obtained. Please note, plan check review may still be triggered due to other components "
+            "of the plan.'"
+        ),
+        verified=True,
+        last_reviewed="Read directly, full document, 2026-09-10.",
+    ))
+
+    out.append(Assumption(
+        group="AHJ A2L register", name="State of California -- SFM Intervening Code Cycle status",
+        config_path=None,
+        value="SFM's petition to adopt ASHRAE 15-2024 (incl. Addendum A, the shaft alternative) cleared "
+             "CAC review (recommended Approve, 2026-02-11) and a 45-day public comment period (ISOR "
+             "dated 2026-03-12; industry comment on record by 2026-04-24). The last non-canceled "
+             "Commission meeting on the calendar, 2026-08-25/27, has already passed as of this research "
+             "(2026-09-10) -- this pass could NOT confirm that meeting's actual vote outcome from any "
+             "page or document fetched. If approved, the cycle's own general effective date is "
+             "2027-07-01.",
+        source_type=MEASURED,
+        source_detail=(
+            "Checked 2026-09-10. Petition received by SFM 2025-11-03. CAC (Code Advisory Committee) "
+            "review meeting 2026-02-11 (folder path 'CAC/2026-02-11-GREEN-PEME/' on dgs.ca.gov); the "
+            "ISOR itself (Initial Statement of Reasons, SFM 02/25 Part 4, BSC form TP-106, dated "
+            "2026-03-12, downloaded and read directly, 5 pages, dgs.ca.gov/-/media/Divisions/BSC/"
+            "03-Rulemaking/2025-Intervening-Cycle/Public-Comment/GREEN-PEME-45-Day/"
+            "SFM-02-25-ISOR-PT4-45-DAY.pdf) states verbatim: 'CAC Recommendation: Approve' / 'Agency "
+            "Response: Accept', and confirms the 45-day comment version is the one on record for public "
+            "comment (an industry coalition 'Letter of Support' for this exact GREEN-PEME-45-Day docket "
+            "was filed dated 2026-04-24, found via search, not independently opened). dgs.ca.gov/BSC/"
+            "Rulemaking/2025-Intervening-Cycle/Commission-Mtgs, fetched and read directly, lists meetings "
+            "in reverse-chronological order as of this check: August 25-27, 2026 (not marked Canceled); "
+            "August 12-13, 2026 -- Canceled; July 15-16, 2026 -- Canceled; May 6, 2026 (held); January "
+            "14, 2026; December 17, 2025 -- Canceled; October 15, 2025; July 10, 2025 -- Canceled; April "
+            "29, 2025 -- Canceled. No meeting after August 25-27, 2026 is listed. That page's per-"
+            "proposal outcome table (if one exists) renders via client-side script, not present in the "
+            "raw HTML this pass could read; a further search for news coverage of that meeting's outcome "
+            "returned nothing specific to this item. UNRESOLVED as of this pass: whether the August "
+            "25-27, 2026 Commission meeting actually adopted, disapproved, or sent this item to further "
+            "study. The main Intervening Cycle page states plainly that whatever IS approved in this "
+            "cycle becomes 'a supplement to the 2025 edition of Title 24, effective July 1, 2027' -- a "
+            "cycle-wide date, not confirmed here as specific to this one item.\n"
+            "SEPARATE, HIGHER-STAKES LEGAL WRINKLE found in the ISOR itself and NOT resolved by this "
+            "Phase A pass: AB 209 (2022) added Health & Safety Code Section 18944.21, quoted verbatim in "
+            "the ISOR: '(a) Not later than July 1, 2023, the commission shall consider whether to adopt "
+            "the most recent versions of the following consensus safety standards... ASHRAE Standard "
+            "15-2019; ASHRAE Standard 34-2019...' and '(b) If the commission does not adopt all of the "
+            "consensus safety standards listed in subdivision (a), then effective July 1, 2024, no state "
+            "or local building code provision shall prohibit the use of a refrigerant listed as "
+            "acceptable under Section 7671k of the federal Clean Air Act..., provided each use is "
+            "installed in accordance with the most recent version of ASHRAE Standard 15 and the "
+            "applicable listing standard.' Whether this statutory backstop already permits 'most recent "
+            "version' (2024, with Addendum A) compliance NOW, independent of whether CBSC ever formally "
+            "adopts it through this rulemaking, is a real legal question this pass surfaces but does not "
+            "answer -- flagged for whoever owns this register next, not resolved by inference here."
+        ),
+        verified=True,
+        last_reviewed="Checked 2026-09-10 directly against the ISOR PDF and the Commission Meetings "
+                      "page; the actual vote outcome is explicitly UNRESOLVED, not guessed.",
+    ))
+
+    out.append(Assumption(
+        group="AHJ A2L register", name="Jurisdiction coverage as of this pass",
+        config_path=None,
+        value="24 of 211 AHJ rows actually searched this pass (one targeted search each, per "
+             "instruction), plus the separate State of California rulemaking-status row above. 4 real "
+             "hits beyond the LADBS seed: Los Angeles County, Escondido, HCAI/OSHPD, State Fire Marshal "
+             "(the IB itself, distinct from the rulemaking-status row). 3 jurisdictions recorded BLOCKED "
+             "without spending a search, per prior CIP research. 17 searched with NO WRITTEN GUIDANCE "
+             "FOUND as of 2026-09-10. ~187 rows not yet reached -- two background batches covering "
+             "roughly 79 more LA County cities were still running, incomplete, when this entry was "
+             "written; the remainder (Orange, San Bernardino, Riverside, San Diego, Imperial, and Kern "
+             "cities individually; DSA already checked, NO_HIT) were not searched at all this pass.",
+        source_type=MEASURED,
+        source_detail=(
+            "HITS (beyond the LADBS seed, each saved to docs/sources-pilot/ahj-a2l/ and read directly):\n"
+            "Los Angeles County -- 'Residential A2L Refrigerant Plan Check Determination Checklist' "
+            "(los-angeles-county.pdf, 1,670,144 bytes), found via pw.lacounty.gov/bsd/content/"
+            "publications.aspx, not indexed under any obvious href text -- located by grepping the "
+            "page's own rendered text for 'a2l', not by guessing a filename. Residential-scope-only, no "
+            "EDVC, no ASHRAE 15 (only 15.2, edition year not stated), no addenda position, no A1-"
+            "resubmittal or express-permit language -- all 8 columns NULL except ASHRAE 15.2 edition, "
+            "which is itself NULL (referenced without a year: 'ASHRAE 15.2 Table 9-1', 'ASHRAE 15.2:9.5'). "
+            "One disclosed oddity: the published PDF's pages 3-6 are unrelated Carrier HVAC manufacturer "
+            "product-data sheets (37MGHA, 615AHAQ, watermarked 'EXAMPLE') appended after the real 2-page "
+            "form -- almost certainly a publishing mistake on the County's end, not a content error on "
+            "this pass's part; only pages 1-2 were treated as the actual document.\n"
+            "Escondido (San Diego County city) -- 'A2L HVAC System Affidavit / Installation Checklist' "
+            "(escondido.pdf, 138,393 bytes), https://www.escondido.gov/DocumentCenter/View/8485/"
+            "A2L-HVAC-System-Affidavit-PDF. Residential-only, IRC-2024-based (not CMC Chapter 11), no "
+            "EDVC or shaft/addenda content -- but its signature block requires compliance with "
+            "'ASHRAE 15-2024, ASHRAE 15.2-2-24 [sic] and IRC-2024', i.e. the 2024 edition already, not "
+            "2022 -- the only AHJ found this pass requiring the newer edition rather than LADBS's 2022. "
+            "Refrigerant charge threshold stated as 34.5 lbs per independent system, a different figure "
+            "and basis (IRC, not ASHRAE 15.2 Table 9-1) than LA County's own residential form.\n"
+            "HCAI/OSHPD (statewide, hospitals) -- '2025 Title 24 Triennial Code Cycle Update, Part 4 & "
+            "Part 5, Q and A' (hcai.pdf, 139,225 bytes), dated 2025-10-23, a webinar Q&A transcript. One "
+            "direct question on point (Q9): 'Allowance for refrigerant type systems (mini-split) for IDF "
+            "rooms? Storage rooms?' Answer: 'Refrigerant types are as permitted in accordance with "
+            "Chapter 11 of the CMC and ASHRAE 15. With the prohibition of R410a, new A1 and A2L "
+            "refrigerants are being employed.' Confirms A2L is permitted, states no edition year, no "
+            "EDVC/addenda/shaft position -- all 8 columns NULL.\n"
+            "State Fire Marshal -- Information Bulletin 26-003 'ASHRAE Standard 15-2024 Addendum A: "
+            "Exempted Spaces and Shaft Alternatives' (state-of-california-osfm-ib-26-003.pdf, 264,925 "
+            "bytes), issued "
+            "2026-02-10, expires 2026-02-10+3yr. This is the SFM speaking TO local jurisdictions, not a "
+            "jurisdiction's own guidance: it tells them the 2024 Addendum A shaft alternative exists and "
+            "that CMC Section 1.2.3 already lets a local building/fire official approve it as an "
+            "alternate method of construction on a case-by-case basis, independent of whether the SFM's "
+            "own base-code adoption (the separate rulemaking-status row above) ever completes. Direct "
+            "tension with LADBS's own seed-row position (explicit NO on the same Addendum A shaft "
+            "alternative) -- flagged as a salesperson-relevant finding below.\n"
+            "BLOCKED, no search spent (per prior CIP jurisdiction-list research this session -- verbatim "
+            "robots.txt Content-Signal block naming ClaudeBot/GPTBot/CCBot by name, Cloudflare-managed): "
+            "Riverside County (rivco.gov), City of Riverside (riversideca.gov), Kern County "
+            "(kerncounty.com, Akamai 'Access Denied').\n"
+            "NO WRITTEN GUIDANCE FOUND as of 2026-09-10 (one targeted search each, no plausible hit): "
+            "Long Beach, Glendale, Santa Clarita, Pasadena, Burbank, Santa Monica, Torrance, Culver City, "
+            "Downey, Inglewood, Pomona, Compton (all Los Angeles County); San Diego (city); Orange "
+            "County (the county government); San Bernardino County (the county government); Bakersfield "
+            "(Kern County); DSA (Division of the State Architect, statewide, schools -- checked its own "
+            "publications/interpretations-of-regulations index directly, no A2L-related entry found; one "
+            "'a2l' text match on the page was a false positive, a random substring inside an unrelated "
+            "Box.com share-link token, not a real mention).\n"
+            "NOT YET SEARCHED this pass (~187 of 211 rows): two background research batches covering "
+            "roughly 79 more Los Angeles County cities were still running when this entry was written "
+            "(status: 'running', not completed -- their results are not reflected in the counts above "
+            "and should be folded in when they finish). Never reached at all: Orange County's other 34 "
+            "cities, San Bernardino County's other 24 cities, Riverside County's other 27 cities (the "
+            "county government and City of Riverside itself are BLOCKED above, but its other cities were "
+            "never individually checked), San Diego County's other 18 cities plus the county government "
+            "itself, Imperial County and its 7 cities, Kern County's other 10 cities. No jurisdiction in "
+            "this NOT YET SEARCHED set was marked NO WRITTEN GUIDANCE FOUND -- that label was reserved "
+            "for a jurisdiction actually searched, per instruction."
+        ),
+        verified=True,
+        last_reviewed="24 jurisdictions searched and 3 recorded blocked directly, 2026-09-10; ~187 "
+                      "genuinely not yet reached, two background batches still in progress at write time.",
+    ))
+
     return out
 
 
