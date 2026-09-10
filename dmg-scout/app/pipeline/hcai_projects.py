@@ -57,7 +57,12 @@ IS_MECHANICAL: a plain regex over scope_text, no LLM -- see MECHANICAL_RE.
 Same discipline as app.pipeline.opsc's direct-Signal-construction: every
 fact here is already an exact, government-typed value, so an LLM
 round-trip adds cost and hallucination risk for zero benefit. False means
-"the keyword set didn't match," never "confirmed non-mechanical."
+"the keyword set didn't match," never "confirmed non-mechanical." A
+second pass, NEGATIVE_MECHANICAL_RE, clears is_mechanical back to False
+when a scope line ALSO matches a non-mechanical keyword (fire alarm,
+seismic bracing, etc.) commonly found alongside a positive keyword in a
+scope line that isn't actually mechanical work -- see that constant's own
+comment and app/assumptions.py for the measured effect.
 """
 from __future__ import annotations
 
@@ -126,6 +131,24 @@ MECHANICAL_KEYWORDS = [
 ]
 MECHANICAL_RE = re.compile(
     r"\b(" + "|".join(re.escape(k) for k in MECHANICAL_KEYWORDS) + r")\b", re.IGNORECASE)
+
+# Follow-up (2026-09-10, HCAI mechanical-scope false-positive check): none of
+# these words are themselves mechanical scope, but each shares a positive
+# keyword's word stem or commonly appears alongside one in a non-mechanical
+# scope line ("replace fire alarm and mechanical smoke detector wiring",
+# "seismic bracing for boiler anchorage" -- a real seismic/structural
+# project that happens to mention the mechanical equipment being braced, not
+# mechanical work on it). A scope line matching BOTH a positive keyword and
+# one of these clears is_mechanical back to False -- see
+# app/assumptions.py's "HCAI Facilities Development Division project
+# reports" entry for the measured before/after counts and the 10 rows this
+# flipped, read individually, not just counted.
+NEGATIVE_MECHANICAL_KEYWORDS = [
+    "anchorage", "receptacle", "detector", "fire alarm", "seismic",
+    "bracing", "lighting", "roofing", "signage",
+]
+NEGATIVE_MECHANICAL_RE = re.compile(
+    r"\b(" + "|".join(re.escape(k) for k in NEGATIVE_MECHANICAL_KEYWORDS) + r")\b", re.IGNORECASE)
 
 _REPORT_DATE_RE = re.compile(r"as of (\d{2}/\d{2}/\d{4})")
 
@@ -203,7 +226,8 @@ def parse_rows(raw_bytes: bytes) -> list[dict]:
             "pct_complete": _num(row.get("PctComplete")),
             "status_raw": status_raw,
             "stage": stage,
-            "is_mechanical": bool(MECHANICAL_RE.search(scope_text)),
+            "is_mechanical": bool(MECHANICAL_RE.search(scope_text))
+                            and not bool(NEGATIVE_MECHANICAL_RE.search(scope_text)),
             "report_date": parse_report_date(row.get("Textbox145") or ""),
         })
     return out

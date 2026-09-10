@@ -1522,6 +1522,62 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "eyeballed the same day.",
     ))
 
+    out.append(Assumption(
+        group="HCAI Facilities Development Division project reports",
+        name="is_mechanical negative-keyword regex (2026-09-10 follow-up)",
+        config_path=None,
+        value="app.pipeline.hcai_projects.NEGATIVE_MECHANICAL_RE -- word-boundary, case-insensitive "
+             "match on anchorage, receptacle, detector, fire alarm, seismic, bracing, lighting, "
+             "roofing, signage; a scope_text hit on BOTH this and MECHANICAL_RE clears is_mechanical "
+             "back to False. 72 of 2,782 previously-True rows flipped; only 2 of the 72 were in an "
+             "open stage (269 -> 267 open-stage mechanical rows).",
+        source_type=MEASURED,
+        source_detail=(
+            "Re-ran `scout load-hcai-projects` against the same on-disk 2026-09-08 pull (45,132 rows, 0 "
+            "new, all 45,132 updated) after adding this second regex -- an idempotent recompute, not a "
+            "new fetch. Snapshotted is_mechanical for all 45,132 rows before the code change, diffed "
+            "against the same 45,132 rows after: exactly 72 flipped True->False, zero flipped the other "
+            "direction (the new logic is is_mechanical AND NOT negative_match, so it can only ever "
+            "remove a positive, never add one). Of the 72, 70 were already stage=closed (no board-"
+            "visible effect); only 2 were open (HL021544-0-GEO and S250501-19-00, both pending_start) "
+            "-- open-stage mechanical count moved from 269 to 267.\n"
+            "This CONTRADICTS the prior entry's own 15-row eyeball sample (seed 7), which found zero "
+            "false positives and made no change -- not an error in that sample, a real limitation of "
+            "any small sample: 72 of 45,132 (0.16%) is a real but thin failure rate, easy for 15 random "
+            "draws to miss entirely. Reading the 72 individually (not just counting them) also surfaced "
+            "a real weakness in a purely word-based negative filter: IL091620-2, scope 'ARCHITECTURAL, "
+            "MECHANICAL, ELECTRICAL, PLUMBING, FIRE ALARM, FIRE SUPPRESSION IN 2 VOLUMES,' is a genuine "
+            "multi-trade filing that explicitly names MECHANICAL as one of its trades, and got cleared "
+            "anyway because the same line also names FIRE ALARM -- a real, disclosed false negative "
+            "this filter introduces on multi-trade filings, not caught or worked around here (it is "
+            "already stage=closed, so it has no open-board effect today, but the failure mode would "
+            "recur on a future open-stage multi-trade row). Most of the other 70 are genuinely correct "
+            "clears -- e.g. 'SEISMIC ANCHORAGE FOR WATER HEATER IN MECHANICAL ROOM' and 'COOLING TOWER "
+            "ANCHORAGE & BRACING' are seismic/structural bracing of mechanical equipment, not mechanical "
+            "scope of work on it.\n"
+            "INVISIBLE-FACILITY COUNT, measured the same pass: of the 267 open-stage mechanical rows "
+            "(after), 67 (25.1%) are at a facility_id with NO matching HospitalBuilding.perm_id row -- "
+            "58 distinct facilities. These rows exist in hcai_projects (every field, including "
+            "facility_name and county, already stored on the row itself) but never appear on the /ab869 "
+            "board today, because that board's facility list is built by iterating HospitalBuilding, "
+            "not hcai_projects, and joins in each facility's open HCAI projects only where a match "
+            "exists (app.pipeline.ab869.ab869_board_rows). hcai_match_rate() reports 216 of 1,094 "
+            "distinct hcai_projects facility_ids matched to a HospitalBuilding row (878 unmatched) -- "
+            "consistent with HospitalBuilding being a narrower, SB-1953-seismic-tracked-building "
+            "population, not the full set of facility types HCAI's Facilities Development Division "
+            "regulates.\n"
+            "PROPOSED, NOT BUILT (per instruction): the cheapest fix does not need a new join, a new "
+            "fetch, or a new table -- facility_name and county already live on the hcai_projects row "
+            "itself, so a second, small, unjoined query (open-stage, is_mechanical=True, facility_id "
+            "NOT IN the HospitalBuilding perm_id set) could list these 67 rows directly, either as a "
+            "second collapsible section on the existing /ab869 board ('mechanical HCAI projects at "
+            "facilities not on this board') or a one-off CSV export command. Not built this pass."
+        ),
+        verified=True,
+        last_reviewed="Measured directly 2026-09-10: full before/after snapshot diff against production, "
+                      "all 72 flipped rows read individually, not sampled.",
+    ))
+
     # ---- Five-year CIP / facilities master plan jurisdiction list (Phase A) ---
 
     out.append(Assumption(

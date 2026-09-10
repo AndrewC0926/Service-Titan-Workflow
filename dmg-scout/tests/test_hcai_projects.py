@@ -174,6 +174,25 @@ def test_parse_rows_sets_is_mechanical_from_scope_text():
     assert rows[1]["is_mechanical"] is False
 
 
+def test_negative_mechanical_regex_clears_a_positive_match():
+    """A scope line that matches a positive keyword AND a negative one
+    (e.g. seismic bracing around a boiler, not mechanical work ON it)
+    must end up is_mechanical=False -- the exact false-positive shape
+    the 2026-09-10 follow-up was built to catch."""
+    raw = _csv([
+        _row(record_no="B1", scope="Seismic bracing for existing boiler anchorage"),
+        _row(record_no="B2", scope="Fire alarm and mechanical smoke detector wiring replacement"),
+        _row(record_no="B3", scope="Roofing and lighting upgrade, no mechanical scope"),
+        _row(record_no="B4", scope="Chiller Replacement"),  # unaffected control: no negative keyword
+    ])
+    rows = parse_rows(raw)
+    by_id = {r["record_no"]: r for r in rows}
+    assert by_id["B1"]["is_mechanical"] is False
+    assert by_id["B2"]["is_mechanical"] is False
+    assert by_id["B3"]["is_mechanical"] is False
+    assert by_id["B4"]["is_mechanical"] is True
+
+
 # ---- load_hcai_projects: idempotent upsert -----------------------------
 
 def test_load_is_idempotent_on_record_no(db_session, tmp_path):
