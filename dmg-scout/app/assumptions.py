@@ -2802,6 +2802,53 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "directly against the real Phase A data, not a synthetic fixture alone.",
     ))
 
+    # ---- City of Los Angeles building permits (LADBS) --------------------------
+
+    out.append(Assumption(
+        group="City of Los Angeles building permits (LADBS)", name="No contractor/applicant/licensee field",
+        config_path=None,
+        value="DEAD -- the three LADBS open datasets carry no contractor, applicant, or licensee field",
+        source_type=STATED,
+        source_detail=(
+            "Stated directly by the user (2026-09-11), not independently read or re-verified by this "
+            "codebase's own research process this pass -- distinct from the City of San Diego "
+            "Development Permits entry above, which this app DID read and extract column-by-column "
+            "itself. Column metadata across LADBS's three open datasets was checked and none carries a "
+            "contractor, applicant, or licensee field, same disqualifying shape as the San Diego permits "
+            "finding (a permit list with no way to name who is doing the work) but a separate dataset, "
+            "not re-derived from that one. Which three datasets, exact column names, and host/robots.txt "
+            "findings are not recorded here -- if this source is revisited, that detail should be read "
+            "and registered directly rather than assumed to still match this summary."
+        ),
+        verified=False,
+        last_reviewed="Stated 2026-09-11 by the user -- not independently re-verified by this app's own "
+                      "research process.",
+    ))
+
+    # ---- PlanetBids -------------------------------------------------------------
+
+    out.append(Assumption(
+        group="PlanetBids", name="Terms of use bar automated reuse",
+        config_path=None,
+        value="DEAD -- PlanetBids' own terms of use (sections 3.4 and 6.2) bar automated reuse; bid "
+             "documents are reachable only via each agency's own website or a special-use request",
+        source_type=STATED,
+        source_detail=(
+            "Stated directly by the user (2026-09-11), not independently read or re-verified by this "
+            "codebase's own research process this pass. This is a separate finding from every earlier "
+            "'PlanetBids-shaped' reference in this file (DIR PWC-100, SCAQMD FIND, the SFM/R3 CDN host) "
+            "-- those describe a full robots.txt block observed directly at OTHER agencies' bid-portal "
+            "hosts, never an evaluation of PlanetBids' own terms of use. This entry is the first time "
+            "PlanetBids itself, as a candidate source, has an access classification on record. The exact "
+            "terms-of-use URL and the full text of sections 3.4 and 6.2 are not recorded here -- if this "
+            "source is revisited, read and quote them directly rather than assuming this summary still "
+            "holds (a vendor's terms of use can change without notice)."
+        ),
+        verified=False,
+        last_reviewed="Stated 2026-09-11 by the user -- not independently re-verified by this app's own "
+                      "research process.",
+    ))
+
     return out
 
 

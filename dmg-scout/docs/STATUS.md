@@ -17,12 +17,13 @@
 
 - **DIR PWC-100** (state public-works contractor records) — the state's own site blocks all automated access; only a public records request gets in.
 - **SCAQMD FIND** (equipment/permit lookup) — same, blocks all automated access.
+- **LA City permits** — the three LADBS open datasets carry no contractor, applicant, or licensee field (column metadata checked).
 - **San Diego building permits** — the one name field on every permit mixes contractor, owner, and permit-expediter names with no way to tell them apart.
 - **LBUSD bond program site** — the real project list is nearly empty, and the actual construction history lives on a page the site itself blocks.
 - **SAN Airport construction list** — real but tiny (23 projects), and hasn't been updated since January despite being called a monthly list.
 - **CARB refrigerant registry (R3)** — covers supermarkets and cold storage only; comfort-cooling air conditioning is explicitly exempt, so it can't be an HVAC list.
 - **City/county facility master plans** — only 20 of 295 school districts and cities were even checked; most have nothing public.
-- **Agency bid portals** (PlanetBids-style software) — several agencies' bid sites block all automated access outright, regardless of method.
+- **PlanetBids** — terms of use (sections 3.4 and 6.2) bar automated reuse; bid documents only via agency websites or a special-use request.
 - **Riverside County, City of Riverside, Kern County** — all three block Scout's software by name; never worked around.
 
 ## 3. Waiting on a person
