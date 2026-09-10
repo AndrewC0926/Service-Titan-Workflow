@@ -65,7 +65,8 @@
 {% for r in rows %}
 <tr>
   <td><a href="/ab869/{{ r.perm_id }}">{{ r.facility_name or r.perm_id }}</a>
-      {% if r.no_pdf_on_disk %}<span class="stamp stamp-post" title="Crosstab data only -- the Playwright pull for this facility's PDF failed">no PDF</span>{% endif %}</td>
+      {% if r.no_pdf_on_disk %}<span class="stamp stamp-post" title="Crosstab data only -- the Playwright pull for this facility's PDF failed">no PDF</span>{% endif %}
+      {% if r.ahj_a2l_hit %}<a class="stamp stamp-pre" title="{{ r.ahj_a2l_hit.doc_title }}" href="/reference?tab=ahj_a2l#ahj-{{ r.ahj_a2l_hit.jurisdiction|lower|replace(' ', '-') }}">AHJ has written A2L guidance</a>{% endif %}</td>
   <td>{{ r.county or '—' }}</td>
   <td class="num">{{ r.npc_building_count }}</td>
   <td>{% if r.has_plan %}{{ r.plan_status or '<span class="note">not parsed</span>'|safe }}{% else %}<span class="stamp stamp-quiet">{{ r.plan_status }}</span>{% endif %}</td>

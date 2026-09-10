@@ -597,6 +597,47 @@
 {% endif %}
 {% endif %}
 {% endfor %}
+
+{% elif active_tab == 'ahj_a2l' %}
+<p class="note mb-2" style="max-width:62rem">
+  <span class="stamp stamp-pre">{{ ahj_a2l_counts.get('HIT', 0) }} HIT</span>
+  <span class="stamp stamp-quiet">{{ ahj_a2l_counts.get('NONE_FOUND', 0) }} NONE_FOUND</span>
+  <span class="stamp stamp-in">{{ ahj_a2l_counts.get('BLOCKED', 0) }} BLOCKED</span>
+  <span class="stamp stamp-post">{{ ahj_a2l_counts.get('NOT_REACHED', 0) }} NOT_REACHED</span>
+  &nbsp; checked
+  {% if ahj_a2l_checked_min and ahj_a2l_checked_max %}
+    {{ ahj_a2l_checked_min.strftime('%Y-%m-%d') }}{% if ahj_a2l_checked_min != ahj_a2l_checked_max %} – {{ ahj_a2l_checked_max.strftime('%Y-%m-%d') }}{% endif %}
+  {% else %}
+    never
+  {% endif %}
+  -- the {{ ahj_a2l_counts.get('NOT_REACHED', 0) }} NOT_REACHED rows below carry no checked date at all
+  and are not part of that range; they were never searched this pass, not searched-and-found-nothing.
+</p>
+<table class="tbl" style="width:100%">
+<thead><tr><th>Jurisdiction</th><th>Type</th><th>County</th><th>Status</th>
+  <th>ASHRAE 15</th><th>ASHRAE 15.2</th><th>ASHRAE 34</th><th>2024 Addm. A shaft alt.</th>
+  <th>EDVC always</th><th>Document</th><th>Checked</th></tr></thead>
+<tbody>
+{% for r in ahj_a2l_rows %}
+<tr id="ahj-{{ r.jurisdiction|lower|replace(' ', '-') }}">
+  <td>{{ r.jurisdiction }}</td>
+  <td>{{ r.jurisdiction_type }}</td>
+  <td>{{ r.county or '—' }}</td>
+  <td><span class="stamp {{ 'stamp-pre' if r.status == 'HIT' else 'stamp-quiet' if r.status == 'NONE_FOUND' else 'stamp-in' if r.status == 'BLOCKED' else 'stamp-post' }}">{{ r.status }}</span></td>
+  <td>{{ r.ashrae_15_edition or '—' }}</td>
+  <td>{{ r.ashrae_15_2_edition or '—' }}</td>
+  <td>{{ r.ashrae_34_edition or '—' }}</td>
+  <td>{{ r.addendum_a_shaft_alt or '—' }}</td>
+  <td>{{ r.edvc_regardless_of_charge or '—' }}</td>
+  <td>{% if r.doc_title %}{% if r.source_url %}<a href="{{ r.source_url }}" target="_blank" rel="noopener">{{ r.doc_title }}</a>{% else %}{{ r.doc_title }}{% endif %}{% else %}—{% endif %}</td>
+  <td>{{ r.checked_at.strftime('%Y-%m-%d') if r.checked_at else '—' }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+<p class="note" style="margin-top:0.75rem">Every column above is NULL ("—") when the source document itself
+  doesn't state that fact -- never inferred. Refreshed by hand (`scout seed-ahj-a2l`), quarterly cadence,
+  not part of the nightly pipeline. See app/assumptions.py's "AHJ A2L register" group for every citation.</p>
 {% endif %}
 
 <footer class="note" style="margin-top:2.5rem;border-top:1px solid var(--color-rule-hard);padding-top:0.85rem;line-height:1.65;max-width:70rem">

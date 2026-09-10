@@ -3128,3 +3128,75 @@ class LineCompetitor(SQLModel, table=True):
     generated_at: datetime | None = None
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+
+
+class AhjA2lGuidance(SQLModel, table=True):
+    """One row per plan-check authority (AHJ) in Scout's territory --
+    whether it has published written guidance on A2L refrigerant systems
+    (R-32, R-454B) and what it says. See app.pipeline.ahj_a2l's module
+    docstring for the Phase A research this table loads verbatim
+    (app/assumptions.py's "AHJ A2L register" group) and app/assumptions.py
+    for the column-set citation.
+
+    jurisdiction is the primary key -- a plain display name ("Los
+    Angeles", "Los Angeles County", "HCAI/OSHPD", "State of California"),
+    not a foreign key into any other table. Nothing else in this app names
+    an AHJ as a first-class entity, so there is nothing to key against;
+    app.geo._CITY_TO_COUNTY's own flat, collision-free city namespace is
+    what makes a plain string PK safe here (no two in-territory cities
+    share a name in this app's own data).
+
+    status is one of four values, plain string (deliberately NOT a
+    native Postgres enum -- see the "Fix: add school_facility_funding to
+    Postgres's signaltype enum" incident this codebase already lived
+    through; a small closed set of values on a standalone reference table
+    doesn't need that migration risk):
+      HIT         -- a real, on-point document was found and read; every
+                     column below is populated from it, NULL where the
+                     document itself doesn't state a field.
+      NONE_FOUND  -- one targeted search was run and returned no
+                     plausible on-point document. checked_at is set; every
+                     document column is NULL.
+      BLOCKED     -- the AHJ's own host is robots.txt-disallowed (named
+                     AI-crawler block or an infrastructure-level "Access
+                     Denied"); never fetched, per this app's own "never
+                     alter the user-agent to evade a block" rule.
+                     checked_at is set (the block itself was confirmed),
+                     every document column is NULL.
+      NOT_REACHED -- never searched at all this pass, for a REASON that
+                     has nothing to do with the jurisdiction itself (here:
+                     a session-wide WebSearch tool quota ran out, and one
+                     research batch never started due to a subagent
+                     fault) -- checked_at is NULL, which is what makes
+                     these rows visibly different from NONE_FOUND rather
+                     than silently indistinguishable from "checked, found
+                     nothing."
+
+    Every document column (ashrae_15_edition through express_permit_note)
+    is NULL when the source document doesn't state that fact -- never
+    inferred, never defaulted to a guess, even when every other row's
+    pattern makes a guess tempting (see app/assumptions.py's own "Null
+    over inference" framing, CHARTER.md invariant 12)."""
+    __tablename__ = "ahj_a2l_guidance"
+
+    jurisdiction: str = Field(primary_key=True)
+    jurisdiction_type: str = Field(index=True)  # county | city | state_agency
+    county: str | None = Field(default=None, index=True)
+    status: str = Field(index=True)  # HIT | NONE_FOUND | BLOCKED | NOT_REACHED
+
+    ashrae_15_edition: str | None = None
+    ashrae_15_2_edition: str | None = None
+    ashrae_34_edition: str | None = None
+    addendum_a_shaft_alt: str | None = None  # YES | NO | INFORMATIONAL | NULL
+    addenda_accepted: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    edvc_regardless_of_charge: str | None = None  # YES | NO | NULL
+    a1_resubmittal_rule: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    express_permit_note: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+
+    doc_title: str | None = None
+    doc_number: str | None = None
+    doc_date: datetime | None = None
+    source_url: str | None = None
+
+    checked_at: datetime | None = Field(default=None, index=True)
+    notes: str | None = Field(default=None, sa_column=Column(Text, nullable=True))

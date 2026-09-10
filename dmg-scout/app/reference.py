@@ -9,14 +9,23 @@ no assumptions-register entry, and no "data as of" stamp. Basis is ASHRAE
 the ASHRAE service-life database for the life ranges) -- see the citation in
 reference.html's footer, which is the only place that basis needs to live.
 
-ONE EXCEPTION: the "pitches" tab IS database-backed (app.models.LinePitch)
--- see app/web/main.py's reference_index route. It shows CONFIRMED pitches
-only, grouped by role, plus a count of drafts still awaiting review. A
-draft (unreviewed, generated) pitch never appears here -- this page is
-where a rep learns the card, and an unverified generated sentence has no
-business being read back as if it were confirmed. See
-app/pipeline/line_pitch.py's module docstring for the generation
-discipline behind every row this tab can ever show.
+TWO EXCEPTIONS are database-backed (see app/web/main.py's reference_index
+route):
+
+"pitches" (app.models.LinePitch) shows CONFIRMED pitches only, grouped by
+role, plus a count of drafts still awaiting review. A draft (unreviewed,
+generated) pitch never appears here -- this page is where a rep learns the
+card, and an unverified generated sentence has no business being read back
+as if it were confirmed. See app/pipeline/line_pitch.py's module docstring
+for the generation discipline behind every row this tab can ever show.
+
+"ahj_a2l" (app.models.AhjA2lGuidance) shows every row of the AHJ A2L
+register -- see app/pipeline/ahj_a2l.py's module docstring for how it's
+loaded (Phase A research, `scout seed-ahj-a2l`, quarterly manual refresh,
+never a live fetcher). Unlike "pitches," this tab deliberately shows EVERY
+status including NOT_REACHED (checked_at NULL) -- hiding the unfinished
+rows would make 212-of-212 coverage look complete when 47 of them were
+never actually checked; see that module's own docstring for why.
 
 Content adapted from a standalone reference sheet the user hand-authored
 (hvac-field-reference.html) into this app's own template and component
@@ -24,7 +33,7 @@ classes.
 """
 from __future__ import annotations
 
-TAB_ORDER = ("systems", "equipment", "numbers", "abbreviations", "roles", "pitches")
+TAB_ORDER = ("systems", "equipment", "numbers", "abbreviations", "roles", "pitches", "ahj_a2l")
 
 TAB_LABELS = {
     "systems": "Systems",
@@ -33,6 +42,7 @@ TAB_LABELS = {
     "abbreviations": "Abbreviations",
     "roles": "Roles",
     "pitches": "Pitches",
+    "ahj_a2l": "AHJ A2L guidance",
 }
 
 # equipment_type (RetrofitBuilding.equipment_type, set by

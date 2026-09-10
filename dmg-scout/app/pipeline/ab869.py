@@ -780,6 +780,7 @@ def ab869_board_rows(session: Session, cfg) -> list[dict]:
     against this same list. Includes a facility with NO Ab869Plan row at
     all (plan_status becomes the literal NO_PLAN_ON_FILE, not hidden) --
     the 11 facilities HCAI's own crosstab filter matched nothing for."""
+    from app.pipeline.ahj_a2l import hit_row_for_city
     from app.pipeline.hcai_projects import open_hcai_projects_by_facility_id
     from app.pipeline.scaqmd import scaqmd_matches_for_ab869
 
@@ -849,6 +850,10 @@ def ab869_board_rows(session: Session, cfg) -> list[dict]:
             "hcai_open_projects": hcai_open_by_facility.get(perm_id, []),
             "has_open_mechanical_project": any(
                 p.is_mechanical for p in hcai_open_by_facility.get(perm_id, [])),
+            # Badge only, no scoring change -- see app.pipeline.ahj_a2l.hit_row_for_city's
+            # own docstring for why this goes through HospitalBuilding.city (already
+            # resolved above as city_by_perm) rather than any HcaiProject column.
+            "ahj_a2l_hit": hit_row_for_city(session, city_by_perm.get(perm_id), base["county"]),
         })
     rows.sort(key=lambda r: r["npc_building_count"], reverse=True)
     return rows

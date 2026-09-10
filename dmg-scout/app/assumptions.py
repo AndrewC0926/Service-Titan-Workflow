@@ -2746,6 +2746,62 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
                       "hard session WebSearch quota (200/200), not worked around.",
     ))
 
+    out.append(Assumption(
+        group="AHJ A2L register", name="ahj_a2l_guidance schema and refresh cadence (Phase B)",
+        config_path=None,
+        value="Table ahj_a2l_guidance, jurisdiction as primary key, 18 columns: jurisdiction_type, "
+             "county, status, ashrae_15_edition, ashrae_15_2_edition, ashrae_34_edition, "
+             "addendum_a_shaft_alt, addenda_accepted, edvc_regardless_of_charge, a1_resubmittal_rule, "
+             "express_permit_note, doc_title, doc_number, doc_date, source_url, checked_at, notes. "
+             "Loaded by `scout seed-ahj-a2l` (app.pipeline.ahj_a2l.load_ahj_a2l_guidance), hand-run, "
+             "quarterly cadence -- never part of `scout pipeline`, no live fetcher exists or is planned "
+             "for this table.",
+        source_type=MEASURED,
+        source_detail=(
+            "Phase B build (2026-09-11) on the Phase A research recorded in this same group. Column set "
+            "is exactly what this build's own Phase A instruction specified, plus source_url/doc_date/"
+            "checked_at/notes for provenance -- see app.models.AhjA2lGuidance's own docstring for the "
+            "full field-by-field rationale, including why status is a plain string rather than a native "
+            "Postgres enum (this codebase already paid the migration cost of that choice once, for "
+            "SignalType -- see the 'Fix: add school_facility_funding to Postgres's signaltype enum' "
+            "commit -- not repeating it here for a four-value, standalone reference table).\n"
+            "Load is idempotent on jurisdiction (upsert, not insert-or-fail) and fully deterministic: "
+            "app.pipeline.ahj_a2l._build_rows() derives the county and city rows programmatically from "
+            "app.geo._CITY_TO_COUNTY plus the 3 fixed state-agency names, so the 211 AHJ rows can never "
+            "drift out of sync with app/geo.py's own territory table the way a hand-maintained list "
+            "could. Verified directly: 212 rows load (211 AHJ + 1 State of California), status counts "
+            "6 HIT / 156 NONE_FOUND / 3 BLOCKED / 47 NOT_REACHED (the 6th HIT is the State of California "
+            "row itself, distinct from the 5 AHJ HITs reported in the prior Phase A entries above), "
+            "re-running the load twice produces the same 212 rows both times (tests/test_ahj_a2l.py).\n"
+            "Refresh cadence: quarterly, by hand -- re-running `scout seed-ahj-a2l` after editing the "
+            "constants in app/pipeline/ahj_a2l.py, which itself only changes after new Phase A research "
+            "(a later session, not this one) adds or updates a jurisdiction. No SourceRun/source_health "
+            "registration was added for this table -- not requested this pass, and a manually-"
+            "researched constant-data table already has a clear staleness signal of its own (the "
+            "checked_at column and the NOT_REACHED status), unlike a live fetcher whose silent failure "
+            "would otherwise be invisible.\n"
+            "Surface: a database-backed tab ('AHJ A2L guidance') on /reference, alongside the existing "
+            "'pitches' tab -- see app/reference.py's module docstring for both exceptions to that page's "
+            "otherwise-static content. Badge: 'AHJ has written A2L guidance' on project rows (via "
+            "app.pipeline.ahj_a2l.hit_row_for_project) and on hcai_projects facility rows on the /ab869 "
+            "board (via hit_row_for_city, joined through HospitalBuilding.city -- the same city value "
+            "app.pipeline.ab869.ab869_board_rows already resolves for its own air-permit join). No "
+            "scoring change either place, per instruction.\n"
+            "DISCLOSED GAP, not worked around: app.models.Project has no city column at all (checked "
+            "directly -- only county, state, latitude, longitude, apn_parcel). The badge therefore "
+            "degrades to a COUNTY-level match for Project rows, which today can only ever fire for the "
+            "'Los Angeles County' HIT row -- neither city-type HIT ('Los Angeles', 'Escondido') can ever "
+            "badge a Project, because there is no project-level city value to compare against. Not "
+            "worked around by reverse-geocoding lat/long or parsing apn_parcel -- either would be "
+            "exactly the kind of invented field CHARTER.md invariant 12 forbids. hcai_projects facility "
+            "rows do NOT have this gap, because HospitalBuilding (joined by perm_id == "
+            "HcaiProject.facility_id) already carries a real city column."
+        ),
+        verified=True,
+        last_reviewed="Built and tested 2026-09-11; load, idempotency, and badge behavior all verified "
+                      "directly against the real Phase A data, not a synthetic fixture alone.",
+    ))
+
     return out
 
 

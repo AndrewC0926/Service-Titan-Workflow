@@ -50,6 +50,7 @@ from app.models import (
     OUTCOME_STATUSES,
     Account,
     AccountCoverage,
+    AhjA2lGuidance,
     CaptureAudio,
     Category,
     Contact,
@@ -1413,6 +1414,12 @@ def project_detail(project_id: int, request: Request,
     displaceable_rows = displaceable(displacement_rows)
     role_gap_rows = role_gaps(displacement_rows)
 
+    # Badge only, no scoring change -- see app.pipeline.ahj_a2l.hit_row_for_project's
+    # own docstring: Project has no city field, so this can only ever match the
+    # county-type "Los Angeles County" HIT row today, never a city-type one.
+    from app.pipeline.ahj_a2l import hit_row_for_project
+    ahj_a2l_hit = hit_row_for_project(session, project)
+
     return templates.TemplateResponse(request, "project.html", {
         "p": project, "timeline": timeline, "people": people, "firms": firms,
         "resolved_firms": resolved_firms, "outcome_statuses": OUTCOME_STATUSES,
@@ -1427,6 +1434,7 @@ def project_detail(project_id: int, request: Request,
         "schedule_mapping": schedule_mapping, "actionable_mapping": actionable_mapping,
         "displaceable_rows": displaceable_rows, "role_gap_rows": role_gap_rows,
         "call_target": call_target, "usual_team": usual_team, "bpelsg_match": bpelsg_match,
+        "ahj_a2l_hit": ahj_a2l_hit,
         "tb": _title_block(session), "active": "board",
     })
 
@@ -2165,9 +2173,11 @@ def reference_index(request: Request, tab: str = "",
     """Static field-reference sheet -- equipment, formulas, abbreviations and
     role definitions. No source, no pipeline, nothing here to go stale --
     see app/reference.py's module docstring for why this carries no
-    source-health entry and no assumptions-register entry. The 'pitches'
-    tab is the one exception (see that same docstring): confirmed
-    line-card pitches only, grouped by role, plus a draft count."""
+    source-health entry and no assumptions-register entry. Two tabs are
+    database-backed exceptions (see that same docstring): 'pitches'
+    (confirmed line-card pitches only, grouped by role, plus a draft
+    count) and 'ahj_a2l' (every AHJ A2L register row, HIT first then by
+    county, including NOT_REACHED rows -- see app/pipeline/ahj_a2l.py)."""
     active_tab = tab if tab in TAB_ORDER else TAB_ORDER[0]
 
     confirmed_pitches_by_role: dict[str, list] = {r: [] for r in ROLE_ORDER}
@@ -2186,11 +2196,22 @@ def reference_index(request: Request, tab: str = "",
         for _pitch, line in drafts:
             draft_count_by_role[line.building_role] = draft_count_by_role.get(line.building_role, 0) + 1
 
+    ahj_a2l_rows: list[AhjA2lGuidance] = []
+    ahj_a2l_counts: dict[str, int] = {}
+    ahj_a2l_checked_min = ahj_a2l_checked_max = None
+    if active_tab == "ahj_a2l":
+        from app.pipeline.ahj_a2l import checked_at_range, sorted_rows, status_counts
+        ahj_a2l_rows = sorted_rows(session)
+        ahj_a2l_counts = status_counts(ahj_a2l_rows)
+        ahj_a2l_checked_min, ahj_a2l_checked_max = checked_at_range(ahj_a2l_rows)
+
     return templates.TemplateResponse(request, "reference.html", {
         "tab_order": TAB_ORDER, "TAB_LABELS": TAB_LABELS, "active_tab": active_tab,
         "role_order": ROLE_ORDER, "role_reference": ROLE_REFERENCE,
         "confirmed_pitches_by_role": confirmed_pitches_by_role, "draft_count_by_role": draft_count_by_role,
         "total_drafts": sum(draft_count_by_role.values()),
+        "ahj_a2l_rows": ahj_a2l_rows, "ahj_a2l_counts": ahj_a2l_counts,
+        "ahj_a2l_checked_min": ahj_a2l_checked_min, "ahj_a2l_checked_max": ahj_a2l_checked_max,
         "tb": _title_block(session), "active": "reference",
     })
 

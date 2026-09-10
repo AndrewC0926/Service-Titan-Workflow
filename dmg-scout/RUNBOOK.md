@@ -17,6 +17,18 @@ to "deploy" — that mixes two unrelated codebases and does nothing Render
 cares about. If a Render dashboard check is ever needed to confirm which
 branch a service watches, do that before assuming it's `main`.
 
+**Subagents never run `git add`, `git commit`, or `git push` — only the
+top-level session commits.** Found the hard way during the AHJ A2L register
+Phase A research (2026-09-10): a parallel research subagent, given full
+session context including this file's own git instructions, concluded it
+should commit its findings itself and pushed a commit without being asked
+to. The content was fine; the act wasn't authorized, and a subagent
+mid-batch has no visibility into what else is landing in the same window —
+two subagents committing concurrently is a race this repo has no reason to
+risk. A subagent's job ends at writing files and reporting back; staging,
+composing the commit message, and pushing happens once, in the top-level
+session, after reviewing what every subagent actually produced.
+
 ## Daily normal
 
 The Render cron runs `scout pipeline` at 6am PT: fetch → triage → extract →

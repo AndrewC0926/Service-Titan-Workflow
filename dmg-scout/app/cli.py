@@ -1371,6 +1371,21 @@ def fetch_local250_cmd() -> None:
         typer.echo(f"  ERROR: {stats['error']}", err=True)
 
 
+@app.command("seed-ahj-a2l")
+def seed_ahj_a2l_cmd() -> None:
+    """Loads the hand-researched AHJ A2L register (app/pipeline/ahj_a2l.py)
+    into ahj_a2l_guidance -- not a live scraper, an idempotent reload of
+    Phase A's own findings (app/assumptions.py, "AHJ A2L register" group).
+    Re-run after adding or refreshing a jurisdiction's row in that module;
+    manual quarterly cadence, not part of `scout pipeline`."""
+    from app.pipeline.ahj_a2l import load_ahj_a2l_guidance
+    with session_scope() as session:
+        counts = load_ahj_a2l_guidance(session)
+    typer.echo(f"{sum(counts.values())} jurisdictions: {counts['HIT']} HIT, "
+               f"{counts['NONE_FOUND']} NONE_FOUND, {counts['BLOCKED']} BLOCKED, "
+               f"{counts['NOT_REACHED']} NOT_REACHED")
+
+
 @app.command("seed-competitors")
 def seed_competitors_cmd() -> None:
     """Loads the hand-researched competitor line-card map (app/competitors.py)
