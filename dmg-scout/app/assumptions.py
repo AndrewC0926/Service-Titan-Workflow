@@ -2649,15 +2649,15 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
     out.append(Assumption(
         group="AHJ A2L register", name="Jurisdiction coverage as of this pass",
         config_path=None,
-        value="24 of 211 AHJ rows actually searched this pass (one targeted search each, per "
-             "instruction), plus the separate State of California rulemaking-status row above. 4 real "
-             "hits beyond the LADBS seed: Los Angeles County, Escondido, HCAI/OSHPD, State Fire Marshal "
-             "(the IB itself, distinct from the rulemaking-status row). 3 jurisdictions recorded BLOCKED "
-             "without spending a search, per prior CIP research. 17 searched with NO WRITTEN GUIDANCE "
-             "FOUND as of 2026-09-10. ~187 rows not yet reached -- two background batches covering "
-             "roughly 79 more LA County cities were still running, incomplete, when this entry was "
-             "written; the remainder (Orange, San Bernardino, Riverside, San Diego, Imperial, and Kern "
-             "cities individually; DSA already checked, NO_HIT) were not searched at all this pass.",
+        value="164 of 211 AHJ rows resolved this pass (one targeted search each, or BLOCKED without a "
+             "search where already known), plus the separate State of California rulemaking-status row. "
+             "5 real hits: LADBS (seed), Los Angeles County, Escondido, HCAI/OSHPD, State Fire Marshal "
+             "(the informational bulletin itself). 3 BLOCKED (Riverside County, City of Riverside, Kern "
+             "County). 156 searched with NO WRITTEN GUIDANCE FOUND as of 2026-09-10. 47 rows NOT REACHED "
+             "-- stopped by a hard, session-wide WebSearch tool quota (200 of 200 calls used across this "
+             "session and all its parallel research subagents combined), not by choice or by running out "
+             "of jurisdictions to check. This is a tooling limit, disclosed and stopped on rather than "
+             "worked around.",
         source_type=MEASURED,
         source_detail=(
             "HITS (beyond the LADBS seed, each saved to docs/sources-pilot/ahj-a2l/ and read directly):\n"
@@ -2709,20 +2709,41 @@ def load_assumptions(cfg: Config, service_calls_coverage: dict | None = None,
             "publications/interpretations-of-regulations index directly, no A2L-related entry found; one "
             "'a2l' text match on the page was a false positive, a random substring inside an unrelated "
             "Box.com share-link token, not a real mention).\n"
-            "NOT YET SEARCHED this pass (~187 of 211 rows): two background research batches covering "
-            "roughly 79 more Los Angeles County cities were still running when this entry was written "
-            "(status: 'running', not completed -- their results are not reflected in the counts above "
-            "and should be folded in when they finish). Never reached at all: Orange County's other 34 "
-            "cities, San Bernardino County's other 24 cities, Riverside County's other 27 cities (the "
-            "county government and City of Riverside itself are BLOCKED above, but its other cities were "
-            "never individually checked), San Diego County's other 18 cities plus the county government "
-            "itself, Imperial County and its 7 cities, Kern County's other 10 cities. No jurisdiction in "
-            "this NOT YET SEARCHED set was marked NO WRITTEN GUIDANCE FOUND -- that label was reserved "
-            "for a jurisdiction actually searched, per instruction."
+            "Additional NO WRITTEN GUIDANCE FOUND as of 2026-09-10, from the remaining five parallel "
+            "research batches, each one targeted search per jurisdiction: Orange County and its 34 "
+            "cities (35); San Bernardino County and its 24 cities (25); 27 of Riverside County's other "
+            "cities (the county government and City of Riverside itself are BLOCKED above, not counted "
+            "here); San Diego County and its 18 cities plus Imperial County and its 7 cities, minus "
+            "Escondido's hit (26 of 27 searched); Kern County's other 11 cities (Kern County government "
+            "itself is BLOCKED above); and DSA (Division of the State Architect, statewide, schools -- "
+            "checked its own publications/interpretations-of-regulations index directly, no A2L-related "
+            "entry found; one 'a2l' text match on the page was a false positive, a random substring "
+            "inside an unrelated Box.com share-link token, not a real mention). Sum: 31 (LA batch, 12+19) "
+            "+ 35 (Orange) + 25 (San Bernardino) + 27 (Riverside cities) + 26 (San Diego/Imperial minus "
+            "Escondido) + 12 (11 Kern cities + DSA) = 156.\n"
+            "NOT REACHED (47 of 211), stopped by the session WebSearch quota, not by choice: 8 Los "
+            "Angeles County cities whose search was queued but never ran when the quota hit zero mid-"
+            "batch -- diamond bar, redondo beach, rosemead, san gabriel, el segundo, signal hill, vernon, "
+            "commerce; plus a second batch of 39 Los Angeles County cities that never started at all "
+            "(the parallel research subagent assigned to it entered a broken internal loop and was "
+            "terminated before doing any of its assigned searches, and by the time that was caught the "
+            "quota was already exhausted, so it could not be restarted) -- city of industry, santa fe "
+            "springs, cerritos, azusa, covina, west hollywood, manhattan beach, hermosa beach, glendora, "
+            "la puente, la mirada, bell, bell gardens, temple city, walnut, duarte, monrovia, claremont, "
+            "la verne, san dimas, hawaiian gardens, lawndale, lomita, malibu, calabasas, agoura hills, "
+            "westlake village, rolling hills estates, palos verdes estates, rancho palos verdes, south "
+            "gate, maywood, cudahy, south el monte, irwindale, bradbury, sierra madre, san marino, "
+            "artesia. None of these 47 carry a NO WRITTEN GUIDANCE FOUND label -- that label is reserved "
+            "for a jurisdiction actually searched, per instruction; these are honestly marked NOT "
+            "REACHED instead. A follow-up pass needs either a fresh WebSearch quota (this session's "
+            "CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION cap) or a different search method to close these "
+            "out -- 47 of 79 LA County cities not in the original 40-city seed/batch-A-done set, i.e. "
+            "roughly the back half of Los Angeles County specifically, not spread evenly across the "
+            "territory."
         ),
         verified=True,
-        last_reviewed="24 jurisdictions searched and 3 recorded blocked directly, 2026-09-10; ~187 "
-                      "genuinely not yet reached, two background batches still in progress at write time.",
+        last_reviewed="164 of 211 AHJ rows resolved 2026-09-10; 47 not reached, stopped cleanly by a "
+                      "hard session WebSearch quota (200/200), not worked around.",
     ))
 
     return out
