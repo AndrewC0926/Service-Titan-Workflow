@@ -41,7 +41,7 @@ from app.models import (
     Signal,
     utcnow,
 )
-from app.normalize import normalize_name
+from app.normalize import normalize_company_name, normalize_name
 from app.pipeline.retrofit import normalize_address
 from app.replacement import ServiceLife, UnknownEquipment, replacement_basis, service_life
 
@@ -1241,18 +1241,32 @@ def accounts_matching_firm(session: Session, account: Account) -> dict:
     answer "is this account itself a project's developer" -- rare for a
     rep's account list, which is mostly contractors and GCs, not owners).
 
-    Matches account.name_norm against Firm.name_norm -- the SAME roster
-    app.mcp_tools.search_firms reads, extracted named_firms resolve
-    against (see Firm's own docstring) -- exact normalized match, not the
-    substring ilike search_firms uses for interactive lookup. Firm.name_norm
-    carries a UNIQUE constraint, so at most one firm can match.
+    Matches a FRESH normalize_company_name(account.name) against
+    Firm.name_norm -- the SAME roster app.mcp_tools.search_firms reads,
+    extracted named_firms resolve against (see Firm's own docstring) --
+    exact normalized match, not the substring ilike search_firms uses for
+    interactive lookup. Firm.name_norm carries a UNIQUE constraint, so at
+    most one firm can match.
+
+    Deliberately recomputed here rather than compared against the stored
+    account.name_norm: that column is populated with normalize_name (see
+    Account's own docstring/app.importers.netsuite_customers), which is the
+    wrong key for a company's own identity -- it silently collides unrelated
+    companies ("MCM Engineering", "L&D Engineering", and "P2S Engineering"
+    all reduce to bare "engineering"). Firm.name_norm uses
+    normalize_company_name instead (see that function's own docstring), so
+    this join recomputes the account side with the same function rather
+    than trusting a column built for a different purpose (search/fuzzy-dup
+    UI, which still wants normalize_name's broader collapsing).
 
     {'firm': Firm | None, 'active_projects': [(Project, role, stage), ...]}
     -- raw join, no weighting, no ranking. A firm match with an empty
     active_projects list is a real, distinct answer (this company IS on
     Scout's roster, just not tied to anything live right now), not the
     same as no firm match at all."""
-    firm = session.exec(select(Firm).where(Firm.name_norm == account.name_norm)).first()
+    firm = session.exec(
+        select(Firm).where(Firm.name_norm == normalize_company_name(account.name))
+    ).first()
     if firm is None:
         return {"firm": None, "active_projects": []}
     links = session.exec(

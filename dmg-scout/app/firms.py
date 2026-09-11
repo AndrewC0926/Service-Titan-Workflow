@@ -13,7 +13,7 @@ from sqlmodel import Session, select
 
 from app.config import Config
 from app.models import Firm, ProjectFirm
-from app.normalize import normalize_name
+from app.normalize import normalize_company_name
 
 log = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ def seed_firms(session: Session, cfg: Config) -> int:
     for firm_type, entries in (cfg.get("roster") or {}).items():
         for entry in entries:
             name = entry["name"]
-            norm = normalize_name(name)
+            norm = normalize_company_name(name)
             existing = session.exec(select(Firm).where(Firm.name_norm == norm)).first()
             if existing:
                 # Keep roster typing/aliases authoritative over extraction guesses.
@@ -57,12 +57,12 @@ def _alias_index(session: Session) -> dict[str, Firm]:
     for firm in session.exec(select(Firm)).all():
         index[firm.name_norm] = firm
         for alias in firm.aliases or []:
-            index.setdefault(normalize_name(alias), firm)
+            index.setdefault(normalize_company_name(alias), firm)
     return index
 
 
 def match_firm(session: Session, name: str) -> Firm | None:
-    norm = normalize_name(name)
+    norm = normalize_company_name(name)
     if not norm:
         return None
     return _alias_index(session).get(norm)
@@ -77,7 +77,7 @@ def resolve_signal_firms(session: Session, project_id: int, named_firms: list[di
         if not name:
             continue
         role = item.get("role") or "unknown"
-        norm = normalize_name(name)
+        norm = normalize_company_name(name)
         firm = index.get(norm)
         if firm is None:
             firm = Firm(name=name, name_norm=norm,

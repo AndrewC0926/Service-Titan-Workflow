@@ -17,7 +17,7 @@ from app.field_intel import (
     resolve_named_entity,
 )
 from app.models import FieldIntel, Firm, Project, ProjectFirm, utcnow
-from app.normalize import normalize_name
+from app.normalize import normalize_company_name, normalize_name
 
 
 def _firm(session, name, firm_type="mech_contractor"):
@@ -100,6 +100,24 @@ def test_resolve_named_entity_matches_an_existing_firm(db_session):
     result = resolve_named_entity(db_session, "Acme Mechanical Engineering, Inc.")
     assert result["firm"].id == firm.id
     assert result["account"] is None
+
+
+def test_resolve_named_entity_distinguishes_normalize_name_blast_radius_firms(db_session):
+    """resolve_named_entity's Firm side goes through app.firms.match_firm,
+    which now keys on normalize_company_name -- so 'MCM Engineering' and
+    'P2S Engineering', which normalize_name collides to bare 'engineering',
+    must resolve to their own distinct Firm rows here, the field-intel
+    exact match named directly in the Phase B blast-radius fix."""
+    mcm = Firm(name="MCM Engineering, Inc.",
+               name_norm=normalize_company_name("MCM Engineering, Inc."), firm_type="mep")
+    p2s = Firm(name="P2S Engineering, Inc.",
+               name_norm=normalize_company_name("P2S Engineering, Inc."), firm_type="mep")
+    db_session.add(mcm)
+    db_session.add(p2s)
+    db_session.commit()
+
+    assert resolve_named_entity(db_session, "MCM Engineering, Inc.")["firm"].id == mcm.id
+    assert resolve_named_entity(db_session, "P2S Engineering, Inc.")["firm"].id == p2s.id
 
 
 def test_resolve_named_entity_matches_an_existing_account(db_session):

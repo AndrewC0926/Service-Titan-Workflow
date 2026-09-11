@@ -32,7 +32,7 @@ from app.models import (
     Signal,
     SignalType,
 )
-from app.normalize import normalize_name
+from app.normalize import normalize_company_name, normalize_name
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SAMPLE_CSV = (FIXTURES / "account_roster_sample.csv").read_text()
@@ -516,3 +516,33 @@ def test_firm_join_aggregate_on_the_synthetic_fixture_is_honest(db_session, cfg)
     assert len(result["active_projects"]) == 2
     stages = {stage for _, _, stage in result["active_projects"]}
     assert stages == {"permitting", "design"}
+
+
+def test_firm_join_still_finds_a_normalize_name_blast_radius_company(db_session):
+    """accounts_matching_firm recomputes normalize_company_name(account.name)
+    rather than comparing the stored account.name_norm (which stays on
+    normalize_name for search/fuzzy-dup UI) -- this is the case that motivates
+    the difference: 'P2S Engineering, Inc.' reduces to bare 'engineering'
+    under normalize_name (matching the SPE-code shape), which would have
+    wrongly matched (or, with a firm roster genuinely keyed on
+    normalize_company_name, silently missed) the real Firm row. With both
+    sides on the right function for a company's own identity, they match
+    correctly and only each other."""
+    account = _account(db_session, "P2S Engineering, Inc.")
+    firm = Firm(name="P2S Engineering, Inc.",
+                name_norm=normalize_company_name("P2S Engineering, Inc."),
+                firm_type="mep")
+    db_session.add(firm)
+    db_session.commit()
+
+    # Sanity: this pair is exactly the case normalize_name gets wrong.
+    assert normalize_name(account.name) != firm.name_norm
+
+    result = accounts_matching_firm(db_session, account)
+    assert result["firm"] is not None
+    assert result["firm"].id == firm.id
+
+    # An unrelated "___ Engineering" company must NOT also match P2S's row.
+    other = _account(db_session, "Engineering Partners LLC")
+    other_result = accounts_matching_firm(db_session, other)
+    assert other_result["firm"] is None

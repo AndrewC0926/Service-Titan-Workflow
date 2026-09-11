@@ -23,3 +23,4 @@ tools/screenshots/
 # module's docstring. Regenerated on demand, doesn't survive a deploy anyway
 # (no persistent disk on the web service), so it has no business in the repo.
 data/precall_cache/
+netsuite-exports/

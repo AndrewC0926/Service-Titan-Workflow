@@ -26,6 +26,52 @@ def normalize_name(name: str) -> str:
     return s
 
 
+def normalize_company_name(name: str) -> str:
+    """Entity-name normalization for a company's own identity (Firm rows and
+    anything matched against them) -- NOT for project/permit signals, which
+    keep using normalize_name unchanged. See app.importers.netsuite_customers
+    and the Phase B blast-radius report this was built from: normalize_name's
+    _SPE_CODE and _ROMAN passes are tuned for a PROJECT name's own SPE/phase
+    codes ("Vantage Data Centers NV11, LLC" -> "vantage data centers", the
+    intended collapse), but applied to an ordinary COMPANY name they silently
+    collide unrelated real companies -- "MCM ENGINEERING, INC." (MCM parses
+    as the roman numeral 1900), "L&D Engineering Inc." (L and D are each
+    single-letter roman numerals once "&" is stripped to a space), and "P2S
+    Engineering, Inc." (matches the SPE-code shape) all normalized to the
+    bare string "engineering"; separately, "LM Construction" (L and M are
+    each roman numerals) normalized to bare "construction" and, per that
+    report, was measured to be one normalize_name call away from silently
+    absorbing 221 distinct, real CSLB-licensed contractors it has never done
+    business with, the moment any of their names is ever extracted from a
+    document (app.firms.resolve_signal_firms looks up-then-reuses on
+    Firm.name_norm; a same-key hit never creates a second row or raises --
+    it just silently attaches the wrong company to the existing Firm).
+
+    Company identity has no legitimate use for either pass: a company's own
+    name is never itself a per-project SPE code, and stripping a bare
+    roman-numeral-shaped token is safe ONLY when it is doing real
+    phase/building/parcel/unit work ("Data Center Phase II" should still
+    collapse toward "Data Center") -- which _PHASE already captures on its
+    own by consuming the numeral as part of one bounded match right after
+    the keyword (phase|bldg|building|campus|site|parcel). A roman-shaped
+    token anywhere else -- the leading token ("LM", "MCM") or any standalone
+    token not adjacent to one of those keywords -- is never phase language,
+    so this function never runs the standalone _SPE_CODE or _ROMAN passes at
+    all. _PHASE itself is kept exactly as normalize_name runs it, so
+    "Phase II"/"Building III"-shaped project language collapses the same way
+    here as it does for signals; only the two passes that were never safe
+    for a company's OWN name are dropped.
+    """
+    s = name.lower().strip()
+    s = s.replace(".", "")
+    s = re.sub(r"[^\w\s-]", " ", s)
+    for suf in _LEGAL_SUFFIXES:
+        s = re.sub(rf"\b{re.escape(suf)}\b", " ", s)
+    s = _PHASE.sub(" ", s)
+    s = re.sub(r"[\s-]+", " ", s).strip()
+    return s
+
+
 """Trailing generational and credential suffixes on a PERSON's name. Stripped only
 as the final token, so "John Smith III" matches "John Smith" while "Di Wu" survives."""
 _PERSON_TRAILING = {"jr", "sr", "ii", "iii", "iv", "v", "pe", "pmp", "aia", "leed", "phd"}

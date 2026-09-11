@@ -4,7 +4,7 @@ the original five roles already work, and the extraction schema actually
 offering the model those roles. See app/firms.py and app/schemas.py."""
 from sqlmodel import select
 
-from app.firms import ROLE_TO_TYPE, resolve_signal_firms
+from app.firms import ROLE_TO_TYPE, match_firm, resolve_signal_firms
 from app.models import Firm, Project, ProjectFirm
 from app.schemas import EXTRACTION_JSON_SCHEMA
 
@@ -70,3 +70,32 @@ def test_architect_and_mep_engineer_are_distinct_firms_even_with_similar_names(d
     assert firms["Acme Architecture"] == "architect"
     assert firms["Acme MEP"] == "mep"
     assert firms["Acme Structural"] == "structural"
+
+
+def test_resolve_signal_firms_no_longer_merges_unrelated_construction_companies(db_session):
+    """The normalize_name blast radius, pinned as a regression: before
+    routing Firm identity through normalize_company_name, 'LM Construction'
+    and any other '___ Construction' company both reduced to the bare key
+    'construction' (L and M are each roman numerals) and resolve_signal_firms'
+    lookup-then-reuse silently attached the second company's project link to
+    the first company's Firm row -- no error, no second row. See
+    app.normalize.normalize_company_name's own docstring for the measured
+    scope (221 real CSLB contractors would have collided into one existing
+    'LM Construction' Firm row)."""
+    project = _project(db_session)
+    resolve_signal_firms(db_session, project.id, [
+        {"name": "LM Construction", "role": "gc"},
+        {"name": "Campusano Construction Inc", "role": "gc"},
+        {"name": "MCM Engineering, Inc.", "role": "mep_engineer"},
+        {"name": "P2S Engineering, Inc.", "role": "mep_engineer"},
+    ])
+    db_session.commit()
+
+    firms = db_session.exec(select(Firm)).all()
+    assert len(firms) == 4, [f.name for f in firms]
+    assert len({f.name_norm for f in firms}) == 4
+
+    assert match_firm(db_session, "LM Construction").name == "LM Construction"
+    assert match_firm(db_session, "Campusano Construction Inc").name == "Campusano Construction Inc"
+    assert match_firm(db_session, "MCM Engineering, Inc.").name == "MCM Engineering, Inc."
+    assert match_firm(db_session, "P2S Engineering, Inc.").name == "P2S Engineering, Inc."

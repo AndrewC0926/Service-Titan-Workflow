@@ -21,7 +21,7 @@ from sqlmodel import Session, delete, select
 
 from app.firms import ROLE_TO_TYPE
 from app.models import DeveloperDesignTeam, Firm, Project, ProjectFirm, utcnow
-from app.normalize import normalize_name
+from app.normalize import normalize_company_name, normalize_name
 
 # Scoped narrowly on purpose: civil/structural firms don't decide who
 # specifies HVAC equipment, so they're extracted (see app/firms.py) but never
@@ -120,7 +120,7 @@ def add_manual_team_entry(session: Session, developer: str, firm_name: str, role
     developer_norm = normalize_name(developer)
     if not developer_norm:
         raise ValueError("developer name is required")
-    firm_norm = normalize_name(firm_name)
+    firm_norm = normalize_company_name(firm_name)
     if not firm_norm:
         raise ValueError("firm name is required")
 
