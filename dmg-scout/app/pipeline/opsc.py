@@ -72,8 +72,8 @@ from sqlmodel import Session, delete, select
 from app.config import Config
 from app.http import PoliteClient
 from app.models import (
-    Category, OpscProject, OpscWorkload, RawDocument, Signal, SignalType, Stage,
-    SourceRun, TriageResult, utcnow,
+    Category, OpscProject, OpscStatusClass, OpscWorkload, RawDocument, Signal, SignalType,
+    Stage, SourceRun, TriageResult, classify_opsc_status, utcnow,
 )
 from app.pdftext import pdf_to_text
 from app.pipeline.size_score import in_territory as _territory_check
@@ -181,11 +181,16 @@ def parse_rows(raw_bytes: bytes) -> list[dict]:
 def signal_stage(program: str | None, status: str | None) -> Stage:
     """Program 'Modernization' or 'New Construction' with Status 'Funds
     Released' -> procurement (Window.POST_BOD, via
-    app.pipeline.scoring.classify_window); every other combination ->
-    entitlement (Window.PRE_BOD). Never guessed past what these two literal
-    fields say."""
-    if status == "Funds Released" and program in ("Modernization", "New Construction"):
+    app.pipeline.scoring.classify_window). Status 'Closed' -> operating: the
+    application is terminal, so the underlying school project is done, not
+    still in entitlement (WS3.4 fix -- see classify_opsc_status). Every
+    other combination -> entitlement (Window.PRE_BOD). Never guessed past
+    what these two literal fields say."""
+    status_class = classify_opsc_status(status)
+    if status_class == OpscStatusClass.funds_released and program in ("Modernization", "New Construction"):
         return Stage.procurement
+    if status_class == OpscStatusClass.closed:
+        return Stage.operating
     return Stage.entitlement
 
 
@@ -438,7 +443,14 @@ def schools_board(session: Session, cfg: Config, *, county: str | None = None,
     the rule (owner_standards for a district on the standards list,
     otherwise bidding_contractors once Funds Released, engineer before
     that). Rows with no Last_SAB_Date at all (never yet reached the SAB)
-    sort last, not first -- an unstated date is not "most recent"."""
+    sort last, not first -- an unstated date is not "most recent".
+
+    Closed applications (classify_opsc_status == closed) are excluded from
+    the DEFAULT board -- WS3.4 fix: a closed application is a terminal, dead
+    lead, not an active one. Only excluded when `status` isn't explicitly
+    requested -- `schools_board(..., status="Closed")` still returns them,
+    same as any other explicit status filter; the exclusion is a default-view
+    behavior, not a hard delete or a claim the rows don't exist."""
     from app.call_target import opsc_call_target
 
     q = select(OpscProject).where(OpscProject.in_territory == True)  # noqa: E712
@@ -453,6 +465,8 @@ def schools_board(session: Session, cfg: Config, *, county: str | None = None,
     if grade_level:
         q = q.where(OpscProject.grade_level_of_project == grade_level)
     rows = session.exec(q).all()
+    if status is None:
+        rows = [r for r in rows if classify_opsc_status(r.status) != OpscStatusClass.closed]
     rows.sort(key=lambda r: r.last_sab_date or datetime.min, reverse=True)
 
     return [{"row": r, "call_target": opsc_call_target(cfg, r.district, r.status)} for r in rows]

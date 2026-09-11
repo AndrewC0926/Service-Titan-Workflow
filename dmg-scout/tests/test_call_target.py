@@ -318,7 +318,28 @@ def test_opsc_call_target_funds_released_is_bidding_contractors(cfg):
 
 def test_opsc_call_target_earlier_status_is_engineer(cfg):
     from app.call_target import opsc_call_target
-    for status in ("Closed", "100.00% Completed", None):
+    for status in ("100.00% Completed", None):
         r = opsc_call_target(cfg, "Some Non-Standards District", status)
         assert r.target == CallTarget.engineer
         assert r.rule == "R4"
+
+
+def test_opsc_call_target_closed_is_terminal_not_engineer(cfg):
+    """WS3.4 fix, regression: a Closed application must not route to R4
+    'engineer, spec not locked' -- old code did exactly that (see git
+    history of this test, which used to include "Closed" in the R4
+    parametrization above)."""
+    from app.call_target import opsc_call_target
+    r = opsc_call_target(cfg, "Some Non-Standards District", "Closed")
+    assert r.target == CallTarget.closed
+    assert r.rule == "R6"
+    assert "closed" in r.reason.lower()
+
+
+def test_opsc_call_target_standards_district_wins_even_when_closed(cfg):
+    """R1 (owner_standards) still outranks a closed application -- a
+    standards program applies at any stage, closed included."""
+    from app.call_target import opsc_call_target
+    r = opsc_call_target(cfg, "Los Angeles Unified", "Closed")
+    assert r.target == CallTarget.owner_standards
+    assert r.rule == "R1"

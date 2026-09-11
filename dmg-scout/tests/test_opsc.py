@@ -13,8 +13,8 @@ from sqlmodel import select
 
 from app.http import PoliteClient
 from app.models import (
-    Category, MatchCandidate, OpscProject, OpscWorkload, ProjectSignal, Signal, SignalType,
-    SourceRun, Stage, utcnow,
+    Category, MatchCandidate, OpscProject, OpscStatusClass, OpscWorkload, ProjectSignal,
+    Signal, SignalType, SourceRun, Stage, classify_opsc_status, utcnow,
 )
 from app.pipeline.opsc import (
     CSV_URL, WORKLOAD_URLS, fetch_opsc_projects, fetch_opsc_workload, parse_rows,
@@ -100,6 +100,26 @@ def test_parse_rows_text_typed_fields_stay_strings_even_when_numeric_looking():
     assert isinstance(rows[0]["preliminary_grant_application"], str)
 
 
+# --- classify_opsc_status (WS3.4) -------------------------------------------
+
+
+def test_classify_opsc_status_closed():
+    assert classify_opsc_status("Closed") == OpscStatusClass.closed
+
+
+def test_classify_opsc_status_funds_released():
+    assert classify_opsc_status("Funds Released") == OpscStatusClass.funds_released
+
+
+def test_classify_opsc_status_none_is_unknown():
+    assert classify_opsc_status(None) == OpscStatusClass.unknown
+
+
+def test_classify_opsc_status_anything_else_is_open():
+    assert classify_opsc_status("In Process") == OpscStatusClass.open
+    assert classify_opsc_status("100.00% Completed") == OpscStatusClass.open
+
+
 # --- signal_stage -----------------------------------------------------------
 
 
@@ -109,8 +129,17 @@ def test_signal_stage_funds_released_and_matching_program_is_procurement():
 
 
 def test_signal_stage_earlier_status_is_entitlement():
-    assert signal_stage("New Construction", "Closed") == Stage.entitlement
     assert signal_stage("New Construction", None) == Stage.entitlement
+    assert signal_stage("New Construction", "In Process") == Stage.entitlement
+
+
+def test_signal_stage_closed_is_operating_not_entitlement():
+    """WS3.4 fix, regression: a Closed application is terminal -- the school
+    project it funded is done, not still in entitlement. Old code returned
+    Stage.entitlement here (see git history of this test); this must not
+    regress back to that."""
+    assert signal_stage("New Construction", "Closed") == Stage.operating
+    assert signal_stage("Modernization", "Closed") == Stage.operating
 
 
 def test_signal_stage_funds_released_with_other_program_is_still_entitlement():
@@ -355,7 +384,7 @@ def test_fetch_workload_full_replaces_only_the_matching_program(db_session, cfg,
 
 
 def _opsc(session, app_no, county="Los Angeles", district="Test Unified",
-         school="Test Elementary", program="New Construction", status="Closed",
+         school="Test Elementary", program="New Construction", status="In Process",
          last_sab_date=None, grade_level=None, in_territory=True) -> OpscProject:
     row = OpscProject(application_number=app_no, county=county, district=district,
                       school_name=school, program=program, status=status,
@@ -388,26 +417,59 @@ def test_schools_board_excludes_out_of_territory(db_session, cfg):
 def test_schools_board_filters_county_district_program_status_grade(db_session, cfg):
     from app.pipeline.opsc import schools_board
     _opsc(db_session, "1", county="Los Angeles", district="A", program="New Construction",
-         status="Closed", grade_level="EL")
+         status="In Process", grade_level="EL")
     _opsc(db_session, "2", county="Orange", district="B", program="Modernization",
          status="Funds Released", grade_level="HI")
+    _opsc(db_session, "3", county="Los Angeles", district="A", program="New Construction",
+         status="Closed", grade_level="EL")
 
     assert [d["row"].application_number for d in schools_board(db_session, cfg, county="Orange")] == ["2"]
     assert [d["row"].application_number for d in schools_board(db_session, cfg, district="A")] == ["1"]
     assert [d["row"].application_number
            for d in schools_board(db_session, cfg, program="Modernization")] == ["2"]
-    assert [d["row"].application_number for d in schools_board(db_session, cfg, status="Closed")] == ["1"]
+    assert [d["row"].application_number for d in schools_board(db_session, cfg, status="Closed")] == ["3"]
     assert [d["row"].application_number for d in schools_board(db_session, cfg, grade_level="HI")] == ["2"]
 
 
 def test_schools_board_carries_call_target(db_session, cfg):
     from app.call_target import CallTarget
     from app.pipeline.opsc import schools_board
-    _opsc(db_session, "1", district="Los Angeles Unified", status="Closed")
+    _opsc(db_session, "1", district="Los Angeles Unified", status="In Process")
     _opsc(db_session, "2", district="Some Non-Standards District", status="Funds Released")
-    _opsc(db_session, "3", district="Some Non-Standards District", status="Closed")
+    _opsc(db_session, "3", district="Some Non-Standards District", status="In Process")
 
     by_id = {d["row"].application_number: d for d in schools_board(db_session, cfg)}
     assert by_id["1"]["call_target"].target == CallTarget.owner_standards
     assert by_id["2"]["call_target"].target == CallTarget.bidding_contractors
     assert by_id["3"]["call_target"].target == CallTarget.engineer
+
+
+def test_schools_board_default_excludes_closed_even_without_status_filter(db_session, cfg):
+    """WS3.4 fix, regression: a Closed row must not appear on the default
+    (unfiltered) board at all, regardless of what other filters (or none)
+    are passed -- old code showed it with call_target R4 'engineer, spec
+    not locked', which is wrong for a dead application."""
+    from app.pipeline.opsc import schools_board
+    _opsc(db_session, "1", district="Some Non-Standards District", status="In Process")
+    _opsc(db_session, "2", district="Some Non-Standards District", status="Closed")
+
+    result = schools_board(db_session, cfg)
+    assert [d["row"].application_number for d in result] == ["1"]
+
+    # explicit status filter still surfaces the closed row on request --
+    # exclusion is a default-view behavior, not a claim the row is gone
+    explicit = schools_board(db_session, cfg, status="Closed")
+    assert [d["row"].application_number for d in explicit] == ["2"]
+
+
+def test_schools_board_closed_standards_district_is_also_excluded_by_default(db_session, cfg):
+    """A standards-owner district (R1, owner_standards) still gets excluded
+    from the default board when closed -- the board-exclusion check runs
+    before call-target rule precedence, not after."""
+    from app.pipeline.opsc import schools_board
+    _opsc(db_session, "1", district="Los Angeles Unified", status="Closed")
+
+    assert schools_board(db_session, cfg) == []
+    explicit = schools_board(db_session, cfg, status="Closed")
+    assert len(explicit) == 1
+    assert explicit[0]["call_target"].target.value == "owner_standards"

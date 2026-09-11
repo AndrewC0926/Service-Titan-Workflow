@@ -74,6 +74,32 @@ class Window(str, enum.Enum):
     OPERATING = "OPERATING"
 
 
+class OpscStatusClass(str, enum.Enum):
+    """Explicit classification of OpscProject.status's raw government text
+    (WS3.4, Build Plan v2.1 -- the Sep 10 fix that was prompted for but never
+    landed: this repo had zero "closed"/terminal handling anywhere before
+    this). Replaces scattered `status == "Funds Released"` / `status ==
+    "Closed"` string literals with one named mapping in classify_opsc_status
+    below, so a status this doesn't recognize falls to `open`, not a guess."""
+    funds_released = "funds_released"
+    closed = "closed"    # terminal: the funding application is done. Not an
+                          # active lead -- excluded from the Schools board's
+                          # default view (app.pipeline.opsc.schools_board)
+                          # and never routed to "engineer, spec not locked".
+    open = "open"         # anything else with a status: still moving
+    unknown = "unknown"   # status missing entirely
+
+
+def classify_opsc_status(status: str | None) -> OpscStatusClass:
+    if status is None:
+        return OpscStatusClass.unknown
+    if status == "Closed":
+        return OpscStatusClass.closed
+    if status == "Funds Released":
+        return OpscStatusClass.funds_released
+    return OpscStatusClass.open
+
+
 class TriageResult(str, enum.Enum):
     pending = "pending"
     relevant = "relevant"

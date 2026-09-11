@@ -51,7 +51,8 @@ from sqlmodel import Session, select
 
 from app.config import Config
 from app.models import (
-    ACTIVE_STATUSES, Ab869Plan, Category, Firm, Project, ProjectFirm, Window,
+    ACTIVE_STATUSES, Ab869Plan, Category, Firm, OpscStatusClass, Project, ProjectFirm,
+    Window, classify_opsc_status,
 )
 
 ENGINEER_OF_RECORD_ROLE = "engineer_of_record"
@@ -65,6 +66,9 @@ class CallTarget(str, enum.Enum):
     owner = "owner"
     owner_standards = "owner_standards"
     unknown = "unknown"
+    closed = "closed"   # OPSC-only (WS3.4): the row is terminal, deliberately
+                        # no call target -- distinct from `unknown`, which
+                        # means Scout couldn't determine one
 
 
 CALL_TARGET_LABELS = {
@@ -74,6 +78,7 @@ CALL_TARGET_LABELS = {
     CallTarget.owner: "Owner",
     CallTarget.owner_standards: "Owner (standards program)",
     CallTarget.unknown: "Unknown",
+    CallTarget.closed: "Closed (no call target)",
 }
 
 
@@ -348,23 +353,33 @@ def opsc_call_target(cfg: Config, district: str | None, status: str | None) -> C
 
     R1-equivalent: District matches call_target.standards_owners (the same
     config list determine_call_target already checks -- LAUSD/"Los Angeles
-    Unified" is already on it) -> owner_standards, outranking status.
+    Unified" is already on it) -> owner_standards, outranking status --
+    including a closed application, since a standards program still applies
+    at any stage.
+    R6-equivalent (WS3.4 fix): Status is "Closed" -> `closed`, terminal, no
+    call target. Checked before R5/R4 -- a closed application was
+    previously falling into R4 "engineer, spec not yet locked", which is
+    wrong: the application is done, there is no spec left to lock.
     R5-equivalent: Status is literally "Funds Released" -> bidding_contractors
     (the spec is locked; contractors are bidding). Otherwise (any earlier
     status, including unknown) -> R4-equivalent engineer (the mechanical
     basis of design is still being decided). There is no OPSC-side
-    equivalent of R2/R3/R6 -- a funding record never states a delivery
-    method or an existing-building fact, and "status unknown" still falls
-    through to engineer rather than a fourth unknown bucket, since PRE_BOD
-    is the honest default for a filed-but-not-yet-funds-released
-    application."""
+    equivalent of R2/R3 -- a funding record never states a delivery method
+    or an existing-building fact, and "status unknown" still falls through
+    to engineer rather than a further unknown bucket, since PRE_BOD is the
+    honest default for a filed-but-not-yet-funds-released application."""
     standards_owners = cfg.get("call_target.standards_owners") or []
     matched = _matches_standards_owner(standards_owners, district)
     if matched:
         return CallTargetResult(CallTarget.owner_standards, "R1",
                                 f"district matches configured standards owner: {matched}",
                                 who_label=matched)
-    if status == "Funds Released":
+    status_class = classify_opsc_status(status)
+    if status_class == OpscStatusClass.closed:
+        return CallTargetResult(CallTarget.closed, "R6",
+                                "status is Closed -- application is terminal, no active call target",
+                                who_label="closed, no call target")
+    if status_class == OpscStatusClass.funds_released:
         return CallTargetResult(CallTarget.bidding_contractors, "R5", "status is Funds Released",
                                 who_label="bidding contractors")
     return CallTargetResult(CallTarget.engineer, "R4",
