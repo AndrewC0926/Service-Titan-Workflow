@@ -158,6 +158,14 @@ def resolve_building_role(name: str, category: str) -> str:
     return ROLE_OVERRIDE_BY_LINE.get(name) or CATEGORY_TO_ROLE.get(category, "heating_specialty")
 
 
+def out_of_territory_states(cfg: Config) -> set[str]:
+    """WS9 (Build Plan v2.1): Account.state values excluded from every
+    ranked account view by default -- see config.yaml's
+    accounts.out_of_territory_states comment for why. Editable without a
+    deploy, same as call_target.standards_owners."""
+    return set(cfg.get("accounts.out_of_territory_states", []) or [])
+
+
 # ---- line card: markets served ---------------------------------------------
 #
 # Which of these 8 a line plausibly sells into. Two tiers, never conflated
@@ -947,11 +955,18 @@ def pull_through(session: Session, cfg: Config, line: ProductLine, limit: int = 
     return scored[:limit]
 
 
-def line_account_matrix(session: Session, line_id: int) -> dict:
+def line_account_matrix(session: Session, cfg: Config, line_id: int,
+                        include_out_of_territory: bool = False) -> dict:
     """The whitespace matrix viewed by product instead of by account — every
     account that has a coverage row for this line, grouped by status, so the
     page reads as a call list (who already buys it, who doesn't) rather than
-    a spec sheet."""
+    a spec sheet.
+
+    WS9 (Build Plan v2.1): excludes accounts.out_of_territory_states
+    (Hawaii, Nevada) by default, same as app.web.main:accounts_list --
+    include_out_of_territory=True shows them, an explicit opt-in same as
+    that route's own filter."""
+    out_of_territory = out_of_territory_states(cfg)
     rows = session.exec(
         select(AccountCoverage, Account)
         .where(AccountCoverage.product_line_id == line_id,
@@ -960,6 +975,8 @@ def line_account_matrix(session: Session, line_id: int) -> dict:
     ).all()
     by_status: dict[str, list] = {s: [] for s in COVERAGE_STATUSES}
     for cov, account in rows:
+        if not include_out_of_territory and account.state in out_of_territory:
+            continue
         by_status[cov.status].append({"coverage": cov, "account": account})
     return {
         "by_status": by_status,

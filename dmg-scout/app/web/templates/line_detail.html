@@ -272,7 +272,13 @@
 
 <h2>Accounts — who buys it, who doesn't</h2>
 <p class="note" style="margin-top:-6px">The whitespace matrix viewed by product instead of by account — this is
-  the call list.</p>
+  the call list.
+  {% if f_all_territory %}
+  <a href="?">Hide Hawaii &amp; Nevada</a>
+  {% else %}
+  <a href="?all_territory=true">Include Hawaii &amp; Nevada</a>
+  {% endif %}
+</p>
 <div class="kv mb-2">
   <div><div class="k">Bought</div><div class="v">{{ accounts_matrix.counts.get('bought', 0) }}</div></div>
   <div><div class="k">Quoted, lost</div><div class="v">{{ accounts_matrix.counts.get('quoted_not_won', 0) }}</div></div>

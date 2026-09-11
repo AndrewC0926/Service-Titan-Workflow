@@ -572,6 +572,45 @@ def test_accounts_list_links_to_account_page(client, db_session, cfg):
     assert f"/account/{account.id}" in r.text
 
 
+# --- WS9 (Build Plan v2.1): territory default -------------------------------
+
+
+def test_accounts_list_excludes_hawaii_and_nevada_by_default(client, db_session, cfg):
+    seed(db_session, cfg)
+    ca = create_account(db_session, name="LA Mechanical Co", state="CA")
+    hi = create_account(db_session, name="Aloha Mechanical Co", state="HI")
+    nv = create_account(db_session, name="Vegas Mechanical Co", state="NV")
+
+    r = client.get("/accounts", headers=AUTH)
+    assert "LA Mechanical Co" in r.text
+    assert "Aloha Mechanical Co" not in r.text
+    assert "Vegas Mechanical Co" not in r.text
+
+
+def test_accounts_list_all_territory_shows_hawaii_and_nevada(client, db_session, cfg):
+    seed(db_session, cfg)
+    create_account(db_session, name="Aloha Mechanical Co", state="HI")
+    create_account(db_session, name="Vegas Mechanical Co", state="NV")
+
+    r = client.get("/accounts?all_territory=true", headers=AUTH)
+    assert "Aloha Mechanical Co" in r.text
+    assert "Vegas Mechanical Co" in r.text
+
+
+def test_accounts_list_default_still_shows_accounts_with_no_state(client, db_session, cfg):
+    """A null state must not be silently treated as out-of-territory --
+    only an explicit HI/NV state is excluded."""
+    seed(db_session, cfg)
+    create_account(db_session, name="No State Co")
+    r = client.get("/accounts", headers=AUTH)
+    assert "No State Co" in r.text
+
+
+def test_out_of_territory_states_reads_config(cfg):
+    from app.accounts import out_of_territory_states
+    assert out_of_territory_states(cfg) == {"HI", "NV"}
+
+
 def test_account_page_requires_auth(client, db_session, cfg):
     seed(db_session, cfg)
     account = create_account(db_session, name="Auth Test Co")

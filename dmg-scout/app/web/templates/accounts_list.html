@@ -24,6 +24,8 @@
     <option value="">Type: all</option>
     {% for t in account_types %}<option value="{{ t }}" {% if t == f_type %}selected{% endif %}>{{ t.replace('_', ' ') }}</option>{% endfor %}
   </select>
+  <label><input type="checkbox" name="all_territory" value="true" {% if f_all_territory %}checked{% endif %}
+                onchange="this.form.submit()"> Include Hawaii &amp; Nevada</label>
 </form>
 
 <table class="tbl">

@@ -206,10 +206,33 @@ def test_line_account_matrix_groups_by_status(db_session, cfg):
     db_session.add(cov)
     db_session.commit()
 
-    matrix = line_account_matrix(db_session, aaon.id)
+    matrix = line_account_matrix(db_session, cfg, aaon.id)
     assert matrix["counts"]["bought"] == 1
     assert matrix["by_status"]["bought"][0]["account"].name == "Alpha Mechanical"
     assert matrix["by_status"]["bought"][0]["coverage"].dollar_value == 50000
+
+
+def test_line_account_matrix_excludes_out_of_territory_by_default(db_session, cfg):
+    """WS9 (Build Plan v2.1): a Hawaii account's coverage row is excluded
+    from the default matrix, present when include_out_of_territory=True."""
+    seed(db_session, cfg)
+    hi_acc = create_account(db_session, name="Aloha Mechanical", account_type="mechanical_contractor",
+                            state="HI")
+    aaon = db_session.exec(select(ProductLine).where(ProductLine.name == "AAON")).one()
+    cov = db_session.exec(
+        select(AccountCoverage).where(AccountCoverage.account_id == hi_acc.id,
+                                      AccountCoverage.product_line_id == aaon.id)).one()
+    cov.status = "bought"
+    db_session.add(cov)
+    db_session.commit()
+
+    default_matrix = line_account_matrix(db_session, cfg, aaon.id)
+    assert all(row["account"].name != "Aloha Mechanical"
+              for row in default_matrix["by_status"]["bought"])
+
+    full_matrix = line_account_matrix(db_session, cfg, aaon.id, include_out_of_territory=True)
+    assert any(row["account"].name == "Aloha Mechanical"
+              for row in full_matrix["by_status"]["bought"])
 
 
 # ---- project facility type resolution --------------------------------------

@@ -1613,6 +1613,18 @@ netsuite:
     - "SCS Cloud Payments Test (DMG Corp)"
 
 accounts:
+  # WS9 (Build Plan v2.1): Account.state values excluded from every ranked
+  # account view by default (app.web.main:accounts_list,
+  # app.accounts.line_account_matrix) -- an explicit filter still shows
+  # them, same escape-hatch discipline as app.pipeline.opsc.schools_board's
+  # Closed-status exclusion. DMG's rep territory is the LA office; the 512
+  # Hawaii customers in the real NetSuite roster (and any Nevada ones) are
+  # real accounts, not noise, but they shouldn't silently pad the default
+  # view a rep browses for LA-territory leads. Unrelated to the top-level
+  # `territory:` block elsewhere in this file, which gates CEQA
+  # project/signal in_territory, not Account rows.
+  out_of_territory_states: [HI, NV]
+
   # Typical single-PO dollar range for one tier of equipment, used to rank
   # coverage gaps by estimated dollar VALUE rather than by row count — a
   # missing custom air handler (tier 1) must outrank twenty missing diffusers

@@ -2217,7 +2217,7 @@ def reference_index(request: Request, tab: str = "",
 
 
 @app.get("/line/{line_id}", response_class=HTMLResponse)
-def line_detail(line_id: int, request: Request,
+def line_detail(line_id: int, request: Request, all_territory: bool = False,
                 session: Session = Depends(get_session), _: str = Depends(auth)):
     from app.accounts import (
         SELECTION_TOOL_ACCESS_LABELS,
@@ -2248,7 +2248,9 @@ def line_detail(line_id: int, request: Request,
     return templates.TemplateResponse(request, "line_detail.html", {
         "line": line, "best_guess": category_is_best_guess(line),
         "pull_through": pull_through(session, cfg, line),
-        "accounts_matrix": line_account_matrix(session, line.id),
+        "accounts_matrix": line_account_matrix(session, cfg, line.id,
+                                               include_out_of_territory=all_territory),
+        "f_all_territory": all_territory,
         "matching_projects": matching_projects_for_line(session, line),
         "value_band": value_tier_band(cfg, line.value_tier),
         "selection_tool": selection_tool,
@@ -2330,7 +2332,10 @@ def line_competitor_review(line_id: int, competitor_id: int, request: Request,
 
 @app.get("/accounts", response_class=HTMLResponse)
 def accounts_list(request: Request, rep: str = "", county: str = "", account_type: str = "",
+                  all_territory: bool = False,
                   session: Session = Depends(get_session), _: str = Depends(auth)):
+    from app.accounts import out_of_territory_states
+    cfg = load_config()
     q = select(Account).where(Account.status == "active").order_by(Account.name)
     if rep:
         q = q.where(Account.assigned_rep == rep)
@@ -2338,6 +2343,13 @@ def accounts_list(request: Request, rep: str = "", county: str = "", account_typ
         q = q.where(Account.county == county)
     if account_type:
         q = q.where(Account.account_type == account_type)
+    # WS9 (Build Plan v2.1): Hawaii/Nevada excluded from the default,
+    # unfiltered LA-office rep view -- all_territory=true (an explicit
+    # request, same escape-hatch discipline as schools_board's Closed
+    # status filter) shows them.
+    out_of_territory = out_of_territory_states(cfg)
+    if not all_territory and out_of_territory:
+        q = q.where(Account.state.not_in(out_of_territory) | Account.state.is_(None))
     accounts = session.exec(q).all()
 
     bought_counts: dict[int, int] = {}
@@ -2360,7 +2372,7 @@ def accounts_list(request: Request, rep: str = "", county: str = "", account_typ
     return templates.TemplateResponse(request, "accounts_list.html", {
         "accounts": accounts, "bought_counts": bought_counts, "total_counts": total_counts,
         "reps": reps, "counties": counties, "account_types": list(ACCOUNT_TYPES),
-        "f_rep": rep, "f_county": county, "f_type": account_type,
+        "f_rep": rep, "f_county": county, "f_type": account_type, "f_all_territory": all_territory,
         "tb": _title_block(session), "active": "accounts",
     })
 
