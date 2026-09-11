@@ -758,6 +758,46 @@ class DeveloperDesignTeam(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utcnow)
 
 
+class FirmPairing(SQLModel, table=True):
+    """WS2 (Build Plan v2.1): who works with whom, independent of any one
+    Project -- a design-builder's recurring architect/MEP/mech-contractor
+    partner, or an architect's recurring MEP partner, seeded from verified
+    real awards (public reporting or a primary procurement document) rather
+    than rolled up from ProjectFirm like DeveloperDesignTeam is. Same
+    "priors" concept the Build Plan's layer 2 describes: who to expect on a
+    NEW project once a design-builder or architect is already known, before
+    any document has named the rest of the team.
+
+    design_builder_firm_id is the anchor side of the pair (a GC/design-build
+    entity in every seed row so far, but the column name doesn't enforce
+    that -- an architect-anchored row, e.g. seeding architect->MEP priors
+    independent of any design-builder, is equally valid). partner_role
+    names what partner_firm_id does (architect | mep_engineer |
+    mech_contractor | structural_engineer, same vocabulary ProjectFirm.role
+    already uses).
+
+    source/source_url/observed_date are the citation -- source_url is None
+    only for a row seeded directly from a plan document's own already-
+    verified claim (no URL was given to re-cite), never for a row this
+    session found itself, which always carries the real document URL and
+    date. confidence is 0.0-1.0, same scale as Signal.confidence."""
+    __tablename__ = "firm_pairing"
+    __table_args__ = (
+        UniqueConstraint("design_builder_firm_id", "partner_firm_id", "partner_role",
+                         name="uq_firm_pairing"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    design_builder_firm_id: int = Field(foreign_key="firms.id", index=True)
+    partner_firm_id: int = Field(foreign_key="firms.id", index=True)
+    partner_role: str = Field(index=True)  # architect | mep_engineer | mech_contractor | structural_engineer
+    source: str                            # e.g. "build_plan_v2.1_seed", "ws3.2_document"
+    source_url: str | None = None
+    observed_date: datetime | None = None
+    confidence: float = 1.0
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class FieldIntel(SQLModel, table=True):
     """Human-sourced project intelligence: what a GC, engineer, or owner
     told a rep in conversation, before any of it exists as a public

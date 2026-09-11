@@ -1413,6 +1413,18 @@ def seed_developer_team_cmd() -> None:
     typer.echo(f"{written} (developer, firm, role) rows written")
 
 
+@app.command("seed-firm-pairings")
+def seed_firm_pairings_cmd() -> None:
+    """WS2 (Build Plan v2.1): seed FirmPairing with the plan's five verified
+    public pairings plus every pairing WS3.2's document sample surfaced.
+    Idempotent -- see app.pipeline.firm_pairing's module docstring for the
+    exact row list and each row's source."""
+    from app.pipeline.firm_pairing import seed_verified_firm_pairings
+    with session_scope() as session:
+        stats = seed_verified_firm_pairings(session)
+    typer.echo(json.dumps(stats))
+
+
 @app.command("fetch-ownership-recency")
 def fetch_ownership_recency_cmd() -> None:
     """Change-of-ownership recency for the retrofit board, from LA County's
