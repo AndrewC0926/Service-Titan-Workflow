@@ -1,19 +1,19 @@
 """WS3.1 (Build Plan v2.1): config-driven, no-LLM classification of
 Project.delivery_method_class / Project.pen_holder_role.
 
-NAMING CONFLICT, disclosed up front: `Project.delivery_method` (plain
-string) already existed before this module, populated by the universal LLM
-extraction loop (app.pipeline.extract) from ANY triaged-relevant document,
-entitlement filings included, and read live by app.call_target's R2 rule.
-That is exactly the "Delivery method from entitlement documents" practice
-the Build Plan's own Kill List (section 5) names as something not to rebuild
--- yet it is what the existing field already does. Rather than rename or
-retype that column (touching app.call_target, app.pipeline.corrections'
-pin system, app.pipeline.extract, app.llm, app.portfolios, app.assumptions,
-and app.web.main with no review), this module populates a SEPARATE pair of
-columns under different names: delivery_method_class / pen_holder_role.
-A human needs to decide the long-term reconciliation between the two
-delivery-method concepts -- see docs/BUILD-PLAN.md's WS3.1 row.
+NAMING CONFLICT, RESOLVED (Build Plan v2.1, Block 2): `Project.delivery_method`
+(plain string) already existed when this module was first written, populated
+by the universal LLM extraction loop (app.pipeline.extract) from ANY
+triaged-relevant document, entitlement filings included, and read live by
+app.call_target's R2 rule -- exactly the "Delivery method from entitlement
+documents" practice the Build Plan's own Kill List (section 5) names as
+something not to rebuild. Block 1 disclosed the conflict without touching
+that column; Block 2's own human decision resolved it: delivery_method_class
+and pen_holder_role are now the ONLY delivery fields any rule may read, R2
+was switched over (app.call_target), and the legacy column was renamed to
+Project.delivery_method_llm_hint and made display-only -- migration
+a3d719c04b5e, every rule-code read removed, guarded by
+tests/test_call_target.py's test_no_rule_code_reads_the_legacy_delivery_method_hint.
 
 RULE: a Project's delivery_method_class/pen_holder_role only ever comes from
 a Signal whose RawDocument.source is on the procurement_delivery.sources /

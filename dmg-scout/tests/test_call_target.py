@@ -12,7 +12,7 @@ from app.call_target import (
     project_call_target,
 )
 from app.models import (
-    Ab869Plan, Category, Firm, Project, ProjectFirm, Stage, Window,
+    Ab869Plan, Category, DeliveryMethodClass, Firm, Project, ProjectFirm, Stage, Window,
 )
 
 STANDARDS_OWNERS = ["Kaiser", "Providence", "Irvine Company", "UC ", "LAUSD", "CommonSpirit",
@@ -24,7 +24,8 @@ STANDARDS_OWNERS = ["Kaiser", "Providence", "Irvine Company", "UC ", "LAUSD", "C
 
 def test_r1_owner_standards_fires_on_substring_case_insensitive_match():
     target, rule, reason = determine_call_target(
-        developer_or_owner="kaiser foundation hospitals", delivery_method=None,
+        developer_or_owner="kaiser foundation hospitals",
+        delivery_method_class=DeliveryMethodClass.ABSTAIN,
         is_existing_building_record=False, has_engineer_of_record=False,
         window=None, standards_owners=STANDARDS_OWNERS)
     assert target == CallTarget.owner_standards
@@ -32,26 +33,35 @@ def test_r1_owner_standards_fires_on_substring_case_insensitive_match():
     assert "Kaiser" in reason
 
 
-def test_r2_db_contractor_fires_on_design_build_delivery_method():
+def test_r2_db_contractor_fires_on_design_build_gc():
     target, rule, _ = determine_call_target(
-        developer_or_owner="Some Developer LLC", delivery_method="design_build",
+        developer_or_owner="Some Developer LLC",
+        delivery_method_class=DeliveryMethodClass.design_build_gc,
         is_existing_building_record=False, has_engineer_of_record=False,
         window=None, standards_owners=STANDARDS_OWNERS)
     assert target == CallTarget.db_contractor and rule == "R2"
 
 
-def test_r2_does_not_fire_on_other_delivery_methods():
-    for dm in ("design_bid_build", "design_assist", "cm_at_risk", "progressive_design_build"):
+def test_r2_does_not_fire_on_other_delivery_method_classes():
+    """Build Plan v2.1 Block 2 WS3.1 decision: R2 fires ONLY on
+    design_build_gc -- design_build_trade is a subcontractor/trade-level
+    arrangement (the old code's excluded "design_assist"), and
+    progressive_design_build/p3/cmar are real, different delivery methods
+    with a different buyer, same distinction the pre-decision code drew."""
+    for dmc in (DeliveryMethodClass.design_bid_build, DeliveryMethodClass.design_build_trade,
+               DeliveryMethodClass.progressive_design_build, DeliveryMethodClass.p3,
+               DeliveryMethodClass.cmar, DeliveryMethodClass.unknown, DeliveryMethodClass.ABSTAIN):
         target, rule, _ = determine_call_target(
-            developer_or_owner=None, delivery_method=dm,
+            developer_or_owner=None, delivery_method_class=dmc,
             is_existing_building_record=False, has_engineer_of_record=False,
             window=None, standards_owners=STANDARDS_OWNERS)
-        assert target != CallTarget.db_contractor, f"{dm} incorrectly matched R2"
+        assert target != CallTarget.db_contractor, f"{dmc} incorrectly matched R2"
 
 
 def test_r3_owner_fires_for_existing_building_with_no_engineer():
     target, rule, reason = determine_call_target(
-        developer_or_owner="Some Hospital District", delivery_method=None,
+        developer_or_owner="Some Hospital District",
+        delivery_method_class=DeliveryMethodClass.ABSTAIN,
         is_existing_building_record=True, has_engineer_of_record=False,
         window=None, standards_owners=STANDARDS_OWNERS)
     assert target == CallTarget.owner and rule == "R3"
@@ -60,7 +70,7 @@ def test_r3_owner_fires_for_existing_building_with_no_engineer():
 
 def test_r3_does_not_fire_when_an_engineer_is_already_attached():
     target, rule, _ = determine_call_target(
-        developer_or_owner=None, delivery_method=None,
+        developer_or_owner=None, delivery_method_class=DeliveryMethodClass.ABSTAIN,
         is_existing_building_record=True, has_engineer_of_record=True,
         window=None, standards_owners=STANDARDS_OWNERS)
     assert target != CallTarget.owner
@@ -69,7 +79,7 @@ def test_r3_does_not_fire_when_an_engineer_is_already_attached():
 def test_r4_engineer_fires_for_pre_bod_and_in_bod():
     for w in (Window.PRE_BOD, Window.IN_BOD):
         target, rule, reason = determine_call_target(
-            developer_or_owner=None, delivery_method=None,
+            developer_or_owner=None, delivery_method_class=DeliveryMethodClass.ABSTAIN,
             is_existing_building_record=False, has_engineer_of_record=False,
             window=w, standards_owners=STANDARDS_OWNERS)
         assert target == CallTarget.engineer and rule == "R4"
@@ -78,7 +88,7 @@ def test_r4_engineer_fires_for_pre_bod_and_in_bod():
 
 def test_r5_bidding_contractors_fires_for_post_bod():
     target, rule, _ = determine_call_target(
-        developer_or_owner=None, delivery_method=None,
+        developer_or_owner=None, delivery_method_class=DeliveryMethodClass.ABSTAIN,
         is_existing_building_record=False, has_engineer_of_record=False,
         window=Window.POST_BOD, standards_owners=STANDARDS_OWNERS)
     assert target == CallTarget.bidding_contractors and rule == "R5"
@@ -86,23 +96,67 @@ def test_r5_bidding_contractors_fires_for_post_bod():
 
 def test_r6_unknown_names_the_missing_inputs():
     target, rule, reason = determine_call_target(
-        developer_or_owner=None, delivery_method=None,
+        developer_or_owner=None, delivery_method_class=DeliveryMethodClass.ABSTAIN,
         is_existing_building_record=False, has_engineer_of_record=False,
         window=Window.OPERATING, standards_owners=STANDARDS_OWNERS)
     assert target == CallTarget.unknown and rule == "R6"
     missing = reason.split("missing:")[1]
-    assert "developer/owner name" in missing and "delivery_method" in missing
+    assert "developer/owner name" in missing and "delivery_method_class is ABSTAIN" in missing
     # window WAS supplied (OPERATING, just not PRE/IN/POST_BOD) -- not "missing"
     assert "window (for R4/R5)" not in missing
 
 
 def test_r6_names_window_missing_when_window_is_none():
     target, rule, reason = determine_call_target(
-        developer_or_owner="Some Developer", delivery_method="cm_at_risk",
+        developer_or_owner="Some Developer", delivery_method_class=DeliveryMethodClass.cmar,
         is_existing_building_record=False, has_engineer_of_record=False,
         window=None, standards_owners=STANDARDS_OWNERS)
     assert target == CallTarget.unknown and rule == "R6"
     assert "window" in reason
+
+
+# --- guard: the legacy LLM hint must never influence a rule (Block 2 WS3.1) -
+
+
+def test_legacy_delivery_method_hint_does_not_influence_project_call_target(cfg):
+    """Behavioral guard: a Project whose delivery_method_llm_hint says
+    "design_build" (the exact old literal R2 used to match on) but whose
+    delivery_method_class is ABSTAIN must NOT get db_contractor -- proves
+    the hint has zero influence on the rule outcome, not just that the code
+    happens not to reference it."""
+    p = Project(name="P", category=Category.data_center, developer="Some Developer",
+               delivery_method_llm_hint="design_build",
+               delivery_method_class=DeliveryMethodClass.ABSTAIN,
+               window=Window.PRE_BOD, stage=Stage.entitlement, status="active")
+    r = project_call_target(cfg, p, engineer_of_record=None, gc=None, nearby_contractor=None)
+    assert r.target != CallTarget.db_contractor
+    assert r.rule != "R2"
+
+
+def test_no_rule_code_reads_the_legacy_delivery_method_hint():
+    """Static guard: neither app/call_target.py nor app/pipeline/scoring.py
+    may contain a bare `.delivery_method` attribute read (i.e. NOT
+    `.delivery_method_class`, `.delivery_method_llm_hint`, or
+    `.delivery_method_coverage`) anywhere in their source text. Fails
+    immediately if a future edit reintroduces a rule-code read of the
+    display-only hint field, without needing a specific rule scenario to
+    catch it."""
+    import re
+    from pathlib import Path
+
+    # Matches ".delivery_method" NOT immediately followed by "_class",
+    # "_llm_hint", or "_coverage" (word boundary after "delivery_method").
+    bare_read = re.compile(r"\.delivery_method(?!_class|_llm_hint|_coverage)\b")
+
+    repo_root = Path(__file__).resolve().parent.parent
+    for relpath in ("app/call_target.py", "app/pipeline/scoring.py"):
+        source = (repo_root / relpath).read_text()
+        matches = bare_read.findall(source)
+        assert not matches, (
+            f"{relpath} contains {len(matches)} bare .delivery_method read(s) -- "
+            "rule code may only read .delivery_method_class (see Build Plan v2.1 "
+            "Block 2's WS3.1 decision)"
+        )
 
 
 # --- priority order: every higher rule must beat every lower one ------------
@@ -110,7 +164,8 @@ def test_r6_names_window_missing_when_window_is_none():
 
 def test_r1_outranks_r2_r3_r4_r5():
     target, rule, _ = determine_call_target(
-        developer_or_owner="Providence St. Joseph", delivery_method="design_build",
+        developer_or_owner="Providence St. Joseph",
+        delivery_method_class=DeliveryMethodClass.design_build_gc,
         is_existing_building_record=True, has_engineer_of_record=False,
         window=Window.POST_BOD, standards_owners=STANDARDS_OWNERS)
     assert target == CallTarget.owner_standards and rule == "R1"
@@ -118,7 +173,8 @@ def test_r1_outranks_r2_r3_r4_r5():
 
 def test_r2_outranks_r3_r4_r5():
     target, rule, _ = determine_call_target(
-        developer_or_owner="Some Developer", delivery_method="design_build",
+        developer_or_owner="Some Developer",
+        delivery_method_class=DeliveryMethodClass.design_build_gc,
         is_existing_building_record=True, has_engineer_of_record=False,
         window=Window.POST_BOD, standards_owners=STANDARDS_OWNERS)
     assert target == CallTarget.db_contractor and rule == "R2"
@@ -126,7 +182,7 @@ def test_r2_outranks_r3_r4_r5():
 
 def test_r3_outranks_r4_r5():
     target, rule, _ = determine_call_target(
-        developer_or_owner="Some Developer", delivery_method=None,
+        developer_or_owner="Some Developer", delivery_method_class=DeliveryMethodClass.ABSTAIN,
         is_existing_building_record=True, has_engineer_of_record=False,
         window=Window.POST_BOD, standards_owners=STANDARDS_OWNERS)
     assert target == CallTarget.owner and rule == "R3"
@@ -138,7 +194,7 @@ def test_r4_outranks_r5():
     # body -- this locks that ordering in regardless of how the two
     # conditions happen to be mutually exclusive today.
     target, rule, _ = determine_call_target(
-        developer_or_owner=None, delivery_method=None,
+        developer_or_owner=None, delivery_method_class=DeliveryMethodClass.ABSTAIN,
         is_existing_building_record=False, has_engineer_of_record=False,
         window=Window.PRE_BOD, standards_owners=STANDARDS_OWNERS)
     assert target == CallTarget.engineer and rule == "R4"
@@ -173,7 +229,8 @@ def test_project_who_engineer_unknown_says_so_explicitly(cfg):
 
 def test_project_who_db_contractor_known_and_unknown(cfg):
     p = Project(name="P", category=Category.data_center, developer="Some Developer",
-               delivery_method="design_build", window=Window.PRE_BOD, stage=Stage.entitlement,
+               delivery_method_class=DeliveryMethodClass.design_build_gc,
+               window=Window.PRE_BOD, stage=Stage.entitlement,
                status="active")
     known = project_call_target(cfg, p, engineer_of_record=None, gc="Acme GC", nearby_contractor=None)
     assert known.who_label == "Acme GC"

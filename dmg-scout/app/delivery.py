@@ -1,6 +1,9 @@
-"""Display constants for Project.delivery_method -- see that field's
-docstring in app/models.py for what gets stored and why (extracted from
-filing text only, never inferred, null far more often than not).
+"""Display constants for Project.delivery_method_llm_hint -- see that
+field's docstring in app/models.py for what gets stored and why (extracted
+from filing text only, never inferred, null far more often than not).
+Display only, as of Build Plan v2.1 Block 2's WS3.1 decision -- never a
+rule input; see app.models.DeliveryMethodClass for the field a rule may
+actually read.
 
 DELIVERY_METHOD_NOTES answers the question this field exists to answer: who
 actually selects the mechanical equipment, and is the right call to the

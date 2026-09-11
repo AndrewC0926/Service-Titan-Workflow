@@ -555,7 +555,7 @@ def _board_extras(session: Session, projects: list[Project]) -> dict:
             "sized": sum(1 for p in projects if p.tons_estimate_low),
             "tons_low": tons_low, "tons_high": tons_high,
             "windows": windows,
-            "delivery_method_known": sum(1 for p in projects if p.delivery_method),
+            "delivery_method_known": sum(1 for p in projects if p.delivery_method_llm_hint),
         },
     }
 

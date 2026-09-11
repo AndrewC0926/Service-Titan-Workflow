@@ -1,6 +1,8 @@
 """RATCHET OVERRIDE: the one path allowed to move Project.stage backward,
 shrink Project.mw_it/mw_total, or replace an already-stated
-Project.delivery_method -- see the RATCHET BUG diagnosis (2026-09-06) for
+Project.delivery_method_llm_hint (display-only, see that field's own
+docstring -- this module corrects the hint's accuracy, it is never a rule
+input) -- see the RATCHET BUG diagnosis (2026-09-06) for
 why `_absorb()`'s forward-only/max-only/first-wins rules, correct for an
 ordinary signal, can otherwise leave a known-wrong fact permanently stuck.
 
@@ -46,14 +48,17 @@ STAGE_ORDER = ["unknown", "concept", "entitlement", "design", "permitting",
 
 # What a caller may correct, and how to turn its posted string into the
 # real stored value. Deliberately the same four fields _absorb() treats
-# specially (stage forward-only, mw_it/mw_total max-only, delivery_method
-# first-wins) -- every other Project column is filled from a signal
-# unconditionally and has no ratchet to override in the first place.
+# specially (stage forward-only, mw_it/mw_total max-only,
+# delivery_method_llm_hint first-wins) -- every other Project column is
+# filled from a signal unconditionally and has no ratchet to override in
+# the first place. delivery_method_llm_hint is display-only (Build Plan
+# v2.1 Block 2, WS3.1 decision) -- correcting it fixes what a human reads
+# on the project page, never a rule input.
 FIELD_CONVERTERS = {
     "stage": lambda v: Stage(v),
     "mw_it": lambda v: float(v),
     "mw_total": lambda v: float(v),
-    "delivery_method": lambda v: v,
+    "delivery_method_llm_hint": lambda v: v,
 }
 
 
@@ -81,7 +86,7 @@ def predates_pin(observed_at: datetime | None, correction: ManualCorrection) -> 
 
 def queue_pin_conflict(session: Session, project: Project, field: str, signal: Signal,
                        correction: ManualCorrection, candidate_value: str) -> None:
-    """Surface a post-pin, forward-moving (or, for delivery_method,
+    """Surface a post-pin, forward-moving (or, for delivery_method_llm_hint,
     differing) signal for a human to confirm or reject -- never applied
     automatically. Deduped on (project_id, field, signal_id): re-resolving
     an already-linked signal (concurrent run, backfill) must not double-
@@ -106,7 +111,7 @@ def queue_pin_conflict(session: Session, project: Project, field: str, signal: S
 def apply_manual_correction(session: Session, cfg: Config, project_id: int, field: str,
                             new_value: str, reason: str, corrected_by: str) -> ManualCorrection:
     """The only path allowed to move stage backward, shrink mw_it/mw_total,
-    or replace an already-stated delivery_method. Five steps, one
+    or replace an already-stated delivery_method_llm_hint. Five steps, one
     transaction:
 
       1. Read old_value off the LIVE Project row, inside this transaction --

@@ -13,9 +13,14 @@ can show its own reasoning:
      program applies at ANY stage, so it must win even over a design-build
      delivery method or a POST_BOD window that would otherwise route
      elsewhere.
-  R2 db_contractor -- delivery_method is literally "design_build" (not
-     progressive_design_build, design_assist, or cm_at_risk -- those are
-     real, different delivery methods with a different buyer).
+  R2 db_contractor -- delivery_method_class is literally design_build_gc
+     (Build Plan v2.1 Block 2 WS3.1 decision: NOT design_build_trade,
+     progressive_design_build, p3, or cmar -- those are real, different
+     delivery methods with a different buyer, the same distinction the
+     pre-decision code drew with the string "design_build". ABSTAIN/unknown
+     mean the rule does not fire, same as a missing value always has.
+     Project.delivery_method_llm_hint (LLM-extracted, any source) is never
+     read here -- see test_no_rule_code_reads_the_legacy_delivery_method_hint.
   R3 owner -- an existing-building record (Project.category == esco,
      Project.window == OPERATING, or an AB 869 facility, which has no
      "new construction" concept at all) with no engineer_of_record firm
@@ -31,7 +36,7 @@ can show its own reasoning:
 `determine_call_target()` itself is a pure function -- no DB access, no
 session -- so the priority order between rules is directly unit-testable
 without touching a database. Everything else in this module gathers real
-inputs (developer name, delivery_method, window, whether a design-team
+inputs (developer name, delivery_method_class, window, whether a design-team
 firm is attached) from the DB and resolves WHO best answers that target
 type, reusing existing joins verbatim: the engineer of record via
 ProjectFirm (same role string build_brief already reads), nearby CSLB
@@ -51,8 +56,8 @@ from sqlmodel import Session, select
 
 from app.config import Config
 from app.models import (
-    ACTIVE_STATUSES, Ab869Plan, Category, Firm, OpscStatusClass, Project, ProjectFirm,
-    Window, classify_opsc_status,
+    ACTIVE_STATUSES, Ab869Plan, Category, DeliveryMethodClass, Firm, OpscStatusClass, Project,
+    ProjectFirm, Window, classify_opsc_status,
 )
 
 ENGINEER_OF_RECORD_ROLE = "engineer_of_record"
@@ -104,7 +109,8 @@ def _matches_standards_owner(standards_owners: list[str], name: str | None) -> s
     return None
 
 
-def determine_call_target(*, developer_or_owner: str | None, delivery_method: str | None,
+def determine_call_target(*, developer_or_owner: str | None,
+                          delivery_method_class: DeliveryMethodClass,
                           is_existing_building_record: bool, has_engineer_of_record: bool,
                           window: Window | None, standards_owners: list[str]
                           ) -> tuple[CallTarget, str, str]:
@@ -112,14 +118,20 @@ def determine_call_target(*, developer_or_owner: str | None, delivery_method: st
     priority order between rules are directly unit-testable without a
     session. Every caller (Project, an AB 869 facility) normalizes its own
     inputs and calls this same function -- one priority chain, not one
-    copy per entity type that could quietly drift apart."""
+    copy per entity type that could quietly drift apart.
+
+    delivery_method_class is the ONLY delivery input this function may read
+    (Build Plan v2.1 Block 2, WS3.1 decision) -- Project.delivery_method_llm_hint
+    (LLM-extracted, any source) must never reach here. Pass
+    DeliveryMethodClass.ABSTAIN for a caller (like an AB 869 facility) that
+    has no real classification, same as a missing value always meant here."""
     match = _matches_standards_owner(standards_owners, developer_or_owner)
     if match:
         return (CallTarget.owner_standards, "R1",
                 f"developer/owner matches the standards-owner list ({match!r})")
 
-    if delivery_method == "design_build":
-        return CallTarget.db_contractor, "R2", "delivery_method is design_build"
+    if delivery_method_class == DeliveryMethodClass.design_build_gc:
+        return CallTarget.db_contractor, "R2", "delivery_method_class is design_build_gc"
 
     if is_existing_building_record and not has_engineer_of_record:
         return (CallTarget.owner, "R3",
@@ -134,8 +146,8 @@ def determine_call_target(*, developer_or_owner: str | None, delivery_method: st
     missing = []
     if not developer_or_owner:
         missing.append("developer/owner name (for R1)")
-    if delivery_method is None:
-        missing.append("delivery_method (for R2)")
+    if delivery_method_class == DeliveryMethodClass.ABSTAIN:
+        missing.append("delivery_method_class is ABSTAIN (for R2)")
     if window is None:
         missing.append("window (for R4/R5)")
     if not missing:
@@ -207,7 +219,7 @@ def project_call_target(cfg: Config, project: Project, *, engineer_of_record: st
     standards_owners = cfg.get("call_target.standards_owners", []) or []
     target, rule, reason = determine_call_target(
         developer_or_owner=project.developer,
-        delivery_method=project.delivery_method,
+        delivery_method_class=project.delivery_method_class,
         # esco is always an existing building (see Category.esco's own
         # docstring); OPERATING window is the same fact from the other
         # direction -- the building is already built and no basis-of-
@@ -267,7 +279,7 @@ def ab869_call_target(cfg: Config, plan: Ab869Plan | None, facility_name: str | 
     name_for_match = (plan.owner_name if plan else None) or facility_name
     target, rule, reason = determine_call_target(
         developer_or_owner=name_for_match,
-        delivery_method=None,
+        delivery_method_class=DeliveryMethodClass.ABSTAIN,
         is_existing_building_record=True,
         has_engineer_of_record=False,
         window=None,
@@ -346,7 +358,7 @@ def sample_for_review(distribution: dict, n: int = 10, seed: int | None = None) 
 
 def opsc_call_target(cfg: Config, district: str | None, status: str | None) -> CallTargetResult:
     """Call target for an OPSC Schools-tab row -- not a Project, so R1-R6's
-    Project-shaped inputs (delivery_method, existing-building-ness,
+    Project-shaped inputs (delivery_method_class, existing-building-ness,
     Window) don't apply; this is its own small rule table, reusing
     CallTarget/CallTargetResult and the SAME standards-owner precedence as
     determine_call_target's own R1.

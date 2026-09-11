@@ -266,8 +266,8 @@
 <tr>
   <td class="num idx">{{ loop.index }}</td>
   <td><a href="/project/{{ p.id }}" class="clamp2" title="{{ p.name }}">{{ p.name }}</a>
-    {%- if p.delivery_method and p.delivery_method in DELIVERY_METHOD_ABBR -%}
-    <div class="note"><span class="stamp stamp-quiet" title="{{ DELIVERY_METHOD_LABELS[p.delivery_method] }} — {{ DELIVERY_METHOD_NOTES[p.delivery_method] }}">{{ DELIVERY_METHOD_ABBR[p.delivery_method] }}</span></div>
+    {%- if p.delivery_method_llm_hint and p.delivery_method_llm_hint in DELIVERY_METHOD_ABBR -%}
+    <div class="note"><span class="stamp stamp-quiet" title="LLM hint, display only: {{ DELIVERY_METHOD_LABELS[p.delivery_method_llm_hint] }} — {{ DELIVERY_METHOD_NOTES[p.delivery_method_llm_hint] }}">{{ DELIVERY_METHOD_ABBR[p.delivery_method_llm_hint] }}</span></div>
     {%- endif -%}
   </td>
   <td><span class="clip" title="{{ p.developer or '' }}">{{ p.developer or '—' }}</span></td>

@@ -453,13 +453,17 @@ def _absorb(session: Session, project: Project, signal: Signal) -> None:
     # nothing here changes that. The pin only adds a review-queue fork for
     # the case that line has always handled by silent, unrecorded discard:
     # a signal AFTER a correction proposing a genuinely DIFFERENT value.
-    if signal.delivery_method and project.delivery_method is not None:
-        delivery_pin = latest_correction(session, project.id, "delivery_method")
-        if (delivery_pin and signal.delivery_method != project.delivery_method
+    #
+    # DISPLAY ONLY (Build Plan v2.1 Block 2, WS3.1 decision) -- this is the
+    # LLM hint, never read by app.call_target or any scoring rule; see
+    # Project.delivery_method_llm_hint's own docstring.
+    if signal.delivery_method and project.delivery_method_llm_hint is not None:
+        delivery_pin = latest_correction(session, project.id, "delivery_method_llm_hint")
+        if (delivery_pin and signal.delivery_method != project.delivery_method_llm_hint
                 and not predates_pin(signal_observed, delivery_pin)):
-            queue_pin_conflict(session, project, "delivery_method", signal,
+            queue_pin_conflict(session, project, "delivery_method_llm_hint", signal,
                               delivery_pin, signal.delivery_method)
-    project.delivery_method = project.delivery_method or signal.delivery_method
+    project.delivery_method_llm_hint = project.delivery_method_llm_hint or signal.delivery_method
 
     project.updated_at = utcnow()
 
@@ -702,15 +706,18 @@ def apply_review_decision(session: Session, cfg: Config, candidate_id: int, deci
 
 
 def delivery_method_coverage(session: Session) -> dict:
-    """How many of the board's active projects state a delivery method at all,
-    read live rather than cached -- see Project.delivery_method's docstring.
-    Used both by the board's own summary strip and by the assumptions
-    register, so the two numbers can never drift apart."""
+    """How many of the board's active projects have a delivery-method LLM
+    hint at all, read live rather than cached -- see
+    Project.delivery_method_llm_hint's own docstring. DISPLAY ONLY, same as
+    that field -- this is coverage of the hint, not of delivery_method_class,
+    and is never used by any rule. Used both by the board's own summary
+    strip and by the assumptions register, so the two numbers can never
+    drift apart."""
     active = session.exec(
         select(func.count(Project.id)).where(Project.status.in_(ACTIVE_STATUSES))
     ).one()
     stated = session.exec(
         select(func.count(Project.id)).where(
-            Project.status.in_(ACTIVE_STATUSES), Project.delivery_method.is_not(None))
+            Project.status.in_(ACTIVE_STATUSES), Project.delivery_method_llm_hint.is_not(None))
     ).one()
     return {"active_total": active, "active_with_delivery_method": stated}
