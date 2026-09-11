@@ -43,6 +43,8 @@
 
 The free, public data layer is exhausted. Four candidate sources died this week alone, the moment someone actually opened the file. Everything real that's left costs paid data (roughly $1,000–$1,600 a month), access to DMG's own systems (NetSuite history, AAON and LG job registrations), or a public records request that takes weeks.
 
+A backtest against real NetSuite order history (2026-09-10, `docs/BACKTEST-2026-09-10.md`) found 0 of DMG's 1,359 biggest ($100k+) sold equipment jobs match a Scout-board project — not a matching bug, but confirmation that Scout's new-construction leads and DMG's sold history (dominated by hospital/school/repair work) are different populations today.
+
 ## 6. Open risk
 
 Scout runs on cloud services and accounts Andrew pays for personally; DMG has no access to the code, the database, or the logins today.
