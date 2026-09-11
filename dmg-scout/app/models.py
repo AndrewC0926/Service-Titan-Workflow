@@ -262,6 +262,49 @@ class Signal(SQLModel, table=True):
     grounding_version: int | None = Field(default=None, index=True)
 
 
+class DeliveryMethodClass(str, enum.Enum):
+    """WS3.1 (Build Plan v2.1): a SEPARATE, disciplined companion to the
+    pre-existing `Project.delivery_method` (plain string, LLM-extracted from
+    ANY triaged document including entitlement filings -- see
+    app.pipeline.extract's universal field loop and app.llm.EXTRACT_SYSTEM's
+    delivery_method section). That field predates this one, is actively read
+    by app.call_target's live R2 rule, and was NOT touched here: colliding
+    the same column name with a different value set and a stricter,
+    source-gated population rule would have silently broken call_target,
+    corrections pins, and the LLM extraction pipeline with no review. See
+    app.pipeline.procurement_delivery's module docstring for the full
+    naming-conflict writeup and docs/BUILD-PLAN.md's WS3.1 row.
+
+    ABSTAIN is the default and means "never attempted" -- the linked
+    signal's source isn't on the procurement-solicitation allowlist (config
+    key procurement_delivery.sources; entitlement sources are never on it).
+    `unknown` means "attempted, source was eligible, no configured keyword
+    matched" -- a real classification attempt that came up empty, distinct
+    from never trying at all."""
+    design_bid_build = "design_bid_build"
+    design_build_gc = "design_build_gc"
+    design_build_trade = "design_build_trade"
+    progressive_design_build = "progressive_design_build"
+    p3 = "p3"
+    cmar = "cmar"
+    unknown = "unknown"
+    ABSTAIN = "ABSTAIN"
+
+
+class PenHolderRole(str, enum.Enum):
+    """WS3.1: who holds the pen on the mechanical spec -- consulting_me (a
+    consulting mechanical engineer of record), design_builder (the
+    design-build entity itself), or owner_standards (the owner's own
+    standards program dictates it -- same concept app.call_target's R1
+    owner_standards rule already names). Same ABSTAIN/unknown distinction
+    as DeliveryMethodClass above, same source-gated population rule."""
+    consulting_me = "consulting_me"
+    design_builder = "design_builder"
+    owner_standards = "owner_standards"
+    unknown = "unknown"
+    ABSTAIN = "ABSTAIN"
+
+
 class Project(SQLModel, table=True):
     __tablename__ = "projects"
 
@@ -336,6 +379,13 @@ class Project(SQLModel, table=True):
     # contractor. See app/delivery.py's DELIVERY_METHOD_NOTES for the
     # plain-language explanation shown on the board and project page.
     delivery_method: str | None = None
+    # WS3.1: deliberately NOT the same field as delivery_method above -- see
+    # DeliveryMethodClass's own docstring for the naming-conflict writeup.
+    # Populated only by app.pipeline.procurement_delivery, never by the LLM
+    # extraction pipeline, never from an entitlement-sourced signal.
+    delivery_method_class: DeliveryMethodClass = Field(
+        default=DeliveryMethodClass.ABSTAIN, index=True)
+    pen_holder_role: PenHolderRole = Field(default=PenHolderRole.ABSTAIN, index=True)
     in_territory: bool = Field(default=True, index=True)
     # active | contacted | specified | bidding | won | lost | dead | archived
     status: str = Field(default="active", index=True)

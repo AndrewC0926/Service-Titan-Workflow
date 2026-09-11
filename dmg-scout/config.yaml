@@ -2547,3 +2547,78 @@ accounts:
 sam_gov:
   daily_call_budget: 8
   scheduled_call_budget: 4
+
+# WS3.1 (Build Plan v2.1): app.pipeline.procurement_delivery's config-driven,
+# no-LLM classifier for Project.delivery_method_class / pen_holder_role.
+# Deliberately separate from the pre-existing `keywords:` block above (that
+# one gates the fetch pipeline itself; this one classifies text already
+# ingested) and from Project.delivery_method (LLM-extracted, any source --
+# see DeliveryMethodClass's own docstring in app/models.py).
+procurement_delivery:
+  # Only a source name in this list is ever classified past ABSTAIN.
+  # Entitlement sources (ceqanet, ab802, ab869, hcai, opsc_school_facility,
+  # scaqmd, etc.) are deliberately absent -- they never state a procurement
+  # delivery method in the first place, and the plan's own instruction is
+  # explicit: entitlement documents always ABSTAIN. courts.ca.gov and Cal
+  # eProcure are named in the plan as candidate procurement-solicitation
+  # sources but neither is actually ingested yet (checked: no
+  # app/sources/*.py module for either) -- add them here the day either one
+  # is, not before.
+  sources:
+    - legistar
+  # Checked in this exact order, first match wins -- most-specific phrasing
+  # first. "progressive design-build" contains the substring "design-build",
+  # so if design_build_gc were checked first every progressive DB filing
+  # would misclassify as a plain GC-led design-build. Same ordering
+  # discipline as keyword_category's own "esco checked LAST" comment in
+  # app/sources/base.py.
+  keywords:
+    progressive_design_build:
+      - progressive design-build
+      - progressive design/build
+      - "PDB delivery"
+    cmar:
+      - construction manager at risk
+      - "CM at risk"
+      - "CMAR"
+      - construction manager/general contractor
+      - "CMGC"
+    p3:
+      - public-private partnership
+      - "P3 delivery"
+      - availability payment
+    design_build_trade:
+      - design-build subcontractor
+      - design-assist
+      - trade design-build
+    design_build_gc:
+      - design-build entity
+      - design-build general contractor
+      - design-build delivery
+      - design-build contractor
+      - design-build
+      - design/build
+      - "DB delivery"
+    design_bid_build:
+      - design-bid-build
+      - design bid build
+      - "DBB"
+      - lowest responsible bidder
+
+pen_holder_role:
+  sources:
+    - legistar
+  keywords:
+    owner_standards:
+      - owner's standard specification
+      - owner's master specification
+      - standards program
+    design_builder:
+      - design-build entity
+      - design-build contractor
+      - design-builder
+    consulting_me:
+      - mechanical engineer of record
+      - basis of design engineer
+      - consulting mechanical engineer
+      - consulting engineer
