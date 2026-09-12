@@ -384,6 +384,41 @@ def _dated_reason(fs: FeedSignal) -> bool:
     return fs.trigger_date is not None
 
 
+def _eligible_fitting_line_from_equipment_class(session: Session, fs: FeedSignal) -> int | None:
+    """Block 4B-prep Item 3: the equipment-class path, for the sources
+    _eligible_fitting_line's category-based check above always ABSTAINs
+    on (fs.category is None for retrofit_building/ab869_plan/hcai_project/
+    opsc_project/field_intel -- none of these carry a Category Scout's
+    line card spans). Only retrofit_building has ANY chance of a known
+    equipment class today (RetrofitBuilding.equipment_type, permit-
+    verified) -- ab869_plan/hcai_project are HCAI-governed facilities with
+    NO equipment-class-bearing field at all (see
+    app.pipeline.equipment_eligibility's module docstring), so this always
+    returns None for those, honestly, not a gap in this function.
+
+    osp_required=True for ab869_plan/hcai_project on principle (hospital
+    facilities require OSP) even though no row can exercise it today,
+    since neither source has an equipment class to look up in the first
+    place."""
+    from app.pipeline.equipment_eligibility import (
+        EquipmentClass, eligible_lines_for_equipment_class, equipment_class_from_retrofit_type,
+    )
+
+    equipment_class = EquipmentClass.unknown
+    osp_required = False
+    if fs.source == "retrofit_building" and fs.building_id is not None:
+        building = session.get(RetrofitBuilding, fs.building_id)
+        if building is not None:
+            equipment_class = equipment_class_from_retrofit_type(building.equipment_type)
+    elif fs.source in ("ab869_plan", "hcai_project"):
+        osp_required = True  # HCAI-governed -- see docstring above
+
+    if equipment_class == EquipmentClass.unknown:
+        return None
+    lines = eligible_lines_for_equipment_class(session, equipment_class, osp_required=osp_required)
+    return lines[0].id if lines else None
+
+
 def _eligible_fitting_line(session: Session, fs: FeedSignal) -> int | None:
     """Eligibility from the OSP register (ProductLine.oshpd_osp) and line
     facets (ProductLine.building_role/category), reusing app.accounts.
@@ -391,25 +426,24 @@ def _eligible_fitting_line(session: Session, fs: FeedSignal) -> int | None:
     already uses, not a second one. Only signals that carry a Category
     Scout's line card actually spans (data_center/industrial/esco -- see
     Category's own docstring) can be checked this way; every other source
-    (retrofit -- equipment_type is null by construction for replacement
-    candidates, ab869/hcai -- HCAI-governed with no category concept at
-    all, opsc -- K-12 is not a category Scout's card covers, field_intel --
-    no category) returns None (ABSTAIN, this part is missing), honestly,
-    rather than guessing a category to force a pass."""
-    if fs.category is None:
+    falls through to the equipment-class path below (Block 4B-prep Item 3)
+    before finally ABSTAINing."""
+    if fs.category is not None:
+        from app.accounts import facility_types_by_project, line_offering_by_role
+        from app.models import FacilityType
+
+        facility_type = FacilityType.unknown
+        if fs.project_id is not None:
+            facility_type = facility_types_by_project(session, [fs.project_id]).get(
+                fs.project_id, FacilityType.unknown)
+
+        offerings = line_offering_by_role(session, fs.category, facility_type)
+        for off in offerings:
+            if off.relevant and not off.gap and off.lines:
+                return off.lines[0].id
         return None
-    from app.accounts import facility_types_by_project, line_offering_by_role
-    from app.models import FacilityType
 
-    facility_type = FacilityType.unknown
-    if fs.project_id is not None:
-        facility_type = facility_types_by_project(session, [fs.project_id]).get(fs.project_id, FacilityType.unknown)
-
-    offerings = line_offering_by_role(session, fs.category, facility_type)
-    for off in offerings:
-        if off.relevant and not off.gap and off.lines:
-            return off.lines[0].id
-    return None
+    return _eligible_fitting_line_from_equipment_class(session, fs)
 
 
 def resolve_signal_id(session: Session, fs: FeedSignal) -> int | None:

@@ -261,6 +261,45 @@ class TestFourPartFilter:
         result = four_part_filter(db_session, fs)
         assert "eligible_fitting_line" in result.missing
 
+    def test_retrofit_building_with_a_known_equipment_type_uses_the_equipment_class_path(self, db_session):
+        """Block 4B-prep Item 3: a retrofit_building signal has no
+        Category (opsc/ab869/hcai/retrofit never do), so it falls through
+        to the new equipment-class path rather than ABSTAINing outright."""
+        b = RetrofitBuilding(apn="9-9-9", population="recently_active", equipment_type="boiler")
+        db_session.add(b)
+        db_session.add(ProductLine(name="Test Boiler Line", name_norm="test boiler line",
+                                   category="heaters", building_role="heating_specialty"))
+        db_session.commit()
+
+        fs = FeedSignal(source="retrofit_building", source_id=str(b.id), trigger_type=TriggerType.permit_gap,
+                        trigger_date=None, evidence="x", confidence=None, building_id=b.id)
+        result = four_part_filter(db_session, fs)
+        assert "eligible_fitting_line" not in result.missing
+
+    def test_retrofit_building_with_no_equipment_type_still_abstains(self, db_session):
+        """The replacement_candidate population's own permanently-null
+        equipment_type -- the honest, expected zero-coverage case."""
+        b = RetrofitBuilding(apn="8-8-8", population="replacement_candidate")
+        db_session.add(b)
+        db_session.commit()
+
+        fs = FeedSignal(source="retrofit_building", source_id=str(b.id), trigger_type=TriggerType.permit_gap,
+                        trigger_date=None, evidence="x", confidence=None, building_id=b.id)
+        result = four_part_filter(db_session, fs)
+        assert "eligible_fitting_line" in result.missing
+
+    def test_ab869_plan_always_abstains_no_equipment_class_field_exists(self, db_session):
+        """HospitalBuilding/Ab869Plan carry no equipment-class-bearing
+        field at all -- this must stay honest ABSTAIN, never a guess."""
+        db_session.add(ProductLine(name="Test OSP Chiller", name_norm="test osp chiller",
+                                   category="chillers_cooling", building_role="cooling_generation",
+                                   oshpd_osp=True))
+        db_session.commit()
+        fs = FeedSignal(source="ab869_plan", source_id="P1", trigger_type=TriggerType.deadline,
+                        trigger_date=None, evidence="x", confidence=None, facility_perm_id="P1")
+        result = four_part_filter(db_session, fs)
+        assert "eligible_fitting_line" in result.missing
+
 
 class TestPromoteToOpportunity:
     def test_creates_opportunity_and_three_reason_blocks(self, db_session):
