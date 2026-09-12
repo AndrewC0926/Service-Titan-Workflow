@@ -97,6 +97,31 @@ Stage: {{ payload.stage }}{% endif %}</textarea>
     </div>
   </div>
 
+  <div class="kv mb-3">
+    <div><div class="k">Opportunity ID <span class="note">(optional -- also logs a disposition)</span></div>
+      <input type="number" name="opportunity_id" placeholder="e.g. 12">
+    </div>
+    <div><div class="k">Disposition</div>
+      <select name="disposition">
+        <option value="">--</option>
+        {% for d in dispositions %}
+        <option value="{{ d.value }}">{{ d.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div><div class="k">Reason (required if Lost)</div>
+      <select name="reason_code">
+        <option value="">--</option>
+        {% for rc in reason_codes %}
+        <option value="{{ rc.value }}">{{ rc.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div><div class="k">Competitor (if lost to competitor)</div>
+      <input type="text" name="competitor">
+    </div>
+  </div>
+
   <div class="flex gap-1.5">
     <button type="submit">{{ icon('check') }} Confirm — log to outreach</button>
   </div>

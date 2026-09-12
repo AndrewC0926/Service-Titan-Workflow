@@ -180,3 +180,55 @@ class TestPipelinePage:
 
         r = client.get("/pipeline", headers=AUTH)
         assert r.text.index("call strong") < r.text.index("call abstain")
+
+
+class TestPipelineOutcomeLogging:
+    """Block 4A Item 2: one-tap disposition logging from Pipeline."""
+
+    def _opportunity(self, db_session):
+        signal = Signal(signal_type=SignalType.ceqa_nop)
+        db_session.add(signal)
+        db_session.flush()
+        opp = Opportunity(signal_id=signal.id, account_id=1)
+        db_session.add(opp)
+        db_session.commit()
+        return opp
+
+    def test_pipeline_row_shows_disposition_buttons_and_lost_form(self, client, db_session, cfg):
+        self._opportunity(db_session)
+        r = client.get("/pipeline", headers=AUTH)
+        assert 'action="/pipeline/1/outcome"' in r.text
+        assert "Connected" in r.text
+        assert "Confirm lost" in r.text
+
+    def test_logging_connected_updates_last_touch_not_stage(self, client, db_session, cfg):
+        opp = self._opportunity(db_session)
+        r = client.post(f"/pipeline/{opp.id}/outcome", headers=AUTH,
+                        data={"disposition": "connected"}, follow_redirects=False)
+        assert r.status_code == 303
+        from app.models import Outcome
+        outcome = db_session.exec(select(Outcome).where(Outcome.opportunity_id == opp.id)).one()
+        assert outcome.user == "andrew"
+        db_session.refresh(opp)
+        assert opp.last_touch is not None
+        assert opp.stage.value == "identified"
+
+    def test_logging_won_moves_stage_to_won(self, client, db_session, cfg):
+        opp = self._opportunity(db_session)
+        client.post(f"/pipeline/{opp.id}/outcome", headers=AUTH, data={"disposition": "won"})
+        db_session.refresh(opp)
+        assert opp.stage.value == "won"
+
+    def test_logging_lost_without_reason_code_400s(self, client, db_session, cfg):
+        opp = self._opportunity(db_session)
+        r = client.post(f"/pipeline/{opp.id}/outcome", headers=AUTH, data={"disposition": "lost"})
+        assert r.status_code == 400
+
+    def test_logging_lost_with_reason_code_moves_stage_to_lost(self, client, db_session, cfg):
+        opp = self._opportunity(db_session)
+        r = client.post(f"/pipeline/{opp.id}/outcome", headers=AUTH,
+                        data={"disposition": "lost", "reason_code": "timing_deferred"},
+                        follow_redirects=False)
+        assert r.status_code == 303
+        db_session.refresh(opp)
+        assert opp.stage.value == "lost"

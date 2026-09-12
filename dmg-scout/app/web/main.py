@@ -521,9 +521,37 @@ def pipeline_index(request: Request, session: Session = Depends(get_session), _:
         })
     rows.sort(key=lambda r: r["sort_key"])
 
+    from app.pipeline.outcomes import dispositions, reason_codes
+
     return templates.TemplateResponse(request, "pipeline_index.html", {
         "tb": _title_block(session), "active": "pipeline", "subview": "pipeline", "kpis": kpis, "rows": rows,
+        "dispositions": dispositions(), "reason_codes": reason_codes(),
     })
+
+
+@app.post("/pipeline/{opportunity_id}/outcome")
+def pipeline_log_outcome(opportunity_id: int, request: Request, disposition: str = Form(...),
+                         reason_code: str = Form(""), competitor: str = Form(""), note: str = Form(""),
+                         session: Session = Depends(get_session), username: str = Depends(auth)):
+    """Block 4A Item 2: one-tap disposition logging from Pipeline --
+    app.pipeline.outcomes.log_outcome is the one writer (also used by
+    /capture and the log_outreach MCP tool, see their own routes/tools).
+    "From Today" (the item's other named entry point) lands once Item 5
+    re-sources Today around real Opportunities -- Today's call cards are
+    still Project-scored today, not Opportunity-scored, so there is
+    nothing yet for a Today-side button to point at."""
+    from app.pipeline.outcomes import log_outcome
+
+    try:
+        log_outcome(session, opportunity_id=opportunity_id, user=username, disposition=disposition,
+                   reason_code=reason_code or None, competitor=competitor or None, note=note,
+                   source="web")
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    session.commit()
+    if request.headers.get("HX-Request"):
+        return HTMLResponse(f'<span class="ok">Logged: {disposition}</span>')
+    return RedirectResponse(f"/pipeline#opp-{opportunity_id}", status_code=303)
 
 
 # Signals cards are capped regardless of filter -- Master Plan v3.2 section
@@ -3401,9 +3429,12 @@ def capture_review(capture_id: int, request: Request,
         session, contact_name=payload.get("contact_name"), firm_name=payload.get("firm_name"),
         project_or_building_name=payload.get("project_or_building_name"),
     )
+    from app.pipeline.outcomes import dispositions, reason_codes
+
     return templates.TemplateResponse(request, "capture_review.html", {
         "row": row, "payload": payload, "candidates": candidates,
         "tb": _title_block(session), "active": "settings", "subview": "captures",
+        "dispositions": dispositions(), "reason_codes": reason_codes(),
     })
 
 
@@ -3424,17 +3455,27 @@ def capture_confirm(capture_id: int, request: Request,
                     project_id: int = Form(...), contact_id: str = Form(""),
                     notes: str = Form(""), next_action: str = Form(""),
                     next_action_date: str = Form(""), channel: str = Form("call"),
-                    session: Session = Depends(get_session), _: str = Depends(auth)):
+                    opportunity_id: str = Form(""), disposition: str = Form(""),
+                    reason_code: str = Form(""), competitor: str = Form(""),
+                    session: Session = Depends(get_session), username: str = Depends(auth)):
     """Confirm calls app.outreach.log_outreach -- the SAME writer the
     dashboard's own outreach form and the log_outreach MCP tool use -- so
     this review card is never a second, independent way an Outreach row
     gets created. project_id is required: Outreach has no unresolved-entity
     concept, so a capture with no project picked cannot be confirmed (see
     app/voice_match.py:resolve_project's docstring) -- edit the field or
-    reject instead."""
+    reject instead.
+
+    Block 4A Item 2: opportunity_id + disposition are optional, additive
+    fields -- when both are given, ALSO logs an Outcome (via
+    app.pipeline.outcomes.log_outcome, source='capture') against that
+    Opportunity, alongside the always-required Outreach row above. Lets a
+    voice note that names a specific Opportunity disposition it in the
+    same confirm action, without changing the Outreach path at all."""
     from datetime import datetime
 
     from app.outreach import log_outreach
+    from app.pipeline.outcomes import log_outcome
 
     row = session.get(ReviewQueue, capture_id)
     if row is None:
@@ -3451,6 +3492,21 @@ def capture_confirm(capture_id: int, request: Request,
             parsed_date = datetime.fromisoformat(next_action_date.strip())
         except ValueError:
             raise HTTPException(400, detail=f"could not parse next_action_date {next_action_date!r}")
+
+    # Validate/write the Outcome BEFORE log_outreach: log_outreach commits
+    # internally (its own session.commit()), a real, un-rollback-able write
+    # the instant it runs, while log_outcome only flushes. Doing it first
+    # means a bad reason_code/competitor 400s before anything is
+    # committed at all -- the whole confirm action stays atomic (nothing
+    # written) instead of leaving a real Outreach row behind a failed
+    # Outcome.
+    if opportunity_id.strip() and disposition.strip():
+        try:
+            log_outcome(session, opportunity_id=int(opportunity_id), user=username,
+                       disposition=disposition, reason_code=reason_code or None,
+                       competitor=competitor or None, note=notes, source="capture")
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     log_outreach(session, project_id=project_id,
                 contact_id=int(contact_id) if contact_id.strip() else None,

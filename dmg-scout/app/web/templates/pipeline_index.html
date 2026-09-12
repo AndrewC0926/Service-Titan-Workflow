@@ -11,7 +11,8 @@
 <div class="sec-head">
   <div class="sec-title">Pipeline</div>
   <span class="note">A Signal that passed the four-part filter becomes an Opportunity here --
-    ranked by its weakest why, never a weighted sum. No dispositions yet (Block 4).</span>
+    ranked by its weakest why, never a weighted sum. One-tap disposition on any row; Lost
+    requires a reason.</span>
 </div>
 {{ kpi_strip([
   {'label': 'Opportunities', 'value': kpis.opportunity_count},
@@ -21,7 +22,7 @@
 <table class="tbl">
   <thead><tr>
     <th>Account or building</th><th>Weakest why</th><th>Line</th><th>Stage</th><th>Pen holder</th>
-    <th>Last touch</th><th>Next action</th><th>NetSuite</th>
+    <th>Last touch</th><th>Next action</th><th>NetSuite</th><th>Disposition</th>
   </tr></thead>
   <tbody>
     {% for r in rows %}
@@ -34,9 +35,33 @@
       <td class="mono">{{ r.opportunity.last_touch.strftime('%Y-%m-%d') if r.opportunity.last_touch else '' }}</td>
       <td>{{ r.opportunity.next_action or '' }}</td>
       <td>{{ r.opportunity.netsuite_opportunity_id if r.opportunity.netsuite_opportunity_id else '' }}{% if not r.opportunity.netsuite_opportunity_id %}<span class="chip">not yet in NetSuite</span>{% endif %}</td>
+      <td>
+        <div class="flex flex-wrap gap-1">
+          {% for d in dispositions if d.value not in ('lost',) %}
+          <form method="post" action="/pipeline/{{ r.opportunity.id }}/outcome" style="display:inline">
+            <input type="hidden" name="disposition" value="{{ d.value }}">
+            <button type="submit" class="chip" title="{{ d.label }}">{{ d.label }}</button>
+          </form>
+          {% endfor %}
+          <details style="display:inline-block">
+            <summary class="chip">Lost</summary>
+            <form method="post" action="/pipeline/{{ r.opportunity.id }}/outcome" class="mt-2">
+              <input type="hidden" name="disposition" value="lost">
+              <select name="reason_code" required>
+                <option value="">Reason (required)</option>
+                {% for rc in reason_codes %}
+                <option value="{{ rc.value }}">{{ rc.label }}</option>
+                {% endfor %}
+              </select>
+              <input type="text" name="competitor" placeholder="Competitor (if lost to competitor)">
+              <button type="submit" class="chip">Confirm lost</button>
+            </form>
+          </details>
+        </div>
+      </td>
     </tr>
     <tr>
-      <td colspan="8">
+      <td colspan="9">
         <details>
           <summary class="note">Reason Block</summary>
           {% for rb in r.reason_blocks %}

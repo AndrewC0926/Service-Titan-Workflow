@@ -1385,6 +1385,33 @@ dashboard:
   operator_usernames: ["andrew"]
 
 # =============================================================================
+# OUTCOMES (Block 4A Item 2, Master Plan v3.6 section 15) -- labels and
+# display order only. The valid VALUE SET is a closed, migration-defined
+# Postgres enum (app.models.Disposition/LostReasonCode); editing this list
+# changes how a value is presented, never what values are accepted -- see
+# app.pipeline.outcomes.dispositions()/reason_codes().
+# =============================================================================
+outcomes:
+  dispositions:
+    - {value: "connected", label: "Connected"}
+    - {value: "left_voicemail", label: "Left voicemail"}
+    - {value: "no_answer", label: "No answer"}
+    - {value: "bad_number_wrong_contact", label: "Bad number or wrong contact"}
+    - {value: "meeting_set", label: "Meeting set"}
+    - {value: "not_now", label: "Not now"}
+    - {value: "won", label: "Won"}
+    - {value: "lost", label: "Lost"}
+  reason_codes:
+    - {value: "price", label: "Price"}
+    - {value: "lost_to_competitor", label: "Lost to competitor"}
+    - {value: "no_decision_budget", label: "No decision or budget"}
+    - {value: "timing_deferred", label: "Timing or deferred"}
+    - {value: "specd_out_not_our_line", label: "Spec'd out (not our line)"}
+    - {value: "wrong_contact_no_reach", label: "Wrong contact or no reach"}
+    - {value: "not_eligible_osp_ahri", label: "Not eligible (OSP or AHRI)"}
+    - {value: "other", label: "Other"}
+
+# =============================================================================
 # REGULATORY TRIGGERS (Phase 6) — a customer-facing citation table, not a
 # scoring input. Every entry was traced to bill text, CCR text, or the
 # regulator's own page (not trade press) before it was hard-coded here — see

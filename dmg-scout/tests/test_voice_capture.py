@@ -19,7 +19,9 @@ import respx
 import app.llm as llm_mod
 import app.pipeline.voice_capture as vc
 from app.db import get_session
-from app.models import CaptureAudio, Outreach, Project, ReviewQueue
+from app.models import (
+    CaptureAudio, Disposition, Opportunity, Outcome, Outreach, Project, ReviewQueue, Signal, SignalType,
+)
 from app.schemas import OutreachCallExtraction
 from app.web.main import app as web_app
 
@@ -303,6 +305,59 @@ def test_reject_writes_nothing_to_outreach(db_session, client):
     assert r.status_code == 200
     assert db_session.get(ReviewQueue, row_id).status == "rejected"
 
+    from sqlmodel import select
+    assert db_session.exec(select(Outreach).where(Outreach.project_id == project_id)).all() == []
+
+
+def _seed_opportunity(db_session):
+    signal = Signal(signal_type=SignalType.ceqa_nop)
+    db_session.add(signal)
+    db_session.flush()
+    opp = Opportunity(signal_id=signal.id, account_id=1)
+    db_session.add(opp)
+    db_session.commit()
+    return opp
+
+
+def test_confirm_with_opportunity_and_disposition_also_logs_an_outcome(db_session, client):
+    row_id, project_id = _seed_capture(db_session)
+    opp = _seed_opportunity(db_session)
+    r = client.post(f"/captures/{row_id}/confirm", headers=AUTH,
+                    data={"project_id": project_id, "notes": "reached the PE", "next_action": "",
+                          "next_action_date": "", "channel": "call",
+                          "opportunity_id": opp.id, "disposition": "connected"})
+    assert r.status_code == 200
+
+    from sqlmodel import select
+    outcome = db_session.exec(select(Outcome).where(Outcome.opportunity_id == opp.id)).one()
+    assert outcome.disposition == Disposition.connected
+    assert outcome.source.value == "capture"
+    assert outcome.user == "andrew"
+    # Outreach still gets its own row too -- additive, not a replacement.
+    assert len(db_session.exec(select(Outreach).where(Outreach.project_id == project_id)).all()) == 1
+
+
+def test_confirm_without_opportunity_id_logs_no_outcome(db_session, client):
+    row_id, project_id = _seed_capture(db_session)
+    r = client.post(f"/captures/{row_id}/confirm", headers=AUTH,
+                    data={"project_id": project_id, "notes": "x", "next_action": "",
+                          "next_action_date": "", "channel": "call"})
+    assert r.status_code == 200
+    from sqlmodel import select
+    assert db_session.exec(select(Outcome)).all() == []
+
+
+def test_confirm_opportunity_lost_without_reason_code_is_rejected(db_session, client):
+    row_id, project_id = _seed_capture(db_session)
+    opp = _seed_opportunity(db_session)
+    r = client.post(f"/captures/{row_id}/confirm", headers=AUTH,
+                    data={"project_id": project_id, "notes": "x", "next_action": "",
+                          "next_action_date": "", "channel": "call",
+                          "opportunity_id": opp.id, "disposition": "lost"})
+    assert r.status_code == 400
+    # Rejected before log_outreach's own internal commit ever runs --
+    # confirm stays atomic, not a partial success (no Outreach row either).
+    assert db_session.get(ReviewQueue, row_id).status == "pending"
     from sqlmodel import select
     assert db_session.exec(select(Outreach).where(Outreach.project_id == project_id)).all() == []
 

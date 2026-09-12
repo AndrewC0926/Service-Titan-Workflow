@@ -22,8 +22,8 @@ from app.mcp_tools import (
     who_to_call,
 )
 from app.models import (
-    AccountCoverage, Category, Contractor, Firm, FieldIntel, Outreach, OpscProject, Project,
-    ProductLine, Signal, SignalType, Stage,
+    AccountCoverage, Category, Contractor, Disposition, Firm, FieldIntel, Opportunity, Outcome,
+    Outreach, OpscProject, Project, ProductLine, Signal, SignalType, Stage,
 )
 from app.pipeline.resolve import run_resolve
 from app.pipeline.size_score import run_size_score
@@ -281,6 +281,49 @@ def test_log_outreach_requires_exactly_one_of_project_or_account(db_session, cfg
     account = create_account(db_session, name="Both Given Co")
     assert "exactly one" in log_outreach(notes="x")
     assert "exactly one" in log_outreach(project_id=p.id, account_id=account.id, notes="x")
+
+
+def _seed_opportunity(db_session):
+    signal = Signal(signal_type=SignalType.ceqa_nop)
+    db_session.add(signal)
+    db_session.flush()
+    opp = Opportunity(signal_id=signal.id, account_id=1)
+    db_session.add(opp)
+    db_session.commit()
+    return opp
+
+
+def test_log_outreach_opportunity_id_writes_an_outcome_row(db_session, cfg):
+    opp = _seed_opportunity(db_session)
+    out = log_outreach(opportunity_id=opp.id, disposition="connected", user="andrew", notes="reached the PE")
+    assert "connected" in out and str(opp.id) in out and "andrew" in out
+    row = db_session.exec(select(Outcome).where(Outcome.opportunity_id == opp.id)).one()
+    assert row.disposition == Disposition.connected
+    assert row.user == "andrew"
+    assert row.source.value == "web"
+
+
+def test_log_outreach_opportunity_id_requires_disposition(db_session, cfg):
+    opp = _seed_opportunity(db_session)
+    assert "requires disposition" in log_outreach(opportunity_id=opp.id, user="andrew")
+
+
+def test_log_outreach_opportunity_id_requires_user(db_session, cfg):
+    opp = _seed_opportunity(db_session)
+    assert "requires user" in log_outreach(opportunity_id=opp.id, disposition="connected")
+
+
+def test_log_outreach_opportunity_id_lost_without_reason_code_is_rejected(db_session, cfg):
+    opp = _seed_opportunity(db_session)
+    out = log_outreach(opportunity_id=opp.id, disposition="lost", user="andrew")
+    assert "reason_code" in out
+    assert db_session.exec(select(Outcome).where(Outcome.opportunity_id == opp.id)).first() is None
+
+
+def test_log_outreach_three_way_still_exactly_one(db_session, cfg):
+    p = _seed_project(db_session, cfg)
+    opp = _seed_opportunity(db_session)
+    assert "exactly one" in log_outreach(project_id=p.id, opportunity_id=opp.id, disposition="connected", user="andrew")
 
 
 def test_log_field_intel_writes_and_confirms(db_session, cfg):

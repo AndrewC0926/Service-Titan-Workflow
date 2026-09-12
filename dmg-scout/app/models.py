@@ -3568,3 +3568,73 @@ class ReasonBlock(SQLModel, table=True):
     do_person: str | None = None
     do_ask: str | None = None
     one_sentence: str | None = None
+
+
+class Disposition(str, enum.Enum):
+    """Block 4A Item 2 (Master Plan v3.6 section 15): "Dispositions, one
+    tap, under 30 seconds." The six named call-attempt outcomes, plus
+    `won`/`lost` for the (less frequent, not truly one-tap) terminal
+    stage-change dispositions -- see app.pipeline.outcomes.log_outcome for
+    why `lost` alone requires a reason_code and the other seven never do."""
+    connected = "connected"
+    left_voicemail = "left_voicemail"
+    no_answer = "no_answer"
+    bad_number_wrong_contact = "bad_number_wrong_contact"
+    meeting_set = "meeting_set"
+    not_now = "not_now"
+    won = "won"
+    lost = "lost"
+
+
+class LostReasonCode(str, enum.Enum):
+    """Master Plan v3.6 section 15: "Reason codes on lost, required
+    dropdown, at most eight." Required on Outcome only when disposition is
+    `lost` -- see app.pipeline.outcomes.log_outcome. Named LostReasonCode,
+    not ReasonCode, to keep this vocabulary (a lost-deal reason) visually
+    distinct from ReasonBlock/ReasonStrength's unrelated "why" vocabulary
+    above."""
+    price = "price"
+    lost_to_competitor = "lost_to_competitor"
+    no_decision_budget = "no_decision_budget"
+    timing_deferred = "timing_deferred"
+    specd_out_not_our_line = "specd_out_not_our_line"
+    wrong_contact_no_reach = "wrong_contact_no_reach"
+    not_eligible_osp_ahri = "not_eligible_osp_ahri"
+    other = "other"
+
+
+class OutcomeSource(str, enum.Enum):
+    web = "web"
+    capture = "capture"
+
+
+class Outcome(SQLModel, table=True):
+    """Block 4A Item 2 (Master Plan v3.6 sections 15/31): one row per
+    disposition logged against an Opportunity, from Pipeline, Today, the
+    /capture voice workflow, or the log_outreach MCP tool -- see
+    app.pipeline.outcomes.log_outcome, the one writer (same "exactly one
+    place a row is ever created" discipline as app.outreach.log_outreach).
+
+    Deliberately its own table, not a new column set bolted onto Outreach
+    (project/account-anchored, general contact log): Outcome is always
+    opportunity_id-anchored and always carries a structured disposition:
+    a different shape for a different question ("what happened on this
+    lead" vs "did I talk to someone").
+
+    reason_code is nullable and enforced-required-when-lost in application
+    code (app.pipeline.outcomes.log_outcome), not a DB CHECK constraint --
+    same "friction not worth it in SQL, worth it in the one write path"
+    call Opportunity's own multi-anchor fields already made (Block 3/4A).
+    competitor is similarly enforced-required only when reason_code is
+    lost_to_competitor ("competitor named" -- section 15's own words)."""
+    __tablename__ = "outcomes"
+
+    id: int | None = Field(default=None, primary_key=True)
+    opportunity_id: int = Field(foreign_key="opportunities.id", index=True)
+    user: str = Field(index=True)
+    disposition: Disposition = Field(index=True)
+    reason_code: LostReasonCode | None = Field(default=None, index=True)
+    competitor: str | None = None
+    note: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    source: OutcomeSource = Field(default=OutcomeSource.web, index=True)
+    created_at: datetime = Field(default_factory=utcnow, index=True)

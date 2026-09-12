@@ -16,12 +16,17 @@ it; nothing here restates a number without the caveat that came with it. A
 list caps at 20 rows and says how many were left out rather than silently
 truncating.
 
-log_outreach is the only tool that writes to Postgres, and it only ever
-inserts an Outreach row — the same table and shape the dashboard's own
-outreach form writes to. Nothing here touches a pipeline table (Signal,
-Project's own pipeline-owned fields, ProjectSignal, ...). pre_call_brief
-caches its output too, but to a local JSON file, never a database row — see
-app.precall's module docstring for why.
+log_outreach is the only tool that writes to Postgres. Given project_id or
+account_id, it inserts an Outreach row — the same table and shape the
+dashboard's own outreach form writes to. Given opportunity_id instead
+(Block 4A Item 2), it inserts an Outcome row via app.pipeline.outcomes.
+log_outcome — the SAME writer Pipeline's own one-tap buttons and /capture
+use, so there is exactly one place an Outcome row is ever created no
+matter which of the three entry points logged it. Nothing here otherwise
+touches a pipeline table (Signal, Project's own pipeline-owned fields,
+ProjectSignal, ...). pre_call_brief caches its output too, but to a local
+JSON file, never a database row — see app.precall's module docstring for
+why.
 """
 from __future__ import annotations
 
@@ -594,25 +599,64 @@ def search_firms(query: str) -> str:
 
 
 @mcp.tool
-def log_outreach(project_id: int | None = None, account_id: int | None = None, notes: str = "",
+def log_outreach(project_id: int | None = None, account_id: int | None = None,
+                 opportunity_id: int | None = None, notes: str = "",
                  channel: str = "call", next_action: str | None = None,
-                 next_action_date: str | None = None) -> str:
-    """Record that you talked to someone — the one write tool. Give exactly
-    one of project_id (outreach about a specific live Scout project) or
-    account_id (outreach about a contractor/GC account generally — most
-    accounts have no live project to attach this to at all, see
-    get_account_page). channel: call | email | meeting | text | other.
-    next_action_date is an ISO date (YYYY-MM-DD) if you have one. Writes to
-    the same Outreach log the dashboard's own outreach forms write to;
-    nothing here touches the pipeline's tables."""
+                 next_action_date: str | None = None, user: str | None = None,
+                 disposition: str | None = None, reason_code: str | None = None,
+                 competitor: str | None = None) -> str:
+    """Record that you talked to someone — the one write tool. Give
+    exactly one of project_id (outreach about a specific live Scout
+    project), account_id (outreach about a contractor/GC account
+    generally — most accounts have no live project to attach this to at
+    all, see get_account_page), or opportunity_id (a disposition on a
+    Scout Opportunity, Block 4A Item 2 — writes an Outcome row instead of
+    an Outreach row).
+
+    opportunity_id requires disposition (one of: connected,
+    left_voicemail, no_answer, bad_number_wrong_contact, meeting_set,
+    not_now, won, lost) and user (who is logging this — Scout has
+    per-user login now, and this tool has no session of its own to read
+    that from). disposition 'lost' additionally requires reason_code (one
+    of: price, lost_to_competitor, no_decision_budget, timing_deferred,
+    specd_out_not_our_line, wrong_contact_no_reach, not_eligible_osp_ahri,
+    other); reason_code 'lost_to_competitor' additionally requires
+    competitor named.
+
+    channel: call | email | meeting | text | other (project_id/account_id
+    only). next_action_date is an ISO date (YYYY-MM-DD) if you have one.
+    Writes to the same Outreach log the dashboard's own outreach forms
+    write to, or the same Outcome log Pipeline's own one-tap buttons and
+    /capture write to; nothing here touches any other pipeline table."""
     from datetime import datetime
 
     from app.db import session_scope
     from app.models import Account, Project
     from app.outreach import log_outreach as _log_outreach
+    from app.pipeline.outcomes import log_outcome
 
-    if (project_id is None) == (account_id is None):
-        return "Give exactly one of project_id or account_id, not both and not neither."
+    given = [x is not None for x in (project_id, account_id, opportunity_id)]
+    if sum(given) != 1:
+        return "Give exactly one of project_id, account_id, or opportunity_id."
+
+    if opportunity_id is not None:
+        if not disposition:
+            return "opportunity_id requires disposition."
+        if not user:
+            return "opportunity_id requires user (who is logging this)."
+        with session_scope() as session:
+            try:
+                outcome = log_outcome(session, opportunity_id=opportunity_id, user=user,
+                                      disposition=disposition, reason_code=reason_code,
+                                      competitor=competitor, note=notes, source="web")
+            except ValueError as exc:
+                return str(exc)
+            confirmation = f"Logged: {disposition} on Opportunity #{opportunity_id} by {user}"
+            if reason_code:
+                confirmation += f" (reason: {reason_code})"
+            if notes:
+                confirmation += f" — {notes}"
+            return confirmation
 
     parsed_date = None
     if next_action_date:
