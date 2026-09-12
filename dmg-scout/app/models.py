@@ -3404,3 +3404,104 @@ class AhjA2lGuidance(SQLModel, table=True):
 
     checked_at: datetime | None = Field(default=None, index=True)
     notes: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+
+
+class OpportunityStage(str, enum.Enum):
+    identified = "identified"
+    contacted = "contacted"
+    engaged = "engaged"
+    quoted = "quoted"
+    won = "won"
+    lost = "lost"
+
+
+class WhyKind(str, enum.Enum):
+    them = "them"
+    now = "now"
+    win = "win"
+
+
+class ReasonStrength(str, enum.Enum):
+    Strong = "Strong"
+    Weak = "Weak"
+    ABSTAIN = "ABSTAIN"
+
+
+class Opportunity(SQLModel, table=True):
+    """Block 3 (Master Plan v3.2 section 12): a Signal that passed the
+    four-part filter (app.pipeline.signals_feed.four_part_filter) --
+    named reachable contact, sellable account or building, dated reason,
+    eligible fitting line. Additive, on public data, no DMG data gate --
+    see docs/BUILD-PLAN.md's Block 3 entry.
+
+    account_id / building_id: at least one should be set (an opportunity
+    is anchored on an Account when the buyer is a known NetSuite customer,
+    or on a RetrofitBuilding when the buyer/owner is still ABSTAIN and the
+    only anchor is the physical building) -- not a DB constraint (SQLite/
+    Postgre CHECK across two nullable FKs is more friction than value here),
+    enforced by application code that creates an Opportunity
+    (promote_signal_to_opportunity).
+
+    signal_id is NOT nullable: "the central transform: Signal to
+    Opportunity" (section 12) -- every Opportunity traces back to the one
+    Signal that was promoted, full stop, never created free-floating.
+
+    netsuite_opportunity_id: nullable, and -- by the master plan's own
+    words -- "never overwritten." No DB trigger enforces this (there is no
+    write path to production yet, Block 3 is public data only); the
+    invariant is enforced by convention and a code comment on the one
+    write path Block 4 will add (Pipeline's own docstring notes this).
+    "Scout is not a CRM. An opportunity is real when it carries a NetSuite
+    Opportunity ID; Scout mirrors stage and never overwrites NetSuite."
+    """
+    __tablename__ = "opportunities"
+
+    id: int | None = Field(default=None, primary_key=True)
+    account_id: int | None = Field(default=None, foreign_key="accounts.id", index=True)
+    building_id: int | None = Field(default=None, foreign_key="retrofit_buildings.id", index=True)
+    contact_id: int | None = Field(default=None, foreign_key="contacts.id", index=True)
+    signal_id: int = Field(foreign_key="signals.id", index=True)
+    line_id: int | None = Field(default=None, foreign_key="product_lines.id", index=True)
+    stage: OpportunityStage = Field(default=OpportunityStage.identified, index=True)
+    pen_holder: PenHolderRole = Field(default=PenHolderRole.ABSTAIN, index=True)
+    next_action: str | None = None
+    last_touch: datetime | None = Field(default=None, index=True)
+    # Never overwritten once set -- see class docstring.
+    netsuite_opportunity_id: int | None = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class ReasonBlock(SQLModel, table=True):
+    """Block 3 (Master Plan v3.2 section 12a): "the center of the
+    product." Exactly three rows per Opportunity, one per WhyKind (them,
+    now, win) -- see app.pipeline.reason_block.weakest_why_rank for the
+    decision rule this table exists to support ("an Opportunity ranks by
+    its weakest why, never a weighted sum").
+
+    do_person/do_ask/one_sentence are opportunity-level synthesis (the
+    Rady Children's example's "Do: call University Mechanical's project
+    executive about the next NPC package and ask who is designing it" is
+    ONE action derived from all three whys together, not specific to any
+    single why) -- stored redundantly on all three rows rather than
+    factored onto a fourth table, per the plan's own literal grouping of
+    these fields under "ReasonBlock". Read from any one row; written to
+    all three together by whatever populates the block (a human is never
+    left looking at three different actions for one opportunity).
+    """
+    __tablename__ = "reason_blocks"
+    __table_args__ = (
+        UniqueConstraint("opportunity_id", "why_kind", name="uq_reason_block_opportunity_why"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    opportunity_id: int = Field(foreign_key="opportunities.id", index=True)
+    why_kind: WhyKind = Field(index=True)
+    strength: ReasonStrength = Field(default=ReasonStrength.ABSTAIN, index=True)
+    evidence: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    source: str | None = None
+    source_url: str | None = None
+    computed_at: datetime = Field(default_factory=utcnow)
+    do_person: str | None = None
+    do_ask: str | None = None
+    one_sentence: str | None = None

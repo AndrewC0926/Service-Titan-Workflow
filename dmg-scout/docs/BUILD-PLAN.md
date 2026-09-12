@@ -224,3 +224,37 @@ A/E selection mining from agendas. ESCO awards. SAM.gov as a spec source. Contra
 - **Andy:** House DMG meaning; Kevin Nolan and ACS; CAMS history vs NetSuite ($62k since 2021, all House); ToroAire line cards; design teams for the seven industrial developers; who sold the LBUSD HVAC base.
 - **Jason:** Opportunity export permission if role-gated; OSP renewal budget; commission rate and draw in writing; the line-card expansion criteria.
 - **Andrew:** what "network segmentation" means for WS10.4; item master re-export today.
+
+---
+
+## 9. Block 3 (docs/MASTER-PLAN.md v3.2): redesign skeleton on public data, no DMG data, no gate
+
+Branch, local DB (`postgresql://scout:scout@localhost:5432/scout_local`) only throughout. `docs/MASTER-PLAN.md` added and committed first (`bfb795c`, copy of the Sep 12 plan doc, supersedes v3.1 as the strategy/product spec; this file stays the execution-status log).
+
+### Item 1: Object model and the Reason Block
+
+**Report first, against the real local restore (442 projects, the same restore used throughout this doc):**
+
+| Existing table | Rows | Maps to (v3.2 object) | Clean | ABSTAIN | Criterion |
+|---|---|---|---|---|---|
+| Project | 442 | Signal (`entitlement_milestone`) | 440 | 2 | has >=1 linked row in `project_signals` |
+| Signal | 787 | Signal | 787 | 0 | has `event_date` (100%) |
+| Firm | 468 | Firm | 404 | 64 | `firm_type != 'unknown'` (developer=259, consultant=82, unknown=64, mep=26, gc=20, mech_contractor=10, architect=7) |
+| Account | 1 | Account | 0 | 1 | `netsuite_internal_id` present -- the one row ("Pacific Coast Mechanical Inc.") has it NULL |
+| RetrofitBuilding | 60,166 | Building or Site | ~60,166 (structurally, all have APN+address) | Account-link always ABSTAIN (0), by design | model docstring: no owner data exists in the source; building identity itself is 100% clean, the separate Account-link question is ABSTAIN for every row |
+| Contractor | 47,572 | Firm (reference-only -- v3.2 section 17 explicitly forbids a browsable contractor page) | 11 matched an existing Firm by `normalize_company_name` | 47,561 | normalized-name join against `Firm.name_norm`; separately, 0 matched `Account.name_norm` |
+| Ab869Plan | 201 | Deadline | 201 | 0 | `plan_status` filled (100%) |
+| FieldIntel | 0 | Signal (`relationship_intro`) | 0 | 0 (table empty in this restore) | -- |
+| ProductLine | 70 | Line | 70 | 0 | has a matching `selection_tools` row (100%) |
+
+**Added, additively, no renames of any live table:** `Opportunity` (`opportunities`) and `ReasonBlock` (`reason_blocks`), migration `d2e8f4a91b56`. `Opportunity`: `account_id`/`building_id` (at least one set, by application-code convention not a DB constraint), `contact_id` nullable, `signal_id` not nullable (every Opportunity traces to the one Signal that was promoted), `line_id` nullable, `stage` (`identified`/`contacted`/`engaged`/`quoted`/`won`/`lost`), `pen_holder` (reuses the existing `PenHolderRole` enum from WS3.1 rather than a new one), `next_action`, `last_touch`, `netsuite_opportunity_id` nullable and, by the plan's own words, never overwritten once set (no write path exists yet -- Block 3 is public data only -- so this is enforced today by convention and by a docstring on the one write path Block 4 will add). `ReasonBlock`: `opportunity_id`, `why_kind` (`them`/`now`/`win`, unique per opportunity via `uq_reason_block_opportunity_why`), `strength` (`Strong`/`Weak`/`ABSTAIN`), `evidence`/`source`/`source_url`/`computed_at`, plus `do_person`/`do_ask`/`one_sentence` (opportunity-level synthesis, read from any of the three rows, written to all three together).
+
+**Migration verified rollback, actually run against local DB, not assumed from pattern:**
+1. `alembic upgrade head` (`c1a4f6d2e9b0` -> `d2e8f4a91b56`) -- hit a real bug first try: `op.create_table`'s own implicit `CREATE TYPE` collided with the migration's explicit pre-create of the same enum, because `create_type=False` on a generic `sa.Enum` does not survive dialect adaptation to Postgres's native `ENUM` (confirmed by hitting `DuplicateObject: type "opportunitystage" already exists` inside a transaction that then rolled back cleanly -- `pg_type`/`\dt` showed nothing left over, ruling out an orphaned leftover). Fixed by switching every enum column to `sqlalchemy.dialects.postgresql.ENUM(..., create_type=False)` (the precedent already used by `81f4860b6471_field_intel.py` for the same reuse-an-existing-type case), which does honor the flag. Re-ran clean.
+2. `\d opportunities` / `\d reason_blocks` confirm the live schema matches the model exactly, including all 5 FKs on `opportunities`, the unique constraint and both FKs on `reason_blocks`, and 9 indexes total.
+3. `alembic downgrade -1` -- both tables dropped, `opportunitystage`/`whykind`/`reasonstrength` types dropped, `penholderrole` (pre-existing) confirmed untouched, `projects` row count unchanged at 442.
+4. `alembic upgrade head` again -- restored to `d2e8f4a91b56 (head)` cleanly.
+
+**Weakest-why rank:** `app/pipeline/reason_block.py::weakest_why_rank`, a pure sort-key function -- primary key is the single worst strength among the three whys (`Strong`=0, `Weak`=1, `ABSTAIN`=2, lower sorts first/stronger), secondary tiebreak is the sum of all three ranks. This directly enforces "ranks by its weakest why, never a weighted sum": any ABSTAIN always outranks (sorts after) any all-Strong-or-Weak combination regardless of the other two whys. 7 new tests (`tests/test_reason_block.py`), including the two required cases (3 Strong ranks above 2 Strong + 1 Weak; 2 Strong + 1 Weak ranks above any ABSTAIN) and a worked-example regression using the plan's own Rady Children's (Strong/Strong/ABSTAIN) vs. UC Davis Health CUP (Weak/Strong/Weak) shapes, confirming Rady's two-Strong-one-ABSTAIN does NOT outrank a plain three-Weak opportunity.
+
+**Tests:** `tests/test_reason_block.py` (7, new, all fail against no such module by construction), `tests/test_migration_guard.py` + `tests/test_pipeline_health.py` (33, unaffected, re-run clean to confirm no model-drift breakage from the new tables).
