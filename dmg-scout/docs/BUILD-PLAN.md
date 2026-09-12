@@ -450,3 +450,21 @@ New `MetricSnapshot` table (migration `cb0064d3f10d`, shared with the new `Oppor
 **19 rows written total.** `opportunities_by_stage`, `opportunities_by_engine`, `whys_strength_distribution`, `outcomes_logged_per_user`, and `notes_per_user` wrote **zero rows today** -- not a bug, there is nothing to group: 0 Opportunities, 0 Outcomes, 0 Decision Notes exist in the local restore (unchanged fact throughout this entire block). `abstain_rate_pen_state` at 100% is the expected, honest state of the real `signals` table: almost no row has ever been through the promotion-synthesis path that sets a real `pen_state` (Item 1) -- everything else still carries the column's own ABSTAIN default. `abstain_rate_delivery_method_class` at 97.1% matches Block 2's own prior finding (442/442 ABSTAIN then; two projects have since gained a real classification).
 
 **Tests:** 20 new -- `tests/test_metrics.py` (19: `write_snapshot`'s append-only/idempotent-per-day behavior including the "a past day is never touched" case, the metrics.yaml consistency guard both directions, and one focused test per metric family) and `tests/test_cli.py` (1: `snapshot-metrics` runs standalone and prints a count per metric_key). `tests/test_signals_feed.py` gained 2 more (`origin` set correctly for a relationship-intro vs. a regular promotion).
+
+### Item 5: Today re-sourced
+
+New `app/pipeline/today_calls.py::three_calls_from_pipeline()` -- ranks open (not won/lost) Opportunities with a complete Reason Block by `weakest_why_rank` (the exact same rule Pipeline's own table sorts by, Block 3 Item 5, read from one place rather than re-derived), takes the top 3, and fills any remaining slots from Deadlines (nearest date first across all four regulation groups) with `no_contact_yet=True`. **Active-learning spread**: if a Weak-why Opportunity exists and isn't already in the natural top 3, it displaces the current last slot (the weakest of the natural picks, never the strongest two) rather than being silently dropped. `today_brief()` itself (shared with the email digest) is untouched -- the web route overrides `brief["calls"]` after the fact, so the digest's own board-score selection (`three_calls_today`) keeps working exactly as it did; this item only re-sources the web page.
+
+`today.html`'s "Three to call" section now renders two card shapes: an Opportunity card (contact if resolved, weakest-why chip, an "active learning" marker on the forced-Weak slot, a one-tap "Connected" button wired to Item 2's own `/pipeline/{id}/outcome`) and a Deadline-fill card (`account_or_building`/regulation/exposure, always `no_contact_yet`, no action button -- nothing to log yet). Empty state now reads the plan's own literal words (section 13): "Nothing due. Pull from Accounts, quiet since 2023."
+
+**Report, computed against the real local restore:** 0 Opportunities exist (unchanged throughout this block), so Today's three calls come **entirely from Deadlines** today -- confirmed directly: the three nearest-date EBEWE rows (all 2026-12-01). This is the honest, correct behavior of the fallback rule given the real data, not a gap in Item 5's own logic.
+
+**Two pre-existing tests updated, not deleted** (`tests/test_web.py`): `test_today_is_the_landing_page` no longer asserts the old board-scored "Jane Doe" call card (that source is gone from Today by design); the unrelated "what changed" assertion in the same test is untouched. `test_today_called_them_logs_outreach_without_navigating` renamed to `test_today_connected_button_logs_an_outcome_without_navigating` and rebuilt around a real Opportunity + the new one-tap Connected button -- same "acts without navigating away" contract, new mechanism.
+
+**Tests:** 9 new (`tests/test_today_calls.py`) covering the ranking rule, the Deadlines fallback (both empty-Pipeline and partial-fill cases), won/lost exclusion, incomplete-Reason-Block skipping (never guessed into a rank), contact resolution, and the active-learning spread in both directions (forces a slot when a Weak candidate exists and isn't already picked; does nothing when none exists or it's already there).
+
+**Full suite: 2181 passed, 0 failed, 2 deselected** (up from Item 4's 2172/0/2 baseline by exactly the 9 new tests).
+
+---
+
+## This completes Block 4A (the loop, the notes, the snapshots). Nothing pushed.

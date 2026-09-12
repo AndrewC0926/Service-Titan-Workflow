@@ -62,11 +62,15 @@ def test_healthz_open(client):
 
 def test_today_is_the_landing_page(client, db_session, cfg):
     """/ is Today now, not the board — the board moved to /board and stays
-    exactly as it is (see test_board_renders)."""
+    exactly as it is (see test_board_renders). Block 4A Item 5 re-sourced
+    THREE TO CALL from Pipeline/Deadlines, not the board's own contactable-
+    project scoring -- seed_callable's Project ("Jane Doe") no longer
+    appears there (see tests/test_today_calls.py for that source's own
+    coverage); "what changed" (a different section, untouched by Item 5)
+    still reads from the board and is what this test now checks."""
     seed_callable(db_session, cfg)
     r = client.get("/", headers=AUTH)
     assert r.status_code == 200
-    assert "Jane Doe" in r.text and "Meridian DC" in r.text  # THREE TO CALL
     assert "NEW: Meridian DC" in r.text  # a fresh project is itself a change
 
     # A second load must show the SAME thing (changes_preview is read-only) —
@@ -92,18 +96,32 @@ def test_today_shows_field_intel_activity_as_a_plain_counter(client, db_session,
     assert '<p class="dim mt-2">' in r.text  # a plain line, not a callout/alert
 
 
-def test_today_called_them_logs_outreach_without_navigating(client, db_session, cfg):
-    seed_callable(db_session, cfg)
-    r = client.get("/", headers=AUTH)
-    assert "hx-post" in r.text and "/project/1/outreach" in r.text
+def test_today_connected_button_logs_an_outcome_without_navigating(client, db_session, cfg):
+    """Block 4A Item 5: Today's own call-card action is now "Connected"
+    against a real Opportunity (Pipeline's own one-tap disposition,
+    Item 2), not the old Project-scoped "Called them" -> Outreach form
+    -- same "without navigating away" contract, new mechanism."""
+    from app.models import Opportunity, ReasonBlock, ReasonStrength, Signal, SignalType, WhyKind
 
-    r = client.post("/project/1/outreach", headers={**AUTH, "HX-Request": "true"},
-                    data={"channel": "call", "notes": "Called Jane Doe"})
+    signal = Signal(signal_type=SignalType.ceqa_nop)
+    db_session.add(signal)
+    db_session.flush()
+    opp = Opportunity(signal_id=signal.id, account_id=1)
+    db_session.add(opp)
+    db_session.flush()
+    for kind in WhyKind:
+        db_session.add(ReasonBlock(opportunity_id=opp.id, why_kind=kind,
+                                   strength=ReasonStrength.Strong, evidence="x"))
+    db_session.commit()
+
+    r = client.get("/", headers=AUTH)
+    assert "hx-post" in r.text and f"/pipeline/{opp.id}/outcome" in r.text
+
+    r = client.post(f"/pipeline/{opp.id}/outcome", headers={**AUTH, "HX-Request": "true"},
+                    data={"disposition": "connected"})
     assert r.status_code == 200
     assert "Logged" in r.text
-    assert "left VM" not in r.text  # a partial, not the full project page
-
-    assert "Called Jane Doe" in client.get("/project/1", headers=AUTH).text
+    assert "left VM" not in r.text  # a partial, not the full pipeline page
 
 
 def test_board_renders(client, db_session, cfg):

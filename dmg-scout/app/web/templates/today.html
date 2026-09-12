@@ -46,43 +46,50 @@
 
   <section class="today-section">
     <h2>{{ icon('phone') }} Three to call</h2>
+    <span class="note">From Pipeline, ranked by weakest why -- filled from Deadlines when Pipeline
+      has fewer than three.</span>
     {% if calls %}
       {% for c in calls %}
-      {% set p = c.project %}
-      {% set contact = c.contact %}
-      <div class="call-card" id="call-{{ p.id }}">
-        <div class="call-name">{{ contact.name }}{% if contact.title %} <span class="dim">— {{ contact.title }}</span>{% endif %}</div>
+      {% if c.kind == 'opportunity' %}
+      {% set o = c.opportunity %}
+      <div class="call-card" id="call-opp-{{ o.id }}">
+        {% if c.active_learning_pick %}<span class="chip" title="One slot each day goes to the best-ranked Weak why, not a Strong one, so labels land across the range.">active learning</span>{% endif %}
+        <div class="call-name">
+          {% if c.contact %}{{ c.contact.name }}{% if c.contact.title %} <span class="dim">— {{ c.contact.title }}</span>{% endif %}
+          {% else %}<span class="chip">no contact yet</span>{% endif %}
+        </div>
+        {% if c.contact %}
         <div class="call-reach">
-          {%- if contact.phone %}<a href="tel:{{ contact.phone }}">{{ icon('phone') }} {{ contact.phone }}</a>{% endif -%}
-          {%- if contact.phone and contact.email %} &middot; {% endif -%}
-          {%- if contact.email %}<a href="mailto:{{ contact.email }}">{{ icon('mail') }} {{ contact.email }}</a>{% endif -%}
-        </div>
-        <div class="call-project">
-          <a href="/project/{{ p.id }}">{{ p.name }}</a>
-          <span class="dim">
-            ({{ p.county or '?' }} Co{% if p.tons_estimate_low %}, {{ '{:,.0f}'.format(p.tons_estimate_low) }}-{{ '{:,.0f}'.format(p.tons_estimate_high) }} tons{% endif %})
-          </span>
-        </div>
-        <div class="call-why">{{ c.reason }}</div>
-        {% if c.call_target %}
-        <div class="call-target dim" title="{{ c.call_target.rule }}: {{ c.call_target.reason }}">
-          Call target: <b>{{ CALL_TARGET_LABELS[c.call_target.target] }}</b>
-          {%- if c.call_target.who_label %} — {{ c.call_target.who_label }}{% if c.call_target.who_detail %} ({{ c.call_target.who_detail }}){% endif %}{% endif -%}
+          {%- if c.contact.phone %}<a href="tel:{{ c.contact.phone }}">{{ icon('phone') }} {{ c.contact.phone }}</a>{% endif -%}
+          {%- if c.contact.phone and c.contact.email %} &middot; {% endif -%}
+          {%- if c.contact.email %}<a href="mailto:{{ c.contact.email }}">{{ icon('mail') }} {{ c.contact.email }}</a>{% endif -%}
         </div>
         {% endif %}
-        <form class="call-action" hx-post="/project/{{ p.id }}/outreach" hx-target="this" hx-swap="outerHTML">
-          <input type="hidden" name="channel" value="call">
-          <input type="hidden" name="notes" value="Called {{ contact.name }}{% if contact.phone %} ({{ contact.phone }}){% endif %}">
-          <button type="submit">{{ icon('check') }} Called them</button>
+        <div class="call-project">
+          Opportunity #{{ o.id }} <span class="chip">weakest why: {{ c.weakest_why.value }}</span>
+        </div>
+        <form class="call-action" hx-post="/pipeline/{{ o.id }}/outcome" hx-target="this" hx-swap="outerHTML">
+          <input type="hidden" name="disposition" value="connected">
+          <button type="submit">{{ icon('check') }} Connected</button>
         </form>
+        <a href="/notes?anchor_type=opportunity&anchor_id={{ o.id }}">+ Note</a>
       </div>
+      {% else %}
+      {% set row = c.row %}
+      <div class="call-card">
+        <div class="call-name"><span class="chip">no contact yet</span></div>
+        <div class="call-project">
+          <a href="{{ row.detail_url }}">{{ row.account_or_building }}</a>
+          <span class="dim">({{ row.regulation }})</span>
+        </div>
+        <div class="call-why">{{ row.exposure }}</div>
+      </div>
+      {% endif %}
       {% endfor %}
     {% else %}
       <div class="empty">
         {{ icon('phone') }}
-        <p>Nobody contactable on the board right now. This section fills once a project has a named
-          contact with a phone or email — check <a href="/signals/entitlement">the board</a> for name-only rows worth
-          researching.</p>
+        <p>Nothing due. Pull from Accounts, quiet since 2023.</p>
       </div>
     {% endif %}
   </section>

@@ -387,27 +387,20 @@ def today(request: Request, session: Session = Depends(get_session), _: str = De
     consumes a change tomorrow's real digest email would otherwise report.
     """
     from app.pipeline.notify import today_brief
+    from app.pipeline.today_calls import three_calls_from_pipeline
     from app.pipeline_health import check_and_alert_staleness
     cfg = load_config()
     brief = today_brief(session, cfg)
-    # Decorate the (already-selected, already-ordered) "three to call" cards
-    # with call_target -- purely a display addition, computed here rather
-    # than inside today_brief/three_calls_today so it can never touch which
-    # 3 projects are picked or what order they render in. See app/call_target.py.
-    if brief["calls"]:
-        from app.call_target import (
-            engineer_of_record_by_project, gc_by_project, nearby_contractor_by_project,
-            project_call_target,
-        )
-        call_projects = [c["project"] for c in brief["calls"]]
-        eor_map = engineer_of_record_by_project(session, [p.id for p in call_projects])
-        gc_map = gc_by_project(session, [p.id for p in call_projects])
-        nearby_map = nearby_contractor_by_project(session, cfg, call_projects)
-        for c in brief["calls"]:
-            p = c["project"]
-            c["call_target"] = project_call_target(
-                cfg, p, engineer_of_record=eor_map.get(p.id), gc=gc_map.get(p.id),
-                nearby_contractor=nearby_map.get(p.id))
+    # Block 4A Item 5: Today's own "Three to call" is re-sourced from
+    # Pipeline (Opportunities ranked by weakest why, filled from Deadlines
+    # when Pipeline has fewer than three) -- NOT the old board-score
+    # selection today_brief()/three_calls_today still compute above
+    # (that function is untouched and still feeds the email digest, which
+    # this item does not ask to change). Overriding brief["calls"] here,
+    # after the fact, rather than inside today_brief() keeps that
+    # shared function's own contract (and the digest's own behavior)
+    # exactly as it was.
+    brief["calls"] = three_calls_from_pipeline(session)
     # Best-effort: a failure here (DB hiccup, Resend down) must never be the
     # reason the Today page itself fails to load -- see
     # app.pipeline_health's module docstring.
