@@ -310,6 +310,24 @@ class PenHolderRole(str, enum.Enum):
     ABSTAIN = "ABSTAIN"
 
 
+def classification_specificity(value: DeliveryMethodClass | PenHolderRole) -> int:
+    """Block 2 closeout (Build Plan v2.1): the upgrade ladder both
+    app.pipeline.resolve._absorb (Signal -> Project) and app.merge
+    ._absorb_project (Project -> Project, on merge) use to decide whether a
+    new DeliveryMethodClass/PenHolderRole value may replace an existing
+    one: ABSTAIN (0, never attempted) < unknown (1, attempted, inconclusive)
+    < any real value (2). A value only ever moves up this ladder -- never
+    downgraded, and never overwrites one real value with a DIFFERENT real
+    value (first real classification wins, same discipline as every other
+    first-stated-value-wins field in _absorb). Works on either enum since
+    both share the ABSTAIN/unknown member names."""
+    if value.name == "ABSTAIN":
+        return 0
+    if value.name == "unknown":
+        return 1
+    return 2
+
+
 class Project(SQLModel, table=True):
     __tablename__ = "projects"
 

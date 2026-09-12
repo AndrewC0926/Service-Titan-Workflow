@@ -167,7 +167,7 @@ def run_dc_news_enrichment(session, cfg: Config, client: PoliteClient) -> dict:
             session.add(signal)
             session.flush()
 
-            link_signal_to_project(session, signal, project, confidence=1.0, method="dc_news_enrichment")
+            link_signal_to_project(session, cfg, signal, project, confidence=1.0, method="dc_news_enrichment")
             touched_ids.add(project.id)
             feed_stats["attached"] += 1
             stats["attached"] += 1

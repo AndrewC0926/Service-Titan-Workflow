@@ -198,6 +198,20 @@ def backfill_stage_observations_cmd() -> None:
     typer.echo(f"wrote {written} stage observation(s)")
 
 
+@app.command("classify-delivery")
+def classify_delivery_cmd() -> None:
+    """Block 2 closeout (Build Plan v2.1): one-time backfill of
+    delivery_method_class/pen_holder_role for every project linked before
+    the live app.pipeline.procurement_delivery wiring existed. Idempotent —
+    safe to re-run, and `scout resolve` keeps both fields current going
+    forward on its own (app.pipeline.resolve._absorb_delivery_classification)."""
+    from app.pipeline.resolve import backfill_delivery_classification
+    cfg = load_config()
+    with session_scope() as session:
+        stats = backfill_delivery_classification(session, cfg)
+    typer.echo(json.dumps(stats))
+
+
 @app.command()
 def score() -> None:
     """SIZE + SCORE: recompute tonnage and priority for all active projects."""

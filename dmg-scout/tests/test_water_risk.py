@@ -99,60 +99,60 @@ def test_coerce_extraction_keeps_water_text_fields():
 # --- resolve._absorb: signal -> project roll-up ------------------------------
 
 
-def test_absorb_fills_water_source_and_wue_from_signal(db_session):
+def test_absorb_fills_water_source_and_wue_from_signal(db_session, cfg):
     project = _proj()
     signal = _sig(water_source_stated="On-site groundwater wells",
                   water_use_efficiency_stated="1.1 MGD")
-    _absorb(db_session, project, signal)
+    _absorb(db_session, cfg, project, signal)
     assert project.water_source_stated == "On-site groundwater wells"
     assert project.water_use_efficiency_stated == "1.1 MGD"
 
 
-def test_absorb_never_overwrites_known_water_source_with_null(db_session):
+def test_absorb_never_overwrites_known_water_source_with_null(db_session, cfg):
     project = _proj(water_source_stated="Recycled water from West Basin MWD")
     signal = _sig(water_source_stated=None)  # a later doc that doesn't mention it
-    _absorb(db_session, project, signal)
+    _absorb(db_session, cfg, project, signal)
     assert project.water_source_stated == "Recycled water from West Basin MWD"
 
 
-def test_absorb_fills_reclaimed_identified_only_once(db_session):
+def test_absorb_fills_reclaimed_identified_only_once(db_session, cfg):
     project = _proj()
-    _absorb(db_session, project, _sig(water_reclaimed_identified=True))
+    _absorb(db_session, cfg, project, _sig(water_reclaimed_identified=True))
     assert project.water_reclaimed_identified is True
     # A later signal stating the opposite must not flip an already-known fact.
-    _absorb(db_session, project, _sig(water_reclaimed_identified=False))
+    _absorb(db_session, cfg, project, _sig(water_reclaimed_identified=False))
     assert project.water_reclaimed_identified is True
 
 
-def test_absorb_opposition_is_sticky_true(db_session):
+def test_absorb_opposition_is_sticky_true(db_session, cfg):
     project = _proj()
-    _absorb(db_session, project, _sig(water_opposition_stated=True))
+    _absorb(db_session, cfg, project, _sig(water_opposition_stated=True))
     assert project.water_opposition_stated is True
     # A later signal that doesn't mention opposition must not clear a
     # documented objection -- silence is weaker evidence than a record.
-    _absorb(db_session, project, _sig(water_opposition_stated=None))
+    _absorb(db_session, cfg, project, _sig(water_opposition_stated=None))
     assert project.water_opposition_stated is True
 
 
-def test_absorb_opposition_false_only_fills_when_nothing_known(db_session):
+def test_absorb_opposition_false_only_fills_when_nothing_known(db_session, cfg):
     project = _proj()
-    _absorb(db_session, project, _sig(water_opposition_stated=False))
+    _absorb(db_session, cfg, project, _sig(water_opposition_stated=False))
     assert project.water_opposition_stated is False
 
 
-def test_absorb_computes_and_stores_the_derived_risk_flag(db_session):
+def test_absorb_computes_and_stores_the_derived_risk_flag(db_session, cfg):
     project = _proj()
-    _absorb(db_session, project, _sig(water_reclaimed_identified=False, water_opposition_stated=True))
+    _absorb(db_session, cfg, project, _sig(water_reclaimed_identified=False, water_opposition_stated=True))
     assert project.water_risk_flag == RISK_ELEVATED
     assert project.water_risk_basis
 
     project2 = _proj()
-    _absorb(db_session, project2, _sig(water_reclaimed_identified=True, water_opposition_stated=True))
+    _absorb(db_session, cfg, project2, _sig(water_reclaimed_identified=True, water_opposition_stated=True))
     assert project2.water_risk_flag == RISK_NOISE
 
 
-def test_absorb_quiet_project_has_no_risk_flag(db_session):
+def test_absorb_quiet_project_has_no_risk_flag(db_session, cfg):
     project = _proj()
-    _absorb(db_session, project, _sig(water_source_stated="Municipal potable supply"))
+    _absorb(db_session, cfg, project, _sig(water_source_stated="Municipal potable supply"))
     assert project.water_risk_flag is None
     assert project.water_risk_basis is None

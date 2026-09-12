@@ -172,7 +172,7 @@ def test_a_signal_linked_during_adjudication_does_not_get_a_second_project(db_se
     sig = _signal(db_session, name="Race In The LLM Window", sch=None)
     real_new = mod._new_project
 
-    def other_run_wins_the_race(session, signal):
+    def other_run_wins_the_race(session, cfg, signal):
         # Stand in for the concurrent run committing first, mid-adjudication.
         if not session.exec(select(ProjectSignal)
                             .where(ProjectSignal.signal_id == signal.id)).first():
@@ -185,7 +185,7 @@ def test_a_signal_linked_during_adjudication_does_not_get_a_second_project(db_se
             session.add(ProjectSignal(project_id=other.id, signal_id=signal.id,
                                       match_confidence=1.0, match_method="direct"))
             session.commit()
-        return real_new(session, signal)
+        return real_new(session, cfg, signal)
 
     mod._new_project = other_run_wins_the_race
     try:

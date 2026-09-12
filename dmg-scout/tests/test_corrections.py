@@ -98,7 +98,7 @@ def test_pin_blocks_a_signal_observed_at_or_before_the_correction(db_session, cf
 
     stale_signal = _signal(db_session, stage=Stage.construction,
                            event_date=correction.corrected_at - timedelta(days=1))
-    link_signal_to_project(db_session, stale_signal, p, 1.0, "direct")
+    link_signal_to_project(db_session, cfg, stale_signal, p, 1.0, "direct")
 
     db_session.refresh(p)
     assert p.stage == Stage.entitlement, "a signal that predates the correction moved the pinned field"
@@ -113,7 +113,7 @@ def test_pin_blocks_a_newer_forward_signal_and_queues_it_for_review(db_session, 
 
     newer_signal = _signal(db_session, stage=Stage.construction,
                            event_date=correction.corrected_at + timedelta(days=1))
-    link_signal_to_project(db_session, newer_signal, p, 1.0, "direct")
+    link_signal_to_project(db_session, cfg, newer_signal, p, 1.0, "direct")
 
     db_session.refresh(p)
     assert p.stage == Stage.entitlement, "a post-pin signal was applied straight to Project"
@@ -133,7 +133,7 @@ def test_pin_blocks_mw_it_the_same_way(db_session, cfg):
 
     newer_signal = _signal(db_session, mw_it=40.0,
                            event_date=correction.corrected_at + timedelta(days=1))
-    link_signal_to_project(db_session, newer_signal, p, 1.0, "direct")
+    link_signal_to_project(db_session, cfg, newer_signal, p, 1.0, "direct")
 
     db_session.refresh(p)
     assert p.mw_it == 10.0, "a post-pin signal re-inflated a pinned mw_it"
@@ -149,7 +149,7 @@ def test_pin_does_not_affect_an_unpinned_field(db_session, cfg):
                             reason="filing was wrong", corrected_by="Andrew")
 
     bigger_mw_signal = _signal(db_session, mw_it=40.0, stage=Stage.unknown)
-    link_signal_to_project(db_session, bigger_mw_signal, p, 1.0, "direct")
+    link_signal_to_project(db_session, cfg, bigger_mw_signal, p, 1.0, "direct")
 
     db_session.refresh(p)
     assert p.mw_it == 40.0, "un-pinned mw_it should still take the larger signal value"

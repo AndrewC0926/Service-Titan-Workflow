@@ -20,10 +20,13 @@ from sqlmodel import Session, select
 from app.config import Config
 from app.llm import LLMUnavailable, adjudicate
 from app.models import (
-    ACTIVE_STATUSES, DeveloperAlias, MatchCandidate, Project, ProjectSignal, Signal,
-    SignalType, Stage, StageObservation, utcnow,
+    ACTIVE_STATUSES, DeveloperAlias, MatchCandidate, Project, ProjectSignal, RawDocument,
+    Signal, SignalType, Stage, StageObservation, classification_specificity, utcnow,
 )
 from app.normalize import normalize_county, normalize_name, normalize_state
+from app.pipeline.procurement_delivery import (
+    classify_delivery_method_class, classify_pen_holder_role,
+)
 from app.pipeline.waterrisk import water_risk_read
 from app.runguard import STALE_RUN_HOURS, ConcurrentStage, running_stage, stage_run
 
@@ -327,7 +330,8 @@ def _project_record(project: Project) -> dict:
     }
 
 
-def link_signal_to_project(session: Session, signal: Signal, project: Project, confidence: float, method: str) -> None:
+def link_signal_to_project(session: Session, cfg: Config, signal: Signal, project: Project,
+                           confidence: float, method: str) -> None:
     from app.firms import resolve_signal_firms
     exists = session.exec(
         select(ProjectSignal).where(ProjectSignal.project_id == project.id,
@@ -336,7 +340,7 @@ def link_signal_to_project(session: Session, signal: Signal, project: Project, c
     if not exists:
         session.add(ProjectSignal(project_id=project.id, signal_id=signal.id,
                                   match_confidence=confidence, match_method=method))
-    _absorb(session, project, signal)
+    _absorb(session, cfg, project, signal)
     _record_stage_observation(session, project, signal)
     session.add(project)
     resolve_signal_firms(session, project.id, signal.named_firms)
@@ -362,7 +366,7 @@ def _record_stage_observation(session: Session, project: Project, signal: Signal
     ))
 
 
-def _absorb(session: Session, project: Project, signal: Signal) -> None:
+def _absorb(session: Session, cfg: Config, project: Project, signal: Signal) -> None:
     """Fill project gaps from the signal; never overwrite a known value with null.
 
     stage/mw_it/mw_total/delivery_method additionally check for an active
@@ -465,10 +469,38 @@ def _absorb(session: Session, project: Project, signal: Signal) -> None:
                               delivery_pin, signal.delivery_method)
     project.delivery_method_llm_hint = project.delivery_method_llm_hint or signal.delivery_method
 
+    _absorb_delivery_classification(session, cfg, project, signal)
+
     project.updated_at = utcnow()
 
 
-def _new_project(session: Session, signal: Signal) -> Project:
+def _absorb_delivery_classification(session: Session, cfg: Config, project: Project,
+                                    signal: Signal) -> None:
+    """Block 2 closeout (Build Plan v2.1): wire app.pipeline.procurement_delivery
+    into the live pipeline -- this is what actually moves
+    Project.delivery_method_class/pen_holder_role off ABSTAIN. Classifies
+    THIS signal's linked RawDocument (source + raw_text) and applies the
+    result only if it is MORE specific than what the project already has --
+    see app.models.classification_specificity's own docstring for the
+    ABSTAIN < unknown < real-value ladder. A signal with no linked
+    RawDocument (e.g. a hand-entered manual signal) is a no-op: there is no
+    source/text to classify."""
+    if signal.raw_document_id is None:
+        return
+    doc = session.get(RawDocument, signal.raw_document_id)
+    if doc is None:
+        return
+
+    new_dmc = classify_delivery_method_class(doc.source, doc.raw_text, cfg)
+    if classification_specificity(new_dmc) > classification_specificity(project.delivery_method_class):
+        project.delivery_method_class = new_dmc
+
+    new_phr = classify_pen_holder_role(doc.source, doc.raw_text, cfg)
+    if classification_specificity(new_phr) > classification_specificity(project.pen_holder_role):
+        project.pen_holder_role = new_phr
+
+
+def _new_project(session: Session, cfg: Config, signal: Signal) -> Project:
     """Create the project this signal implies — unless it already has one.
 
     The last-moment check is the one that closes the #961/#963 race. The loop
@@ -489,7 +521,7 @@ def _new_project(session: Session, signal: Signal) -> Project:
             log.warning("signal %s acquired project #%d while it was being resolved; "
                         "absorbing into it instead of creating a duplicate",
                         signal.id, project.id)
-            _absorb(session, project, signal)
+            _absorb(session, cfg, project, signal)
             _record_stage_observation(session, project, signal)
             session.add(project)
             return project
@@ -503,7 +535,7 @@ def _new_project(session: Session, signal: Signal) -> Project:
                       county=normalize_county(signal.county), state=signal.state)
     session.add(project)
     session.flush()  # need project.id
-    link_signal_to_project(session, signal, project, 1.0, "direct")
+    link_signal_to_project(session, cfg, signal, project, 1.0, "direct")
     return project
 
 
@@ -596,7 +628,7 @@ def _resolve_loop(session: Session, cfg: Config, unlinked: list[Signal], stats: 
             continue
 
         if best is not None and best_sim >= auto_t:
-            link_signal_to_project(session, signal, best, best_sim, "blocking+fuzzy")
+            link_signal_to_project(session, cfg, signal, best, best_sim, "blocking+fuzzy")
             stats["auto_linked"] += 1
         elif best is not None and best_sim >= review_t:
             verdict, reasoning = "uncertain", "LLM adjudication unavailable"
@@ -610,11 +642,11 @@ def _resolve_loop(session: Session, cfg: Config, unlinked: list[Signal], stats: 
                 except Exception as exc:  # noqa: BLE001
                     reasoning = f"adjudication error: {exc}"
             if verdict == "match":
-                link_signal_to_project(session, signal, best, best_sim, "llm_adjudicated")
+                link_signal_to_project(session, cfg, signal, best, best_sim, "llm_adjudicated")
                 _learn_alias(session, signal, best)
                 stats["llm_linked"] += 1
             elif verdict == "no_match":
-                _new_project(session, signal)
+                _new_project(session, cfg, signal)
                 stats["new_projects"] += 1
             else:
                 session.add(MatchCandidate(signal_id=signal.id, project_id=best.id,
@@ -622,7 +654,7 @@ def _resolve_loop(session: Session, cfg: Config, unlinked: list[Signal], stats: 
                                            llm_reasoning=reasoning))
                 stats["queued_review"] += 1
         else:
-            _new_project(session, signal)
+            _new_project(session, cfg, signal)
             stats["new_projects"] += 1
         session.commit()
     return stats
@@ -645,6 +677,43 @@ def backfill_stage_observations(session: Session) -> int:
     session.commit()
     n_after = session.exec(select(func.count()).select_from(StageObservation)).one()
     return n_after - n_before
+
+
+def backfill_delivery_classification(session: Session, cfg: Config) -> dict:
+    """Block 2 closeout (Build Plan v2.1): one-time reconstruction of
+    delivery_method_class/pen_holder_role for every Project linked before
+    the live _absorb wiring existed (`scout classify-delivery`).
+
+    Idempotent, same discipline as backfill_stage_observations above: for
+    each project, re-runs _absorb_delivery_classification against every one
+    of its linked signals. Order doesn't matter -- the function only ever
+    moves a project UP the ABSTAIN < unknown < real-value ladder
+    (classification_specificity), so re-running this after the first pass,
+    or after the live pipeline has already classified some projects, is
+    always a no-op for anything already at its ceiling.
+
+    Returns the resulting board-wide distribution, not a diff count -- the
+    caller wants "what does the board look like now", not "how many
+    changed"."""
+    from collections import Counter
+
+    projects = session.exec(select(Project)).all()
+    for project in projects:
+        signal_ids = session.exec(
+            select(ProjectSignal.signal_id).where(ProjectSignal.project_id == project.id)
+        ).all()
+        for signal_id in signal_ids:
+            signal = session.get(Signal, signal_id)
+            if signal is not None:
+                _absorb_delivery_classification(session, cfg, project, signal)
+        session.add(project)
+    session.commit()
+
+    return {
+        "projects_checked": len(projects),
+        "delivery_method_class": dict(Counter(p.delivery_method_class.value for p in projects)),
+        "pen_holder_role": dict(Counter(p.pen_holder_role.value for p in projects)),
+    }
 
 
 def _learn_alias(session: Session, signal: Signal, project: Project) -> None:
@@ -689,13 +758,13 @@ def apply_review_decision(session: Session, cfg: Config, candidate_id: int, deci
     project = session.get(Project, mc.project_id)
     touched_id: int | None = None
     if decision == "merge" and signal and project:
-        link_signal_to_project(session, signal, project, mc.similarity, "manual_merge")
+        link_signal_to_project(session, cfg, signal, project, mc.similarity, "manual_merge")
         _learn_alias(session, signal, project)
         mc.status = "merged"
         touched_id = project.id
     else:
         if signal:
-            touched_id = _new_project(session, signal).id
+            touched_id = _new_project(session, cfg, signal).id
         mc.status = "rejected"
     mc.resolved_at = utcnow()
     session.add(mc)

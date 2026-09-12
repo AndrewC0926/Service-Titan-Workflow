@@ -29,6 +29,7 @@ from app.models import (
     ProjectFirm,
     ProjectSignal,
     StageObservation,
+    classification_specificity,
     utcnow,
 )
 
@@ -88,6 +89,18 @@ def _absorb_project(survivor: Project, dup: Project) -> None:
     if dup.last_signal_at and (survivor.last_signal_at is None
                                or dup.last_signal_at > survivor.last_signal_at):
         survivor.last_signal_at = dup.last_signal_at
+    # Block 2 closeout: same ABSTAIN < unknown < real-value ladder
+    # app.pipeline.resolve._absorb_delivery_classification uses -- this is a
+    # merge of two already-computed classifications, not a fresh
+    # re-classification (no new document exists at merge time), so it reads
+    # classification_specificity directly rather than calling the
+    # classifier again.
+    if classification_specificity(dup.delivery_method_class) > classification_specificity(
+            survivor.delivery_method_class):
+        survivor.delivery_method_class = dup.delivery_method_class
+    if classification_specificity(dup.pen_holder_role) > classification_specificity(
+            survivor.pen_holder_role):
+        survivor.pen_holder_role = dup.pen_holder_role
     survivor.updated_at = utcnow()
 
 
