@@ -10,16 +10,52 @@
 ], subview) }}
 <div class="sec-head">
   <div class="sec-title">Pipeline</div>
-  <span class="note">A Signal that passed the four-part filter becomes an Opportunity here -- ranked
-    by its weakest why, never a weighted sum. Item 5 of this block builds the real table
-    (weakest why, line, stage, pen holder, last touch, next action, NetSuite ID or "not yet in
-    NetSuite"); this is the destination shell.</span>
+  <span class="note">A Signal that passed the four-part filter becomes an Opportunity here --
+    ranked by its weakest why, never a weighted sum. No dispositions yet (Block 4).</span>
 </div>
 {{ kpi_strip([
   {'label': 'Opportunities', 'value': kpis.opportunity_count},
   {'label': 'Signals', 'value': kpis.signal_count},
 ]) }}
-{% if kpis.opportunity_count == 0 %}
+{% if rows %}
+<table class="tbl">
+  <thead><tr>
+    <th>Account or building</th><th>Weakest why</th><th>Line</th><th>Stage</th><th>Pen holder</th>
+    <th>Last touch</th><th>Next action</th><th>NetSuite</th>
+  </tr></thead>
+  <tbody>
+    {% for r in rows %}
+    <tr id="opp-{{ r.opportunity.id }}">
+      <td>{{ r.account_or_building }}</td>
+      <td><span class="chip">{{ r.weakest_why.value if r.weakest_why else 'ABSTAIN' }}</span></td>
+      <td>{{ r.line_name or '' }}{% if not r.line_name %}<span class="chip">ABSTAIN</span>{% endif %}</td>
+      <td>{{ r.opportunity.stage.value }}</td>
+      <td>{{ r.opportunity.pen_holder.value }}</td>
+      <td class="mono">{{ r.opportunity.last_touch.strftime('%Y-%m-%d') if r.opportunity.last_touch else '' }}</td>
+      <td>{{ r.opportunity.next_action or '' }}</td>
+      <td>{{ r.opportunity.netsuite_opportunity_id if r.opportunity.netsuite_opportunity_id else '' }}{% if not r.opportunity.netsuite_opportunity_id %}<span class="chip">not yet in NetSuite</span>{% endif %}</td>
+    </tr>
+    <tr>
+      <td colspan="8">
+        <details>
+          <summary class="note">Reason Block</summary>
+          {% for rb in r.reason_blocks %}
+          <div class="mb-2">
+            <strong>{{ rb.why_kind.value }}</strong> -- <span class="chip">{{ rb.strength.value }}</span>
+            <p>{{ rb.evidence }}</p>
+            {% if rb.source %}<span class="note">source: {{ rb.source }}{% if rb.source_url %} ({{ rb.source_url }}){% endif %}</span>{% endif %}
+          </div>
+          {% endfor %}
+          {% if rows and r.reason_blocks and r.reason_blocks[0].do_person %}
+          <p><strong>Do:</strong> {{ r.reason_blocks[0].do_person }} -- {{ r.reason_blocks[0].do_ask }}</p>
+          {% endif %}
+        </details>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
 {{ empty_state(
   "No Opportunities yet -- every Signal checked so far is missing at least one of the four parts "
   "(named reachable contact, sellable account or building, dated reason, eligible fitting line). "

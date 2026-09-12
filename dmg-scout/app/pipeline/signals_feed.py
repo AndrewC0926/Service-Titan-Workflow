@@ -340,6 +340,29 @@ def _eligible_fitting_line(session: Session, fs: FeedSignal) -> int | None:
     return None
 
 
+def resolve_signal_id(session: Session, fs: FeedSignal) -> int | None:
+    """The real `signals` table row to attach an Opportunity to
+    (Opportunity.signal_id is not nullable, Item 1). Only project-sourced
+    FeedSignals have one today -- via the existing ProjectSignal link, the
+    same real Signal row `_project_signals` above already reads. Every
+    other source (retrofit_building, ab869_plan, hcai_project,
+    opsc_project, field_intel) has no `signals` row behind it at all: this
+    module builds their FeedSignal shape straight from their own table,
+    never from `signals`. That is a real, disclosed gap surfaced by Item
+    5's Promote button, not silently worked around here -- Block 4 is
+    where a real Signal row (or a nullable Opportunity.signal_id) for
+    these five sources gets decided and built. Returns None for them on
+    principle; callers must treat None as "cannot promote yet", a fifth,
+    separate reason beyond the four-part filter's own four."""
+    if fs.source != "project" or fs.project_id is None:
+        return None
+    link = session.exec(
+        select(ProjectSignal).where(ProjectSignal.project_id == fs.project_id)
+        .order_by(ProjectSignal.linked_at.desc())
+    ).first()
+    return link.signal_id if link else None
+
+
 def four_part_filter(session: Session, fs: FeedSignal) -> FourPartResult:
     """Pure, config-driven, no LLM. Returns pass, or the list of missing
     parts by name -- never a partial score, per the plan's own words:

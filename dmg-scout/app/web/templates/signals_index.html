@@ -14,14 +14,45 @@
 ], subview) }}
 <div class="sec-head">
   <div class="sec-title">Signals</div>
-  <span class="note">One feed, six trigger types: entitlement milestone (the old Board), permit gap
-    (retrofit), deadline, quiet account, public work, relationship intro. Item 5 of this block
-    builds the real filter-chip/card/Promote UI over app.pipeline.signals_feed.unified_signals();
-    this is the destination shell with the count already unified in Item 2.</span>
+  <span class="note">One feed, six trigger types. A card's Promote button is disabled and names
+    exactly what's missing when the four-part filter fails (named reachable contact, sellable
+    account or building, dated reason, eligible fitting line) -- or when no Signal record exists
+    yet for that source. Permit gap alone is {{ '{:,}'.format(total_signals) if trigger == '' else '' }}too
+    large to browse card-by-card -- use its own list-builder at /signals/permit-gap instead;
+    cards here are capped at {{ card_cap }} regardless of filter.</span>
 </div>
-{% if total_signals %}
 {{ kpi_strip(trigger_kpi_items) }}
+
+<div class="mb-3 flex flex-wrap items-center gap-1.5">
+  <a class="chip{{ ' active' if trigger == '' }}" href="/signals">All</a>
+  {% for item in trigger_kpi_items %}
+  <a class="chip{{ ' active' if trigger == item.href.split('=')[1] }}" href="{{ item.href }}">{{ item.label }} ({{ item.value }})</a>
+  {% endfor %}
+</div>
+
+{% if cards %}
+<div class="note mb-3">Showing {{ cards|length }} of {{ total_for_filter }}{{ ' (capped)' if total_for_filter > card_cap }}.</div>
+{% for c in cards %}
+<div class="scout-card mb-3">
+  <div class="scout-card-title">{{ c.fs.trigger_type.value.replace('_', ' ') }} -- {{ c.fs.source.replace('_', ' ') }}</div>
+  <div class="mono note">{{ c.fs.trigger_date.strftime('%Y-%m-%d') if c.fs.trigger_date else 'ABSTAIN date' }}</div>
+  <p>{{ c.fs.evidence }}</p>
+  <span class="chip">{{ 'confidence %.2f' % c.fs.confidence if c.fs.confidence is not none else 'ABSTAIN confidence' }}</span>
+  {% if c.can_promote %}
+  <form method="post" action="/signals/promote" class="mt-2">
+    <input type="hidden" name="source" value="{{ c.fs.source }}">
+    <input type="hidden" name="source_id" value="{{ c.fs.source_id }}">
+    <button type="submit" class="chip">Promote to Opportunity</button>
+  </form>
+  {% else %}
+  <div class="mt-2">
+    <button type="button" class="chip" disabled title="Missing: {{ c.missing|join(', ') }}">Promote (missing {{ c.missing|length }})</button>
+    <span class="note">missing: {{ c.missing|join(', ') }}</span>
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
 {% else %}
-{{ empty_state("No signals in the local feed yet.") }}
+{{ empty_state("No signals match this filter.") }}
 {% endif %}
 {% endblock %}

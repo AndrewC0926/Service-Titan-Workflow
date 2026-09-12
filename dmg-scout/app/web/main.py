@@ -473,35 +473,142 @@ def _hub_kpis(session: Session) -> dict:
 
 @app.get("/pipeline", response_class=HTMLResponse)
 def pipeline_index(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
-    """Minimal hub index -- Item 5 of this same block builds the real
-    Opportunity table (weakest why, line, stage, pen holder, NetSuite ID
-    or "not yet in NetSuite"). For now: the sub-tab strip to Review/
-    Corrections/Outreach (relocated, unchanged, from the old flat nav) and
-    a count of Opportunities that exist today (0 until Item 2's four-part
-    filter actually promotes one, which it does not yet against local data
-    -- see docs/BUILD-PLAN.md section 9's Item 2 report)."""
+    """Block 3 Item 5 (Master Plan v3.2 section 13): a table of every
+    Opportunity, weakest-why first (app.pipeline.reason_block.
+    weakest_why_rank -- "ranks by its weakest why, never a weighted sum").
+    No dispositions yet -- Block 4. Row expands (a plain <details>, same
+    idiom as the pre-existing collapsed-callout pattern) to the full
+    three-row Reason Block."""
+    from app.models import Account, Opportunity, ProductLine, ReasonBlock
+    from app.pipeline.reason_block import weakest_why_rank, weakest_of
+
     kpis = _hub_kpis(session)
+    opportunities = session.exec(select(Opportunity)).all()
+    reason_blocks = session.exec(
+        select(ReasonBlock).where(ReasonBlock.opportunity_id.in_([o.id for o in opportunities]))
+    ).all() if opportunities else []
+    blocks_by_opp: dict[int, list[ReasonBlock]] = {}
+    for rb in reason_blocks:
+        blocks_by_opp.setdefault(rb.opportunity_id, []).append(rb)
+
+    account_ids = [o.account_id for o in opportunities if o.account_id]
+    building_ids = [o.building_id for o in opportunities if o.building_id]
+    line_ids = [o.line_id for o in opportunities if o.line_id]
+    accounts = {a.id: a for a in session.exec(select(Account).where(Account.id.in_(account_ids)))} if account_ids else {}
+    buildings = {b.id: b for b in session.exec(select(RetrofitBuilding).where(RetrofitBuilding.id.in_(building_ids)))} if building_ids else {}
+    lines = {l.id: l for l in session.exec(select(ProductLine).where(ProductLine.id.in_(line_ids)))} if line_ids else {}
+
+    rows = []
+    for o in opportunities:
+        blocks = blocks_by_opp.get(o.id, [])
+        strengths = [b.strength for b in blocks]
+        account_or_building = (
+            accounts[o.account_id].name if o.account_id in accounts else
+            (buildings[o.building_id].address or buildings[o.building_id].apn) if o.building_id in buildings else
+            "ABSTAIN"
+        )
+        rows.append({
+            "opportunity": o,
+            "account_or_building": account_or_building,
+            "line_name": lines[o.line_id].name if o.line_id in lines else None,
+            "weakest_why": weakest_of(strengths) if len(strengths) == 3 else None,
+            "sort_key": weakest_why_rank(strengths) if len(strengths) == 3 else (99, 99),
+            "reason_blocks": sorted(blocks, key=lambda b: b.why_kind.value),
+        })
+    rows.sort(key=lambda r: r["sort_key"])
+
     return templates.TemplateResponse(request, "pipeline_index.html", {
-        "tb": _title_block(session), "active": "pipeline", "kpis": kpis,
+        "tb": _title_block(session), "active": "pipeline", "subview": "pipeline", "kpis": kpis, "rows": rows,
     })
+
+
+# Signals cards are capped regardless of filter -- Master Plan v3.2 section
+# 17's own "no browsable 53,000-row page" applies here just as much as it
+# does to /retrofit's full list (permit_gap alone is 53,000+ signals in the
+# real restore): a card-per-signal UI does not scale to that, and this
+# item's own scope is "minimal", not a paginated card browser. The full
+# retrofit list-builder still exists, unchanged, at /signals/permit-gap.
+_SIGNALS_CARD_CAP = 200
 
 
 @app.get("/signals", response_class=HTMLResponse)
-def signals_index(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
-    """Minimal hub index -- Item 5 of this same block builds the real
-    filter-chip/card/Promote UI over app.pipeline.signals_feed.
-    unified_signals(). For now: the sub-tab strip to every relocated
-    source page (Board/Retrofit/etc.) plus a trigger-type count so the
-    unification from Item 2 is at least visible here."""
-    from app.pipeline.signals_feed import unified_signals
+def signals_index(request: Request, trigger: str = "",
+                  session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Block 3 Item 5 (Master Plan v3.2 section 13): filter chips by
+    trigger type, each card with trigger/date/evidence/confidence, and a
+    Promote button disabled with the missing parts named when the
+    four-part filter fails (app.pipeline.signals_feed.four_part_filter) --
+    which is every card today (see docs/BUILD-PLAN.md section 9's Item 2
+    report: 0 of 54,665 pass all four locally, entirely on
+    named_reachable_contact). resolve_signal_id is a FIFTH, separate
+    reason Promote can be disabled -- see that function's own docstring:
+    only project-sourced signals have a real `signals` row to attach an
+    Opportunity to today."""
     from collections import Counter
+
+    from app.pipeline.signals_feed import four_part_filter, resolve_signal_id, unified_signals
+
     signals = unified_signals(session)
     by_trigger = Counter(s.trigger_type.value for s in signals)
-    trigger_kpi_items = [{"label": k.replace("_", " "), "value": v} for k, v in sorted(by_trigger.items())]
+    trigger_kpi_items = [
+        {"label": k.replace("_", " "), "value": v, "href": f"/signals?trigger={k}"}
+        for k, v in sorted(by_trigger.items())
+    ]
+
+    shown = [s for s in signals if not trigger or s.trigger_type.value == trigger][:_SIGNALS_CARD_CAP]
+    cards = []
+    for s in shown:
+        result = four_part_filter(session, s)
+        signal_id = resolve_signal_id(session, s)
+        missing = list(result.missing)
+        if signal_id is None:
+            missing = missing + ["no_signal_record_for_this_source_yet"]
+        cards.append({"fs": s, "can_promote": result.passed and signal_id is not None,
+                      "missing": missing, "signal_id": signal_id})
+
+    total_for_filter = sum(1 for s in signals if not trigger or s.trigger_type.value == trigger)
     return templates.TemplateResponse(request, "signals_index.html", {
-        "tb": _title_block(session), "active": "signals",
+        "tb": _title_block(session), "active": "signals", "subview": "signals",
         "total_signals": len(signals), "trigger_kpi_items": trigger_kpi_items,
+        "cards": cards, "trigger": trigger, "total_for_filter": total_for_filter,
+        "card_cap": _SIGNALS_CARD_CAP,
     })
+
+
+@app.post("/signals/promote")
+def signals_promote(source: str = Form(...), source_id: str = Form(...),
+                    session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Re-finds the one matching FeedSignal from its own source builder
+    (not a full unified_signals() rebuild -- see the per-source dispatch
+    below) and promotes it if it still passes. A rare action (0 signals
+    pass locally today), so this is deliberately not optimized past "find
+    it, check it again, promote it" -- see app.pipeline.signals_feed.
+    promote_to_opportunity."""
+    from app.pipeline import signals_feed as sf
+
+    builders = {
+        "project": sf._project_signals,
+        "retrofit_building": sf._retrofit_replacement_candidates,
+        "ab869_plan": sf._ab869_npc_outstanding,
+        "hcai_project": sf._hcai_open_mechanical,
+        "opsc_project": sf._opsc_pre_spec,
+        "field_intel": sf._field_intel_signals,
+    }
+    builder = builders.get(source)
+    if builder is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"unknown source {source!r}")
+    match = next((s for s in builder(session) if s.source_id == source_id), None)
+    if match is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="signal not found (may no longer qualify)")
+
+    result = sf.four_part_filter(session, match)
+    signal_id = sf.resolve_signal_id(session, match)
+    if not result.passed or signal_id is None:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail=f"cannot promote: missing {result.missing}, signal_id={signal_id}")
+    opp = sf.promote_to_opportunity(session, match, signal_id=signal_id)
+    session.commit()
+    return RedirectResponse(f"/pipeline#opp-{opp.id}", status_code=303)
 
 
 @app.get("/deadlines", response_class=HTMLResponse)

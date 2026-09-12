@@ -34,3 +34,11 @@ def weakest_why_rank(strengths: list[ReasonStrength]) -> tuple[int, int]:
         raise ValueError(f"expected exactly 3 why strengths (them, now, win), got {len(strengths)}")
     ranks = [_STRENGTH_RANK[s] for s in strengths]
     return (max(ranks), sum(ranks))
+
+
+def weakest_of(strengths: list[ReasonStrength]) -> ReasonStrength:
+    """The single strength value Pipeline's own "weakest why" column shows
+    (Item 5) -- the worst of the three, by the same ranking weakest_why_rank
+    sorts on. Strong=0 is best, ABSTAIN=2 is worst, so this is the
+    strength at max(rank), not min."""
+    return max(strengths, key=lambda s: _STRENGTH_RANK[s])
