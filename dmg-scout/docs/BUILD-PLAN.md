@@ -258,3 +258,33 @@ Branch, local DB (`postgresql://scout:scout@localhost:5432/scout_local`) only th
 **Weakest-why rank:** `app/pipeline/reason_block.py::weakest_why_rank`, a pure sort-key function -- primary key is the single worst strength among the three whys (`Strong`=0, `Weak`=1, `ABSTAIN`=2, lower sorts first/stronger), secondary tiebreak is the sum of all three ranks. This directly enforces "ranks by its weakest why, never a weighted sum": any ABSTAIN always outranks (sorts after) any all-Strong-or-Weak combination regardless of the other two whys. 7 new tests (`tests/test_reason_block.py`), including the two required cases (3 Strong ranks above 2 Strong + 1 Weak; 2 Strong + 1 Weak ranks above any ABSTAIN) and a worked-example regression using the plan's own Rady Children's (Strong/Strong/ABSTAIN) vs. UC Davis Health CUP (Weak/Strong/Weak) shapes, confirming Rady's two-Strong-one-ABSTAIN does NOT outrank a plain three-Weak opportunity.
 
 **Tests:** `tests/test_reason_block.py` (7, new, all fail against no such module by construction), `tests/test_migration_guard.py` + `tests/test_pipeline_health.py` (33, unaffected, re-run clean to confirm no model-drift breakage from the new tables).
+
+### Item 2: Signals consolidation and the four-part filter
+
+`app/pipeline/signals_feed.py` -- `unified_signals()` folds Project, RetrofitBuilding replacement candidates, AB 869 facilities with NPC outstanding, HCAI open mechanical projects, OPSC pre-spec rows, and FieldIntel into one read-time shape (`FeedSignal`: source, trigger_type, trigger_date, evidence, confidence-or-ABSTAIN). A view over existing tables, not a new persisted table -- no migration, `TriggerType` is a plain enum added to `app/models.py` (no table). `quiet_account` is deliberately left unbuilt (Account has 1 row in Scout today with no "last activity" concept to compute quiet from) rather than faked.
+
+`four_part_filter()`: pure, config-driven, no LLM, reusing existing eligibility machinery rather than inventing a second one -- `app.accounts.line_offering_by_role` (the OSP register + line facets engine) for "eligible fitting line," `app.pipeline.opsc.classify_opsc_status` for the OPSC pre-spec cut. `promote_to_opportunity()` creates the Opportunity and its three ReasonBlock rows from a passed FeedSignal, filling each why from what's actually available: "them" is Strong when an account is known, Weak when only a building is known (owner ABSTAIN), ABSTAIN when neither; "now" is Strong whenever a dated reason exists (required to reach promotion at all); "win" is ABSTAIN on every single promotion this block makes, honestly, because Block 3 is public data only and no DMG pairing/relationship evidence exists yet to support a why-we-win claim.
+
+**Report, computed against the real local restore:**
+
+Signal count by trigger type (54,665 total):
+| trigger_type | count | source |
+|---|---|---|
+| permit_gap | 53,252 | retrofit_building |
+| public_work | 783 | hcai_project (267) + opsc_project (516) |
+| entitlement_milestone | 442 | project |
+| deadline | 188 | ab869_plan |
+| relationship_intro | 0 | field_intel (table empty in this restore) |
+| quiet_account | 0 | not built (see above) |
+
+Four-part pass counts (out of 54,665 unified signals):
+| part | pass | missing | why |
+|---|---|---|---|
+| named_reachable_contact | **0** | 54,665 | Contact has 5 rows total in the local restore, 0 with `reach_status='confirmed'` (phone or email populated) -- 10 `project_contacts` links exist, all to unreachable (pending) contacts. Confirms the plan's own prediction exactly: contacts are sparse. |
+| sellable_account_or_building | 53,252 | 1,413 | Passes ONLY for retrofit_building-sourced signals (the only source with a building anchor Opportunity.building_id can point at, from Item 1). All 1,413 non-retrofit signals (442 project + 188 ab869 + 267 hcai + 516 opsc) fail this part -- a real, disclosed schema gap, not a bug: Project has no Account join in Scout today (the Item 1 mapping report's own Account finding), and HospitalBuilding-anchored sources have no FK target on Opportunity at all yet. |
+| dated_reason | 1,411 | 53,254 | Fails for essentially all of retrofit_building (permit_gap is an absence-of-a-permit signal by definition, so it has no date) plus a small number of project/ab869/opsc rows missing a usable date. |
+| eligible_fitting_line | 442 | 54,223 | Passes ONLY for project-sourced signals (the only source that carries a `Category` Scout's line card actually spans -- data_center/industrial/esco). Every other source ABSTAINs honestly rather than guessing a category to force a pass. |
+
+**Pass all four: 0 of 54,665** -- literally zero, not merely near-zero, entirely because of `named_reachable_contact` (0 passing) intersected with the fact that the 440 signals that DO clear both `dated_reason` and `eligible_fitting_line` (the project-sourced ones) also have 0 confirmed contacts and 0 account links. Missing-part distribution: 440 signals miss exactly 2 parts (the project-sourced signals, missing only contact + account/building), the remaining 54,225 miss 3.
+
+**Tests:** `tests/test_signals_feed.py`, 20 new tests, all fail against the old board-only path by construction (the module and every non-Project source it reads did not exist before this item) -- including one that asserts directly that `unified_signals()` returns a non-"project" source (`test_unified_signals_folds_more_than_just_the_board`).

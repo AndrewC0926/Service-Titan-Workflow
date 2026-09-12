@@ -3415,6 +3415,21 @@ class OpportunityStage(str, enum.Enum):
     lost = "lost"
 
 
+class TriggerType(str, enum.Enum):
+    """Block 3 Item 2 (Master Plan v3.2 section 12): what KIND of dated
+    event a unified Signal (app.pipeline.signals_feed.FeedSignal) is. Not a
+    table column -- FeedSignal is a read-time, in-memory shape over six
+    existing tables (Project, RetrofitBuilding, Ab869Plan, HcaiProject,
+    OpscProject, FieldIntel), never persisted on its own, so this has no
+    migration."""
+    entitlement_milestone = "entitlement_milestone"
+    permit_gap = "permit_gap"
+    deadline = "deadline"
+    quiet_account = "quiet_account"
+    public_work = "public_work"
+    relationship_intro = "relationship_intro"
+
+
 class WhyKind(str, enum.Enum):
     them = "them"
     now = "now"

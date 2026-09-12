@@ -1,0 +1,285 @@
+"""Block 3 Item 2 (Master Plan v3.2 section 12): signal consolidation and
+the four-part filter (app.pipeline.signals_feed)."""
+from datetime import datetime
+
+from sqlmodel import select
+
+from app.models import (
+    Ab869Plan, Category, Contact, FieldIntel, HcaiProject, HospitalBuilding,
+    Opportunity, OpscProject, ProductLine, Project, ProjectContact, ReasonBlock,
+    ReasonStrength, RetrofitBuilding, Signal, SignalType, TriggerType, WhyKind,
+)
+from app.pipeline.signals_feed import (
+    FeedSignal, four_part_filter, promote_to_opportunity, unified_signals,
+)
+
+
+def _project(name="Test DC", category=Category.data_center):
+    return Project(name=name, category=category)
+
+
+def test_unified_signals_folds_more_than_just_the_board(db_session):
+    """The old path only ever looked at board Projects -- this must fail
+    against that path by construction, since it asserts non-project
+    sources are present in the unified feed."""
+    db_session.add(RetrofitBuilding(
+        apn="1234-005-006", address="1 Test Way", population="replacement_candidate",
+        year_built=1990,
+    ))
+    db_session.commit()
+
+    signals = unified_signals(db_session)
+    sources = {s.source for s in signals}
+    assert "retrofit_building" in sources
+    assert any(s.trigger_type == TriggerType.permit_gap for s in signals)
+
+
+def test_project_signal_is_entitlement_milestone(db_session):
+    p = _project()
+    db_session.add(p)
+    db_session.commit()
+
+    signals = [s for s in unified_signals(db_session) if s.source == "project"]
+    assert len(signals) == 1
+    assert signals[0].trigger_type == TriggerType.entitlement_milestone
+    assert signals[0].category == Category.data_center
+
+
+def test_retrofit_recently_active_buildings_are_not_in_the_feed(db_session):
+    """Only population=='replacement_candidate' is a Signal -- recently_active
+    buildings (real permit-verified equipment) are not "absence" evidence."""
+    db_session.add(RetrofitBuilding(apn="9999-000-000", population="recently_active"))
+    db_session.commit()
+
+    signals = unified_signals(db_session)
+    assert not any(s.source == "retrofit_building" for s in signals)
+
+
+def test_ab869_npc_outstanding_is_a_deadline_signal(db_session):
+    db_session.add(HospitalBuilding(
+        perm_id="PERM1", building_nbr="B1", facility_name="Test Hospital",
+        county="Los Angeles", npc_rating="2", npc_deadline_year=2030,
+        snapshot_date=datetime(2026, 1, 1), source_url="https://x",
+    ))
+    db_session.add(Ab869Plan(
+        perm_id="PERM1", plan_status="In Progress",
+        source_pdf_path="/x.pdf", source_pdf_hash="abc",
+    ))
+    db_session.commit()
+
+    signals = [s for s in unified_signals(db_session) if s.source == "ab869_plan"]
+    assert len(signals) == 1
+    assert signals[0].trigger_type == TriggerType.deadline
+    assert signals[0].trigger_date == datetime(2030, 1, 1)
+
+
+def test_ab869_facility_fully_compliant_is_not_a_signal(db_session):
+    db_session.add(HospitalBuilding(
+        perm_id="PERM2", building_nbr="B1", facility_name="Compliant Hospital",
+        county="Los Angeles", npc_rating="5", npc_deadline_year=None,
+        snapshot_date=datetime(2026, 1, 1), source_url="https://x",
+    ))
+    db_session.add(Ab869Plan(
+        perm_id="PERM2", plan_status="Complete",
+        source_pdf_path="/x.pdf", source_pdf_hash="abc2",
+    ))
+    db_session.commit()
+
+    signals = [s for s in unified_signals(db_session) if s.source == "ab869_plan"]
+    assert signals == []
+
+
+def test_hcai_open_mechanical_project_is_public_work(db_session):
+    db_session.add(HcaiProject(
+        record_no="R1", facility_id="F1", facility_name="Test Facility",
+        county="Los Angeles", scope_text="Replace chiller plant", status_raw="Under Review",
+        stage="plan_review", is_mechanical=True, report_date=datetime(2026, 1, 1),
+    ))
+    db_session.commit()
+
+    signals = [s for s in unified_signals(db_session) if s.source == "hcai_project"]
+    assert len(signals) == 1
+    assert signals[0].trigger_type == TriggerType.public_work
+
+
+def test_hcai_closed_mechanical_project_is_excluded(db_session):
+    db_session.add(HcaiProject(
+        record_no="R2", facility_id="F1", facility_name="Test Facility",
+        county="Los Angeles", scope_text="Replace chiller plant", status_raw="Complete",
+        stage="closed", is_mechanical=True, report_date=datetime(2026, 1, 1),
+    ))
+    db_session.commit()
+
+    assert not any(s.source == "hcai_project" for s in unified_signals(db_session))
+
+
+def test_opsc_pre_spec_row_is_public_work(db_session):
+    db_session.add(OpscProject(
+        application_number="A1", district="Test USD", school_name="Test Elementary",
+        program="Modernization", status="Eligibility Determination", in_territory=True,
+        source_url="https://x",
+    ))
+    db_session.commit()
+
+    signals = [s for s in unified_signals(db_session) if s.source == "opsc_project"]
+    assert len(signals) == 1
+    assert signals[0].trigger_type == TriggerType.public_work
+
+
+def test_opsc_funds_released_row_is_excluded_spec_already_locked(db_session):
+    db_session.add(OpscProject(
+        application_number="A2", district="Test USD", school_name="Test Elementary",
+        program="Modernization", status="Funds Released", in_territory=True,
+        source_url="https://x",
+    ))
+    db_session.commit()
+
+    assert not any(s.source == "opsc_project" for s in unified_signals(db_session))
+
+
+def test_field_intel_is_relationship_intro(db_session):
+    db_session.add(FieldIntel(
+        reported_by="andrew", reported_at=datetime(2026, 6, 1), source_notes="Talked to the PE at lunch",
+        stage="design",
+    ))
+    db_session.commit()
+
+    signals = [s for s in unified_signals(db_session) if s.source == "field_intel"]
+    assert len(signals) == 1
+    assert signals[0].trigger_type == TriggerType.relationship_intro
+
+
+class TestFourPartFilter:
+    def test_missing_everything_reports_all_four(self, db_session):
+        fs = FeedSignal(source="retrofit_building", source_id="1",
+                        trigger_type=TriggerType.permit_gap, trigger_date=None,
+                        evidence="x", confidence=None)
+        result = four_part_filter(db_session, fs)
+        assert not result.passed
+        assert set(result.missing) == {
+            "named_reachable_contact", "sellable_account_or_building",
+            "dated_reason", "eligible_fitting_line",
+        }
+
+    def test_building_id_satisfies_sellable_account_or_building(self, db_session):
+        b = RetrofitBuilding(apn="1-1-1", population="replacement_candidate")
+        db_session.add(b)
+        db_session.commit()
+        fs = FeedSignal(source="retrofit_building", source_id=str(b.id),
+                        trigger_type=TriggerType.permit_gap, trigger_date=None,
+                        evidence="x", confidence=None, building_id=b.id)
+        result = four_part_filter(db_session, fs)
+        assert "sellable_account_or_building" not in result.missing
+
+    def test_dated_reason_requires_a_trigger_date(self, db_session):
+        fs_no_date = FeedSignal(source="project", source_id="1", trigger_type=TriggerType.entitlement_milestone,
+                                trigger_date=None, evidence="x", confidence=None)
+        fs_dated = FeedSignal(source="project", source_id="1", trigger_type=TriggerType.entitlement_milestone,
+                              trigger_date=datetime(2026, 1, 1), evidence="x", confidence=None)
+        assert "dated_reason" in four_part_filter(db_session, fs_no_date).missing
+        assert "dated_reason" not in four_part_filter(db_session, fs_dated).missing
+
+    def test_all_four_parts_pass_when_every_condition_is_met(self, db_session):
+        p = _project()
+        db_session.add(p)
+        db_session.flush()
+        contact = Contact(name="Jane PE", phone="555-1234", reach_status="confirmed")
+        db_session.add(contact)
+        db_session.flush()
+        db_session.add(ProjectContact(project_id=p.id, contact_id=contact.id, role="engineer_of_record"))
+        db_session.add(ProductLine(name="Test AHU Line", name_norm="test ahu line",
+                                   category="air_handling_units", building_role="air_handling"))
+        db_session.commit()
+
+        fs = FeedSignal(source="project", source_id=str(p.id), trigger_type=TriggerType.entitlement_milestone,
+                        trigger_date=datetime(2026, 1, 1), evidence="x", confidence=None,
+                        project_id=p.id, account_id=None, building_id=None, category=Category.data_center)
+        # sellable_account_or_building needs an account or building -- give it one directly
+        fs.account_id = 999
+        result = four_part_filter(db_session, fs)
+        assert result.passed, result.missing
+        assert result.contact_id == contact.id
+        assert result.line_id is not None
+
+    def test_contact_must_be_reach_status_confirmed(self, db_session):
+        p = _project()
+        db_session.add(p)
+        db_session.flush()
+        pending = Contact(name="Unreachable Guy", reach_status="pending")
+        db_session.add(pending)
+        db_session.flush()
+        db_session.add(ProjectContact(project_id=p.id, contact_id=pending.id, role="gc"))
+        db_session.commit()
+
+        fs = FeedSignal(source="project", source_id=str(p.id), trigger_type=TriggerType.entitlement_milestone,
+                        trigger_date=None, evidence="x", confidence=None, project_id=p.id)
+        result = four_part_filter(db_session, fs)
+        assert "named_reachable_contact" in result.missing
+
+    def test_no_category_means_eligible_fitting_line_abstains(self, db_session):
+        fs = FeedSignal(source="opsc_project", source_id="A1", trigger_type=TriggerType.public_work,
+                        trigger_date=datetime(2026, 1, 1), evidence="x", confidence=None)
+        result = four_part_filter(db_session, fs)
+        assert "eligible_fitting_line" in result.missing
+
+
+class TestPromoteToOpportunity:
+    def test_creates_opportunity_and_three_reason_blocks(self, db_session):
+        signal = Signal(signal_type=SignalType.ceqa_nop, event_date=datetime(2026, 1, 1))
+        db_session.add(signal)
+        db_session.commit()
+
+        fs = FeedSignal(source="project", source_id="1", trigger_type=TriggerType.entitlement_milestone,
+                        trigger_date=datetime(2026, 1, 1), evidence="Board project fired", confidence=None,
+                        account_id=42)
+        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id)
+
+        assert opp.id is not None
+        assert opp.signal_id == signal.id
+        assert opp.account_id == 42
+
+        blocks = db_session.exec(select(ReasonBlock).where(ReasonBlock.opportunity_id == opp.id)).all()
+        assert len(blocks) == 3
+        by_kind = {b.why_kind: b for b in blocks}
+        assert set(by_kind) == {WhyKind.them, WhyKind.now, WhyKind.win}
+
+    def test_win_is_always_abstain_in_block_3_public_data_only(self, db_session):
+        """No DMG data exists yet to support a why-we-win claim -- Block 3's
+        own scope (public data only) makes this an honest ABSTAIN, not a
+        bug, on every single promotion."""
+        signal = Signal(signal_type=SignalType.ceqa_nop, event_date=datetime(2026, 1, 1))
+        db_session.add(signal)
+        db_session.commit()
+        fs = FeedSignal(source="project", source_id="1", trigger_type=TriggerType.entitlement_milestone,
+                        trigger_date=datetime(2026, 1, 1), evidence="x", confidence=None, account_id=1)
+        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id)
+        win_block = db_session.exec(
+            select(ReasonBlock).where(ReasonBlock.opportunity_id == opp.id, ReasonBlock.why_kind == WhyKind.win)
+        ).first()
+        assert win_block.strength == ReasonStrength.ABSTAIN
+
+    def test_them_is_strong_when_account_is_known(self, db_session):
+        signal = Signal(signal_type=SignalType.ceqa_nop, event_date=datetime(2026, 1, 1))
+        db_session.add(signal)
+        db_session.commit()
+        fs = FeedSignal(source="project", source_id="1", trigger_type=TriggerType.entitlement_milestone,
+                        trigger_date=datetime(2026, 1, 1), evidence="x", confidence=None, account_id=1)
+        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id)
+        them_block = db_session.exec(
+            select(ReasonBlock).where(ReasonBlock.opportunity_id == opp.id, ReasonBlock.why_kind == WhyKind.them)
+        ).first()
+        assert them_block.strength == ReasonStrength.Strong
+
+    def test_them_is_weak_when_only_a_building_is_known_owner_unknown(self, db_session):
+        signal = Signal(signal_type=SignalType.ceqa_nop, event_date=datetime(2026, 1, 1))
+        db_session.add(signal)
+        b = RetrofitBuilding(apn="2-2-2", population="replacement_candidate")
+        db_session.add(b)
+        db_session.commit()
+        fs = FeedSignal(source="retrofit_building", source_id=str(b.id), trigger_type=TriggerType.permit_gap,
+                        trigger_date=None, evidence="x", confidence=None, building_id=b.id)
+        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id)
+        them_block = db_session.exec(
+            select(ReasonBlock).where(ReasonBlock.opportunity_id == opp.id, ReasonBlock.why_kind == WhyKind.them)
+        ).first()
+        assert them_block.strength == ReasonStrength.Weak
