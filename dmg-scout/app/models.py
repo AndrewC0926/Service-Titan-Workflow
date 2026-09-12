@@ -54,6 +54,14 @@ class SignalType(str, enum.Enum):
     bid_invite = "bid_invite"
     manual_tip = "manual_tip"
     school_facility_funding = "school_facility_funding"
+    # Block 4A Item 1 (Master Plan v3.6): a real Signal row created the
+    # moment a building/facility-anchored FeedSignal is promoted (see
+    # app.pipeline.signals_feed.promote_to_opportunity) -- these two never
+    # come from the extraction pipeline, only from that one write path.
+    # Added via ALTER TYPE ... ADD VALUE (alembic/versions/<rev>), same
+    # not-reversible-on-purpose pattern as a77ddb56a5a1/d3e6a9c42b57.
+    retrofit_permit_gap = "retrofit_permit_gap"
+    ab869_npc_deadline = "ab869_npc_deadline"
 
 
 class Stage(str, enum.Enum):
@@ -65,6 +73,22 @@ class Stage(str, enum.Enum):
     construction = "construction"
     operating = "operating"
     unknown = "unknown"
+
+
+class PenState(str, enum.Enum):
+    """Master Plan v3.6 section 12b: "every Signal and Opportunity carries
+    pen_state... The four-part filter's dated-reason part requires
+    not_moved or moving; moved fails the spec-clock filter." Whether the
+    decision-maker has already committed to a design/contractor (moved),
+    is actively deciding (moving), hasn't started (not_moved), or this
+    system has no basis to say (ABSTAIN) -- never guessed past what the
+    source record actually states. See app.pipeline.signals_feed's
+    per-source pen_state computation for exactly what evidence each
+    source does and does not provide."""
+    not_moved = "not_moved"
+    moving = "moving"
+    moved = "moved"
+    ABSTAIN = "ABSTAIN"
 
 
 class Window(str, enum.Enum):
@@ -246,6 +270,12 @@ class Signal(SQLModel, table=True):
     # project delivery method; never inferred from project type, agency, or stage.
     delivery_method: str | None = None
     stage: Stage = Field(default=Stage.unknown)
+    # Block 4A Item 1 (Master Plan v3.6 section 12b): "every Signal and
+    # Opportunity carries pen_state." Defaults to ABSTAIN, same never-guess
+    # discipline as every other classification field here -- see
+    # app.pipeline.signals_feed for the per-source computation that
+    # actually sets this on a synthesized (non-extraction-pipeline) Signal.
+    pen_state: PenState = Field(default=PenState.ABSTAIN, index=True)
     filing_type: str | None = None
     summary_one_line: str = ""
     confidence: float = 0.0
@@ -3449,17 +3479,29 @@ class Opportunity(SQLModel, table=True):
     eligible fitting line. Additive, on public data, no DMG data gate --
     see docs/BUILD-PLAN.md's Block 3 entry.
 
-    account_id / building_id: at least one should be set (an opportunity
-    is anchored on an Account when the buyer is a known NetSuite customer,
-    or on a RetrofitBuilding when the buyer/owner is still ABSTAIN and the
-    only anchor is the physical building) -- not a DB constraint (SQLite/
-    Postgre CHECK across two nullable FKs is more friction than value here),
-    enforced by application code that creates an Opportunity
-    (promote_signal_to_opportunity).
+    account_id / building_id / facility_perm_id: at least one should be
+    set (an opportunity is anchored on an Account when the buyer is a
+    known NetSuite customer, on a RetrofitBuilding when the buyer/owner is
+    still ABSTAIN and the only anchor is the physical building, or on an
+    Ab869Plan facility -- Block 4A Item 1, Master Plan v3.6: "an
+    Opportunity may anchor on an Account, a Building, or a Deadline
+    facility") -- not a DB constraint (a three-way CHECK across nullable
+    FKs is more friction than value here), enforced by application code
+    that creates an Opportunity (app.pipeline.signals_feed.
+    promote_to_opportunity).
 
     signal_id is NOT nullable: "the central transform: Signal to
     Opportunity" (section 12) -- every Opportunity traces back to the one
     Signal that was promoted, full stop, never created free-floating.
+    Block 4A Item 1 closes the gap Block 3 found (Promote structurally
+    unreachable for building/facility-anchored signals, which had no
+    `signals` row at all): promote_to_opportunity now CREATES a real
+    Signal row for those two sources at the moment of promotion, so this
+    column's own invariant never has to bend.
+
+    pen_state: Master Plan v3.6 section 12b, same enum/discipline as
+    Signal.pen_state -- see app.pipeline.reason_block for where an
+    Opportunity's pen_state is expected to be read.
 
     netsuite_opportunity_id: nullable, and -- by the master plan's own
     words -- "never overwritten." No DB trigger enforces this (there is no
@@ -3474,11 +3516,17 @@ class Opportunity(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     account_id: int | None = Field(default=None, foreign_key="accounts.id", index=True)
     building_id: int | None = Field(default=None, foreign_key="retrofit_buildings.id", index=True)
+    # Block 4A Item 1: the third anchor -- an AB 869 facility (Ab869Plan is
+    # facility-grain, one row per perm_id, see its own docstring), for a
+    # Deadline-sourced Opportunity where neither an Account nor a
+    # RetrofitBuilding exists to anchor on.
+    facility_perm_id: str | None = Field(default=None, foreign_key="ab869_plans.perm_id", index=True)
     contact_id: int | None = Field(default=None, foreign_key="contacts.id", index=True)
     signal_id: int = Field(foreign_key="signals.id", index=True)
     line_id: int | None = Field(default=None, foreign_key="product_lines.id", index=True)
     stage: OpportunityStage = Field(default=OpportunityStage.identified, index=True)
     pen_holder: PenHolderRole = Field(default=PenHolderRole.ABSTAIN, index=True)
+    pen_state: PenState = Field(default=PenState.ABSTAIN, index=True)
     next_action: str | None = None
     last_touch: datetime | None = Field(default=None, index=True)
     # Never overwritten once set -- see class docstring.

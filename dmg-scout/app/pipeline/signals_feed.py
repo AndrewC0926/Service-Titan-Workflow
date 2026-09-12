@@ -34,6 +34,7 @@ from app.models import (
     HospitalBuilding,
     Opportunity,
     OpscProject,
+    PenState,
     Project,
     ProjectContact,
     ProjectSignal,
@@ -41,6 +42,8 @@ from app.models import (
     ReasonStrength,
     RetrofitBuilding,
     Signal as SignalRow,
+    SignalType,
+    Stage,
     TriggerType,
     WhyKind,
 )
@@ -72,13 +75,34 @@ class FeedSignal:
     # never-guessed-a-number-into-existence discipline this reuses.
     confidence: float | None
     project_id: int | None = None
-    # The only FK target Opportunity.building_id has today (Item 1) --
-    # HospitalBuilding-anchored signals (ab869_plan, hcai_project) have no
-    # building anchor to offer here on principle, not oversight; see
-    # four_part_filter's "sellable account or building" part.
+    # The two physical anchors Opportunity offers beyond account_id (Block
+    # 4A Item 1 added facility_perm_id -- Master Plan v3.6: "an Opportunity
+    # may anchor on an Account, a Building, or a Deadline facility").
     building_id: int | None = None
+    facility_perm_id: str | None = None
     account_id: int | None = None
     category: Category | None = None
+    # Master Plan v3.6 section 12b: "every Signal and Opportunity carries
+    # pen_state." Computed per-source below from whatever real evidence
+    # that source actually states -- see each builder's own docstring for
+    # its basis; ABSTAIN by default, never guessed.
+    pen_state: PenState = PenState.ABSTAIN
+
+
+# Project.stage -> pen_state (Block 4A Item 1): spec-clock earliness per
+# Master Plan v3.6 section 12b -- "early means before Division 23 is
+# written and a basis of design is named." concept/entitlement/design are
+# all pre-Division-23 (not_moved); permitting is the transitional window
+# (moving); procurement/construction mean a contractor is already engaged
+# (moved). operating/unknown carry no basis to say either way (ABSTAIN).
+_PROJECT_STAGE_PEN_STATE = {
+    Stage.concept: PenState.not_moved,
+    Stage.entitlement: PenState.not_moved,
+    Stage.design: PenState.not_moved,
+    Stage.permitting: PenState.moving,
+    Stage.procurement: PenState.moved,
+    Stage.construction: PenState.moved,
+}
 
 
 def _project_signals(session: Session) -> list[FeedSignal]:
@@ -104,6 +128,7 @@ def _project_signals(session: Session) -> list[FeedSignal]:
             evidence=f"{p.name} ({p.category.value}, stage={p.stage.value})",
             confidence=confidence if confidence else None,
             project_id=p.id, category=p.category,
+            pen_state=_PROJECT_STAGE_PEN_STATE.get(p.stage, PenState.ABSTAIN),
         ))
     return out
 
@@ -130,6 +155,10 @@ def _retrofit_replacement_candidates(session: Session) -> list[FeedSignal]:
                      f"before the permit window, built {b.year_built or '?'}, {band}",
             confidence=None,
             building_id=b.id,
+            # not_moved is the population's own definition, not a guess:
+            # "no permit on record at all" IS the evidence that no
+            # contractor has been engaged yet -- see the model's docstring.
+            pen_state=PenState.not_moved,
         ))
     return out
 
@@ -143,7 +172,18 @@ def _ab869_npc_outstanding(session: Session) -> list[FeedSignal]:
     same never-guess discipline as everywhere else in this module).
     trigger_date is Jan 1 of npc_deadline_year when Scout's own derived
     deadline year is available, else None (ABSTAIN on the date, never the
-    plan's own filing date substituted for a regulatory deadline)."""
+    plan's own filing date substituted for a regulatory deadline).
+
+    pen_state (Block 4A Item 1): Master Plan v3.6 section 12b's own literal
+    rule -- "On AB 869, earliness is plan status: Not Approved with no
+    contractor named is early." Scout has no contractor field on
+    HcaiProject/Ab869Plan to confirm the "late" half of that rule (a
+    mechanical contractor on record), so this only ever sets not_moved
+    (Not Approved / Not Submitted -- both mean the facility has not yet
+    engaged HCAI's review process at all) or ABSTAIN, never `moved` or
+    `moving`, which this data cannot support -- checked against the real
+    plan_status distribution (8 distinct values in the local restore)
+    before writing this mapping, not assumed."""
     plans = session.exec(select(Ab869Plan)).all()
     perm_ids = [p.perm_id for p in plans]
     if not perm_ids:
@@ -163,6 +203,8 @@ def _ab869_npc_outstanding(session: Session) -> list[FeedSignal]:
         deadline_years = [b.npc_deadline_year for b in outstanding if b.npc_deadline_year]
         trigger_date = datetime(min(deadline_years), 1, 1) if deadline_years else None
         names = ", ".join(sorted({b.building_name or b.building_nbr for b in outstanding}))
+        pen_state = (PenState.not_moved if plan.plan_status in ("Not Approved", "Not Submitted")
+                    else PenState.ABSTAIN)
         out.append(FeedSignal(
             source="ab869_plan", source_id=plan.perm_id,
             trigger_type=TriggerType.deadline,
@@ -170,8 +212,17 @@ def _ab869_npc_outstanding(session: Session) -> list[FeedSignal]:
             evidence=f"AB 869 plan status={plan.plan_status or 'unknown'}; "
                      f"NPC outstanding on {len(outstanding)} building(s): {names}",
             confidence=None,
+            facility_perm_id=plan.perm_id,
+            pen_state=pen_state,
         ))
     return out
+
+
+_HCAI_STAGE_PEN_STATE = {
+    "plan_review": PenState.not_moved,
+    "pending_start": PenState.moving,
+    "in_construction": PenState.moved,
+}
 
 
 def _hcai_open_mechanical(session: Session) -> list[FeedSignal]:
@@ -180,7 +231,10 @@ def _hcai_open_mechanical(session: Session) -> list[FeedSignal]:
     start/in_construction/closed/other collapse of HCAI's raw status text.
     trigger_date is date_in when the source states it, else the source
     file's own report_date (never utcnow -- see HcaiProject's docstring on
-    why report_date exists at all)."""
+    why report_date exists at all). pen_state (Block 4A Item 1) maps
+    directly from that same stage: plan_review is pre-construction
+    (not_moved), pending_start is the transitional window (moving),
+    in_construction means field work is underway (moved)."""
     rows = session.exec(
         select(HcaiProject).where(
             HcaiProject.is_mechanical == True,  # noqa: E712
@@ -194,6 +248,7 @@ def _hcai_open_mechanical(session: Session) -> list[FeedSignal]:
             trigger_date=r.date_in or r.report_date,
             evidence=f"{r.facility_name}: {r.scope_text[:200]} (stage={r.stage}, status={r.status_raw})",
             confidence=None,
+            pen_state=_HCAI_STAGE_PEN_STATE.get(r.stage, PenState.ABSTAIN),
         ))
     return out
 
@@ -220,6 +275,9 @@ def _opsc_pre_spec(session: Session) -> list[FeedSignal]:
             evidence=f"{r.district or '?'} / {r.school_name or '?'}: {r.program or '?'} "
                      f"(status={r.status or 'unknown'})",
             confidence=None,
+            # "engineer, spec not locked" (app.pipeline.opsc's own status_class
+            # comment) is a direct pre-spec statement -- not_moved, not a guess.
+            pen_state=PenState.not_moved,
         ))
     return out
 
@@ -297,15 +355,28 @@ def _named_reachable_contact(session: Session, fs: FeedSignal) -> int | None:
 
 
 def _sellable_account_or_building(fs: FeedSignal) -> bool:
-    """Opportunity.account_id/building_id, Item 1's own two anchors --
-    account_id needs a real NetSuite-identified Account (never built by
-    this module: no Project-to-Account join exists in Scout today, see
-    the Item 1 mapping report's Account row), building_id only ever comes
-    from RetrofitBuilding (the only FK target Opportunity.building_id
-    has) -- HospitalBuilding-anchored signals (ab869_plan, hcai_project)
-    structurally cannot pass this part until a building anchor for them
-    is added, which is a real, disclosed schema gap, not a bug here."""
-    return fs.account_id is not None or fs.building_id is not None
+    """Opportunity's three anchors -- account_id, building_id
+    (RetrofitBuilding), facility_perm_id (Ab869Plan, Block 4A Item 1: "an
+    Opportunity may anchor on an Account, a Building, or a Deadline
+    facility"). account_id needs a real NetSuite-identified Account (never
+    built by this module: no Project-to-Account join exists in Scout
+    today, see the Item 1 mapping report's Account row) and always passes
+    unconditionally -- a known buyer is a known buyer, full stop.
+
+    A building/facility anchor is REPLACEMENT-CLOCK work (an existing
+    building, not new construction), and Item 1 gates it on pen_state:
+    "sellable account or building passes on a building or facility anchor
+    for replacement-clock work, with pen_state required not_moved or
+    moving" -- a building whose owner already committed to like-for-like
+    (moved) isn't sellable just because Scout knows where it is; that's
+    the replacement clock's own window-closed case (Master Plan v3.6
+    section 12b: "the window closes when a contractor with an incumbent
+    brand relationship is on site")."""
+    if fs.account_id is not None:
+        return True
+    if fs.building_id is not None or fs.facility_perm_id is not None:
+        return fs.pen_state in (PenState.not_moved, PenState.moving)
+    return False
 
 
 def _dated_reason(fs: FeedSignal) -> bool:
@@ -341,19 +412,19 @@ def _eligible_fitting_line(session: Session, fs: FeedSignal) -> int | None:
 
 
 def resolve_signal_id(session: Session, fs: FeedSignal) -> int | None:
-    """The real `signals` table row to attach an Opportunity to
-    (Opportunity.signal_id is not nullable, Item 1). Only project-sourced
-    FeedSignals have one today -- via the existing ProjectSignal link, the
-    same real Signal row `_project_signals` above already reads. Every
-    other source (retrofit_building, ab869_plan, hcai_project,
-    opsc_project, field_intel) has no `signals` row behind it at all: this
-    module builds their FeedSignal shape straight from their own table,
-    never from `signals`. That is a real, disclosed gap surfaced by Item
-    5's Promote button, not silently worked around here -- Block 4 is
-    where a real Signal row (or a nullable Opportunity.signal_id) for
-    these five sources gets decided and built. Returns None for them on
-    principle; callers must treat None as "cannot promote yet", a fifth,
-    separate reason beyond the four-part filter's own four."""
+    """A real, ALREADY-EXISTING `signals` table row for this FeedSignal
+    (Opportunity.signal_id is not nullable, Item 1) -- read-only, never
+    creates one. Only project-sourced FeedSignals have one via the
+    existing ProjectSignal link, the same real Signal row
+    `_project_signals` above already reads.
+
+    Block 4A Item 1 closes this gap for retrofit_building/ab869_plan (see
+    ensure_signal_for_promotion below, which creates a Signal row for
+    those two AT PROMOTION TIME rather than expecting one to already
+    exist) -- hcai_project/opsc_project/field_intel still have no path to
+    a real Signal row at all (out of Item 1's scope, which named only
+    "buildings and deadlines"); this function returns None for all four
+    non-project sources, on principle, not oversight."""
     if fs.source != "project" or fs.project_id is None:
         return None
     link = session.exec(
@@ -361,6 +432,56 @@ def resolve_signal_id(session: Session, fs: FeedSignal) -> int | None:
         .order_by(ProjectSignal.linked_at.desc())
     ).first()
     return link.signal_id if link else None
+
+
+# Sources ensure_signal_for_promotion can CREATE a Signal row for, and the
+# SignalType that marks a row as synthesized-at-promotion rather than
+# extraction-pipeline output (see app.models.SignalType's own comment).
+_PROMOTION_SIGNAL_TYPE = {
+    "retrofit_building": SignalType.retrofit_permit_gap,
+    "ab869_plan": SignalType.ab869_npc_deadline,
+}
+
+
+def can_promote_signal(fs: FeedSignal) -> bool:
+    """Whether promote_to_opportunity has ANY path to a real Signal row
+    for this source at all -- project (an existing link may or may not
+    actually be there; resolve_signal_id still has to check), or
+    retrofit_building/ab869_plan (ensure_signal_for_promotion creates one,
+    Block 4A Item 1). False for hcai_project/opsc_project/field_intel,
+    which still have no path -- a fifth, separate reason a card's Promote
+    button can be disabled, beyond the four-part filter's own four."""
+    return fs.source in ("project", "retrofit_building", "ab869_plan")
+
+
+def ensure_signal_for_promotion(session: Session, fs: FeedSignal) -> int | None:
+    """The real `signals` row to attach an Opportunity to -- resolves an
+    existing one (project-sourced) or CREATES one (retrofit_building/
+    ab869_plan-sourced), per Block 4A Item 1's own words: "a Signal row is
+    created for any building or facility the moment it is promoted."
+    hcai_project/opsc_project/field_intel still return None (see
+    can_promote_signal) -- not this item's scope.
+
+    The created row's pen_state carries over from the FeedSignal's own
+    computed value (never re-derived), and its signal_type
+    (retrofit_permit_gap/ab869_npc_deadline) marks it as synthesized here,
+    never mistaken for extraction-pipeline output -- see
+    app.models.SignalType's own comment on these two values."""
+    existing = resolve_signal_id(session, fs)
+    if existing is not None:
+        return existing
+    signal_type = _PROMOTION_SIGNAL_TYPE.get(fs.source)
+    if signal_type is None:
+        return None
+    new_signal = SignalRow(
+        signal_type=signal_type,
+        event_date=fs.trigger_date,
+        summary_one_line=fs.evidence[:2000],
+        pen_state=fs.pen_state,
+    )
+    session.add(new_signal)
+    session.flush()
+    return new_signal.id
 
 
 def four_part_filter(session: Session, fs: FeedSignal) -> FourPartResult:
@@ -404,9 +525,11 @@ def promote_to_opportunity(session: Session, fs: FeedSignal, signal_id: int) -> 
     opp = Opportunity(
         account_id=fs.account_id,
         building_id=fs.building_id,
+        facility_perm_id=fs.facility_perm_id,
         contact_id=result.contact_id,
         signal_id=signal_id,
         line_id=result.line_id,
+        pen_state=fs.pen_state,
     )
     session.add(opp)
     session.flush()
@@ -415,6 +538,8 @@ def promote_to_opportunity(session: Session, fs: FeedSignal, signal_id: int) -> 
         them_strength, them_evidence = ReasonStrength.Strong, f"Known account (account_id={fs.account_id})"
     elif fs.building_id is not None:
         them_strength, them_evidence = ReasonStrength.Weak, f"Building identified (building_id={fs.building_id}), owner unknown"
+    elif fs.facility_perm_id is not None:
+        them_strength, them_evidence = ReasonStrength.Weak, f"Facility identified (perm_id={fs.facility_perm_id}), owner unknown"
     else:
         them_strength, them_evidence = ReasonStrength.ABSTAIN, "No account or building identified"
 

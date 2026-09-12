@@ -352,3 +352,36 @@ Corrected scope (superseding an earlier full-retirement plan I proposed and the 
 | Result | -- | 2,081 passed, 0 failed, 2 deselected (identical to the pre-fix baseline -- same test count, same pass count) |
 
 **Target was under 15 minutes; actual is under 3, with no parallelization.** Chunking is no longer necessary for this suite's runtime and I stopped using it for the rest of Block 4A's items as a result -- a single `pytest tests/ -q` run now serves the same "chunked suite" verification purpose in a fraction of the time.
+
+### Item 1: Opportunity anchors
+
+Schema (3 migrations, verified rollback on the two reversible ones, no-op-by-design downgrade on the enum-value addition matching this repo's own established precedent -- `a77ddb56a5a1`/`d3e6a9c42b57`, Postgres has no `DROP VALUE`):
+- `067c0ef15e70`: new `PenState` enum (not_moved/moving/moved/ABSTAIN) plus a `pen_state` column, default ABSTAIN, on both `signals` and `opportunities` -- Master Plan v3.6 section 12b: "every Signal and Opportunity carries pen_state."
+- `aebb7f6bd153`: `opportunities.facility_perm_id`, nullable FK to `ab869_plans.perm_id` -- the third anchor: "an Opportunity may anchor on an Account, a Building, or a Deadline facility."
+- `7ad64088810f`: two new `SignalType` values (`retrofit_permit_gap`, `ab869_npc_deadline`) marking a Signal row as synthesized at promotion time rather than extraction-pipeline output.
+
+**pen_state computed per source, from real evidence only, never guessed:**
+| Source | Basis | Result |
+|---|---|---|
+| project | `Project.stage` (concept/entitlement/design -> not_moved: pre-Division-23; permitting -> moving; procurement/construction -> moved) | 153 not_moved, 190 moving, 8 moved, 91 ABSTAIN |
+| retrofit_building | population's own definition -- "no permit on record" IS the not_moved evidence | 53,252 not_moved (100%) |
+| ab869_plan | plan_status literal match to the plan's own rule ("Not Approved with no contractor named is early") -- `Not Approved`/`Not Submitted` -> not_moved, everything else ABSTAIN (no contractor field exists anywhere in Scout to confirm the rule's "late" half, so `moved`/`moving` are never set for this source) | 124 not_moved, 64 ABSTAIN |
+| hcai_project | `HcaiProject.stage` (plan_review -> not_moved, pending_start -> moving, in_construction -> moved) | 75 not_moved, 105 moving, 87 moved |
+| opsc_project | `app.pipeline.opsc`'s own existing "engineer, spec not locked" classification, reused directly | 516 not_moved (100%) |
+| field_intel | no structured basis | ABSTAIN (0 rows in this restore) |
+
+**The four-part filter's "sellable account or building" part** now also passes on a building or facility anchor for replacement-clock work, gated on `pen_state in (not_moved, moving)` -- a building/facility whose pen has already moved (or whose pen_state is unknown) is not sellable just because Scout knows where it is (section 12b: "the window closes when a contractor with an incumbent brand relationship is on site").
+
+**Promote now has a real path for building/facility-anchored signals:** new `ensure_signal_for_promotion()` resolves an existing Signal (project-sourced) or **creates one** for retrofit_building/ab869_plan sources at the moment of promotion -- "a Signal row is created for any building or facility the moment it is promoted." `four_part_filter()`/`unified_signals()` themselves stay pure reads with zero side effects (signal creation happens only inside the actual promote action, never while someone is just browsing `/signals`). New `can_promote_signal()` names the fifth, still-real gate: hcai_project/opsc_project/field_intel still have no path to a real Signal row at all -- out of this item's scope, which named only "buildings and deadlines."
+
+**Report, computed against the real local restore (54,665 unified signals):**
+| Part | Pass | Missing | Change from Item 2 |
+|---|---|---|---|
+| 1. named_reachable_contact | **0** | 54,665 | Unchanged -- stays at zero until the Contact export lands, exactly as this item said it would |
+| 2. sellable_account_or_building | **53,376** | 1,289 | **+124** (exactly the 124 new ab869_plan/not_moved facility anchors) |
+| 3. dated_reason | 1,411 | 53,254 | Unchanged -- this item didn't touch it |
+| 4. eligible_fitting_line | 442 | 54,223 | Unchanged -- this item didn't touch it |
+
+**Pass parts 2, 3 and 4 together: still 0** -- a real, disclosed follow-on finding, not a bug: the only signals that ever pass part 4 (eligible_fitting_line) are project-sourced (442, needs a real `Category`), and project-sourced signals never pass part 2 (Project has no Account join in Scout, unchanged from Item 1/2's own findings); the only signals that now pass part 2 via a building/facility anchor (retrofit_building, ab869_plan) never pass part 4 (neither source carries a `Category` for `line_offering_by_role` to evaluate). Fixing part 2 for replacement-clock work did not, by itself, unblock any real Opportunity -- part 4's eligible-line logic would need its own building/facility-aware extension (not scoped to this item) before that changes. **Pass all four: still 0**, entirely on part 1, exactly as predicted.
+
+**Tests:** `tests/test_opportunity_anchors.py`, 14 new tests (pen_state computation per source, the new sellable_account_or_building gate including the ABSTAIN and moved rejection cases, `can_promote_signal`, `ensure_signal_for_promotion` creating real rows for retrofit_building/ab869_plan and reusing an existing one for project, and one true end-to-end promotion onto a building anchor with a real, newly-created Signal row). `tests/test_signals_feed.py`'s pre-existing building-anchor test updated (not deleted) to reflect the new pen_state requirement -- the old assertion described real behavior that legitimately changed, not a regression.

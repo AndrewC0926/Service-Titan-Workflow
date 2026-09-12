@@ -479,7 +479,7 @@ def pipeline_index(request: Request, session: Session = Depends(get_session), _:
     No dispositions yet -- Block 4. Row expands (a plain <details>, same
     idiom as the pre-existing collapsed-callout pattern) to the full
     three-row Reason Block."""
-    from app.models import Account, Opportunity, ProductLine, ReasonBlock
+    from app.models import Ab869Plan, Account, Opportunity, ProductLine, ReasonBlock
     from app.pipeline.reason_block import weakest_why_rank, weakest_of
 
     kpis = _hub_kpis(session)
@@ -493,9 +493,12 @@ def pipeline_index(request: Request, session: Session = Depends(get_session), _:
 
     account_ids = [o.account_id for o in opportunities if o.account_id]
     building_ids = [o.building_id for o in opportunities if o.building_id]
+    facility_perm_ids = [o.facility_perm_id for o in opportunities if o.facility_perm_id]
     line_ids = [o.line_id for o in opportunities if o.line_id]
     accounts = {a.id: a for a in session.exec(select(Account).where(Account.id.in_(account_ids)))} if account_ids else {}
     buildings = {b.id: b for b in session.exec(select(RetrofitBuilding).where(RetrofitBuilding.id.in_(building_ids)))} if building_ids else {}
+    facilities = {p.perm_id: p for p in session.exec(
+        select(Ab869Plan).where(Ab869Plan.perm_id.in_(facility_perm_ids)))} if facility_perm_ids else {}
     lines = {l.id: l for l in session.exec(select(ProductLine).where(ProductLine.id.in_(line_ids)))} if line_ids else {}
 
     rows = []
@@ -505,6 +508,7 @@ def pipeline_index(request: Request, session: Session = Depends(get_session), _:
         account_or_building = (
             accounts[o.account_id].name if o.account_id in accounts else
             (buildings[o.building_id].address or buildings[o.building_id].apn) if o.building_id in buildings else
+            f"AB 869 facility {o.facility_perm_id}" if o.facility_perm_id in facilities else
             "ABSTAIN"
         )
         rows.append({
@@ -537,16 +541,15 @@ def signals_index(request: Request, trigger: str = "",
     """Block 3 Item 5 (Master Plan v3.2 section 13): filter chips by
     trigger type, each card with trigger/date/evidence/confidence, and a
     Promote button disabled with the missing parts named when the
-    four-part filter fails (app.pipeline.signals_feed.four_part_filter) --
-    which is every card today (see docs/BUILD-PLAN.md section 9's Item 2
-    report: 0 of 54,665 pass all four locally, entirely on
-    named_reachable_contact). resolve_signal_id is a FIFTH, separate
-    reason Promote can be disabled -- see that function's own docstring:
-    only project-sourced signals have a real `signals` row to attach an
-    Opportunity to today."""
+    four-part filter fails (app.pipeline.signals_feed.four_part_filter).
+    can_promote_signal is a FIFTH, separate reason Promote can be
+    disabled -- Block 4A Item 1: project/retrofit_building/ab869_plan all
+    have a path to a real `signals` row now (the latter two created AT
+    PROMOTION TIME, see ensure_signal_for_promotion); hcai_project/
+    opsc_project/field_intel still do not."""
     from collections import Counter
 
-    from app.pipeline.signals_feed import four_part_filter, resolve_signal_id, unified_signals
+    from app.pipeline.signals_feed import can_promote_signal, four_part_filter, unified_signals
 
     signals = unified_signals(session)
     by_trigger = Counter(s.trigger_type.value for s in signals)
@@ -559,12 +562,12 @@ def signals_index(request: Request, trigger: str = "",
     cards = []
     for s in shown:
         result = four_part_filter(session, s)
-        signal_id = resolve_signal_id(session, s)
+        has_signal_path = can_promote_signal(s)
         missing = list(result.missing)
-        if signal_id is None:
+        if not has_signal_path:
             missing = missing + ["no_signal_record_for_this_source_yet"]
-        cards.append({"fs": s, "can_promote": result.passed and signal_id is not None,
-                      "missing": missing, "signal_id": signal_id})
+        cards.append({"fs": s, "can_promote": result.passed and has_signal_path,
+                      "missing": missing})
 
     total_for_filter = sum(1 for s in signals if not trigger or s.trigger_type.value == trigger)
     return templates.TemplateResponse(request, "signals_index.html", {
@@ -602,10 +605,15 @@ def signals_promote(source: str = Form(...), source_id: str = Form(...),
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="signal not found (may no longer qualify)")
 
     result = sf.four_part_filter(session, match)
-    signal_id = sf.resolve_signal_id(session, match)
-    if not result.passed or signal_id is None:
+    if not result.passed:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=f"cannot promote: missing {result.missing}")
+    # ensure_signal_for_promotion CREATES the signals row for retrofit_
+    # building/ab869_plan sources here, at the moment of promotion (Block
+    # 4A Item 1) -- not before, so browsing /signals never writes anything.
+    signal_id = sf.ensure_signal_for_promotion(session, match)
+    if signal_id is None:
         raise HTTPException(status.HTTP_409_CONFLICT,
-                            detail=f"cannot promote: missing {result.missing}, signal_id={signal_id}")
+                            detail=f"cannot promote: no Signal record possible for source {match.source!r}")
     opp = sf.promote_to_opportunity(session, match, signal_id=signal_id)
     session.commit()
     return RedirectResponse(f"/pipeline#opp-{opp.id}", status_code=303)

@@ -6,7 +6,7 @@ from sqlmodel import select
 
 from app.models import (
     Ab869Plan, Category, Contact, FieldIntel, HcaiProject, HospitalBuilding,
-    Opportunity, OpscProject, ProductLine, Project, ProjectContact, ReasonBlock,
+    Opportunity, OpscProject, PenState, ProductLine, Project, ProjectContact, ReasonBlock,
     ReasonStrength, RetrofitBuilding, Signal, SignalType, TriggerType, WhyKind,
 )
 from app.pipeline.signals_feed import (
@@ -161,13 +161,52 @@ class TestFourPartFilter:
             "dated_reason", "eligible_fitting_line",
         }
 
-    def test_building_id_satisfies_sellable_account_or_building(self, db_session):
+    def test_building_id_satisfies_sellable_account_or_building_when_pen_not_moved(self, db_session):
+        """Block 4A Item 1: a building/facility anchor alone is no longer
+        enough -- replacement-clock work also needs pen_state not_moved
+        or moving (Master Plan v3.6 section 12b)."""
         b = RetrofitBuilding(apn="1-1-1", population="replacement_candidate")
         db_session.add(b)
         db_session.commit()
         fs = FeedSignal(source="retrofit_building", source_id=str(b.id),
                         trigger_type=TriggerType.permit_gap, trigger_date=None,
-                        evidence="x", confidence=None, building_id=b.id)
+                        evidence="x", confidence=None, building_id=b.id, pen_state=PenState.not_moved)
+        result = four_part_filter(db_session, fs)
+        assert "sellable_account_or_building" not in result.missing
+
+    def test_building_id_with_abstain_pen_state_does_not_satisfy_the_part(self, db_session):
+        """The new gate, not a regression of the old one: a building
+        anchor with no basis to say whether the pen has moved must NOT
+        pass -- ABSTAIN is not not_moved."""
+        b = RetrofitBuilding(apn="1-1-2", population="replacement_candidate")
+        db_session.add(b)
+        db_session.commit()
+        fs = FeedSignal(source="retrofit_building", source_id=str(b.id),
+                        trigger_type=TriggerType.permit_gap, trigger_date=None,
+                        evidence="x", confidence=None, building_id=b.id, pen_state=PenState.ABSTAIN)
+        result = four_part_filter(db_session, fs)
+        assert "sellable_account_or_building" in result.missing
+
+    def test_building_id_with_pen_moved_does_not_satisfy_the_part(self, db_session):
+        """"the window closes when a contractor with an incumbent brand
+        relationship is on site" (Master Plan v3.6 section 12b) -- a
+        building whose pen has already moved is not sellable just because
+        Scout knows where it is."""
+        b = RetrofitBuilding(apn="1-1-3", population="replacement_candidate")
+        db_session.add(b)
+        db_session.commit()
+        fs = FeedSignal(source="retrofit_building", source_id=str(b.id),
+                        trigger_type=TriggerType.permit_gap, trigger_date=None,
+                        evidence="x", confidence=None, building_id=b.id, pen_state=PenState.moved)
+        result = four_part_filter(db_session, fs)
+        assert "sellable_account_or_building" in result.missing
+
+    def test_facility_perm_id_with_pen_moving_satisfies_the_part(self, db_session):
+        """The third anchor (Block 4A Item 1): a Deadline facility, same
+        pen_state gate as a building."""
+        fs = FeedSignal(source="ab869_plan", source_id="PERM1",
+                        trigger_type=TriggerType.deadline, trigger_date=None,
+                        evidence="x", confidence=None, facility_perm_id="PERM1", pen_state=PenState.moving)
         result = four_part_filter(db_session, fs)
         assert "sellable_account_or_building" not in result.missing
 
