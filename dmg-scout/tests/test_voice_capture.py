@@ -269,7 +269,7 @@ def test_capture_endpoint_requires_bearer_token(client):
 
 
 def test_captures_list_requires_dashboard_auth(client):
-    assert client.get("/captures").status_code == 401
+    assert client.get("/settings/captures").status_code == 401
 
 
 def test_confirm_calls_the_one_outreach_writer(db_session, client):
@@ -325,18 +325,18 @@ def test_audio_streams_back_the_original_bytes(db_session, client):
 
 
 def test_capture_page_requires_dashboard_auth(client):
-    assert client.get("/capture").status_code == 401
+    assert client.get("/settings/capture").status_code == 401
 
 
 def test_capture_page_renders_the_recorder_when_configured(client):
-    r = client.get("/capture", headers=AUTH)
+    r = client.get("/settings/capture", headers=AUTH)
     assert r.status_code == 200
     assert "record-btn" in r.text
 
 
 def test_capture_page_shows_not_configured_when_key_missing(client, monkeypatch):
     monkeypatch.delenv("CAPTURE_API_KEY", raising=False)
-    r = client.get("/capture", headers=AUTH)
+    r = client.get("/settings/capture", headers=AUTH)
     assert r.status_code == 200
     assert "not configured" in r.text.lower()
     assert "record-btn" not in r.text

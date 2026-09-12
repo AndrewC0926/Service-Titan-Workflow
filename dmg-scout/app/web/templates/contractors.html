@@ -56,7 +56,7 @@
     <span class="body">{{ '{:,}'.format(signatory_total) }} contractor{{ 's' if signatory_total != 1 }} matched
       to UA Local 250's own public signatory/service-agreement list
       (socalhvacr.info/contractors) by name and city — see
-      <a href="/assumptions#{{ assumption_slug('UA Local 250 signatory join method and match rate') }}">/assumptions</a>
+      <a /settings/assumptions#{{ assumption_slug('UA Local 250 signatory join method and match rate') }}">/assumptions</a>
       for the measured match rate (roughly 44% of Local 250's ~108 listed contractors, spot-checked
       against unmatched names — genuinely more names look like real matches than the threshold
       currently allows, so treat this as a floor, not the true rate). False means "not matched to
@@ -69,17 +69,17 @@
 </details>
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
-  <a href="/contractors?classification=mechanical{% if county %}&county={{ county }}{% endif %}{% if signatory %}&signatory={{ signatory }}{% endif %}" class="chip" aria-pressed="{{ 'true' if classification == 'mechanical' else 'false' }}">Mechanical (C-20/C-38)</a>
-  <a href="/contractors?classification=all{% if county %}&county={{ county }}{% endif %}{% if signatory %}&signatory={{ signatory }}{% endif %}" class="chip" aria-pressed="{{ 'true' if classification == 'all' else 'false' }}">All classifications</a>
+  <a /accounts/contractors?classification=mechanical{% if county %}&county={{ county }}{% endif %}{% if signatory %}&signatory={{ signatory }}{% endif %}" class="chip" aria-pressed="{{ 'true' if classification == 'mechanical' else 'false' }}">Mechanical (C-20/C-38)</a>
+  <a /accounts/contractors?classification=all{% if county %}&county={{ county }}{% endif %}{% if signatory %}&signatory={{ signatory }}{% endif %}" class="chip" aria-pressed="{{ 'true' if classification == 'all' else 'false' }}">All classifications</a>
 </div>
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
-  <a href="/contractors?classification={{ classification }}{% if county %}&county={{ county }}{% endif %}" class="chip" aria-pressed="{{ 'true' if not signatory else 'false' }}">Any signatory status</a>
-  <a href="/contractors?classification={{ classification }}{% if county %}&county={{ county }}{% endif %}&signatory=ua_local_250" class="chip" aria-pressed="{{ 'true' if signatory == 'ua_local_250' else 'false' }}">UA Local 250 signatory<span class="ct">{{ signatory_total }}</span></a>
+  <a /accounts/contractors?classification={{ classification }}{% if county %}&county={{ county }}{% endif %}" class="chip" aria-pressed="{{ 'true' if not signatory else 'false' }}">Any signatory status</a>
+  <a /accounts/contractors?classification={{ classification }}{% if county %}&county={{ county }}{% endif %}&signatory=ua_local_250" class="chip" aria-pressed="{{ 'true' if signatory == 'ua_local_250' else 'false' }}">UA Local 250 signatory<span class="ct">{{ signatory_total }}</span></a>
 </div>
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
-  <a href="/contractors?classification={{ classification }}{% if signatory %}&signatory={{ signatory }}{% endif %}" class="chip" aria-pressed="{{ 'true' if not county else 'false' }}">All counties</a>
+  <a /accounts/contractors?classification={{ classification }}{% if signatory %}&signatory={{ signatory }}{% endif %}" class="chip" aria-pressed="{{ 'true' if not county else 'false' }}">All counties</a>
   {% for c in counties %}
-  <a href="/contractors?county={{ c }}&classification={{ classification }}{% if signatory %}&signatory={{ signatory }}{% endif %}" class="chip" aria-pressed="{{ 'true' if county == c else 'false' }}">{{ c }}</a>
+  <a /accounts/contractors?county={{ c }}&classification={{ classification }}{% if signatory %}&signatory={{ signatory }}{% endif %}" class="chip" aria-pressed="{{ 'true' if county == c else 'false' }}">{{ c }}</a>
   {% endfor %}
 </div>
 
@@ -106,11 +106,11 @@
   <td>{{ c.county }}</td>
   {% if c.nearby_computed_at is not none %}
   <td class="num nowrap">
-    <a class="cite" href="/assumptions#{{ assumption_slug('Urgency weighting formula') }}"
+    <a class="cite" /settings/assumptions#{{ assumption_slug('Urgency weighting formula') }}"
        title="Σ clip(service_life_years_past, 0, 100yr) over buildings within {{ c.nearby_radius_miles }}mi — not a count. Hover the column header, or see /assumptions for the full formula and why raw proximity count didn't discriminate.">{{ '%.0f'|format(c.nearby_urgency_score) }}</a>
   </td>
   <td class="num nowrap">
-    <a class="cite" href="/assumptions#{{ assumption_slug('Urgency weighting formula') }}"
+    <a class="cite" /settings/assumptions#{{ assumption_slug('Urgency weighting formula') }}"
        title="Σ estimated-tonnage-band midpoint over the same nearby buildings — tie-breaker only, never allowed to outrank urgency.">{{ '%.0f'|format(c.nearby_estimated_tons) }}</a>
   </td>
   <td class="num nowrap">{{ c.nearby_replacement_candidates }}
@@ -132,7 +132,7 @@
       by proximity to overdue retrofit buildings, once
       <span class="mono">scout cslb</span> → <span class="mono">scout geocode-retrofit</span> →
       <span class="mono">scout match-contractors</span> has run.</p>
-    <a class="chip" href="/health">Check source health</a>
+    <a class="chip" href="/settings/health">Check source health</a>
   </div>
 </td></tr>
 {% endfor %}

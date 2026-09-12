@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "_macros.html" import hub_subtabs, kpi_strip %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+{{ hub_subtabs([
+  {'href': '/reports', 'label': 'Reports', 'key': 'reports'},
+  {'href': '/reports/ask', 'label': 'Ask', 'key': 'ask'},
+], subview) }}
+<div class="sec-head">
+  <div class="sec-title">Reports</div>
+  <span class="note">The executive one-pager: Signals (market context) -&gt; Qualified opportunities
+    (passed the four-part filter) -&gt; Pipeline (has a NetSuite ID). No later item in this block
+    builds this out further, so what's below is real, not a stub -- the same counts computed
+    elsewhere in Scout, gathered in one place.</span>
+</div>
+{{ kpi_strip([
+  {'label': 'Projects', 'value': kpis.project_count, 'href': '/signals/entitlement'},
+  {'label': 'Signals (unified)', 'value': total_signals, 'href': '/signals'},
+  {'label': 'Opportunities', 'value': kpis.opportunity_count, 'href': '/pipeline'},
+]) }}
+{% if trigger_kpi_items %}
+<div class="sec-head mt-4"><div class="sec-title">Signals by trigger type</div></div>
+{{ kpi_strip(trigger_kpi_items) }}
+{% endif %}
+{% endblock %}

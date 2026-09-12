@@ -111,7 +111,7 @@
     <span>
     <strong>Assessor match is a building match, not an owner match</strong>
     <span class="body">"Assessor match" links a row to a matched RetrofitBuilding record — lat/long
-      within 30m first, normalized address second (see <a href="/assumptions#{{ assumption_slug('Assessor/EBEWE join method and measured rate') }}">/assumptions</a>
+      within 30m first, normalized address second (see <a /settings/assumptions#{{ assumption_slug('Assessor/EBEWE join method and measured rate') }}">/assumptions</a>
       for the measured rate and method breakdown) — never an owner. No free, bulk-queryable LA County
       assessor owner-name source exists at all (see RetrofitBuilding's own docstring); this board
       shows "no owner data available" for exactly that reason, on every row, permanently. Where a row
@@ -120,7 +120,7 @@
       that filed the EBEWE benchmark, not a verified owner. Where that's also blank, Property Name is
       checked against a config-driven list of known real-estate owner names and internal facility-code
       patterns (config.yaml's <span class="mono">ab802_owner_hints</span>, editable without a deploy —
-      see <a href="/assumptions#{{ assumption_slug('AB 802 owner hints') }}">/assumptions</a> for the
+      see <a /settings/assumptions#{{ assumption_slug('AB 802 owner hints') }}">/assumptions</a> for the
       one regex rule's verification) — a match is shown as "owner hint: {name}", same non-claim as the
       others. Only after all three are blank, and the Property Name itself reads like an organization
       (contains LLC, Inc, Hospital, University, District, County, City of, Church, or School), is that
@@ -158,10 +158,10 @@
       normalized street address — that facility HAS a permit record with South Coast AQMD, not that
       Scout knows which equipment it covers: South Coast AQMD's own FIND and Public Document Search
       tools are both robots.txt-blocked in full (see
-      <a href="/assumptions#{{ assumption_slug('DIR PWC-100 public works registrations') if assumption_slug is defined else '' }}">/assumptions</a>),
+      <a /settings/assumptions#{{ assumption_slug('DIR PWC-100 public works registrations') if assumption_slug is defined else '' }}">/assumptions</a>),
       so this is built from South Coast AQMD's own bulk facility-notification list, facility grain
       only — no equipment, no permit number, no capacity (see
-      <a href="/assumptions#{{ assumption_slug('SCAQMD facility grain') if assumption_slug is defined else '' }}">/assumptions</a>
+      <a /settings/assumptions#{{ assumption_slug('SCAQMD facility grain') if assumption_slug is defined else '' }}">/assumptions</a>
       for the full access writeup). Call it a lead that a mechanical permit exists somewhere at this
       address, not a claim about what it covers.</span>
     </span>
@@ -184,7 +184,7 @@
   <label><input type="checkbox" name="has_air_permit" value="true" {% if has_air_permit %}checked{% endif %}> Air permit on file</label>
   <label><input type="checkbox" name="show_all_types" value="true" {% if show_all_types %}checked{% endif %}> Show all property types (incl. golf, casino, worship, parking, etc.)</label>
   <button type="submit">Filter</button>
-  <a class="note" href="/replacement-leads?view=ab802">Clear filters</a>
+  <a class="note" /signals/replacement-leads?view=ab802">Clear filters</a>
 </form>
 
 <p class="note">{{ '{:,}'.format(ab802_rows|length) }} in-territory building{{ 's' if ab802_rows|length != 1 }} shown.</p>
@@ -206,7 +206,7 @@
 <div class="empty">
   {{ icon('file-text') }}
   <p>No in-territory AB 802 building matches these filters. Try
-    <a href="/replacement-leads?view=ab802">clearing filters</a>, or run
+    <a /signals/replacement-leads?view=ab802">clearing filters</a>, or run
     <span class="mono">scout fetch-ab802-benchmarks &lt;year&gt;</span> if this looks empty entirely.</p>
 </div>
 {% endif %}

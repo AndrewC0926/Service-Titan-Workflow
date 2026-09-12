@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% from "_macros.html" import hub_subtabs, empty_state %}
+{% block title %}Deadlines{% endblock %}
+{% block content %}
+{{ hub_subtabs([
+  {'href': '/deadlines', 'label': 'Deadlines', 'key': 'deadlines'},
+  {'href': '/deadlines/hospitals', 'label': 'Hospitals (AB 869 / HCAI)', 'key': 'hospitals'},
+  {'href': '/deadlines/ab869', 'label': 'AB 869 plans', 'key': 'ab869'},
+], subview) }}
+<div class="sec-head">
+  <div class="sec-title">Deadlines</div>
+  <span class="note">Grouped by regulation: AB 869 (facility, NPC buildings outstanding, plan
+    status, OSP-eligible lines), SB 1206 (R-410A install-year inference, Jan 1 2030 virgin
+    cutoff), EBEWE (audit due), Rule 1146.2 (boilers by age). Item 4 of this block builds the
+    real grouped, nearest-date-first view; this is the destination shell.</span>
+</div>
+{{ empty_state(
+  "The grouped regulation view lands in Item 4 of this block. Hospitals and AB 869 plans "
+  "still have their full pages, relocated below.",
+  action_label="Hospitals", action_href="/deadlines/hospitals"
+) }}
+{% endblock %}

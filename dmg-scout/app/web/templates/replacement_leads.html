@@ -10,8 +10,8 @@
 </div>
 
 <p class="mb-2">
-  <a class="chip" href="/replacement-leads" aria-pressed="{{ 'true' if view != 'ab802' else 'false' }}">Contractors</a>
-  <a class="chip" href="/replacement-leads?view=ab802" aria-pressed="{{ 'true' if view == 'ab802' else 'false' }}">AB 802</a>
+  <a class="chip" href="/signals/replacement-leads" aria-pressed="{{ 'true' if view != 'ab802' else 'false' }}">Contractors</a>
+  <a class="chip" /signals/replacement-leads?view=ab802" aria-pressed="{{ 'true' if view == 'ab802' else 'false' }}">AB 802</a>
 </p>
 
 {% if view == 'ab802' %}
@@ -39,17 +39,17 @@
     <span>
     <strong>Two radii for two questions: ranking vs. counting</strong>
     <span class="body">Sort key is <span class="mono">nearby_urgency_score</span> — the SAME
-      cross-contractor ranking field <a href="/contractors">/contractors</a> already uses (sum of
+      cross-contractor ranking field <a href="/accounts/contractors">/contractors</a> already uses (sum of
       each nearby building's service-life years-past-due, capped 100yr each), at
       <span class="mono">contractors.ranking_radius_miles</span> ({{ ranking_radius_miles }}mi) —
       tight on purpose, because that's what discriminates between contractors in dense areas; see
-      <a href="/assumptions#{{ assumption_slug('Ranking radius') }}">/assumptions</a>. The overdue
+      <a /settings/assumptions#{{ assumption_slug('Ranking radius') }}">/assumptions</a>. The overdue
       count each contractor shows, and the buildings on their printable handout, use a DIFFERENT,
       wider radius instead — <span class="mono">contractors.default_radius_miles</span>
       ({{ count_radius_miles }}mi), "realistically reachable" — because ranking and counting are
       different questions. An earlier version used the tight radius for both and measured 53% of
       mechanical contractors at zero; see
-      <a href="/assumptions#{{ assumption_slug('Overdue-count radius') }}">/assumptions</a> for how
+      <a /settings/assumptions#{{ assumption_slug('Overdue-count radius') }}">/assumptions</a> for how
       much of that was the radius, not a genuine absence of nearby buildings. Precomputed by
       <span class="mono">scout match-contractors</span> and <span class="mono">scout
       match-contractors-overdue</span> — not live, and the two run on the same weekly schedule but
@@ -65,7 +65,7 @@
     <strong>"No permit on record" is an inference, not a fact</strong>
     <span class="body">Every building below is in the replacement_candidate population: no
       permit was found for it, so the equipment's age is inferred from the assessor's YearBuilt
-      and a service-life band — see <a href="/retrofit">the retrofit report</a> for the same
+      and a service-life band — see <a href="/signals/permit-gap">the retrofit report</a> for the same
       discipline in full. Some of these buildings were genuinely replaced without ever pulling a
       permit; a "no permit on record" building is not proven to still have original equipment,
       it is simply undocumented — never claimed as verified.</span>
@@ -89,12 +89,12 @@
 
 <p class="note">{{ '{:,}'.format(mechanical_total) }} mechanical contractor{{ 's' if mechanical_total != 1 }}
   scored; showing {{ leads|length }} with at least {{ min_overdue }} overdue building{{ 's' if min_overdue != 1 }}
-  within {{ count_radius_miles }}mi. <a href="/replacement-leads?min_overdue=1&limit={{ limit }}">Show any with ≥1</a>
-  · <a href="/replacement-leads?min_overdue={{ min_overdue }}&limit=300">Show more rows</a></p>
+  within {{ count_radius_miles }}mi. <a /signals/replacement-leads?min_overdue=1&limit={{ limit }}">Show any with ≥1</a>
+  · <a /signals/replacement-leads?min_overdue={{ min_overdue }}&limit=300">Show more rows</a></p>
 
 <p class="note">Is this broad or narrow? Contractors clearing each bar, of {{ '{:,}'.format(mechanical_total) }} scored:
 {% for n, count in distribution.items() %}
-  <a href="/replacement-leads?min_overdue={{ n }}&limit={{ limit }}">≥{{ n }}: {{ '{:,}'.format(count) }}</a>{{ ' · ' if not loop.last }}
+  <a /signals/replacement-leads?min_overdue={{ n }}&limit={{ limit }}">≥{{ n }}: {{ '{:,}'.format(count) }}</a>{{ ' · ' if not loop.last }}
 {% endfor %}
 </p>
 
@@ -110,7 +110,7 @@
       {%- if c.business_phone %} · <a class="cite" href="tel:{{ c.business_phone }}">{{ c.business_phone }}</a>{% endif %}</div></td>
   <td>{% if c.primary_status == 'CLEAR' %}<span class="ok">{{ c.primary_status }}</span>{% else %}<span class="warn">{{ c.primary_status or 'unknown' }}</span>{% endif %}</td>
   <td class="num nowrap">
-    <a class="cite" href="/assumptions#{{ assumption_slug('Urgency weighting formula') }}" title="At {{ c.nearby_radius_miles }}mi, as of {{ c.nearby_computed_at.strftime('%Y-%m-%d') if c.nearby_computed_at else 'unknown' }}.">{{ '%.0f'|format(c.nearby_urgency_score) }}</a></td>
+    <a class="cite" /settings/assumptions#{{ assumption_slug('Urgency weighting formula') }}" title="At {{ c.nearby_radius_miles }}mi, as of {{ c.nearby_computed_at.strftime('%Y-%m-%d') if c.nearby_computed_at else 'unknown' }}.">{{ '%.0f'|format(c.nearby_urgency_score) }}</a></td>
   <td class="num nowrap"><strong>{{ c.nearby_overdue_count }}</strong>
     <div class="note">within {{ c.nearby_overdue_radius_miles }}mi, as of {{ c.nearby_overdue_computed_at.strftime('%Y-%m-%d') if c.nearby_overdue_computed_at else 'unknown' }}</div></td>
   <td>{% if c.ua_local_250_signatory %}<span class="stamp stamp-quiet" title="Matched as {{ c.ua_local_250_matched_name }}.">Signatory</span>{% else %}<span class="dim">—</span>{% endif %}</td>
@@ -127,7 +127,7 @@
 <div class="empty">
   {{ icon('file-text') }}
   <p>No mechanical contractor clears {{ min_overdue }} overdue building{{ 's' if min_overdue != 1 }} within
-    {{ count_radius_miles }}mi. Try <a href="/replacement-leads?min_overdue=1">min_overdue=1</a>, or run
+    {{ count_radius_miles }}mi. Try <a /signals/replacement-leads?min_overdue=1">min_overdue=1</a>, or run
     <span class="mono">scout match-contractors-overdue</span> if this looks stale.</p>
 </div>
 {% endif %}

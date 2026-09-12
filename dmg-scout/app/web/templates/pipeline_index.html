@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% from "_macros.html" import hub_subtabs, kpi_strip, empty_state %}
+{% block title %}Pipeline{% endblock %}
+{% block content %}
+{{ hub_subtabs([
+  {'href': '/pipeline', 'label': 'Pipeline', 'key': 'pipeline'},
+  {'href': '/pipeline/review', 'label': 'Review queue', 'key': 'review'},
+  {'href': '/pipeline/corrections', 'label': 'Corrections review', 'key': 'corrections'},
+  {'href': '/pipeline/outreach', 'label': 'Outreach', 'key': 'outreach'},
+], subview) }}
+<div class="sec-head">
+  <div class="sec-title">Pipeline</div>
+  <span class="note">A Signal that passed the four-part filter becomes an Opportunity here -- ranked
+    by its weakest why, never a weighted sum. Item 5 of this block builds the real table
+    (weakest why, line, stage, pen holder, last touch, next action, NetSuite ID or "not yet in
+    NetSuite"); this is the destination shell.</span>
+</div>
+{{ kpi_strip([
+  {'label': 'Opportunities', 'value': kpis.opportunity_count},
+  {'label': 'Signals', 'value': kpis.signal_count},
+]) }}
+{% if kpis.opportunity_count == 0 %}
+{{ empty_state(
+  "No Opportunities yet -- every Signal checked so far is missing at least one of the four parts "
+  "(named reachable contact, sellable account or building, dated reason, eligible fitting line). "
+  "See Signals for what's in market context today.",
+  action_label="Go to Signals", action_href="/signals", icon_name="search"
+) }}
+{% endif %}
+{% endblock %}

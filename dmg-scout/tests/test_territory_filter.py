@@ -39,7 +39,7 @@ def _seed_la_and_nevada(db_session, cfg):
 
 def test_board_defaults_to_my_territory(client, db_session, cfg):
     _seed_la_and_nevada(db_session, cfg)
-    body = client.get("/board", headers=AUTH).text
+    body = client.get("/signals/entitlement", headers=AUTH).text
     assert "LA Data Center" in body
     assert "Monarch Data Center" not in body
 
@@ -76,7 +76,7 @@ def test_retrofit_defaults_to_my_territory(client, db_session, cfg):
     db_session.add(other)
     db_session.commit()
 
-    body = client.get("/retrofit", headers=AUTH).text
+    body = client.get("/signals/permit-gap", headers=AUTH).text
     assert "1 LA Way" in body
     assert "1 Orange Way" not in body
 

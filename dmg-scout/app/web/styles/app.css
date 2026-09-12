@@ -243,13 +243,13 @@
   :root[data-theme="dark"] .theme-icon-light { display: none; }
   :root[data-theme="dark"] .theme-icon-dark { display: inline-flex; }
 
-  /* ---- primary nav -------------------------------------------------------
-     5 tabs, never a second row (see .navmore below for the other 14 --
-     2026-08-18 IA pass). A shared hairline under the whole row, not a
-     bordered box per tab -- .tab was previously a file-folder tab fused to
-     main's own top border; main has no border anymore, so the active
-     indicator moved from an inset top-shadow to a bottom accent line
-     sitting on that shared hairline, the more common tab-bar pattern. */
+  /* ---- sub-tab strip ------------------------------------------------------
+     Each hub page (Accounts/Signals/Pipeline/Deadlines/Reports) renders one
+     of these at the top of its content area, from the shared
+     hub_subtabs() macro (_macros.html) -- e.g. Accounts: Accounts |
+     Contractors | Firms | Contacts | Watch list. Was the old top-level
+     primary-nav look (5 tabs, pre-Block-3) -- reused here at a smaller
+     scope now that the rail (below) owns top-level navigation. */
   .tabs { display: flex; flex-wrap: wrap; align-items: stretch; gap: 1.25rem; border-bottom: 1px solid var(--color-rule-hard); }
   .tab {
     padding: 0.5rem 0.1rem;
@@ -261,38 +261,74 @@
   .tab:hover { color: var(--color-ink); text-decoration: none; }
   .tab[aria-current="page"] { color: var(--color-ink); border-bottom-color: var(--color-blueprint); }
 
-  /* ---- overflow menu -------------------------------------------------------
-     Native <details>: open/close, keyboard, and click-to-toggle come free;
-     the only JS involved (base.html) is closing it on an outside click. A
-     real bordered button (2026-08-19 bugfix -- an icon-only "..." with no
-     border read as a stray decoration, not a control hiding 14 destinations)
-     labeled and chevroned like a dropdown, not styled as a plain .tab since
-     it opens a menu rather than navigating anywhere itself. */
-  .navmore { position: relative; margin-left: auto; align-self: center; }
-  .navmore-trigger {
-    list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem;
-    padding: 0.35rem 0.7rem;
-    border: 1px solid var(--color-rule-hard); border-radius: var(--radius-sm);
-    background: var(--color-panel); color: var(--color-ink-mid);
-    font-size: var(--text-xs); letter-spacing: 0.11em; text-transform: uppercase;
+  /* ---- left rail (Block 3, Master Plan v3.2 section 11/13) ---------------
+     Six always-visible destinations + Settings for an operator only. Real
+     structural nav, not the old horizontal tab bar -- a fixed-width column
+     beside the content, collapsing to a horizontal bar under the app-body
+     breakpoint below so Today stays phone-first. New markup only: spacing
+     here is 8-point (0.5rem/1rem/1.5rem multiples of 8px), text sizes drawn
+     from exactly 3 of the existing 6 tokens (--text-xs for the rail label,
+     --text-sm for hub subtab labels, --text-base for KPI values) -- see
+     _macros.html's own comment for why those three and not the other
+     tokens. Pre-existing/relocated page content is NOT retrofitted to this
+     rule; only this rail, the new hub pages, and the new macros are. */
+  .app-shell { display: flex; flex-direction: column; min-height: 100vh; }
+  .app-body { display: flex; flex: 1; align-items: flex-start; }
+  .rail {
+    display: flex; flex-direction: column; gap: 0.5rem;
+    width: 11rem; flex: 0 0 11rem; padding: 1rem 0.5rem;
+    border-right: 1px solid var(--color-rule-hard);
+    position: sticky; top: 0; align-self: stretch;
   }
-  .navmore-trigger::-webkit-details-marker { display: none; }
-  .navmore-trigger .icon { width: 0.8rem; height: 0.8rem; transition: transform 0.15s; }
-  .navmore-trigger:hover { color: var(--color-ink); border-color: var(--color-ink-mid); }
-  .navmore[open] .navmore-trigger { color: var(--color-ink); background: var(--color-panel-alt); }
-  .navmore[open] .navmore-trigger .icon { transform: rotate(180deg); }
-  .navmore-panel {
-    position: absolute; top: 100%; right: 0; z-index: 20; margin-top: 0.4rem;
-    display: flex; flex-direction: column; min-width: 12rem;
-    background: var(--color-panel); border: 1px solid var(--color-rule-hard);
-    padding: 0.35rem 0;
+  .rail-item {
+    padding: 0.5rem 0.5rem;
+    border-radius: var(--radius-sm);
+    color: var(--color-ink-mid);
+    font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase;
   }
-  .navmore-panel a {
-    padding: 0.4rem 0.9rem; color: var(--color-ink-mid);
-    font-size: var(--text-sm);
+  .rail-item:hover { color: var(--color-ink); background: var(--color-panel-alt); text-decoration: none; }
+  .rail-item[aria-current="page"] { color: var(--color-ink); background: var(--color-panel-alt); border-left: 2px solid var(--color-blueprint); }
+  .rail-item-settings { margin-top: auto; border-top: 1px solid var(--color-rule); padding-top: 1rem; }
+  .main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+  @media (max-width: 40rem) {
+    /* Rail becomes a horizontal bar under the masthead -- Today's own
+       "phone-first" intent (docs/MASTER-PLAN.md section 13) holds even
+       though the rail is structurally a sidebar on desktop. */
+    .app-body { flex-direction: column; }
+    .rail {
+      flex-direction: row; width: auto; flex: 0 0 auto; position: static;
+      overflow-x: auto; -webkit-overflow-scrolling: touch;
+      border-right: 0; border-bottom: 1px solid var(--color-rule-hard);
+      padding: 0.5rem;
+    }
+    .rail-item-settings { margin-top: 0; border-top: 0; padding-top: 0.5rem; margin-left: auto; }
   }
-  .navmore-panel a:hover { color: var(--color-ink); background: var(--color-panel-alt); text-decoration: none; }
-  .navmore-panel a[aria-current="page"] { color: var(--color-blueprint); }
+
+  /* ---- KPI strip (_macros.html: kpi_strip) -------------------------------- */
+  .kpi-strip { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; }
+  .kpi-block {
+    display: flex; flex-direction: column; gap: 0.25rem;
+    padding: 1rem; min-width: 8rem;
+    border: 1px solid var(--color-rule); border-radius: var(--radius-sm);
+  }
+  .kpi-label { font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-ink-dim); }
+  .kpi-value { font-size: var(--text-base); font-weight: 600; }
+  a.kpi-block { color: inherit; }
+  a.kpi-block:hover { text-decoration: none; border-color: var(--color-ink-mid); }
+
+  /* ---- card / row partials (_macros.html: card, row) ---------------------- */
+  .scout-card { border: 1px solid var(--color-rule); border-radius: var(--radius-sm); padding: 1rem; margin-bottom: 0.5rem; }
+  .scout-card-title { font-size: var(--text-sm); font-weight: 600; margin-bottom: 0.5rem; }
+  .scout-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.5rem 0; border-bottom: 1px solid var(--color-rule); }
+  .scout-row:last-child { border-bottom: 0; }
+
+  /* ---- live palette data results (GET /search, hx-get) --------------------- */
+  .palette-data-results:empty { display: none; }
+  .palette-data-results .palette-section-label {
+    padding: 0.4rem 0.9rem 0.2rem; font-size: var(--text-xs); letter-spacing: 0.11em;
+    text-transform: uppercase; color: var(--color-ink-dim);
+  }
 
   /* ---- command palette ---------------------------------------------------- */
   .palette-overlay {
@@ -669,7 +705,6 @@
     .mh-brand .note { display: block; margin-top: 0.1rem; }
     .tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
     .tab { flex: 0 0 auto; }
-    .navmore { flex: 0 0 auto; margin-left: 0.5rem; }
   }
 
   /* ---- /reference: static field-reference content --------------------

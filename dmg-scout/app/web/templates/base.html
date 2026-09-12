@@ -20,42 +20,27 @@
 </head>
 <body>
 {% from "_icon.html" import icon %}
-{# Every page destination in one place -- the overflow menu and the Cmd-K
-   palette both render from this SAME list (the palette via the JSON blob
-   below) so the two can't drift out of sync. 5 primary tabs, the rest
-   behind the overflow disclosure -- see /home/andrewcrane/.claude/plans/
-   parallel-crunching-clover.md for why this split and not some other one. #}
+{# Block 3 (Master Plan v3.2 section 13): the six destinations, always
+   visible, plus Settings for an operator only (is_operator(request), a
+   Jinja global reading the username auth() stashed on request.state --
+   see app/web/main.py). Every OLD flat-nav route from before this pass
+   still works -- it 307-redirects to its new home under one of these six
+   (app/web/main.py's _OLD_ROUTE_REDIRECTS) -- so nothing that used to be
+   reachable is gone, it just isn't a top-level destination any more. #}
 {% set nav_items = [
-  {'href': '/', 'label': 'Today', 'key': 'today', 'primary': true},
-  {'href': '/board', 'label': 'Board', 'key': 'board', 'primary': true},
-  {'href': '/retrofit', 'label': 'Retrofit', 'key': 'retrofit', 'primary': true},
-  {'href': '/contractors', 'label': 'Contractors', 'key': 'contractors', 'primary': true},
-  {'href': '/replacement-leads', 'label': 'Replacement leads', 'key': 'replacement-leads', 'primary': false},
-  {'href': '/hospitals', 'label': 'Hospitals', 'key': 'hospitals', 'primary': false},
-  {'href': '/accounts', 'label': 'Accounts', 'key': 'accounts', 'primary': true},
-  {'href': '/watchlist', 'label': 'Watch list', 'key': 'watchlist', 'primary': false},
-  {'href': '/review', 'label': 'Review queue', 'key': 'review', 'primary': false},
-  {'href': '/corrections-review', 'label': 'Corrections review', 'key': 'corrections-review', 'primary': false},
-  {'href': '/ask', 'label': 'Ask', 'key': 'ask', 'primary': false},
-  {'href': '/searches', 'label': 'Saved searches', 'key': 'searches', 'primary': false},
-  {'href': '/outreach', 'label': 'Outreach', 'key': 'outreach', 'primary': false},
-  {'href': '/captures', 'label': 'Captures', 'key': 'captures', 'primary': false},
-  {'href': '/capture', 'label': 'Record capture', 'key': 'capture', 'primary': false},
-  {'href': '/lines', 'label': 'Line card', 'key': 'lines', 'primary': false},
-  {'href': '/reference', 'label': 'Reference', 'key': 'reference', 'primary': false},
-  {'href': '/firms', 'label': 'Firms', 'key': 'firms', 'primary': false},
-  {'href': '/contacts', 'label': 'Contacts', 'key': 'contacts', 'primary': false},
-  {'href': '/map', 'label': 'Map', 'key': 'map', 'primary': false},
-  {'href': '/health', 'label': 'Source health', 'key': 'health', 'primary': false},
-  {'href': '/assumptions', 'label': 'Assumptions', 'key': 'assumptions', 'primary': false},
-  {'href': '/add-signal', 'label': 'Add signal', 'key': 'add', 'primary': false},
-  {'href': '/intel', 'label': 'Field intel', 'key': 'intel', 'primary': false},
+  {'href': '/', 'label': 'Today', 'key': 'today'},
+  {'href': '/pipeline', 'label': 'Pipeline', 'key': 'pipeline'},
+  {'href': '/accounts', 'label': 'Accounts', 'key': 'accounts'},
+  {'href': '/signals', 'label': 'Signals', 'key': 'signals'},
+  {'href': '/deadlines', 'label': 'Deadlines', 'key': 'deadlines'},
+  {'href': '/reports', 'label': 'Reports', 'key': 'reports'},
 ] %}
-<div class="p-2.5">
+{% set settings_item = {'href': '/settings', 'label': 'Settings', 'key': 'settings'} %}
+{% set show_settings = is_operator(request) %}
+<div class="app-shell">
   {# MASTHEAD — one line. What this is, and whether the data under it is
      current; that is the only question worth asking before acting on
-     anything below. Everything else that used to live here (Projects/
-     Signals/Documents) is in the footer; Sheet/Printed are gone. #}
+     anything below. #}
   <div class="masthead">
     <div class="mh-identity">
       <div class="mh-brand">
@@ -76,45 +61,50 @@
     </div>
   </div>
 
-  {# PRIMARY NAV + OVERFLOW #}
-  <nav class="tabs mt-2.5" aria-label="Sections">
-    {% for item in nav_items if item.primary %}
-    <a href="{{ item.href }}" class="tab" {% if active==item.key %}aria-current="page"{% endif %}>{{ item.label }}</a>
-    {% endfor %}
-    <details class="navmore" id="navmore">
-      <summary class="navmore-trigger" aria-label="More sections">More {{ icon('chevron-down') }}</summary>
-      <div class="navmore-panel">
-        {% for item in nav_items if not item.primary %}
-        <a href="{{ item.href }}" {% if active==item.key %}aria-current="page"{% endif %}>{{ item.label }}</a>
-        {% endfor %}
-      </div>
-    </details>
-  </nav>
+  <div class="app-body">
+    {# LEFT RAIL — six destinations, always visible; Settings appended only
+       for an operator. Collapses to a horizontal bar under the app-body's
+       own breakpoint (app.css) so Today stays phone-first. #}
+    <nav class="rail" aria-label="Sections">
+      {% for item in nav_items %}
+      <a href="{{ item.href }}" class="rail-item" {% if active==item.key %}aria-current="page"{% endif %}>{{ item.label }}</a>
+      {% endfor %}
+      {% if show_settings %}
+      <a href="{{ settings_item.href }}" class="rail-item rail-item-settings" {% if active==settings_item.key %}aria-current="page"{% endif %}>{{ settings_item.label }}</a>
+      {% endif %}
+    </nav>
 
-  <main class="p-3 overflow-x-auto">{% block content %}{% endblock %}</main>
+    <div class="main-col">
+      <main class="p-4 overflow-x-auto">{% block content %}{% endblock %}</main>
 
-  {# FOOTER — counts nobody acts on every load, kept one scroll away rather
-     than deleted outright. #}
-  <footer class="pagefoot">
-    <span>{{ '{:,}'.format(tb.record_count) }} projects</span>
-    <span>{{ '{:,}'.format(tb.signal_count) }} signals</span>
-    <span>{{ '{:,}'.format(tb.doc_count) }} documents</span>
-  </footer>
+      {# FOOTER — counts nobody acts on every load, kept one scroll away rather
+         than deleted outright. #}
+      <footer class="pagefoot">
+        <span>{{ '{:,}'.format(tb.record_count) }} projects</span>
+        <span>{{ '{:,}'.format(tb.signal_count) }} signals</span>
+        <span>{{ '{:,}'.format(tb.doc_count) }} documents</span>
+      </footer>
+    </div>
+  </div>
 </div>
 
 {# COMMAND PALETTE — Cmd/Ctrl+K from anywhere, or the search icon above
-   (Cmd-K alone isn't discoverable at 390px: no physical Cmd key). Filters
-   the SAME 19-item list the nav above renders from, so nothing reachable
-   from the overflow menu is ever unreachable here, and the 5 primary tabs
-   are searchable too, not just the overflow 14. #}
-<script type="application/json" id="nav-items">{{ nav_items | tojson }}</script>
+   (Cmd-K alone isn't discoverable at 390px: no physical Cmd key). Two
+   sections: static nav-destination matches (client-side, from the 6-7
+   item list above) and live account/project matches (server-rendered via
+   GET /search, hx-get) -- Block 3's own "server-rendered search box that
+   hits accounts and projects by name." #}
+{% set palette_nav_items = nav_items + ([settings_item] if show_settings else []) %}
+<script type="application/json" id="nav-items">{{ palette_nav_items | tojson }}</script>
 <div class="palette-overlay" id="palette-overlay" onclick="if(event.target===this) closePalette()">
   <div class="palette" role="dialog" aria-modal="true" aria-label="Search everywhere">
     <div class="palette-input-row">
       {{ icon('search') }}
-      <input type="text" id="palette-input" placeholder="Go to…" autocomplete="off" spellcheck="false">
+      <input type="text" id="palette-input" name="q" placeholder="Go to, or search accounts and projects…" autocomplete="off" spellcheck="false"
+             hx-get="/search" hx-trigger="input changed delay:200ms" hx-target="#palette-data-results" hx-swap="innerHTML">
     </div>
     <div class="palette-results" id="palette-results"></div>
+    <div class="palette-results palette-data-results" id="palette-data-results"></div>
   </div>
 </div>
 
@@ -126,24 +116,16 @@ function toggleTheme() {
   localStorage.setItem('scout-theme', next);
 }
 
-// Close the overflow disclosure on an outside click -- <details> gives open/
-// close and keyboard handling for free, but not this, so it's the one bit
-// of JS the overflow menu needs.
-document.addEventListener('click', function (e) {
-  var nm = document.getElementById('navmore');
-  if (nm && nm.open && !nm.contains(e.target)) nm.open = false;
-});
-
 // ---- Command palette ------------------------------------------------------
 var NAV_ITEMS = JSON.parse(document.getElementById('nav-items').textContent);
 var paletteActive = 0, paletteMatches = [];
 
 function openPalette() {
-  document.getElementById('navmore').open = false;
   document.getElementById('palette-overlay').classList.add('open');
   var input = document.getElementById('palette-input');
   input.value = '';
   renderPaletteResults('');
+  document.getElementById('palette-data-results').innerHTML = '';
   input.focus();
 }
 function closePalette() {
@@ -156,10 +138,6 @@ function renderPaletteResults(query) {
   var list = document.getElementById('palette-results');
   list.innerHTML = '';
   if (!paletteMatches.length) {
-    var empty = document.createElement('div');
-    empty.className = 'palette-empty note';
-    empty.textContent = 'No matches';
-    list.appendChild(empty);
     return;
   }
   paletteMatches.forEach(function (it, i) {
@@ -167,19 +145,13 @@ function renderPaletteResults(query) {
     row.href = it.href;
     row.className = 'palette-row' + (i === 0 ? ' active' : '');
     row.textContent = it.label;
-    if (!it.primary) {
-      var tag = document.createElement('span');
-      tag.className = 'note';
-      tag.textContent = 'more';
-      row.appendChild(tag);
-    }
     list.appendChild(row);
   });
 }
 function movePaletteActive(delta) {
-  if (!paletteMatches.length) return;
   var rows = document.querySelectorAll('.palette-row');
-  rows[paletteActive].classList.remove('active');
+  if (!rows.length) return;
+  rows[paletteActive] && rows[paletteActive].classList.remove('active');
   paletteActive = (paletteActive + delta + rows.length) % rows.length;
   rows[paletteActive].classList.add('active');
   rows[paletteActive].scrollIntoView({block: 'nearest'});

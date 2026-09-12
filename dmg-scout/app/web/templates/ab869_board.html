@@ -2,12 +2,12 @@
 {% from "_icon.html" import icon %}
 {% block title %}AB 869 compliance plans{% endblock %}
 {% block content %}
-<h2>AB 869 seismic compliance plans <a href="/hospitals" style="float:right;font-size:12px">← back to hospitals</a></h2>
+<h2>AB 869 seismic compliance plans <a href="/deadlines/hospitals" style="float:right;font-size:12px">← back to hospitals</a></h2>
 <p class="note">{{ rows|length }} in-territory facilit{{ 'y' if rows|length == 1 else 'ies' }} · distinct buildings
   only, never the crosstab's own repeated progress-bucket rows · source: HCAI's AB 869 compliance-plan
-  roster (hand-pulled, see <a href="/assumptions#{{ assumption_slug('AB 869 seismic compliance plan roster') if assumption_slug is defined else '' }}">/assumptions</a>).
+  roster (hand-pulled, see <a /settings/assumptions#{{ assumption_slug('AB 869 seismic compliance plan roster') if assumption_slug is defined else '' }}">/assumptions</a>).
   Sorted by NPC building count, descending. See
-  <a href="/assumptions#{{ assumption_slug('hcai.ca.gov / tab.hcai.ca.gov — robots.txt, X-Robots-Tag, meta robots') }}">/assumptions</a>
+  <a /settings/assumptions#{{ assumption_slug('hcai.ca.gov / tab.hcai.ca.gov — robots.txt, X-Robots-Tag, meta robots') }}">/assumptions</a>
   for the full access/parsing writeup.</p>
 
 <form method="get" class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;align-items:end;margin-bottom:12px">
@@ -41,13 +41,13 @@
   <div>
     <label><input type="checkbox" name="has_open_mechanical" value="true" {{ 'checked' if has_open_mechanical }} onchange="this.form.submit()"> Has open mechanical project</label>
   </div>
-  <div><button type="submit">Apply</button> <a href="/ab869" style="margin-left:8px">Reset</a></div>
+  <div><button type="submit">Apply</button> <a href="/deadlines/ab869" style="margin-left:8px">Reset</a></div>
 </form>
 
 {% if hcai_report_date %}
 <p class="note">HCAI Facilities Development Division projects as of {{ hcai_report_date.strftime('%Y-%m-%d') }}
   (hand-pulled, not live -- see
-  <a href="/assumptions#{{ assumption_slug('HCAI Facilities Development Division project reports') if assumption_slug is defined else '' }}">/assumptions</a>).
+  <a /settings/assumptions#{{ assumption_slug('HCAI Facilities Development Division project reports') if assumption_slug is defined else '' }}">/assumptions</a>).
   No ranking or score change from this -- informational only.</p>
 {% else %}
 <p class="note dim">HCAI Facilities Development Division projects not loaded yet
@@ -66,7 +66,7 @@
 <tr>
   <td><a href="/ab869/{{ r.perm_id }}">{{ r.facility_name or r.perm_id }}</a>
       {% if r.no_pdf_on_disk %}<span class="stamp stamp-post" title="Crosstab data only -- the Playwright pull for this facility's PDF failed">no PDF</span>{% endif %}
-      {% if r.ahj_a2l_hit %}<a class="stamp stamp-pre" title="{{ r.ahj_a2l_hit.doc_title }}" href="/reference?tab=ahj_a2l#ahj-{{ r.ahj_a2l_hit.jurisdiction|lower|replace(' ', '-') }}">AHJ has written A2L guidance</a>{% endif %}</td>
+      {% if r.ahj_a2l_hit %}<a class="stamp stamp-pre" title="{{ r.ahj_a2l_hit.doc_title }}" /settings/reference?tab=ahj_a2l#ahj-{{ r.ahj_a2l_hit.jurisdiction|lower|replace(' ', '-') }}">AHJ has written A2L guidance</a>{% endif %}</td>
   <td>{{ r.county or '—' }}</td>
   <td class="num">{{ r.npc_building_count }}</td>
   <td>{% if r.has_plan %}{{ r.plan_status or '<span class="note">not parsed</span>'|safe }}{% else %}<span class="stamp stamp-quiet">{{ r.plan_status }}</span>{% endif %}</td>

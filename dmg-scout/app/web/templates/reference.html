@@ -12,7 +12,7 @@
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
 {% for t in tab_order %}
-<a class="chip" aria-pressed="{{ 'true' if t==active_tab else 'false' }}" href="/reference?tab={{ t }}">{{ TAB_LABELS[t] }}</a>
+<a class="chip" aria-pressed="{{ 'true' if t==active_tab else 'false' }}" /settings/reference?tab={{ t }}">{{ TAB_LABELS[t] }}</a>
 {% endfor %}
 </div>
 
@@ -549,7 +549,7 @@
 <tbody>
 {% for r in role_order %}
 <tr>
-  <td><a href="/lines?role={{ r }}">{{ ROLE_LABELS[r] }}</a></td>
+  <td><a /settings/lines?role={{ r }}">{{ ROLE_LABELS[r] }}</a></td>
   <td>{{ role_reference[r].equipment }}</td>
   <td>{{ role_reference[r].said_out_loud }}</td>
 </tr>
@@ -574,7 +574,7 @@
 {% elif active_tab == 'pitches' %}
 <p class="note mb-2" style="max-width:62rem">Confirmed pitches only -- a draft (generated, not yet reviewed)
   never shows here. {{ total_drafts }} draft{{ 's' if total_drafts != 1 }} still awaiting review at
-  <a href="/lines">/lines</a>.</p>
+  <a href="/settings/lines">/lines</a>.</p>
 
 {% for r in role_order %}
 {% set pitches = confirmed_pitches_by_role.get(r, []) %}

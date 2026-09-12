@@ -34,6 +34,7 @@ from app.access_log import (
     access_summary,
     admin_username,
     capture_voice_logging_middleware,
+    configured_users,
 )
 from app.assumptions import slugify
 from app.config import load_config
@@ -215,24 +216,65 @@ templates.env.globals["DELIVERY_METHOD_ABBR"] = DELIVERY_METHOD_ABBR
 templates.env.globals["CALL_TARGET_LABELS"] = CALL_TARGET_LABELS
 templates.env.globals["DELIVERY_METHOD_NOTES"] = DELIVERY_METHOD_NOTES
 
+
+def is_operator(request: Request) -> bool:
+    """base.html's own check for whether to render the Settings nav item --
+    reads the username auth() already stashed on request.state, so no
+    route handler has to thread this through its own template context by
+    hand. Fails closed (False) when the app somehow reached a template
+    render without auth() having run (should never happen, every page
+    route depends on auth or operator)."""
+    username = getattr(request.state, "username", None)
+    if username is None:
+        return False
+    cfg = load_config()
+    return username in cfg.get("dashboard.operator_usernames", ["andrew"])
+
+
+templates.env.globals["is_operator"] = is_operator
+
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")),
           name="static")
 
 
-def auth(credentials: HTTPBasicCredentials = Depends(security)) -> str:
+def auth(request: Request, credentials: HTTPBasicCredentials = Depends(security)) -> str:
+    """Per-user HTTP Basic Auth (Block 3, Master Plan v3.2 section 16a) --
+    checks the submitted credential against EVERY configured (username,
+    password) pair from app.access_log.configured_users, not just one, so
+    each real visitor authenticates as themselves. See that function's own
+    docstring for the legacy single-user fallback.
+
+    Stashes the authenticated username on request.state -- is_operator()
+    below (a Jinja global) reads it back so base.html can decide whether to
+    render the Settings nav item without every single route handler having
+    to thread an is_operator flag through its own template context by
+    hand."""
     cfg = load_config()
-    user = cfg.get("dashboard.basic_auth_username", "andrew")
-    password = os.environ.get(cfg.get("dashboard.basic_auth_password_env", "DASHBOARD_PASSWORD"), "")
-    if not password:
+    users = configured_users(cfg)
+    if not users:
         # Fail closed: no password configured means no access, and say why.
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail="DASHBOARD_PASSWORD env var is not set")
-    ok = secrets.compare_digest(credentials.username, user) and secrets.compare_digest(
-        credentials.password, password)
-    if not ok:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED,
-                            headers={"WWW-Authenticate": "Basic"})
-    return credentials.username
+                            detail="No dashboard users configured -- set DASHBOARD_PASSWORD "
+                                   "or config.yaml's dashboard.users")
+    for username, password in users:
+        if secrets.compare_digest(credentials.username, username) and secrets.compare_digest(
+                credentials.password, password):
+            request.state.username = username
+            return username
+    raise HTTPException(status.HTTP_401_UNAUTHORIZED,
+                        headers={"WWW-Authenticate": "Basic"})
+
+
+def operator(username: str = Depends(auth)) -> str:
+    """Gate for Settings (Reference, Assumptions, Lines admin, Capture) --
+    already-authenticated (auth() ran first), so a non-operator gets 403,
+    not 401: they proved who they are, they just aren't allowed here."""
+    cfg = load_config()
+    operators = cfg.get("dashboard.operator_usernames", ["andrew"])
+    if username not in operators:
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            detail="Settings is operator-only")
+    return username
 
 
 capture_bearer = HTTPBearer(auto_error=False)
@@ -266,6 +308,64 @@ def capture_auth(request: Request,
 @app.get("/healthz")
 def healthz() -> dict:
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Block 3 (Master Plan v3.2 section 13): the old flat nav's routes, each
+# 307-redirected to its new home under one of the six destinations or
+# Settings. No auth dependency here on purpose -- a redirect leaks nothing,
+# and requiring auth first would turn an old bookmarked/shared link into a
+# confusing 401 instead of a clean forward to where the content actually
+# lives now (the browser still authenticates against the real page at the
+# new URL on the very next request). 307, not 301/302/303, so a POST body
+# (the handful of old form-submission paths below) is preserved across the
+# hop rather than silently downgraded to a GET.
+# ---------------------------------------------------------------------------
+_OLD_ROUTE_REDIRECTS = {
+    "/board": "/signals/entitlement",
+    "/retrofit": "/signals/permit-gap",
+    "/replacement-leads": "/signals/replacement-leads",
+    "/map": "/signals/map",
+    "/add-signal": "/signals/add",
+    "/searches": "/signals/saved-searches",
+    "/contractors": "/accounts/contractors",
+    "/firms": "/accounts/firms",
+    "/contacts": "/accounts/contacts",
+    "/watchlist": "/accounts/watchlist",
+    "/hospitals": "/deadlines/hospitals",
+    "/ab869": "/deadlines/ab869",
+    "/review": "/pipeline/review",
+    "/corrections-review": "/pipeline/corrections",
+    "/outreach": "/pipeline/outreach",
+    "/ask": "/reports/ask",
+    "/reference": "/settings/reference",
+    "/assumptions": "/settings/assumptions",
+    "/lines": "/settings/lines",
+    "/capture": "/settings/capture",
+    "/captures": "/settings/captures",
+    "/intel": "/settings/intel",
+    "/health": "/settings/health",
+}
+# Old paths that also accepted a POST (form submissions) -- redirected the
+# same way, same 307, so the body survives the hop.
+_OLD_ROUTE_REDIRECTS_POST = {"/firms", "/contacts", "/searches", "/add-signal", "/intel"}
+
+for _old_path, _new_path in _OLD_ROUTE_REDIRECTS.items():
+    def _make_redirect(new_path: str):
+        def _redirect(request: Request) -> RedirectResponse:
+            # Forward the query string -- a filtered old link
+            # (e.g. /retrofit?county=Orange) must land on the SAME filter
+            # at its new home, not a bare unfiltered page. Confirmed this
+            # was a real bug, not a hypothetical: TestClient follows
+            # redirects by default, and several existing tests
+            # (test_territory_filter.py, test_line_card.py, test_widgets.py)
+            # broke against a query-string-dropping first version of this.
+            target = f"{new_path}?{request.url.query}" if request.url.query else new_path
+            return RedirectResponse(target, status_code=307)
+        return _redirect
+    app.get(_old_path, response_class=RedirectResponse)(_make_redirect(_new_path))
+    if _old_path in _OLD_ROUTE_REDIRECTS_POST:
+        app.post(_old_path, response_class=RedirectResponse)(_make_redirect(_new_path))
 
 
 def _title_block(session: Session) -> dict:
@@ -332,6 +432,118 @@ def today(request: Request, session: Session = Depends(get_session), _: str = De
     })
 
 
+@app.get("/search", response_class=HTMLResponse)
+def search(request: Request, q: str = "", session: Session = Depends(get_session),
+          _: str = Depends(auth)):
+    """Block 3's server-rendered command-palette data search: Account and
+    Project by name, hx-get from base.html's palette input. Capped at 10
+    results total (5 each) -- this is a jump-to-record box, not a full
+    search page; a longer result list belongs on /accounts or /signals
+    themselves, not here."""
+    q = q.strip()
+    accounts: list[Account] = []
+    projects: list[Project] = []
+    if q:
+        accounts = session.exec(select(Account).where(Account.name.ilike(f"%{q}%")).limit(5)).all()
+        projects = session.exec(select(Project).where(Project.name.ilike(f"%{q}%")).limit(5)).all()
+    return templates.TemplateResponse(request, "_search_results.html", {
+        "q": q, "accounts": accounts, "projects": projects,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Block 3 (Master Plan v3.2 section 13): the six hub destinations. Each is
+# minimal in this item (a KPI-strip-or-similar plus its sub-tab strip) --
+# Items 4/5 of this same block flesh out Deadlines/Signals/Pipeline's real
+# content; Reports gets a light-but-real version here since no later item
+# builds it out further.
+# ---------------------------------------------------------------------------
+
+def _hub_kpis(session: Session) -> dict:
+    """Shared numbers several hub pages want -- computed once per request,
+    not per-hub, so /reports and /signals can't quietly disagree about
+    what "442 projects" means."""
+    from app.models import Opportunity
+    return {
+        "project_count": session.exec(select(func.count(Project.id))).one(),
+        "signal_count": session.exec(select(func.count(Signal.id))).one(),
+        "opportunity_count": session.exec(select(func.count(Opportunity.id))).one(),
+    }
+
+
+@app.get("/pipeline", response_class=HTMLResponse)
+def pipeline_index(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Minimal hub index -- Item 5 of this same block builds the real
+    Opportunity table (weakest why, line, stage, pen holder, NetSuite ID
+    or "not yet in NetSuite"). For now: the sub-tab strip to Review/
+    Corrections/Outreach (relocated, unchanged, from the old flat nav) and
+    a count of Opportunities that exist today (0 until Item 2's four-part
+    filter actually promotes one, which it does not yet against local data
+    -- see docs/BUILD-PLAN.md section 9's Item 2 report)."""
+    kpis = _hub_kpis(session)
+    return templates.TemplateResponse(request, "pipeline_index.html", {
+        "tb": _title_block(session), "active": "pipeline", "kpis": kpis,
+    })
+
+
+@app.get("/signals", response_class=HTMLResponse)
+def signals_index(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Minimal hub index -- Item 5 of this same block builds the real
+    filter-chip/card/Promote UI over app.pipeline.signals_feed.
+    unified_signals(). For now: the sub-tab strip to every relocated
+    source page (Board/Retrofit/etc.) plus a trigger-type count so the
+    unification from Item 2 is at least visible here."""
+    from app.pipeline.signals_feed import unified_signals
+    from collections import Counter
+    signals = unified_signals(session)
+    by_trigger = Counter(s.trigger_type.value for s in signals)
+    trigger_kpi_items = [{"label": k.replace("_", " "), "value": v} for k, v in sorted(by_trigger.items())]
+    return templates.TemplateResponse(request, "signals_index.html", {
+        "tb": _title_block(session), "active": "signals",
+        "total_signals": len(signals), "trigger_kpi_items": trigger_kpi_items,
+    })
+
+
+@app.get("/deadlines", response_class=HTMLResponse)
+def deadlines_index(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Minimal hub index -- Item 4 of this same block builds the real
+    grouped-by-regulation view (AB 869, SB 1206, EBEWE, Rule 1146.2). For
+    now: the sub-tab strip to Hospitals/AB 869 (relocated, unchanged)."""
+    return templates.TemplateResponse(request, "deadlines_index.html", {
+        "tb": _title_block(session), "active": "deadlines",
+    })
+
+
+@app.get("/reports", response_class=HTMLResponse)
+def reports_index(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
+    """No later Block 3 item builds this out further, so this is a light
+    but real version, not a total stub: the same KPI numbers already
+    computed elsewhere (project/signal/opportunity counts, Item 2's
+    unified-signal trigger-type breakdown) in one place, plus the
+    relocated Ask sub-view."""
+    from app.pipeline.signals_feed import unified_signals
+    from collections import Counter
+    kpis = _hub_kpis(session)
+    signals = unified_signals(session)
+    by_trigger = Counter(s.trigger_type.value for s in signals)
+    trigger_kpi_items = [{"label": k.replace("_", " "), "value": v} for k, v in sorted(by_trigger.items())]
+    return templates.TemplateResponse(request, "reports_index.html", {
+        "tb": _title_block(session), "active": "reports", "kpis": kpis,
+        "total_signals": len(signals), "trigger_kpi_items": trigger_kpi_items,
+    })
+
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings_index(request: Request, session: Session = Depends(get_session), _: str = Depends(operator)):
+    """Operator-only landing page (Master Plan v3.2 section 13): Reference,
+    Assumptions, Lines admin, Capture configuration -- links to the four
+    relocated, unchanged pages, plus Field intel and Source health (moved
+    here too, see docs/BUILD-PLAN.md section 9's Item 3 report for why)."""
+    return templates.TemplateResponse(request, "settings_index.html", {
+        "tb": _title_block(session), "active": "settings",
+    })
+
+
 def _my_territory_filter():
     """Project.county exactly matches one of MY_TERRITORY_COUNTIES -- same
     literal, no-guessing discipline as app.schedule_mapping.resolve_branch:
@@ -342,7 +554,7 @@ def _my_territory_filter():
     return func.lower(func.trim(Project.county)).in_(MY_TERRITORY_COUNTIES)
 
 
-@app.get("/board", response_class=HTMLResponse)
+@app.get("/signals/entitlement", response_class=HTMLResponse)
 def board(request: Request, view: str = "board", category: str = "data_center", territory: str = "mine",
           call_target: str = "", county: str = "", district: str = "", program: str = "",
           status: str = "", grade_level: str = "",
@@ -367,7 +579,7 @@ def board(request: Request, view: str = "board", category: str = "data_center", 
             "school_county": county, "school_district": district, "school_program": program,
             "school_status": status, "school_grade_level": grade_level,
             "school_filter_stale": source_is_stale(session, cfg, "opsc_school_facility"),
-            "tb": _title_block(session), "active": "board",
+            "tb": _title_block(session), "active": "signals", "subview": "entitlement",
         })
 
     # Two boards, one pipeline. Defaults to data centers: that is the book of
@@ -443,7 +655,7 @@ def board(request: Request, view: str = "board", category: str = "data_center", 
         "field_intel": active_field_intel(session)[:5],
         "call_targets": call_targets, "call_target_counts": call_target_counts,
         "call_target": call_target,
-        "tb": _title_block(session), "active": "board",
+        "tb": _title_block(session), "active": "signals", "subview": "entitlement",
         **_board_extras(session, projects),
     })
 
@@ -616,7 +828,7 @@ def _window_progress(projects: list[Project]) -> dict[int, int]:
     return out
 
 
-@app.get("/retrofit", response_class=HTMLResponse)
+@app.get("/signals/permit-gap", response_class=HTMLResponse)
 def retrofit_board(request: Request, county: str = None, min_status: str = None,
                    population: str = "replacement_candidate", limit: int = 200,
                    has_ebewe: bool = False, sold_last_24mo: bool = False, territory: str = "mine",
@@ -795,7 +1007,7 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
         "territory": territory, "territory_hidden_count": territory_hidden_count,
         "score_max": max([b.rank_score for b in buildings if b.rank_score] or [1.0]),
         "nearest_contractor": nearest_contractor,
-        "tb": _title_block(session), "active": "retrofit",
+        "tb": _title_block(session), "active": "signals", "subview": "permit-gap",
     })
 
 
@@ -824,7 +1036,7 @@ def retrofit_report(request: Request, county: str = None, min_status: str = "due
     return templates.TemplateResponse(request, "retrofit_report.html", {
         "buildings": buildings, "county": county or "All counties",
         "min_status": min_status, "population": population, "generated_at": utcnow(),
-        "tb": _title_block(session), "active": "retrofit",
+        "tb": _title_block(session), "active": "signals", "subview": "permit-gap",
     })
 
 
@@ -840,7 +1052,7 @@ def retrofit_building_detail(building_id: int, request: Request,
     nearest = nearest_mechanical_contractors(session, building, radius_miles=radius)
     return templates.TemplateResponse(request, "retrofit_building_detail.html", {
         "building": building, "nearest_contractors": nearest, "radius_miles": radius,
-        "tb": _title_block(session), "active": "retrofit",
+        "tb": _title_block(session), "active": "signals", "subview": "permit-gap",
     })
 
 
@@ -869,11 +1081,11 @@ def hospitals_brief(request: Request, session: Session = Depends(get_session), _
         "reach": hospital_contractor_reachability(session, cfg),
         "osp": hospital_osp_breakdown(session),
         "generated_at": utcnow(),
-        "tb": _title_block(session), "active": "hospitals",
+        "tb": _title_block(session), "active": "deadlines", "subview": "hospitals",
     })
 
 
-@app.get("/hospitals", response_class=HTMLResponse)
+@app.get("/deadlines/hospitals", response_class=HTMLResponse)
 def hospitals_board(request: Request, county: str = None, deadline: str = None, all_ca: bool = False,
                     session: Session = Depends(get_session), _: str = Depends(auth)):
     """deadline: "2020" | "2030" | "extension" | None (all). See
@@ -932,7 +1144,7 @@ def hospitals_board(request: Request, county: str = None, deadline: str = None, 
         "capability_gaps": hospital_capability_gaps(session),
         "spc1_year": SPC1_DEADLINE_YEAR, "spc2_year": SPC2_DEADLINE_YEAR, "npc5_year": NPC5_DEADLINE_YEAR,
         "territory_counties": territory_counties,
-        "tb": _title_block(session), "active": "hospitals",
+        "tb": _title_block(session), "active": "deadlines", "subview": "hospitals",
     })
 
 
@@ -954,11 +1166,11 @@ def hospital_building_detail(building_id: int, request: Request,
     return templates.TemplateResponse(request, "hospital_building_detail.html", {
         "b": building, "siblings": siblings, "county_activity": county_activity,
         "capability_gaps": hospital_capability_gaps(session),
-        "tb": _title_block(session), "active": "hospitals",
+        "tb": _title_block(session), "active": "deadlines", "subview": "hospitals",
     })
 
 
-@app.get("/ab869", response_class=HTMLResponse)
+@app.get("/deadlines/ab869", response_class=HTMLResponse)
 def ab869_board(request: Request, county: str = None, plan_status: str = None,
                 has_missed: bool = False, upcoming_12mo: bool = False, owner: str = "",
                 has_air_permit: bool = False, has_open_mechanical: bool = False,
@@ -1007,7 +1219,7 @@ def ab869_board(request: Request, county: str = None, plan_status: str = None,
         "county": county, "plan_status": plan_status, "has_missed": has_missed,
         "upcoming_12mo": upcoming_12mo, "owner": owner, "has_air_permit": has_air_permit,
         "has_open_mechanical": has_open_mechanical, "hcai_report_date": hcai_report_date(session),
-        "tb": _title_block(session), "active": "hospitals",
+        "tb": _title_block(session), "active": "deadlines", "subview": "hospitals",
     })
 
 
@@ -1047,11 +1259,11 @@ def ab869_facility(perm_id: str, request: Request,
         "nearby_contractors": nearby_contractors,
         "proximity_radius": default_radius_miles(cfg),
         "call_target": call_target,
-        "tb": _title_block(session), "active": "hospitals",
+        "tb": _title_block(session), "active": "deadlines", "subview": "hospitals",
     })
 
 
-@app.get("/contractors", response_class=HTMLResponse)
+@app.get("/accounts/contractors", response_class=HTMLResponse)
 def contractors_list(request: Request, county: str = None, classification: str = "mechanical",
                      signatory: str = "", limit: int = 200,
                      session: Session = Depends(get_session), _: str = Depends(auth)):
@@ -1103,7 +1315,7 @@ def contractors_list(request: Request, county: str = None, classification: str =
         "never_matched": never_matched, "ranking_radius": ranking_radius_miles(cfg),
         "signatory_total": signatory_total, "signatory_checked_at": signatory_checked_at,
         "ranking_stale": ranking_stale,
-        "tb": _title_block(session), "active": "contractors",
+        "tb": _title_block(session), "active": "accounts", "subview": "contractors",
     })
 
 
@@ -1120,11 +1332,11 @@ def contractor_detail(contractor_id: int, request: Request,
              if contractor.latitude is not None else [])
     return templates.TemplateResponse(request, "contractor.html", {
         "c": contractor, "nearby": nearby[:10], "nearby_total": len(nearby), "radius_miles": radius,
-        "tb": _title_block(session), "active": "contractors",
+        "tb": _title_block(session), "active": "accounts", "subview": "contractors",
     })
 
 
-@app.get("/replacement-leads", response_class=HTMLResponse)
+@app.get("/signals/replacement-leads", response_class=HTMLResponse)
 def replacement_leads_view(request: Request, view: str = "contractors",
                            min_overdue: int = 5, limit: int = 100,
                            county: str = "", property_type: str = "", show_all_types: bool = False,
@@ -1226,7 +1438,7 @@ def replacement_leads_view(request: Request, view: str = "contractors",
         "year_built_before": year_built_before,
         "eui_above_median": eui_above_median, "has_assessor_match": has_assessor_match,
         "has_air_permit": has_air_permit,
-        "tb": _title_block(session), "active": "replacement-leads",
+        "tb": _title_block(session), "active": "signals", "subview": "replacement-leads",
     })
 
 
@@ -1248,7 +1460,7 @@ def replacement_lead_handout(contractor_id: int, request: Request,
              if contractor.latitude is not None else [])
     return templates.TemplateResponse(request, "replacement_lead_handout.html", {
         "c": contractor, "nearby": nearby, "radius_miles": radius,
-        "tb": _title_block(session), "active": "replacement-leads",
+        "tb": _title_block(session), "active": "signals", "subview": "replacement-leads",
     })
 
 
@@ -1276,11 +1488,11 @@ def contractor_precall(contractor_id: int, request: Request, refresh: bool = Fal
         "entry": entry, "sections": brief_sections(entry["text"]) if entry else None,
         "error": error, "entity_type": "contractor", "entity_id": contractor_id,
         "back_url": f"/contractor/{contractor_id}", "title": contractor.business_name,
-        "tb": _title_block(session), "active": "contractors",
+        "tb": _title_block(session), "active": "accounts", "subview": "contractors",
     })
 
 
-@app.get("/watchlist", response_class=HTMLResponse)
+@app.get("/accounts/watchlist", response_class=HTMLResponse)
 def watchlist(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
     """Out-of-territory projects — checked deliberately, never crowding the board."""
     projects = session.exec(
@@ -1293,7 +1505,7 @@ def watchlist(request: Request, session: Session = Depends(get_session), _: str 
     return templates.TemplateResponse(request, "board.html", {
         "projects": projects, "days_since": days_since, "review_count": 0,
         "has_pre_bod": True, "watch_count": 0, "is_watchlist": True,
-        "tb": _title_block(session), "active": "watchlist",
+        "tb": _title_block(session), "active": "accounts", "subview": "watchlist",
         **_board_extras(session, projects),
     })
 
@@ -1435,7 +1647,7 @@ def project_detail(project_id: int, request: Request,
         "displaceable_rows": displaceable_rows, "role_gap_rows": role_gap_rows,
         "call_target": call_target, "usual_team": usual_team, "bpelsg_match": bpelsg_match,
         "ahj_a2l_hit": ahj_a2l_hit,
-        "tb": _title_block(session), "active": "board",
+        "tb": _title_block(session), "active": "signals", "subview": "entitlement",
     })
 
 
@@ -1481,7 +1693,7 @@ def project_brief(project_id: int, request: Request,
     except ValueError:
         raise HTTPException(404)
     return templates.TemplateResponse(request, "brief.html", {
-        "b": b, "p": b["project"], "tb": _title_block(session), "active": "board",
+        "b": b, "p": b["project"], "tb": _title_block(session), "active": "signals", "subview": "entitlement",
     })
 
 
@@ -1509,7 +1721,7 @@ def project_precall(project_id: int, request: Request, refresh: bool = False,
         "entry": entry, "sections": brief_sections(entry["text"]) if entry else None,
         "error": error, "entity_type": "project", "entity_id": project_id,
         "back_url": f"/project/{project_id}", "title": project.name,
-        "tb": _title_block(session), "active": "board",
+        "tb": _title_block(session), "active": "signals", "subview": "entitlement",
     })
 
 
@@ -1587,7 +1799,7 @@ def download_project_document(project_id: int, doc_id: int,
                     headers={"Content-Disposition": f'inline; filename="{doc.filename}"'})
 
 
-@app.post("/firms")
+@app.post("/accounts/firms")
 def add_firm(name: str = Form(...), firm_type: str = Form("unknown"),
              aliases: str = Form(""),
              session: Session = Depends(get_session), _: str = Depends(auth)):
@@ -1602,7 +1814,7 @@ def add_firm(name: str = Form(...), firm_type: str = Form("unknown"),
         session.add(Firm(name=name, name_norm=norm, firm_type=firm_type,
                          aliases=alias_list, added_from="dashboard"))
     session.commit()
-    return RedirectResponse("/contacts", status_code=303)
+    return RedirectResponse("/accounts/contacts", status_code=303)
 
 
 @app.get("/developer/{developer_name:path}", response_class=HTMLResponse)
@@ -1628,7 +1840,7 @@ def developer_detail(developer_name: str, request: Request,
         "developer": display_name, "projects": projects,
         "team": usual_team_for_developer(session, display_name),
         "design_team_roles": DESIGN_TEAM_ROLES,
-        "tb": _title_block(session), "active": "board",
+        "tb": _title_block(session), "active": "signals", "subview": "entitlement",
     })
 
 
@@ -1734,7 +1946,7 @@ def export_bpelsg_roster(session: Session = Depends(get_session), _: str = Depen
                           "expiry", "file_date"], csv_rows)
 
 
-@app.get("/review", response_class=HTMLResponse)
+@app.get("/pipeline/review", response_class=HTMLResponse)
 def review_queue(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
     pending = session.exec(
         select(MatchCandidate).where(MatchCandidate.status == "pending")
@@ -1763,7 +1975,7 @@ def review_queue(request: Request, session: Session = Depends(get_session), _: s
                                 -abs(f["rej"]["value"]) if isinstance(f["rej"].get("value"), (int, float)) else 0))
     return templates.TemplateResponse(request, "review.html", {
         "rows": rows, "flagged": flagged,
-        "tb": _title_block(session), "active": "review",
+        "tb": _title_block(session), "active": "pipeline", "subview": "review",
     })
 
 
@@ -1776,7 +1988,7 @@ def review_decide(candidate_id: int, decision: str,
     return HTMLResponse(f'<td colspan="5" class="resolved">{decision}d ✓</td>')
 
 
-@app.get("/corrections-review", response_class=HTMLResponse)
+@app.get("/pipeline/corrections", response_class=HTMLResponse)
 def corrections_review(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
     """The forward-only stage ratchet's own review queue -- see the RATCHET
     BUG diagnosis and RATCHET OVERRIDE design (2026-09-06). Every row here
@@ -1789,7 +2001,7 @@ def corrections_review(request: Request, session: Session = Depends(get_session)
     candidates = stage_regression_candidates(session)
     return templates.TemplateResponse(request, "corrections_review.html", {
         "candidates": candidates, "stages": [s.value for s in Stage],
-        "tb": _title_block(session), "active": "corrections-review",
+        "tb": _title_block(session), "active": "pipeline", "subview": "corrections",
     })
 
 
@@ -1809,7 +2021,7 @@ def corrections_review_submit(
     return HTMLResponse('<td colspan="4" class="resolved">corrected ✓</td>')
 
 
-@app.get("/contacts", response_class=HTMLResponse)
+@app.get("/accounts/contacts", response_class=HTMLResponse)
 def contacts_view(request: Request, role: str = "", territory: str = "",
                   session: Session = Depends(get_session), _: str = Depends(auth)):
     q = select(Contact).order_by(Contact.company, Contact.name)
@@ -1833,11 +2045,11 @@ def contacts_view(request: Request, role: str = "", territory: str = "",
     return templates.TemplateResponse(request, "contacts.html", {
         "contacts": contacts, "proj_map": proj_map, "role": role, "territory": territory,
         "firms": firms, "firm_projects": firm_projects,
-        "tb": _title_block(session), "active": "contacts",
+        "tb": _title_block(session), "active": "accounts", "subview": "contacts",
     })
 
 
-@app.post("/contacts")
+@app.post("/accounts/contacts")
 def add_contact(name: str = Form(...), title: str = Form(""), company: str = Form(""),
                 company_type: str = Form(""), territory: str = Form(""),
                 phone: str = Form(""), email: str = Form(""),
@@ -1846,10 +2058,10 @@ def add_contact(name: str = Form(...), title: str = Form(""), company: str = For
                         company_type=company_type or None, territory=territory or None,
                         phone=phone or None, email=email or None))
     session.commit()
-    return RedirectResponse("/contacts", status_code=303)
+    return RedirectResponse("/accounts/contacts", status_code=303)
 
 
-@app.get("/map", response_class=HTMLResponse)
+@app.get("/signals/map", response_class=HTMLResponse)
 def map_view(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
     projects = session.exec(
         select(Project).where(Project.status.in_(ACTIVE_STATUSES),
@@ -1875,13 +2087,13 @@ def map_view(request: Request, session: Session = Depends(get_session), _: str =
             "reach": (reach["phone"] or reach["email"]) if reach else None,
         })
     return templates.TemplateResponse(request, "map.html", {
-        "markers": markers, "tb": _title_block(session), "active": "map",
+        "markers": markers, "tb": _title_block(session), "active": "signals", "subview": "map",
     })
 
 
 # ---- saved searches ---------------------------------------------------------
 
-@app.get("/searches", response_class=HTMLResponse)
+@app.get("/signals/saved-searches", response_class=HTMLResponse)
 def searches_view(request: Request, session: Session = Depends(get_session),
                   _: str = Depends(auth)):
     from app.searches import CRITERIA_KEYS, UnknownCriterion, run_search
@@ -1898,11 +2110,11 @@ def searches_view(request: Request, session: Session = Depends(get_session),
         rows.append({"s": s, "n": len(hits), "top": hits[:5], "error": error})
     return templates.TemplateResponse(request, "searches.html", {
         "rows": rows, "criteria_keys": sorted(CRITERIA_KEYS),
-        "tb": _title_block(session), "active": "searches",
+        "tb": _title_block(session), "active": "signals", "subview": "saved-searches",
     })
 
 
-@app.post("/searches")
+@app.post("/signals/saved-searches")
 def searches_create(name: str = Form(...), criteria_json: str = Form("{}"),
                     alert: str = Form(None), alert_on_change: str = Form(None),
                     session: Session = Depends(get_session), _: str = Depends(auth)):
@@ -1917,7 +2129,7 @@ def searches_create(name: str = Form(...), criteria_json: str = Form("{}"),
     session.add(SavedSearch(name=name.strip() or "untitled", criteria=criteria,
                             alert=bool(alert), alert_on_change=bool(alert_on_change)))
     session.commit()
-    return RedirectResponse("/searches", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse("/signals/saved-searches", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/searches/{search_id}/delete")
@@ -1927,12 +2139,12 @@ def searches_delete(search_id: int, session: Session = Depends(get_session),
     if s:
         session.delete(s)
         session.commit()
-    return RedirectResponse("/searches", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse("/signals/saved-searches", status_code=status.HTTP_303_SEE_OTHER)
 
 
 # ---- plain-language search --------------------------------------------------
 
-@app.get("/ask", response_class=HTMLResponse)
+@app.get("/reports/ask", response_class=HTMLResponse)
 def ask_view(request: Request, q: str = "", session: Session = Depends(get_session),
              _: str = Depends(auth)):
     """Ask the board a question in plain language.
@@ -1958,13 +2170,13 @@ def ask_view(request: Request, q: str = "", session: Session = Depends(get_sessi
         except Exception as exc:  # noqa: BLE001 — surfaced, never a blank page
             result["error"] = f"{type(exc).__name__}: {exc}"
     return templates.TemplateResponse(request, "ask.html", {
-        "r": result, "tb": _title_block(session), "active": "ask",
+        "r": result, "tb": _title_block(session), "active": "reports", "subview": "ask",
     })
 
 
 # ---- outreach ---------------------------------------------------------------
 
-@app.get("/outreach", response_class=HTMLResponse)
+@app.get("/pipeline/outreach", response_class=HTMLResponse)
 def outreach_view(request: Request, session: Session = Depends(get_session),
                   _: str = Depends(auth)):
     """The call list: what is owed, what is cold, what has never been touched.
@@ -2026,19 +2238,19 @@ def outreach_view(request: Request, session: Session = Depends(get_session),
     return templates.TemplateResponse(request, "outreach.html", {
         "due": due, "cold": cold, "untouched": untouched[:50],
         "n_untouched": len(untouched),
-        "tb": _title_block(session), "active": "outreach",
+        "tb": _title_block(session), "active": "pipeline", "subview": "outreach",
     })
 
 
 # ---- firm profiles ----------------------------------------------------------
 
-@app.get("/firms", response_class=HTMLResponse)
+@app.get("/accounts/firms", response_class=HTMLResponse)
 def firms_index(request: Request, session: Session = Depends(get_session),
                 _: str = Depends(auth)):
     from app.firmprofile import firm_index
     idx = firm_index(session)
     return templates.TemplateResponse(request, "firms.html", {
-        **idx, "tb": _title_block(session), "active": "firms",
+        **idx, "tb": _title_block(session), "active": "accounts", "subview": "firms",
     })
 
 
@@ -2050,7 +2262,7 @@ def firm_detail(firm_id: int, request: Request,
     if prof is None:
         raise HTTPException(404)
     return templates.TemplateResponse(request, "firm.html", {
-        "p": prof, "tb": _title_block(session), "active": "firms",
+        "p": prof, "tb": _title_block(session), "active": "accounts", "subview": "firms",
     })
 
 
@@ -2065,7 +2277,7 @@ def firm_brief(firm_id: int, request: Request,
     if prof is None:
         raise HTTPException(404)
     return templates.TemplateResponse(request, "firm_brief.html", {
-        "p": prof, "generated_at": utcnow(), "tb": _title_block(session), "active": "firms",
+        "p": prof, "generated_at": utcnow(), "tb": _title_block(session), "active": "accounts", "subview": "firms",
     })
 
 
@@ -2078,7 +2290,7 @@ def firm_brief(firm_id: int, request: Request,
 # app/models.py's ProductLine docstring and app/accounts.py's module
 # comments for the full discipline this follows.
 
-@app.get("/lines", response_class=HTMLResponse)
+@app.get("/settings/lines", response_class=HTMLResponse)
 def lines_index(request: Request, role: str = "", firm: str = "", market: str = "",
                 value_tier: str = "", eligible: str = "", branch: str = "",
                 session: Session = Depends(get_session), _: str = Depends(auth)):
@@ -2129,7 +2341,7 @@ def lines_index(request: Request, role: str = "", firm: str = "", market: str = 
         "legacy_market_lines": legacy_market_lines, "legacy_market_total": len(legacy_market_lines),
         "total": len(lines), "total_all": session.exec(
             select(func.count(ProductLine.id))).one(),
-        "tb": _title_block(session), "active": "lines",
+        "tb": _title_block(session), "active": "settings", "subview": "lines",
     })
 
 
@@ -2163,11 +2375,11 @@ def line_cheat_sheet(branch: str, request: Request,
 
     return templates.TemplateResponse(request, "line_cheat_sheet.html", {
         "branch": branch, "by_role": by_role, "role_order": ROLE_ORDER,
-        "tb": _title_block(session), "active": "lines",
+        "tb": _title_block(session), "active": "settings", "subview": "lines",
     })
 
 
-@app.get("/reference", response_class=HTMLResponse)
+@app.get("/settings/reference", response_class=HTMLResponse)
 def reference_index(request: Request, tab: str = "",
                      session: Session = Depends(get_session), _: str = Depends(auth)):
     """Static field-reference sheet -- equipment, formulas, abbreviations and
@@ -2212,7 +2424,7 @@ def reference_index(request: Request, tab: str = "",
         "total_drafts": sum(draft_count_by_role.values()),
         "ahj_a2l_rows": ahj_a2l_rows, "ahj_a2l_counts": ahj_a2l_counts,
         "ahj_a2l_checked_min": ahj_a2l_checked_min, "ahj_a2l_checked_max": ahj_a2l_checked_max,
-        "tb": _title_block(session), "active": "reference",
+        "tb": _title_block(session), "active": "settings", "subview": "reference",
     })
 
 
@@ -2258,7 +2470,7 @@ def line_detail(line_id: int, request: Request, all_territory: bool = False,
         "competing_lines": competing, "rep_firms": rep_firms,
         "branches": branches,
         "pitch": pitch, "pitch_competitors": pitch_competitors,
-        "tb": _title_block(session), "active": "lines",
+        "tb": _title_block(session), "active": "settings", "subview": "lines",
     })
 
 
@@ -2373,7 +2585,7 @@ def accounts_list(request: Request, rep: str = "", county: str = "", account_typ
         "accounts": accounts, "bought_counts": bought_counts, "total_counts": total_counts,
         "reps": reps, "counties": counties, "account_types": list(ACCOUNT_TYPES),
         "f_rep": rep, "f_county": county, "f_type": account_type, "f_all_territory": all_territory,
-        "tb": _title_block(session), "active": "accounts",
+        "tb": _title_block(session), "active": "accounts", "subview": "accounts",
     })
 
 
@@ -2385,7 +2597,7 @@ def account_new_form(request: Request, session: Session = Depends(get_session),
     return templates.TemplateResponse(request, "account_form.html", {
         "account": None, "parents": parents, "account_types": list(ACCOUNT_TYPES),
         "ownership_types": ["private_commercial", "federal", "state_municipal"],
-        "tb": _title_block(session), "active": "accounts",
+        "tb": _title_block(session), "active": "accounts", "subview": "accounts",
     })
 
 
@@ -2397,7 +2609,7 @@ def account_new_form(request: Request, session: Session = Depends(get_session),
 def accounts_import_form(request: Request, session: Session = Depends(get_session),
                          _: str = Depends(auth)):
     return templates.TemplateResponse(request, "accounts_import.html", {
-        "step": "upload", "tb": _title_block(session), "active": "accounts",
+        "step": "upload", "tb": _title_block(session), "active": "accounts", "subview": "accounts",
     })
 
 
@@ -2411,7 +2623,7 @@ async def accounts_import_preview(request: Request, file: UploadFile = File(...)
     if not headers:
         return templates.TemplateResponse(request, "accounts_import.html", {
             "step": "upload", "error": "no header row found in that file",
-            "tb": _title_block(session), "active": "accounts",
+            "tb": _title_block(session), "active": "accounts", "subview": "accounts",
         })
     mapping = guess_mapping(headers)
     preview = preview_import(session, headers, rows, mapping)
@@ -2419,7 +2631,7 @@ async def accounts_import_preview(request: Request, file: UploadFile = File(...)
         "step": "preview", "headers": headers, "mapping": mapping, "preview": preview[:200],
         "n_total": len(rows), "n_shown": min(len(rows), 200),
         "account_fields": ACCOUNT_FIELDS, "raw_csv": raw_text,
-        "tb": _title_block(session), "active": "accounts",
+        "tb": _title_block(session), "active": "accounts", "subview": "accounts",
     })
 
 
@@ -2435,7 +2647,7 @@ async def accounts_import_commit(request: Request, raw_csv: str = Form(...),
     result = commit_import(session, headers, rows, mapping)
     return templates.TemplateResponse(request, "accounts_import.html", {
         "step": "done", "result": result,
-        "tb": _title_block(session), "active": "accounts",
+        "tb": _title_block(session), "active": "accounts", "subview": "accounts",
     })
 
 
@@ -2480,7 +2692,7 @@ def account_edit_form(account_id: int, request: Request,
     return templates.TemplateResponse(request, "account_form.html", {
         "account": account, "parents": parents, "account_types": list(ACCOUNT_TYPES),
         "ownership_types": ["private_commercial", "federal", "state_municipal"],
-        "tb": _title_block(session), "active": "accounts",
+        "tb": _title_block(session), "active": "accounts", "subview": "accounts",
     })
 
 
@@ -2547,7 +2759,7 @@ def account_detail(account_id: int, request: Request,
         "replacement_windows": account_replacement_windows(session, cfg, account_id),
         "live_projects": live_scout_projects(session, account),
         "coverage_statuses": ["bought", "quoted_not_won", "never_quoted", "unknown"],
-        "tb": _title_block(session), "active": "accounts",
+        "tb": _title_block(session), "active": "accounts", "subview": "accounts",
     })
 
 
@@ -2608,7 +2820,7 @@ def account_brief_view(account_id: int, request: Request,
     except ValueError:
         raise HTTPException(404)
     return templates.TemplateResponse(request, "account_brief.html", {
-        "b": b, "account": b.account, "tb": _title_block(session), "active": "accounts",
+        "b": b, "account": b.account, "tb": _title_block(session), "active": "accounts", "subview": "accounts",
     })
 
 
@@ -2626,7 +2838,7 @@ def account_page_view(account_id: int, request: Request,
     return templates.TemplateResponse(request, "account_page.html", {
         "page": page, "account": page.account,
         "role_labels": ROLE_LABELS, "role_order": ROLE_ORDER,
-        "tb": _title_block(session), "active": "accounts",
+        "tb": _title_block(session), "active": "accounts", "subview": "accounts",
     })
 
 
@@ -2643,7 +2855,7 @@ def account_outreach_form(account_id: int, request: Request, channel: str = Form
     return RedirectResponse(f"/account/{account_id}", status_code=303)
 
 
-@app.get("/assumptions", response_class=HTMLResponse)
+@app.get("/settings/assumptions", response_class=HTMLResponse)
 def assumptions_register(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
     """Every tunable constant this system scores, sizes, or ranks with, and
     honestly where it came from — see app/assumptions.py's module docstring
@@ -2677,11 +2889,11 @@ def assumptions_register(request: Request, session: Session = Depends(get_sessio
                                         hospital_capability_gaps=hospital_gaps),
         "tally": source_tally(assumptions),
         "total": len(assumptions),
-        "tb": _title_block(session), "active": "assumptions",
+        "tb": _title_block(session), "active": "settings", "subview": "assumptions",
     })
 
 
-@app.get("/health", response_class=HTMLResponse)
+@app.get("/settings/health", response_class=HTMLResponse)
 def source_health(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
     from app.models import PipelineRun
     from app.pipeline_health import memory_pressure_status, stage_peak_memory
@@ -2741,7 +2953,7 @@ def source_health(request: Request, session: Session = Depends(get_session), _: 
     from app.precall import precall_cost_report
     return templates.TemplateResponse(request, "health.html", {
         "sources": sources, "recent_runs": runs[:50], "budget": budget_status(),
-        "chart": chart, "tb": _title_block(session), "active": "health",
+        "chart": chart, "tb": _title_block(session), "active": "settings", "subview": "health",
         "pipeline_runs": pipeline_runs, "memory": mem, "latest_stage_peaks": latest_stage_peaks,
         "precall": precall_cost_report(),
     })
@@ -2765,7 +2977,7 @@ def admin_access(request: Request, session: Session = Depends(get_session), user
     })
 
 
-@app.get("/add-signal", response_class=HTMLResponse)
+@app.get("/signals/add", response_class=HTMLResponse)
 def add_signal_form(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
     return templates.TemplateResponse(request, "add_signal.html", {
         "signal_types": [t.value for t in SignalType],
@@ -2774,11 +2986,11 @@ def add_signal_form(request: Request, session: Session = Depends(get_session), _
         # has nowhere else to put it, and the manual path is the only way in until
         # triage sees one of its own.
         "categories": [c.value for c in (*Category.boards(), Category.esco)],
-        "tb": _title_block(session), "active": "add",
+        "tb": _title_block(session), "active": "signals", "subview": "add",
     })
 
 
-@app.post("/add-signal")
+@app.post("/signals/add")
 def add_signal_submit(
     signal_type: str = Form(...), summary: str = Form(...),
     project_name: str = Form(""), developer: str = Form(""), county: str = Form(""),
@@ -2810,7 +3022,7 @@ def add_signal_submit(
 # --- add-signal's path -- no RawDocument, no resolve/size_score/grounding. -
 # --- See app/field_intel.py's own module docstring for why.                -
 
-@app.get("/intel", response_class=HTMLResponse)
+@app.get("/settings/intel", response_class=HTMLResponse)
 def field_intel_list(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
     from app.field_intel import active_field_intel
     confirmed = session.exec(
@@ -2818,7 +3030,7 @@ def field_intel_list(request: Request, session: Session = Depends(get_session), 
         .order_by(FieldIntel.confirmed_at.desc())).all()
     return templates.TemplateResponse(request, "intel_list.html", {
         "active_records": active_field_intel(session), "confirmed": confirmed,
-        "tb": _title_block(session), "active": "intel",
+        "tb": _title_block(session), "active": "settings", "subview": "intel",
     })
 
 
@@ -2826,11 +3038,11 @@ def field_intel_list(request: Request, session: Session = Depends(get_session), 
 def field_intel_new(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
     return templates.TemplateResponse(request, "intel_form.html", {
         "stages": [s.value for s in Stage],
-        "tb": _title_block(session), "active": "intel",
+        "tb": _title_block(session), "active": "settings", "subview": "intel",
     })
 
 
-@app.post("/intel")
+@app.post("/settings/intel")
 def field_intel_create(
     request: Request,
     reported_by: str = Form(...), reported_at: str = Form(...), source_notes: str = Form(...),
@@ -2877,7 +3089,7 @@ def field_intel_detail(intel_id: int, request: Request,
         "mech_firm_projects": firm_active_projects(session, mech_firm.id) if mech_firm else [],
         "confirmed_project": confirmed_project,
         "candidates": confirmation_candidates(session, intel),
-        "tb": _title_block(session), "active": "intel",
+        "tb": _title_block(session), "active": "settings", "subview": "intel",
     })
 
 
@@ -2977,7 +3189,7 @@ def capture_voice_probe(request: Request, token: str | None = None) -> Response:
                     media_type="text/plain", status_code=status.HTTP_401_UNAUTHORIZED)
 
 
-@app.get("/capture", response_class=HTMLResponse)
+@app.get("/settings/capture", response_class=HTMLResponse)
 def capture_record_page(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
     """Browser-recorded capture: records in Safari/Chrome via MediaRecorder
     and uploads through /capture/upload below, which relays it to the REAL
@@ -2991,7 +3203,7 @@ def capture_record_page(request: Request, session: Session = Depends(get_session
     from app.config import capture_api_key
 
     return templates.TemplateResponse(request, "capture_record.html", {
-        "tb": _title_block(session), "active": "capture",
+        "tb": _title_block(session), "active": "settings", "subview": "capture",
         "capture_configured": bool(capture_api_key()),
     })
 
@@ -3034,7 +3246,7 @@ async def capture_upload_relay(file: UploadFile = File(...), _: str = Depends(au
     return Response(content=resp.content, media_type="text/plain", status_code=resp.status_code)
 
 
-@app.get("/captures", response_class=HTMLResponse)
+@app.get("/settings/captures", response_class=HTMLResponse)
 def captures_list(request: Request, status_filter: str = "pending",
                   session: Session = Depends(get_session), _: str = Depends(auth)):
     q = select(ReviewQueue).order_by(ReviewQueue.created_at.desc())
@@ -3046,7 +3258,7 @@ def captures_list(request: Request, status_filter: str = "pending",
     ).one()
     return templates.TemplateResponse(request, "captures.html", {
         "rows": rows, "status_filter": status_filter, "pending_capture_count": pending_capture_count,
-        "tb": _title_block(session), "active": "captures",
+        "tb": _title_block(session), "active": "settings", "subview": "captures",
     })
 
 
@@ -3070,7 +3282,7 @@ def capture_review(capture_id: int, request: Request,
     )
     return templates.TemplateResponse(request, "capture_review.html", {
         "row": row, "payload": payload, "candidates": candidates,
-        "tb": _title_block(session), "active": "captures",
+        "tb": _title_block(session), "active": "settings", "subview": "captures",
     })
 
 
@@ -3130,7 +3342,7 @@ def capture_confirm(capture_id: int, request: Request,
     session.commit()
     if request.headers.get("HX-Request"):
         return HTMLResponse(f'<span class="ok">✓ Confirmed — logged on #{project.id} {project.name}</span>')
-    return RedirectResponse("/captures", status_code=303)
+    return RedirectResponse("/settings/captures", status_code=303)
 
 
 @app.post("/captures/{capture_id}/reject", response_class=HTMLResponse)
@@ -3150,4 +3362,4 @@ def capture_reject(capture_id: int, request: Request,
     session.commit()
     if request.headers.get("HX-Request"):
         return HTMLResponse('<span class="dim">Rejected — discarded.</span>')
-    return RedirectResponse("/captures", status_code=303)
+    return RedirectResponse("/settings/captures", status_code=303)

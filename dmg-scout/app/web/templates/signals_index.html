@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "_macros.html" import hub_subtabs, kpi_strip, empty_state %}
+{% block title %}Signals{% endblock %}
+{% block content %}
+{{ hub_subtabs([
+  {'href': '/signals', 'label': 'Signals', 'key': 'signals'},
+  {'href': '/signals/entitlement', 'label': 'Entitlement (Board)', 'key': 'entitlement'},
+  {'href': '/signals/permit-gap', 'label': 'Permit gap (Retrofit)', 'key': 'permit-gap'},
+  {'href': '/signals/replacement-leads', 'label': 'Replacement leads', 'key': 'replacement-leads'},
+  {'href': '/signals/map', 'label': 'Map', 'key': 'map'},
+  {'href': '/settings/intel', 'label': 'Field intel', 'key': 'intel'},
+  {'href': '/signals/saved-searches', 'label': 'Saved searches', 'key': 'saved-searches'},
+  {'href': '/signals/add', 'label': 'Add signal', 'key': 'add'},
+], subview) }}
+<div class="sec-head">
+  <div class="sec-title">Signals</div>
+  <span class="note">One feed, six trigger types: entitlement milestone (the old Board), permit gap
+    (retrofit), deadline, quiet account, public work, relationship intro. Item 5 of this block
+    builds the real filter-chip/card/Promote UI over app.pipeline.signals_feed.unified_signals();
+    this is the destination shell with the count already unified in Item 2.</span>
+</div>
+{% if total_signals %}
+{{ kpi_strip(trigger_kpi_items) }}
+{% else %}
+{{ empty_state("No signals in the local feed yet.") }}
+{% endif %}
+{% endblock %}

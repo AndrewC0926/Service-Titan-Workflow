@@ -2,10 +2,9 @@
 new-IP notification, and /admin/access's admin-only gate.
 
 username is read from the raw Authorization header, not from auth()'s return
-value -- see app/access_log.py's module docstring for why (auth() 401s
-before a non-admin username would ever reach a route, and in any case the
-notification no longer keys on username at all -- see KNOWN_IPS and
-log_access there for why it's keyed on IP instead)."""
+value -- see app/access_log.py's module docstring for why (Block 3 gave
+auth() a real per-user credential list, but the new-IP notification still
+keys on IP, not username -- see KNOWN_IPS and log_access there for why)."""
 import base64
 
 import pytest
@@ -79,7 +78,7 @@ def test_unauthenticated_page_hit_logs_null_username(client, db_session, no_emai
 
 def test_authenticated_admin_hit_logs_username(client, db_session, no_email):
     client.get("/healthz")  # not logged, sanity check it's excluded regardless of auth
-    client.get("/board", headers=AUTH)
+    client.get("/signals/entitlement", headers=AUTH)
     rows = db_session.exec(select(AccessLog)).all()
     assert len(rows) == 1
     assert rows[0].username == "andrew"
@@ -91,8 +90,8 @@ def test_known_ip_never_triggers_notification(db_session, monkeypatch, no_email)
     how many first-time-looking hits they generate."""
     known_ip = next(iter(KNOWN_IPS))
     c = _client_from(db_session, monkeypatch, known_ip)
-    c.get("/board", headers=AUTH)
-    c.get("/board", headers=AUTH)
+    c.get("/signals/entitlement", headers=AUTH)
+    c.get("/signals/entitlement", headers=AUTH)
     app.dependency_overrides.clear()
     assert no_email == []
 
@@ -103,8 +102,8 @@ def test_unauthenticated_hits_from_a_new_ip_never_trigger_notification(db_sessio
     header at all. Confirmed directly in production access_log on
     2026-08-13. None of it should ever notify."""
     c = _client_from(db_session, monkeypatch, "203.0.113.9")
-    c.get("/board")
-    c.get("/watchlist")
+    c.get("/signals/entitlement")
+    c.get("/accounts/watchlist")
     app.dependency_overrides.clear()
     assert no_email == []
 
@@ -115,9 +114,9 @@ def test_first_authenticated_hit_from_a_new_ip_fires_notification_once(db_sessio
     catch -- notifies exactly once, on the first authenticated hit, not
     once per subsequent request from that same IP."""
     c = _client_from(db_session, monkeypatch, "203.0.113.9")
-    c.get("/board")               # unauthenticated -- no notification
-    c.get("/board", headers=AUTH)  # first authenticated hit from this IP
-    c.get("/watchlist", headers=AUTH)
+    c.get("/signals/entitlement")               # unauthenticated -- no notification
+    c.get("/signals/entitlement", headers=AUTH)  # first authenticated hit from this IP
+    c.get("/accounts/watchlist", headers=AUTH)
     app.dependency_overrides.clear()
 
     assert len(no_email) == 1  # exactly once, not once per request
@@ -132,19 +131,18 @@ def test_first_authenticated_hit_from_a_new_ip_fires_notification_once(db_sessio
 def test_different_new_ips_each_notify_once(db_session, monkeypatch, no_email):
     c1 = _client_from(db_session, monkeypatch, "203.0.113.9")
     c2 = _client_from(db_session, monkeypatch, "203.0.113.10")
-    c1.get("/board", headers=AUTH)
-    c2.get("/board", headers=AUTH)
-    c1.get("/board", headers=AUTH)
+    c1.get("/signals/entitlement", headers=AUTH)
+    c2.get("/signals/entitlement", headers=AUTH)
+    c1.get("/signals/entitlement", headers=AUTH)
     app.dependency_overrides.clear()
     assert len(no_email) == 2  # one per distinct new IP
 
 
 def test_admin_access_rejects_non_admin_user(client, db_session, no_email):
-    """No real second user can authenticate (auth() only ever accepts the
-    configured admin username), so this exercises the route's own explicit
-    check the way it will actually matter -- an authenticated non-admin
-    request -- via a dependency override, the same pattern this app's own
-    tests already use for get_session."""
+    """/admin/access has its own explicit admin_username() check, separate
+    from Settings' new operator() dependency (Block 3) -- exercised here
+    via a dependency override rather than a real second configured user,
+    the same pattern this app's own tests already use for get_session."""
     app.dependency_overrides[auth] = lambda: "bob"
     try:
         resp = client.get("/admin/access")
@@ -154,7 +152,7 @@ def test_admin_access_rejects_non_admin_user(client, db_session, no_email):
 
 
 def test_admin_access_allows_admin_user(client, db_session, no_email):
-    client.get("/board", headers=AUTH)
+    client.get("/signals/entitlement", headers=AUTH)
     resp = client.get("/admin/access", headers=AUTH)
     assert resp.status_code == 200
     assert "andrew" in resp.text

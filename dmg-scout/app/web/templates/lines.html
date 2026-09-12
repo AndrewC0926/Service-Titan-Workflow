@@ -100,7 +100,7 @@
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
 {% for r in role_order %}
 <a class="chip" aria-pressed="{{ 'true' if r==active_role else 'false' }}"
-   href="/lines?role={{ r }}{% if f_firm %}&firm={{ f_firm }}{% endif %}{% if f_market %}&market={{ f_market }}{% endif %}{% if f_value_tier %}&value_tier={{ f_value_tier }}{% endif %}{% if f_eligible %}&eligible={{ f_eligible }}{% endif %}{% if f_branch %}&branch={{ f_branch }}{% endif %}">
+   /settings/lines?role={{ r }}{% if f_firm %}&firm={{ f_firm }}{% endif %}{% if f_market %}&market={{ f_market }}{% endif %}{% if f_value_tier %}&value_tier={{ f_value_tier }}{% endif %}{% if f_eligible %}&eligible={{ f_eligible }}{% endif %}{% if f_branch %}&branch={{ f_branch }}{% endif %}">
   {{ ROLE_LABELS[r] }}<span class="ct">{{ role_counts.get(r, 0) }}</span>
 </a>
 {% endfor %}
@@ -127,7 +127,7 @@
   <td><a href="/line/{{ line.id }}">{{ line.name }}</a></td>
   <td class="nowrap">{{ line.firm }}</td>
   <td class="note">{{ line.subcategory }}</td>
-  <td class="num mono"><a href="/assumptions#value-tier-dollar-bands-1-5">{{ line.value_tier }}</a></td>
+  <td class="num mono"><a /settings/assumptions#value-tier-dollar-bands-1-5">{{ line.value_tier }}</a></td>
   <td class="note">
     {%- if line.markets_served -%}
       {%- for m in line.markets_served -%}{{ MARKET_LABELS.get(m, m) }}{% if not loop.last %}, {% endif %}{%- endfor -%}

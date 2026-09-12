@@ -14,7 +14,7 @@
 }
 </style>
 <p class="noprint"><button onclick="window.print()">{{ icon('printer') }} Print / save PDF</button>
-  <a href="/retrofit?population={{ population }}{% if county != 'All counties' %}&county={{ county }}{% endif %}" style="margin-left:12px">← back to retrofit board</a></p>
+  <a /signals/permit-gap?population={{ population }}{% if county != 'All counties' %}&county={{ county }}{% endif %}" style="margin-left:12px">← back to retrofit board</a></p>
 
 <h2 style="font-size:18px">{% if population == 'replacement_candidate' %}Replacement candidates{% else %}Recently active buildings{% endif %} — {{ county }}</h2>
 <p class="dim">DMG Scout — generated {{ generated_at.strftime('%Y-%m-%d %H:%M') }}Z.

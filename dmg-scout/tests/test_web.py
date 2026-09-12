@@ -108,7 +108,7 @@ def test_today_called_them_logs_outreach_without_navigating(client, db_session, 
 
 def test_board_renders(client, db_session, cfg):
     seed(db_session, cfg)
-    r = client.get("/board?territory=all", headers=AUTH)
+    r = client.get("/signals/entitlement?territory=all", headers=AUTH)
     assert r.status_code == 200
     assert "Meridian DC" in r.text
     # The window stamp reads IN-BOD; the enum value is IN_BOD. Asserting on the
@@ -122,7 +122,7 @@ def test_contractors_list_renders(client, db_session, cfg):
                               classifications="C20", primary_status="CLEAR",
                               nearby_replacement_candidates=3, nearby_radius_miles=15))
     db_session.commit()
-    r = client.get("/contractors", headers=AUTH)
+    r = client.get("/accounts/contractors", headers=AUTH)
     assert r.status_code == 200
     assert "Test Mechanical" in r.text
     assert "Los Angeles" in r.text
@@ -135,7 +135,7 @@ def test_contractors_list_county_filter(client, db_session, cfg):
     db_session.add(Contractor(license_no="1", business_name="LA Co", county="Los Angeles", classifications="C20"))
     db_session.add(Contractor(license_no="2", business_name="OC Co", county="Orange", classifications="C20"))
     db_session.commit()
-    r = client.get("/contractors?county=Orange", headers=AUTH)
+    r = client.get("/accounts/contractors?county=Orange", headers=AUTH)
     assert r.status_code == 200
     assert "OC Co" in r.text
     assert "LA Co" not in r.text
@@ -152,17 +152,17 @@ def test_contractors_list_defaults_to_mechanical_only(client, db_session, cfg):
                               classifications="C20", primary_status="CLEAR"))
     db_session.commit()
 
-    default = client.get("/contractors", headers=AUTH)
+    default = client.get("/accounts/contractors", headers=AUTH)
     assert "AC Mechanical Co" in default.text
     assert "General Builder Co" not in default.text
 
-    widened = client.get("/contractors?classification=all", headers=AUTH)
+    widened = client.get("/accounts/contractors?classification=all", headers=AUTH)
     assert "AC Mechanical Co" in widened.text
     assert "General Builder Co" in widened.text
 
 
 def test_contractors_list_requires_auth(client, db_session, cfg):
-    assert client.get("/contractors").status_code == 401
+    assert client.get("/accounts/contractors").status_code == 401
 
 
 def _scored_contractor(license_no, lat=34.05, lon=-118.25, overdue_count=6,
@@ -176,7 +176,7 @@ def _scored_contractor(license_no, lat=34.05, lon=-118.25, overdue_count=6,
 
 
 def test_replacement_leads_requires_auth(client, db_session, cfg):
-    assert client.get("/replacement-leads").status_code == 401
+    assert client.get("/signals/replacement-leads").status_code == 401
 
 
 def test_replacement_leads_renders_ranked_by_urgency_not_count(client, db_session, cfg):
@@ -185,7 +185,7 @@ def test_replacement_leads_renders_ranked_by_urgency_not_count(client, db_sessio
     db_session.add_all([high_urgency, high_count])
     db_session.commit()
 
-    r = client.get("/replacement-leads?min_overdue=1", headers=AUTH)
+    r = client.get("/signals/replacement-leads?min_overdue=1", headers=AUTH)
     assert r.status_code == 200
     hi_pos = r.text.find("Lead Co hi")
     lots_pos = r.text.find("Lead Co lots")
@@ -195,20 +195,20 @@ def test_replacement_leads_renders_ranked_by_urgency_not_count(client, db_sessio
 def test_replacement_leads_excludes_below_min_overdue_threshold(client, db_session, cfg):
     db_session.add(_scored_contractor("thin", overdue_count=2))
     db_session.commit()
-    r = client.get("/replacement-leads?min_overdue=5", headers=AUTH)
+    r = client.get("/signals/replacement-leads?min_overdue=5", headers=AUTH)
     assert "Lead Co thin" not in r.text
     assert "No mechanical contractor clears 5" in r.text
 
 
 def test_replacement_leads_discloses_no_permit_is_an_inference(client, db_session, cfg):
-    r = client.get("/replacement-leads", headers=AUTH)
+    r = client.get("/signals/replacement-leads", headers=AUTH)
     assert r.status_code == 200
     assert "inference, not a fact" in r.text
 
 
 def test_replacement_leads_warns_when_ranking_and_count_are_both_stale(client, db_session, cfg):
     # No SourceRun of either kind exists -- both must read stale.
-    r = client.get("/replacement-leads", headers=AUTH)
+    r = client.get("/signals/replacement-leads", headers=AUTH)
     assert "Ranking and overdue counts are both stale" in r.text
 
 
@@ -220,14 +220,14 @@ def test_replacement_leads_no_stale_warning_once_both_jobs_have_run(client, db_s
     db_session.add(SourceRun(source=MATCH_CONTRACTORS_OVERDUE_SOURCE, ok=True))
     db_session.commit()
 
-    r = client.get("/replacement-leads", headers=AUTH)
+    r = client.get("/signals/replacement-leads", headers=AUTH)
     assert "are both stale" not in r.text
     assert "Ranking is stale" not in r.text
     assert "Overdue counts are stale" not in r.text
 
 
 def test_contractors_list_warns_when_ranking_is_stale(client, db_session, cfg):
-    r = client.get("/contractors", headers=AUTH)
+    r = client.get("/accounts/contractors", headers=AUTH)
     assert "Ranking is stale" in r.text
 
 
@@ -237,7 +237,7 @@ def test_contractors_list_no_stale_warning_once_match_contractors_has_run(client
 
     db_session.add(SourceRun(source=MATCH_CONTRACTORS_SOURCE, ok=True))
     db_session.commit()
-    r = client.get("/contractors", headers=AUTH)
+    r = client.get("/accounts/contractors", headers=AUTH)
     assert "Ranking is stale" not in r.text
 
 
@@ -317,7 +317,7 @@ def test_retrofit_board_links_to_building_detail(client, db_session, cfg):
     db_session.add(b)
     db_session.commit()
     db_session.refresh(b)
-    r = client.get("/retrofit?population=replacement_candidate", headers=AUTH)
+    r = client.get("/signals/permit-gap?population=replacement_candidate", headers=AUTH)
     assert r.status_code == 200
     assert f"/retrofit/building/{b.id}" in r.text
 
@@ -339,13 +339,13 @@ def test_retrofit_board_shows_ebewe_coverage_and_has_ebewe_filter(client, db_ses
     db_session.add(unmatched)
     db_session.commit()
 
-    r = client.get("/retrofit?population=replacement_candidate", headers=AUTH)
+    r = client.get("/signals/permit-gap?population=replacement_candidate", headers=AUTH)
     assert r.status_code == 200
     assert "1 of" in r.text or "1 of&#160;" in r.text or "covers" in r.text.lower()
     assert "1 Matched Way" in r.text and "2 Unmatched Rd" in r.text
     assert "A/RCx due this year" in r.text
 
-    filtered = client.get("/retrofit?population=replacement_candidate&has_ebewe=true", headers=AUTH)
+    filtered = client.get("/signals/permit-gap?population=replacement_candidate&has_ebewe=true", headers=AUTH)
     assert filtered.status_code == 200
     assert "1 Matched Way" in filtered.text
     assert "2 Unmatched Rd" not in filtered.text
@@ -368,7 +368,7 @@ def test_retrofit_board_excludes_no_address_rows_and_discloses_the_count(client,
     db_session.add(no_address_blank)
     db_session.commit()
 
-    r = client.get("/retrofit?population=replacement_candidate", headers=AUTH)
+    r = client.get("/signals/permit-gap?population=replacement_candidate", headers=AUTH)
     assert r.status_code == 200
     assert "1 Callable St" in r.text
     assert "NA1" not in r.text and "NA2" not in r.text
@@ -420,7 +420,7 @@ def test_retrofit_board_sold_last_24mo_filter_and_badge(client, db_session, cfg)
     db_session.add(never)
     db_session.commit()
 
-    unfiltered = client.get("/retrofit?population=replacement_candidate", headers=AUTH)
+    unfiltered = client.get("/signals/permit-gap?population=replacement_candidate", headers=AUTH)
     assert unfiltered.status_code == 200
     assert "1 Recent Sale Way" in unfiltered.text
     assert "2 Stale Sale Rd" in unfiltered.text
@@ -428,7 +428,7 @@ def test_retrofit_board_sold_last_24mo_filter_and_badge(client, db_session, cfg)
     # Every row with a sale on record gets a badge, recent or not.
     assert unfiltered.text.count("Sold ") >= 2
 
-    filtered = client.get("/retrofit?population=replacement_candidate&sold_last_24mo=true", headers=AUTH)
+    filtered = client.get("/signals/permit-gap?population=replacement_candidate&sold_last_24mo=true", headers=AUTH)
     assert filtered.status_code == 200
     assert "1 Recent Sale Way" in filtered.text
     assert "2 Stale Sale Rd" not in filtered.text
@@ -446,7 +446,7 @@ def test_masthead_data_as_of_is_utc(client, db_session, cfg):
     db_session.add(RawDocument(source="rss", source_uid="x1", url="https://x", title="t",
                                content_hash="h1", raw_text="body"))
     db_session.commit()
-    r = client.get("/board", headers=AUTH)
+    r = client.get("/signals/entitlement", headers=AUTH)
     assert r.status_code == 200
 
     data_as_of = re.search(r'Data as of</span>\s*<span class="mono">([^<]+)</span>', r.text)
@@ -464,7 +464,7 @@ def test_board_shows_whether_there_is_anyone_to_call(client, db_session, cfg):
     looked reachable when it was not.
     """
     seed(db_session, cfg)
-    r = client.get("/board?territory=all", headers=AUTH)
+    r = client.get("/signals/entitlement?territory=all", headers=AUTH)
     assert "Who to call" in r.text
     assert ("No one" in r.text or "Research" in r.text
             or "tel" in r.text or "@" in r.text)
@@ -477,7 +477,7 @@ def test_board_score_bar_is_scaled_to_the_board_maximum(client, db_session, cfg)
     top-scoring row must therefore render a full-width bar whatever its raw score.
     """
     seed(db_session, cfg)
-    r = client.get("/board?territory=all", headers=AUTH)
+    r = client.get("/signals/entitlement?territory=all", headers=AUTH)
     assert 'class="bar"' in r.text
     assert "width:100.0%" in r.text
 
@@ -528,21 +528,21 @@ def test_other_views_render(client, db_session, cfg):
     seed(db_session, cfg)
     db_session.add(SourceRun(source="ceqanet", ok=False, error="boom"))
     db_session.commit()
-    for path in ("/review", "/contacts", "/map", "/health", "/add-signal", "/intel", "/intel/new"):
+    for path in ("/pipeline/review", "/accounts/contacts", "/signals/map", "/settings/health", "/signals/add", "/settings/intel", "/intel/new"):
         r = client.get(path, headers=AUTH)
         assert r.status_code == 200, path
-    assert "boom" in client.get("/health", headers=AUTH).text
+    assert "boom" in client.get("/settings/health", headers=AUTH).text
 
 
 # ---- field intel: human-sourced, unverified, separate from the pipeline ---
 
 def test_field_intel_create_requires_auth(client, db_session, cfg):
-    assert client.get("/intel").status_code == 401
+    assert client.get("/settings/intel").status_code == 401
     assert client.get("/intel/new").status_code == 401
 
 
 def test_field_intel_create_and_detail_flow(client, db_session, cfg):
-    r = client.post("/intel", headers=AUTH, data={
+    r = client.post("/settings/intel", headers=AUTH, data={
         "reported_by": "Dave Kim (ACME GC)", "reported_at": "2026-08-20",
         "source_notes": "Pursuing a cold storage job in Fontana for a private owner.",
         "owner": "Fontana Cold Co", "location": "Fontana", "size_scope": "~150k sqft",
@@ -559,7 +559,7 @@ def test_field_intel_create_and_detail_flow(client, db_session, cfg):
     assert "UNVERIFIED" in detail.text
     assert "Pursuing a cold storage job" in detail.text
 
-    listing = client.get("/intel", headers=AUTH)
+    listing = client.get("/settings/intel", headers=AUTH)
     assert "Fontana Cold Co" in listing.text
 
 
@@ -569,14 +569,14 @@ def test_field_intel_create_requires_reported_by_and_notes(client, db_session, c
     # Form field in this app gets (add_firm, add_signal, ...); the blank-string
     # ValueError guards in create_field_intel exist for non-HTTP callers
     # (the MCP tool, direct calls) that can pass "" straight through.
-    r = client.post("/intel", headers=AUTH, data={
+    r = client.post("/settings/intel", headers=AUTH, data={
         "reported_by": "", "reported_at": "2026-08-20", "source_notes": "",
     })
     assert r.status_code == 422
 
 
 def test_field_intel_create_rejects_bad_date(client, db_session, cfg):
-    r = client.post("/intel", headers=AUTH, data={
+    r = client.post("/settings/intel", headers=AUTH, data={
         "reported_by": "Dave Kim", "reported_at": "not-a-date", "source_notes": "x",
     })
     assert r.status_code == 400
@@ -593,7 +593,7 @@ def test_field_intel_detail_shows_resolved_firm_and_what_else_theyre_on(client, 
     db_session.add(ProjectFirm(project_id=1, firm_id=firm.id, role="engineer_of_record"))
     db_session.commit()
 
-    r = client.post("/intel", headers=AUTH, data={
+    r = client.post("/settings/intel", headers=AUTH, data={
         "reported_by": "Dave Kim", "reported_at": "2026-08-20", "source_notes": "Named the engineer.",
         "engineer_name": "Critchfield Mechanical Engineering",
     }, follow_redirects=False)
@@ -605,7 +605,7 @@ def test_field_intel_detail_shows_resolved_firm_and_what_else_theyre_on(client, 
 
 
 def test_field_intel_detail_says_why_when_nothing_resolves(client, db_session, cfg):
-    r = client.post("/intel", headers=AUTH, data={
+    r = client.post("/settings/intel", headers=AUTH, data={
         "reported_by": "Dave Kim", "reported_at": "2026-08-20", "source_notes": "Named nobody Scout knows.",
         "engineer_name": "Totally Unknown Engineering LLC",
     }, follow_redirects=False)
@@ -616,7 +616,7 @@ def test_field_intel_detail_says_why_when_nothing_resolves(client, db_session, c
 
 def test_field_intel_confirm_flow(client, db_session, cfg):
     seed(db_session, cfg)  # project #1
-    r = client.post("/intel", headers=AUTH, data={
+    r = client.post("/settings/intel", headers=AUTH, data={
         "reported_by": "Dave Kim", "reported_at": "2026-08-20",
         "source_notes": "Said Vantage was pursuing this.", "owner": "Vantage Data Centers",
     }, follow_redirects=False)
@@ -634,12 +634,12 @@ def test_field_intel_confirm_flow(client, db_session, cfg):
     assert "Confirmed as" in after.text
     assert "Andrew Crane" in after.text
 
-    listing = client.get("/intel", headers=AUTH)
+    listing = client.get("/settings/intel", headers=AUTH)
     assert "Confirmed — a later filing" in listing.text
 
 
 def test_field_intel_confirm_unknown_ids_return_400(client, db_session, cfg):
-    r = client.post("/intel", headers=AUTH, data={
+    r = client.post("/settings/intel", headers=AUTH, data={
         "reported_by": "Dave Kim", "reported_at": "2026-08-20", "source_notes": "x",
     }, follow_redirects=False)
     intel_id = int(r.headers["location"].rsplit("/", 1)[-1])
@@ -650,11 +650,11 @@ def test_field_intel_confirm_unknown_ids_return_400(client, db_session, cfg):
 
 def test_board_shows_active_field_intel_prominently(client, db_session, cfg):
     seed(db_session, cfg)
-    client.post("/intel", headers=AUTH, data={
+    client.post("/settings/intel", headers=AUTH, data={
         "reported_by": "Dave Kim", "reported_at": "2026-08-20",
         "source_notes": "Pursuing a job.", "owner": "Some New Owner Co",
     })
-    r = client.get("/board", headers=AUTH)
+    r = client.get("/signals/entitlement", headers=AUTH)
     assert r.status_code == 200
     assert "Some New Owner Co" in r.text
     assert "UNVERIFIED — human-sourced" in r.text
@@ -662,13 +662,13 @@ def test_board_shows_active_field_intel_prominently(client, db_session, cfg):
 
 def test_board_omits_field_intel_section_when_none_logged(client, db_session, cfg):
     seed(db_session, cfg)
-    r = client.get("/board", headers=AUTH)
+    r = client.get("/signals/entitlement", headers=AUTH)
     assert "UNVERIFIED — human-sourced" not in r.text
 
 
 def test_confirmed_field_intel_appears_in_project_brief(client, db_session, cfg):
     seed(db_session, cfg)  # project #1
-    r = client.post("/intel", headers=AUTH, data={
+    r = client.post("/settings/intel", headers=AUTH, data={
         "reported_by": "Dave Kim", "reported_at": "2026-08-20",
         "source_notes": "Heard about this one first from Dave.",
         "engineer_name": "Some Engineer",
@@ -687,7 +687,7 @@ def test_confirmed_field_intel_appears_in_project_brief(client, db_session, cfg)
 
 def test_unconfirmed_field_intel_does_not_appear_in_any_brief(client, db_session, cfg):
     seed(db_session, cfg)
-    client.post("/intel", headers=AUTH, data={
+    client.post("/settings/intel", headers=AUTH, data={
         "reported_by": "Dave Kim", "reported_at": "2026-08-20", "source_notes": "Not linked to anything.",
     })
     brief = client.get("/project/1/brief", headers=AUTH)
@@ -695,13 +695,13 @@ def test_unconfirmed_field_intel_does_not_appear_in_any_brief(client, db_session
 
 
 def test_add_signal_form_creates_project(client, db_session, cfg):
-    r = client.post("/add-signal", headers=AUTH, data={
+    r = client.post("/signals/add", headers=AUTH, data={
         "signal_type": "engineer_move", "summary": "Jane Doe moved to kW MCE",
         "person_name": "Jane Doe", "person_org": "kW Mission Critical Engineering",
         "county": "Orange", "state": "CA",
     }, follow_redirects=False)
     assert r.status_code == 303
-    board = client.get("/board?territory=all", headers=AUTH).text
+    board = client.get("/signals/entitlement?territory=all", headers=AUTH).text
     assert "Unnamed" in board or "Jane" in board
 
 
@@ -715,10 +715,10 @@ def test_gate5_views_and_exports(client, db_session, cfg):
     r = client.post("/project/1/outcome", headers=AUTH,
                     data={"status": "dead", "reason": "cancelled"}, follow_redirects=False)
     assert r.status_code == 303
-    assert "Meridian DC" not in client.get("/board", headers=AUTH).text
+    assert "Meridian DC" not in client.get("/signals/entitlement", headers=AUTH).text
 
     # watchlist view + CSV exports
-    assert client.get("/watchlist", headers=AUTH).status_code == 200
+    assert client.get("/accounts/watchlist", headers=AUTH).status_code == 200
     for path in ("/export/board.csv", "/export/contacts.csv", "/export/firms.csv",
                  "/export/signals.csv"):
         r = client.get(path, headers=AUTH)
@@ -728,11 +728,11 @@ def test_gate5_views_and_exports(client, db_session, cfg):
         "id,project,category,developer")
 
     # dashboard firm add + roster on contacts page
-    r = client.post("/firms", headers=AUTH,
+    r = client.post("/accounts/firms", headers=AUTH,
                     data={"name": "Test Firm Engineering", "firm_type": "mep",
                           "aliases": "TFE; Test Firm"}, follow_redirects=False)
     assert r.status_code == 303
-    assert "Test Firm Engineering" in client.get("/contacts", headers=AUTH).text
+    assert "Test Firm Engineering" in client.get("/accounts/contacts", headers=AUTH).text
 
 
 def test_no_password_fails_closed(client, monkeypatch):
@@ -744,7 +744,7 @@ def test_no_password_fails_closed(client, monkeypatch):
 
 def test_phase_c_sheets_render(client, db_session, cfg):
     seed(db_session, cfg)
-    for path in ("/searches", "/firms", "/outreach", "/map", "/ask"):
+    for path in ("/signals/saved-searches", "/accounts/firms", "/pipeline/outreach", "/signals/map", "/reports/ask"):
         r = client.get(path, headers=AUTH)
         assert r.status_code == 200, f"{path}: {r.status_code}"
 
@@ -753,10 +753,10 @@ def test_saved_search_rejects_an_unknown_filter(client, db_session, cfg):
     """The API boundary must refuse the same things the evaluator does — a filter
     that widens silently is worse than one that errors."""
     seed(db_session, cfg)
-    r = client.post("/searches", headers=AUTH,
+    r = client.post("/signals/saved-searches", headers=AUTH,
                     data={"name": "typo", "criteria_json": '{"mw_over": 10}'})
     assert r.status_code == 400
-    r = client.post("/searches", headers=AUTH,
+    r = client.post("/signals/saved-searches", headers=AUTH,
                     data={"name": "bad json", "criteria_json": "not json"})
     assert r.status_code == 400
 
@@ -766,14 +766,14 @@ def test_saved_search_round_trips(client, db_session, cfg):
 
     from app.models import SavedSearch
     seed(db_session, cfg)
-    r = client.post("/searches", headers=AUTH, follow_redirects=False,
+    r = client.post("/signals/saved-searches", headers=AUTH, follow_redirects=False,
                     data={"name": "Storey over 10",
                           "criteria_json": '{"county": "Storey", "min_mw": 10}',
                           "alert": "on"})
     assert r.status_code == 303
     saved = db_session.exec(select(SavedSearch)).all()
     assert len(saved) == 1 and saved[0].criteria == {"county": "Storey", "min_mw": 10}
-    assert "Storey over 10" in client.get("/searches", headers=AUTH).text
+    assert "Storey over 10" in client.get("/signals/saved-searches", headers=AUTH).text
 
 
 # ---- deployed stylesheet delivery -------------------------------------------
@@ -857,7 +857,7 @@ def test_retrofit_counties_correct_and_does_not_load_every_full_row(client, db_s
 
     event.listen(engine, "before_cursor_execute", _capture)
     try:
-        resp = client.get("/retrofit?population=replacement_candidate&limit=10", headers=AUTH)
+        resp = client.get("/signals/permit-gap?population=replacement_candidate&limit=10", headers=AUTH)
     finally:
         event.remove(engine, "before_cursor_execute", _capture)
 
@@ -892,22 +892,22 @@ def test_hospitals_board_renders_and_is_territory_scoped_by_default(client, db_s
                                     snapshot_date=utcnow(), source_url="https://example.com"))
     db_session.commit()
 
-    r = client.get("/hospitals", headers=AUTH)
+    r = client.get("/deadlines/hospitals", headers=AUTH)
     assert r.status_code == 200
     assert "LA Test Hospital" in r.text
     assert "Out Of Territory Hospital" not in r.text  # territory-scoped by default
 
-    r_all = client.get("/hospitals?all_ca=1", headers=AUTH)
+    r_all = client.get("/deadlines/hospitals?all_ca=1", headers=AUTH)
     assert "Out Of Territory Hospital" in r_all.text  # reachable with all_ca=1
 
 
 def test_hospitals_board_shows_capability_gap_warning(client, db_session, cfg):
-    r = client.get("/hospitals", headers=AUTH)
+    r = client.get("/deadlines/hospitals", headers=AUTH)
     assert "cannot currently field a full mechanical package" in r.text.lower()
 
 
 def test_hospitals_board_discloses_socal_scope(client, db_session, cfg):
-    r = client.get("/hospitals", headers=AUTH)
+    r = client.get("/deadlines/hospitals", headers=AUTH)
     assert "SoCal" in r.text
 
 
@@ -921,7 +921,7 @@ def test_hospitals_board_deadline_filter(client, db_session, cfg):
                                     snapshot_date=utcnow(), source_url="https://example.com"))
     db_session.commit()
 
-    r = client.get("/hospitals?deadline=2020", headers=AUTH)
+    r = client.get("/deadlines/hospitals?deadline=2020", headers=AUTH)
     assert "Overdue Hospital" in r.text
     assert "2030 Hospital" not in r.text
 
@@ -955,7 +955,7 @@ def test_hospitals_board_not_mixed_into_project_board(client, db_session, cfg):
                                     county="Los Angeles", snapshot_date=utcnow(),
                                     source_url="https://example.com"))
     db_session.commit()
-    assert "Should Not Leak Hospital" not in client.get("/board", headers=AUTH).text
+    assert "Should Not Leak Hospital" not in client.get("/signals/entitlement", headers=AUTH).text
 
 
 def test_hospitals_brief_renders_no_dollar_estimate(client, db_session, cfg):
@@ -996,8 +996,8 @@ def test_esco_board_is_reachable_and_separate(client, db_session, cfg):
                            stage=Stage.procurement, status="active", in_territory=True,
                            score=0.4, window=Window.PRE_BOD, county="Clark", state="NV"))
     db_session.commit()
-    assert "City Hall ESPC" in client.get("/board?category=esco&territory=all", headers=AUTH).text
-    assert "City Hall ESPC" not in client.get("/board?category=all&territory=all", headers=AUTH).text
+    assert "City Hall ESPC" in client.get("/signals/entitlement?category=esco&territory=all", headers=AUTH).text
+    assert "City Hall ESPC" not in client.get("/signals/entitlement?category=all&territory=all", headers=AUTH).text
 
 
 # --- developer page: usual design team --------------------------------------
@@ -1104,13 +1104,13 @@ def test_project_page_no_usual_team_banner_when_nothing_known(client, db_session
 
 
 def test_replacement_leads_contractors_tab_still_default(client, db_session, cfg):
-    r = client.get("/replacement-leads", headers=AUTH)
+    r = client.get("/signals/replacement-leads", headers=AUTH)
     assert r.status_code == 200
     assert "owner-direct lane" in r.text
 
 
 def test_replacement_leads_ab802_tab_renders_empty_state(client, db_session, cfg):
-    r = client.get("/replacement-leads?view=ab802", headers=AUTH)
+    r = client.get("/signals/replacement-leads?view=ab802", headers=AUTH)
     assert r.status_code == 200
     assert "No in-territory AB 802 building matches" in r.text
 
@@ -1125,7 +1125,7 @@ def test_replacement_leads_ab802_tab_shows_rows_and_no_owner_language(client, db
     ))
     db_session.commit()
 
-    r = client.get("/replacement-leads?view=ab802", headers=AUTH)
+    r = client.get("/signals/replacement-leads?view=ab802", headers=AUTH)
     assert r.status_code == 200
     assert "Test Tower" in r.text
     assert "no owner data available" in r.text
@@ -1142,7 +1142,7 @@ def test_replacement_leads_ab802_tab_shows_benchmarking_filer_never_owner(client
     ))
     db_session.commit()
 
-    r = client.get("/replacement-leads?view=ab802", headers=AUTH)
+    r = client.get("/signals/replacement-leads?view=ab802", headers=AUTH)
     assert "Acme Property Mgmt" in r.text
     assert "benchmarking filer" in r.text
     assert "<th>Owner</th>" not in r.text
@@ -1158,7 +1158,7 @@ def test_replacement_leads_ab802_filters_by_county(client, db_session, cfg):
                                  primary_property_type="Office", property_gfa_sqft=50_000, source_url="x"))
     db_session.commit()
 
-    r = client.get("/replacement-leads?view=ab802&county=Los+Angeles+County", headers=AUTH)
+    r = client.get("/signals/replacement-leads?view=ab802&county=Los+Angeles+County", headers=AUTH)
     assert "LA Building" in r.text
     assert "Orange Building" not in r.text
 
@@ -1175,15 +1175,15 @@ def test_replacement_leads_ab802_defaults_to_relevant_property_types(client, db_
                                  source_url="x"))
     db_session.commit()
 
-    default = client.get("/replacement-leads?view=ab802", headers=AUTH)
+    default = client.get("/signals/replacement-leads?view=ab802", headers=AUTH)
     assert "Office Tower" in default.text
     assert "Big Casino" not in default.text
 
-    show_all = client.get("/replacement-leads?view=ab802&show_all_types=true", headers=AUTH)
+    show_all = client.get("/signals/replacement-leads?view=ab802&show_all_types=true", headers=AUTH)
     assert "Office Tower" in show_all.text
     assert "Big Casino" in show_all.text
 
-    explicit = client.get("/replacement-leads?view=ab802&property_type=Casino", headers=AUTH)
+    explicit = client.get("/signals/replacement-leads?view=ab802&property_type=Casino", headers=AUTH)
     assert "Big Casino" in explicit.text
     assert "Office Tower" not in explicit.text
 
@@ -1198,7 +1198,7 @@ def test_replacement_leads_ab802_shows_name_on_filing_hint(client, db_session, c
     ))
     db_session.commit()
 
-    r = client.get("/replacement-leads?view=ab802", headers=AUTH)
+    r = client.get("/signals/replacement-leads?view=ab802", headers=AUTH)
     assert "Kaiser Foundation Hospitals - Building A" in r.text
     assert "name on filing" in r.text
 
@@ -1212,7 +1212,7 @@ def test_replacement_leads_ab802_below_gfa_floor_excluded_and_shown_nowhere(clie
     ))
     db_session.commit()
 
-    r = client.get("/replacement-leads?view=ab802&show_all_types=true", headers=AUTH)
+    r = client.get("/signals/replacement-leads?view=ab802&show_all_types=true", headers=AUTH)
     assert "Tiny Data Error" not in r.text
 
 
@@ -1236,7 +1236,7 @@ def test_replacement_leads_ab802_extreme_eui_ratio_shown_as_anomaly_not_ranked(c
     ))
     db_session.commit()
 
-    r = client.get("/replacement-leads?view=ab802", headers=AUTH)
+    r = client.get("/signals/replacement-leads?view=ab802", headers=AUTH)
     assert "Normal Building" in r.text
     assert "Anomaly Building" in r.text
     assert "data anomaly, verify before calling" in r.text.lower()
@@ -1256,7 +1256,7 @@ def test_replacement_leads_ab802_shows_owner_hint_label(client, db_session, cfg)
     ))
     db_session.commit()
 
-    r = client.get("/replacement-leads?view=ab802", headers=AUTH)
+    r = client.get("/signals/replacement-leads?view=ab802", headers=AUTH)
     assert "owner hint: Rexford Industrial" in r.text
 
 
@@ -1270,7 +1270,7 @@ def test_replacement_leads_ab802_owner_hint_beats_name_on_filing(client, db_sess
     ))
     db_session.commit()
 
-    r = client.get("/replacement-leads?view=ab802", headers=AUTH)
+    r = client.get("/signals/replacement-leads?view=ab802", headers=AUTH)
     assert "owner hint: Rexford Industrial" in r.text
     # The row itself must not ALSO show a name_hint div for this property --
     # "name on filing" legitimately appears once, in the static "How this is
@@ -1293,7 +1293,7 @@ def test_replacement_leads_ab802_shows_air_permit_on_file(client, db_session, cf
     ))
     db_session.commit()
 
-    r = client.get("/replacement-leads?view=ab802", headers=AUTH)
+    r = client.get("/signals/replacement-leads?view=ab802", headers=AUTH)
     assert "air permit on file" in r.text
     assert "SCAQMD #F1" in r.text
 
@@ -1313,7 +1313,7 @@ def test_replacement_leads_ab802_has_air_permit_filter(client, db_session, cfg):
     ))
     db_session.commit()
 
-    r = client.get("/replacement-leads?view=ab802&has_air_permit=true", headers=AUTH)
+    r = client.get("/signals/replacement-leads?view=ab802&has_air_permit=true", headers=AUTH)
     assert "Matched Tower" in r.text
     assert "Unmatched Tower" not in r.text
 
@@ -1322,7 +1322,7 @@ def test_replacement_leads_ab802_has_air_permit_filter(client, db_session, cfg):
 
 
 def test_board_schools_tab_renders_empty_state(client, db_session, cfg):
-    r = client.get("/board?view=schools", headers=AUTH)
+    r = client.get("/signals/entitlement?view=schools", headers=AUTH)
     assert r.status_code == 200
     assert "No in-territory OPSC row matches" in r.text
 
@@ -1337,7 +1337,7 @@ def test_board_schools_tab_shows_rows_and_call_target(client, db_session, cfg):
     ))
     db_session.commit()
 
-    r = client.get("/board?view=schools", headers=AUTH)
+    r = client.get("/signals/entitlement?view=schools", headers=AUTH)
     assert r.status_code == 200
     assert "Some Non-Standards District" in r.text
     assert "Test Elementary" in r.text
@@ -1355,7 +1355,7 @@ def test_board_schools_tab_standards_district_shows_owner_standards(client, db_s
     ))
     db_session.commit()
 
-    r = client.get("/board?view=schools", headers=AUTH)
+    r = client.get("/signals/entitlement?view=schools", headers=AUTH)
     assert "Owner (standards program)" in r.text
 
 
@@ -1367,20 +1367,20 @@ def test_board_schools_tab_filters_by_county(client, db_session, cfg):
                                school_name="Orange School", in_territory=True, source_url="x"))
     db_session.commit()
 
-    r = client.get("/board?view=schools&county=Orange", headers=AUTH)
+    r = client.get("/signals/entitlement?view=schools&county=Orange", headers=AUTH)
     assert "Orange School" in r.text
     assert "LA School" not in r.text
 
 
 def test_board_default_view_unaffected_by_schools_tab_addition(client, db_session, cfg):
     seed(db_session, cfg)
-    r = client.get("/board?territory=all", headers=AUTH)
+    r = client.get("/signals/entitlement?territory=all", headers=AUTH)
     assert r.status_code == 200
     assert "Meridian DC" in r.text
 
 
 def test_watchlist_unaffected_by_schools_tab_addition(client, db_session, cfg):
-    r = client.get("/watchlist", headers=AUTH)
+    r = client.get("/accounts/watchlist", headers=AUTH)
     assert r.status_code == 200
     assert "Watch list" in r.text
     assert "Schools" not in r.text

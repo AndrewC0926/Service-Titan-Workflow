@@ -1,8 +1,16 @@
 {% extends "base.html" %}
 {% from "_icon.html" import icon %}
+{% from "_macros.html" import hub_subtabs %}
 {% block title %}Accounts{% endblock %}
 {% block sheet_no %}S-12{% endblock %}
 {% block content %}
+{{ hub_subtabs([
+  {'href': '/accounts', 'label': 'Accounts', 'key': 'accounts'},
+  {'href': '/accounts/contractors', 'label': 'Contractors', 'key': 'contractors'},
+  {'href': '/accounts/firms', 'label': 'Firms', 'key': 'firms'},
+  {'href': '/accounts/contacts', 'label': 'Contacts', 'key': 'contacts'},
+  {'href': '/accounts/watchlist', 'label': 'Watch list', 'key': 'watchlist'},
+], subview) }}
 <div class="sec-head">
   <div class="sec-title">Accounts — line-card coverage</div>
   <a href="/accounts/new" style="float:right">{{ icon('plus') }} New account</a>

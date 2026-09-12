@@ -26,7 +26,7 @@
       {% endif %}
       A hospital's own specifier or AHJ can reject any product without a current OSP on file for
       its category outright — know this before you pitch a full package, not after.
-      See <a href="/assumptions#{{ assumption_slug("DMG's HCAI OSP capability gap (all 13 roles)") }}">/assumptions</a>
+      See <a /settings/assumptions#{{ assumption_slug("DMG's HCAI OSP capability gap (all 13 roles)") }}">/assumptions</a>
       for the live figure and every line's own research trail.</span>
     <span class="body">{{ capability_gaps.socal_card_disclosure }}</span>
     </span>
@@ -74,13 +74,13 @@
       NOT an HCAI-published field: they're this application's own reading of the base SB 1953
       statutory schedule (SPC-1 → {{ spc1_year }}, SPC-2 → {{ spc2_year }}; the {{ npc5_year }}
       standard also requires NPC 5) — see
-      <a href="/assumptions#{{ assumption_slug('SB 1953 SPC/NPC deadline schedule') }}">/assumptions</a>
+      <a /settings/assumptions#{{ assumption_slug('SB 1953 SPC/NPC deadline schedule') }}">/assumptions</a>
       for the exact HCAI-quoted language. The "extension filed" flag is a coarse yes/no — a
       building so flagged may have a LATER real deadline than shown; read HCAI's own extension
       record before treating either date as final, never this system's guess at which of six
       extension bills governs. Imported by hand, not a live feed — CHHS's own Terms of Use don't
       clearly sanction automated access; see
-      <a href="/assumptions#{{ assumption_slug('CHHS Open Data Portal — terms of use') }}">/assumptions</a>
+      <a /settings/assumptions#{{ assumption_slug('CHHS Open Data Portal — terms of use') }}">/assumptions</a>
       for the full finding. Not merged with the project board or retrofit — a different sale, a
       different buyer.</span>
     </span>
@@ -89,18 +89,18 @@
 
 {% set qs_suffix = ('&all_ca=1' if all_ca else '') %}
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
-  <a href="/hospitals?{% if all_ca %}all_ca=1{% endif %}{% if county %}{{ '&' if all_ca }}county={{ county }}{% endif %}" class="chip" aria-pressed="{{ 'true' if not deadline else 'false' }}">All deadlines</a>
-  <a href="/hospitals?deadline=2020{{ qs_suffix }}{% if county %}&county={{ county }}{% endif %}" class="chip" aria-pressed="{{ 'true' if deadline == '2020' else 'false' }}">SPC-1 · {{ spc1_year }} (overdue)</a>
-  <a href="/hospitals?deadline=2030{{ qs_suffix }}{% if county %}&county={{ county }}{% endif %}" class="chip" aria-pressed="{{ 'true' if deadline == '2030' else 'false' }}">SPC-2 · {{ spc2_year }}</a>
-  <a href="/hospitals?deadline=extension{{ qs_suffix }}{% if county %}&county={{ county }}{% endif %}" class="chip" aria-pressed="{{ 'true' if deadline == 'extension' else 'false' }}">Extension filed</a>
+  <a /deadlines/hospitals?{% if all_ca %}all_ca=1{% endif %}{% if county %}{{ '&' if all_ca }}county={{ county }}{% endif %}" class="chip" aria-pressed="{{ 'true' if not deadline else 'false' }}">All deadlines</a>
+  <a /deadlines/hospitals?deadline=2020{{ qs_suffix }}{% if county %}&county={{ county }}{% endif %}" class="chip" aria-pressed="{{ 'true' if deadline == '2020' else 'false' }}">SPC-1 · {{ spc1_year }} (overdue)</a>
+  <a /deadlines/hospitals?deadline=2030{{ qs_suffix }}{% if county %}&county={{ county }}{% endif %}" class="chip" aria-pressed="{{ 'true' if deadline == '2030' else 'false' }}">SPC-2 · {{ spc2_year }}</a>
+  <a /deadlines/hospitals?deadline=extension{{ qs_suffix }}{% if county %}&county={{ county }}{% endif %}" class="chip" aria-pressed="{{ 'true' if deadline == 'extension' else 'false' }}">Extension filed</a>
 </div>
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
-  <a href="/hospitals?{% if all_ca %}all_ca=1{% endif %}{% if deadline %}{{ '&' if all_ca }}deadline={{ deadline }}{% endif %}" class="chip" aria-pressed="{{ 'true' if not county else 'false' }}">{% if all_ca %}All California counties{% else %}All territory counties{% endif %}</a>
+  <a /deadlines/hospitals?{% if all_ca %}all_ca=1{% endif %}{% if deadline %}{{ '&' if all_ca }}deadline={{ deadline }}{% endif %}" class="chip" aria-pressed="{{ 'true' if not county else 'false' }}">{% if all_ca %}All California counties{% else %}All territory counties{% endif %}</a>
   {% for c in counties %}
-  <a href="/hospitals?county={{ c }}{{ qs_suffix }}{% if deadline %}&deadline={{ deadline }}{% endif %}" class="chip" aria-pressed="{{ 'true' if county == c else 'false' }}">{{ c }}</a>
+  <a /deadlines/hospitals?county={{ c }}{{ qs_suffix }}{% if deadline %}&deadline={{ deadline }}{% endif %}" class="chip" aria-pressed="{{ 'true' if county == c else 'false' }}">{{ c }}</a>
   {% endfor %}
   {% if not all_ca %}
-  <a href="/hospitals?all_ca=1{% if deadline %}&deadline={{ deadline }}{% endif %}" class="chip">+ show all California ({{ '{:,}'.format(coverage.total_buildings) }} buildings, 58 counties)</a>
+  <a /deadlines/hospitals?all_ca=1{% if deadline %}&deadline={{ deadline }}{% endif %}" class="chip">+ show all California ({{ '{:,}'.format(coverage.total_buildings) }} buildings, 58 counties)</a>
   {% else %}
   <a href="/hospitals{% if deadline %}?deadline={{ deadline }}{% endif %}" class="chip">← back to territory only</a>
   {% endif %}
@@ -151,7 +151,7 @@
       hospital building's SPC/NPC seismic rating would rank, once
       <span class="mono">scout import-hcai-seismic &lt;path&gt;</span> has run against a CSV
       downloaded by hand from data.chhs.ca.gov.</p>
-    <a class="chip" href="/health">Check source health</a>
+    <a class="chip" href="/settings/health">Check source health</a>
   </div>
 </td></tr>
 {% endfor %}

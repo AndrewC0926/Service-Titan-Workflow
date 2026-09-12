@@ -6,7 +6,7 @@
 <h2>{{ c.business_name }}
   {%- if c.ua_local_250_signatory %}&nbsp;<span class="stamp stamp-quiet" title="Matched UA Local 250's signatory list as {{ c.ua_local_250_matched_name }}, checked {{ c.ua_local_250_checked_at.strftime('%Y-%m-%d') if c.ua_local_250_checked_at else 'unknown' }}.">UA 250</span>{% endif -%}
   <a href="/contractor/{{ c.id }}/precall" style="float:right;font-size:12px">{{ icon('phone') }} Pre-call brief</a>
-  <a href="/contractors?classification=mechanical" style="float:right;font-size:12px;margin-right:16px">← back to contractors</a>
+  <a /accounts/contractors?classification=mechanical" style="float:right;font-size:12px;margin-right:16px">← back to contractors</a>
 </h2>
 <p class="note">CSLB license {{ c.license_no }} · {{ c.business_address }}, {{ c.city }}, {{ c.state }} {{ c.zip_code }}
   {%- if c.business_phone %} · <a class="cite" href="tel:{{ c.business_phone }}">{{ c.business_phone }}</a>{% endif %}</p>

@@ -19,9 +19,9 @@
 </details>
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
-  <a href="/retrofit?population=replacement_candidate&territory={{ territory }}{% if county %}&county={{ county }}{% endif %}"
+  <a /signals/permit-gap?population=replacement_candidate&territory={{ territory }}{% if county %}&county={{ county }}{% endif %}"
      class="chip" aria-pressed="{{ 'true' if population == 'replacement_candidate' else 'false' }}">Replacement candidates</a>
-  <a href="/retrofit?population=recently_active&territory={{ territory }}{% if county %}&county={{ county }}{% endif %}"
+  <a /signals/permit-gap?population=recently_active&territory={{ territory }}{% if county %}&county={{ county }}{% endif %}"
      class="chip" aria-pressed="{{ 'true' if population == 'recently_active' else 'false' }}">Recently active (market intel)</a>
 </div>
 
@@ -49,7 +49,7 @@
       address-joined from LA's own EBEWE filings — not the sqft-threshold "EBEWE candidate" scope proxy shown
       below, which just says a building is IN SCOPE for the ordinance, not how it performs. Coverage is this
       low because EBEWE itself only has ~11,500 buildings that have ever filed against an ordinance with real
-      non-compliance, not primarily a join defect — see <a href="/assumptions#{{ assumption_slug('Benchmark-to-building join method and coverage') }}">the join method and full measurement</a>.
+      non-compliance, not primarily a join defect — see <a /settings/assumptions#{{ assumption_slug('Benchmark-to-building join method and coverage') }}">the join method and full measurement</a>.
       Because coverage is this sparse, energy performance is used as a tie-breaker ONLY within the covered
       subset below, never blended into the board-wide score.</span>
     </span>
@@ -64,7 +64,7 @@
       {{ '{:,}'.format(summary.sold_24mo_covered_of) }} buildings in this view ({{ summary.sold_24mo_covered_pct }}%)</strong>
     <span class="body">A recorded sale within the last 24 months, per LA County Assessor's own RecordingDate
       field (not the Recorder's deed index — no bulk/API access exists there, see
-      <a href="/assumptions#{{ assumption_slug('Retrofit ranking: ownership-change recency') }}">the full sourcing note</a>).
+      <a /settings/assumptions#{{ assumption_slug('Retrofit ranking: ownership-change recency') }}">the full sourcing note</a>).
       Coverage is this low because a recent sale is genuinely rare across the whole board, not a join
       defect — 98.9% of buildings have SOME recording date on file, just usually an old one. Because
       coverage is this sparse, AND because RecordingDate fires on trust/family transfers and
@@ -78,12 +78,12 @@
 </details>
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
-  <a href="/retrofit?population={{ population }}&territory={{ territory }}{% if county %}&county={{ county }}{% endif %}{% if min_status %}&min_status={{ min_status }}{% endif %}&has_ebewe=true{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}"
+  <a /signals/permit-gap?population={{ population }}&territory={{ territory }}{% if county %}&county={{ county }}{% endif %}{% if min_status %}&min_status={{ min_status }}{% endif %}&has_ebewe=true{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}"
      class="chip" aria-pressed="{{ 'true' if has_ebewe else 'false' }}">Has EBEWE data ({{ '{:,}'.format(summary.ebewe_covered) }})</a>
-  <a href="/retrofit?population={{ population }}&territory={{ territory }}{% if county %}&county={{ county }}{% endif %}{% if min_status %}&min_status={{ min_status }}{% endif %}{% if has_ebewe %}&has_ebewe=true{% endif %}&sold_last_24mo=true"
+  <a /signals/permit-gap?population={{ population }}&territory={{ territory }}{% if county %}&county={{ county }}{% endif %}{% if min_status %}&min_status={{ min_status }}{% endif %}{% if has_ebewe %}&has_ebewe=true{% endif %}&sold_last_24mo=true"
      class="chip" aria-pressed="{{ 'true' if sold_last_24mo else 'false' }}">Sold in last 24 months ({{ '{:,}'.format(summary.sold_24mo_covered) }})</a>
   {% if has_ebewe or sold_last_24mo %}
-  <a href="/retrofit?population={{ population }}&territory={{ territory }}{% if county %}&county={{ county }}{% endif %}{% if min_status %}&min_status={{ min_status }}{% endif %}"
+  <a /signals/permit-gap?population={{ population }}&territory={{ territory }}{% if county %}&county={{ county }}{% endif %}{% if min_status %}&min_status={{ min_status }}{% endif %}"
      class="chip" aria-pressed="false">Clear</a>
   {% endif %}
 </div>
@@ -159,17 +159,17 @@
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
   {% for c in counties %}
-  <a href="/retrofit?population={{ population }}&county={{ c }}{% if min_status %}&min_status={{ min_status }}{% endif %}{% if has_ebewe %}&has_ebewe=true{% endif %}{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}"
+  <a /signals/permit-gap?population={{ population }}&county={{ c }}{% if min_status %}&min_status={{ min_status }}{% endif %}{% if has_ebewe %}&has_ebewe=true{% endif %}{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}"
      class="chip" aria-pressed="{{ 'true' if county == c else 'false' }}">{{ c }}</a>
   {% endfor %}
   {# Explicit territory=all -- omitting county alone is not enough to mean
      "all", since the route defaults to the LA-office rep's own territory
      (app.web.main.MY_TERRITORY_COUNTIES) when neither is given. Nothing is
      deleted by the default; this is how you get back everything else. #}
-  <a href="/retrofit?population={{ population }}&territory=all{% if min_status %}&min_status={{ min_status }}{% endif %}{% if has_ebewe %}&has_ebewe=true{% endif %}{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}" class="chip" aria-pressed="{{ 'true' if territory == 'all' and not county else 'false' }}">All counties{% if territory != 'all' and territory_hidden_count %}<span class="ct">{{ '{:,}'.format(territory_hidden_count) }} hidden</span>{% endif %}</a>
+  <a /signals/permit-gap?population={{ population }}&territory=all{% if min_status %}&min_status={{ min_status }}{% endif %}{% if has_ebewe %}&has_ebewe=true{% endif %}{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}" class="chip" aria-pressed="{{ 'true' if territory == 'all' and not county else 'false' }}">All counties{% if territory != 'all' and territory_hidden_count %}<span class="ct">{{ '{:,}'.format(territory_hidden_count) }} hidden</span>{% endif %}</a>
   <span class="note ml-1">|</span>
   {% for key, label in [('overdue','Overdue only'), ('due','Due+'), ('approaching','Approaching+'), ('', 'All statuses')] %}
-  <a href="/retrofit?population={{ population }}&territory={{ territory }}&{% if county %}county={{ county }}&{% endif %}min_status={{ key }}{% if has_ebewe %}&has_ebewe=true{% endif %}{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}" class="chip" aria-pressed="{{ 'true' if min_status == key else 'false' }}">{{ label }}</a>
+  <a /signals/permit-gap?population={{ population }}&territory={{ territory }}&{% if county %}county={{ county }}&{% endif %}min_status={{ key }}{% if has_ebewe %}&has_ebewe=true{% endif %}{% if sold_last_24mo %}&sold_last_24mo=true{% endif %}" class="chip" aria-pressed="{{ 'true' if min_status == key else 'false' }}">{{ label }}</a>
   {% endfor %}
   {% if county %}
   <a href="/retrofit/report?population={{ population }}&county={{ county }}" class="chip ml-1">{{ icon('printer') }} Printable contractor report</a>
@@ -248,7 +248,7 @@
     <span class="mono">scout fetch-assessor-candidates</span> →
     <span class="mono">scout fetch-ebewe-benchmarks</span> →
     <span class="mono">scout build-retrofit-buildings</span> / <span class="mono">scout find-replacement-candidates</span>.</p>
-  <a class="chip" href="/health">Check source health</a>
+  <a class="chip" href="/settings/health">Check source health</a>
 </div>
 {% endfor %}
 </div>
@@ -304,7 +304,7 @@
       {%- if b.mined_tons_each %} @ {{ b.mined_tons_each|int }}t{% endif -%}
     {%- elif b.population == 'replacement_candidate' -%}
       <span class="note">unknown — no permit on file</span>
-      {%- if b.estimated_tons_low %}<br><a class="note" href="/assumptions#{{ assumption_slug('Commercial/industrial sqft/ton (retrofit tonnage estimate)') }}" title="{{ b.estimated_tons_basis }}">~{{ b.estimated_tons_low|int }}-{{ b.estimated_tons_high|int }}t est.</a>{% endif -%}
+      {%- if b.estimated_tons_low %}<br><a class="note" /settings/assumptions#{{ assumption_slug('Commercial/industrial sqft/ton (retrofit tonnage estimate)') }}" title="{{ b.estimated_tons_basis }}">~{{ b.estimated_tons_low|int }}-{{ b.estimated_tons_high|int }}t est.</a>{% endif -%}
     {%- else -%}<span class="note">unspecified (permit text)</span>{%- endif -%}
   </td>
   <td>
@@ -317,7 +317,7 @@
          actually did. The "~" prefix already signals "derived, not
          permit-verified"; the tooltip carries the rest. #}
       <a class="stamp {{ 'stamp-post' if b.service_life_status in ('overdue','due') else 'stamp-in' if b.service_life_status == 'approaching' else 'stamp-pre' }}"
-         href="/assumptions#{{ assumption_slug('Service life bands — private commercial ownership') }}"
+         /settings/assumptions#{{ assumption_slug('Service life bands — private commercial ownership') }}"
          title="{{ b.service_life_basis }}">{% if b.population == 'replacement_candidate' %}~{% endif %}{{ b.service_life_status.replace('_',' ') }}{% if b.service_life_years_past is not none %} {{ '%+.0f'|format(b.service_life_years_past) }}yr{% endif %} ({{ b.equipment_age_years|int if b.equipment_age_years else '?' }}yr)</a>
     {%- elif b.service_life_basis -%}
       {# ABSTAINED case: year built IS known, but it precedes the permit
@@ -346,7 +346,7 @@
   </td>
   <td class="nowrap">
     {%- if b.ebewe_matched -%}
-      <a class="stamp stamp-in" href="/assumptions#{{ assumption_slug('Benchmark-to-building join method and coverage') }}"
+      <a class="stamp stamp-in" /settings/assumptions#{{ assumption_slug('Benchmark-to-building join method and coverage') }}"
          title="LADBS Building ID {{ b.ebewe_building_id }}, {{ b.ebewe_program_year }} filing · {{ b.ebewe_property_type or 'property type unknown' }}. Site EUI {{ b.ebewe_site_eui if b.ebewe_site_eui is not none else '—' }} kBtu/ft². Address-text join, ain_last3-checksum-confirmed — see the join method and measured coverage.">EBEWE {{ b.ebewe_program_year }}</a><br>
       <span class="note">{{ '%.0f'|format(b.ebewe_weather_normalized_site_eui) if b.ebewe_weather_normalized_site_eui is not none else '—' }} EUI (wx-norm)
         · {{ icon('star') }} {{ b.ebewe_energy_star_score if b.ebewe_energy_star_score is not none else '—' }}</span><br>
@@ -375,15 +375,15 @@
     {%- endif -%}
     {%- if b.last_sale_date -%}
       <br><a class="stamp {{ 'stamp-in' if (now() - b.last_sale_date).days <= 730 else 'stamp-quiet' }}"
-             href="/assumptions#{{ assumption_slug('Retrofit ranking: ownership-change recency') }}"
+             /settings/assumptions#{{ assumption_slug('Retrofit ranking: ownership-change recency') }}"
              title="LA County Assessor's own RecordingDate -- a Prop 13 reassessment trigger, NOT confirmed proof of an arms-length sale (also fires on trust/family transfers and reassessment-triggering refinances), and carries no document type. Not a ranking term -- see /assumptions.">Sold {{ b.last_sale_date.strftime('%Y-%m-%d') }}</a>
     {%- endif -%}
     {%- if b.portfolio_member_count and b.portfolio_member_count >= 2 -%}
       {%- if b.portfolio_same_block -%}
-      <br><a class="stamp stamp-quiet" href="/assumptions#{{ assumption_slug('Portfolio-transaction detection') }}"
+      <br><a class="stamp stamp-quiet" /settings/assumptions#{{ assumption_slug('Portfolio-transaction detection') }}"
              title="Recorded within {{ 14 }} days and {{ '%.2f'|format(0.25) }}mi of each other, all sharing the same APN book/page -- one physical property recorded as multiple assessor parcels. See /assumptions.">Co-recorded: {{ b.portfolio_member_count }} parcels</a>
       {%- else -%}
-      <br><a class="stamp stamp-post" href="/assumptions#{{ assumption_slug('Portfolio-transaction detection') }}"
+      <br><a class="stamp stamp-post" /settings/assumptions#{{ assumption_slug('Portfolio-transaction detection') }}"
              title="Recorded within {{ 14 }} days and {{ '%.2f'|format(0.25) }}mi of each other, spanning more than one assessor block -- a candidate genuine multi-property transaction, still not confirmed. See /assumptions.">Portfolio candidate: {{ b.portfolio_member_count }} buildings</a>
       {%- endif -%}
       <span class="note">also: {% for m in b.portfolio_members %}<a href="/retrofit/building/{{ m.id }}">{{ m.address or m.apn }}</a> ({{ '{:,.0f}'.format(m.sqft) if m.sqft else '?' }} sqft, sold {{ m.last_sale_date }}){% if not loop.last %}; {% endif %}{% endfor %}</span>
@@ -400,7 +400,7 @@
       <span class="mono">scout fetch-assessor-candidates</span> →
       <span class="mono">scout fetch-ebewe-benchmarks</span> →
       <span class="mono">scout build-retrofit-buildings</span> / <span class="mono">scout find-replacement-candidates</span>.</p>
-    <a class="chip" href="/health">Check source health</a>
+    <a class="chip" href="/settings/health">Check source health</a>
   </div>
 </td></tr>
 {% endfor %}

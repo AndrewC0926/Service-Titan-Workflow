@@ -5,7 +5,7 @@
 <h2>{{ p.name }} <span class="tag {{ p.window.value }}">{{ p.window.value }}</span>
   <span class="scorechip" style="background:{{ score_color(p.score) }}">{{ '%.2f'|format(p.score) }}</span>
   <span class="tag">{{ p.status }}</span>
-  {% if ahj_a2l_hit %}<a class="stamp stamp-pre" title="{{ ahj_a2l_hit.doc_title }}" href="/reference?tab=ahj_a2l#ahj-{{ ahj_a2l_hit.jurisdiction|lower|replace(' ', '-') }}">AHJ has written A2L guidance</a>{% endif %}
+  {% if ahj_a2l_hit %}<a class="stamp stamp-pre" title="{{ ahj_a2l_hit.doc_title }}" /settings/reference?tab=ahj_a2l#ahj-{{ ahj_a2l_hit.jurisdiction|lower|replace(' ', '-') }}">AHJ has written A2L guidance</a>{% endif %}
   <a href="/project/{{ p.id }}/brief" style="float:right;font-size:12px">{{ icon('file-text') }} One-page brief</a>
   <a href="/project/{{ p.id }}/precall" style="float:right;font-size:12px;margin-right:16px">{{ icon('phone') }} Pre-call brief</a></h2>
 
@@ -60,7 +60,7 @@
 </tbody>
 </table>
 <p class="dim" style="max-width:700px">Every weight above is tunable, and several are judgment calls rather than
-  measurements — check <a href="/assumptions">the assumptions register</a> to see which is which before quoting
+  measurements — check <a href="/settings/assumptions">the assumptions register</a> to see which is which before quoting
   this number to anyone.</p>
 
 <h2>Stage progression</h2>

@@ -8,11 +8,11 @@
   <span class="note">Confirm writes to the outreach log; reject discards. See /assumptions for how names get matched.</span>
 </div>
 
-<a href="/capture" class="chip" style="margin-bottom:1rem">{{ icon('plus') }} Record a capture</a>
+<a href="/settings/capture" class="chip" style="margin-bottom:1rem">{{ icon('plus') }} Record a capture</a>
 
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
   {% for key, label in [('pending','Pending'), ('approved','Confirmed'), ('rejected','Rejected'), ('all','All')] %}
-  <a href="/captures?status_filter={{ key }}" class="chip" aria-pressed="{{ 'true' if status_filter == key else 'false' }}">{{ label }}</a>
+  <a /settings/captures?status_filter={{ key }}" class="chip" aria-pressed="{{ 'true' if status_filter == key else 'false' }}">{{ label }}</a>
   {% endfor %}
 </div>
 

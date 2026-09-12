@@ -42,7 +42,7 @@
 </tbody>
 </table>
 <h2>Add firm</h2>
-<form method="post" action="/firms" class="grid" style="max-width:1000px;margin-bottom:16px">
+<form method="post" action="/accounts/firms" class="grid" style="max-width:1000px;margin-bottom:16px">
   <input name="name" placeholder="Firm name *" required>
   <select name="firm_type">
     {% for t in ['mep','mech_contractor','gc','developer','consultant','unknown'] %}<option>{{ t }}</option>{% endfor %}
@@ -52,7 +52,7 @@
 </form>
 
 <h2>Add contact</h2>
-<form method="post" action="/contacts" class="grid" style="max-width:1000px">
+<form method="post" action="/accounts/contacts" class="grid" style="max-width:1000px">
   <input name="name" placeholder="Name *" required>
   <input name="title" placeholder="Title">
   <input name="company" placeholder="Company">

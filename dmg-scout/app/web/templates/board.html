@@ -7,9 +7,9 @@
 
 {% if not is_watchlist %}
 <p class="mb-2">
-  <a class="chip" href="/board?category={{ category or 'data_center' }}&territory={{ territory or 'mine' }}"
+  <a class="chip" /signals/entitlement?category={{ category or 'data_center' }}&territory={{ territory or 'mine' }}"
     aria-pressed="{{ 'true' if view != 'schools' else 'false' }}">Board</a>
-  <a class="chip" href="/board?view=schools" aria-pressed="{{ 'true' if view == 'schools' else 'false' }}">Schools</a>
+  <a class="chip" /signals/entitlement?view=schools" aria-pressed="{{ 'true' if view == 'schools' else 'false' }}">Schools</a>
 </p>
 {% endif %}
 
@@ -43,7 +43,7 @@
   <span>
   <strong>Zero pre-BOD projects</strong>
   <span class="body">Everything here is already in or past basis of design, so the early-signal
-    pipeline is not surfacing winnable work. Check <a href="/health">Source health</a> and whether the
+    pipeline is not surfacing winnable work. Check <a href="/settings/health">Source health</a> and whether the
     CEQAnet NOP and GOED fetches are running.</span>
   </span>
 </div>
@@ -91,7 +91,7 @@
      uses). Nothing is deleted -- "All territories" shows the rest. #}
   {% for key, label in [('mine','My territory'), ('all','All territories')] %}
   {% set sel = (territory or 'mine') == key %}
-  <a href="/board?category={{ category or 'data_center' }}&territory={{ key }}" class="chip" aria-pressed="{{ 'true' if sel else 'false' }}">{{ label }}{% if key == 'mine' and territory_hidden_count %}<span class="ct">{{ '{:,}'.format(territory_hidden_count) }} hidden</span>{% endif %}</a>
+  <a /signals/entitlement?category={{ category or 'data_center' }}&territory={{ key }}" class="chip" aria-pressed="{{ 'true' if sel else 'false' }}">{{ label }}{% if key == 'mine' and territory_hidden_count %}<span class="ct">{{ '{:,}'.format(territory_hidden_count) }} hidden</span>{% endif %}</a>
   {% endfor %}
 </div>
 {% endif %}
@@ -104,7 +104,7 @@
   {% for key, label in [('data_center','Data centers'), ('industrial','Industrial'),
                         ('all','Both boards'), ('esco','ESCO retrofit')] %}
   {% set sel = (category or 'data_center') == key %}
-  <a href="/board?category={{ key }}&territory={{ territory or 'mine' }}" class="chip" aria-pressed="{{ 'true' if sel else 'false' }}">{{ label }}{% if key != 'all' %}<span class="ct">{{ cat_counts.get(key, 0) }}</span>{% endif %}</a>
+  <a /signals/entitlement?category={{ key }}&territory={{ territory or 'mine' }}" class="chip" aria-pressed="{{ 'true' if sel else 'false' }}">{{ label }}{% if key != 'all' %}<span class="ct">{{ cat_counts.get(key, 0) }}</span>{% endif %}</a>
   {% endfor %}
   <span class="note ml-1">
     {%- if category == 'esco' -%}
@@ -120,12 +120,12 @@
 
 {% if not is_watchlist and call_target_counts is defined %}
 <div class="mb-2 flex flex-wrap items-center gap-1.5">
-  <a href="/board?category={{ category or 'data_center' }}&territory={{ territory or 'mine' }}"
+  <a /signals/entitlement?category={{ category or 'data_center' }}&territory={{ territory or 'mine' }}"
      class="chip" aria-pressed="{{ 'true' if not call_target else 'false' }}">All call targets</a>
   {% for key in ['engineer', 'db_contractor', 'bidding_contractors', 'owner', 'owner_standards', 'unknown'] %}
   {% if call_target_counts.get(key) %}
   {% set sel = call_target == key %}
-  <a href="/board?category={{ category or 'data_center' }}&territory={{ territory or 'mine' }}&call_target={{ key }}"
+  <a /signals/entitlement?category={{ category or 'data_center' }}&territory={{ territory or 'mine' }}&call_target={{ key }}"
      class="chip" aria-pressed="{{ 'true' if sel else 'false' }}">{{ CALL_TARGET_LABELS[key] }}<span class="ct">{{ call_target_counts[key] }}</span></a>
   {% endif %}
   {% endfor %}
@@ -136,7 +136,7 @@
 <div style="border-left:3px solid var(--color-rule, currentColor); padding:0.6rem 0 0.6rem 0.9rem; margin:0 0 1.1rem 0">
   <div class="sec-head" style="margin-bottom:0.3rem">
     <span style="font-weight:600">{{ icon('triangle-alert') }} Field intel <span class="stamp stamp-post">UNVERIFIED — human-sourced</span></span>
-    <a href="/intel" style="float:right;font-size:12px">See all →</a>
+    <a href="/settings/intel" style="float:right;font-size:12px">See all →</a>
   </div>
   <p class="note">Pre-award knowledge from a conversation, not yet in any public filing — none of
     this is scored or ranked above, and it isn't extracted/grounded the way the register is.</p>
@@ -222,7 +222,7 @@
   <p>{% if is_watchlist %}No out-of-territory projects on file — everything currently tracked is
     in territory.{% else %}No projects yet. This is where every early-signal opportunity in the
     territory would rank once <span class="mono">scout pipeline</span> has run.{% endif %}</p>
-  {% if not is_watchlist %}<a class="chip" href="/health">Check source health</a>{% endif %}
+  {% if not is_watchlist %}<a class="chip" href="/settings/health">Check source health</a>{% endif %}
 </div>
 {% endfor %}
 </div>
@@ -284,7 +284,7 @@
             if (p.estimate_low_confidence and p.category.value in ('industrial', 'esco'))
             else 'Data center watts/sqft fallback' if p.estimate_low_confidence
             else 'Tons per MW installed (default)' -%}
-      <a class="cite" href="/assumptions#{{ assumption_slug(tons_assumption) }}" title="{{ p.estimate_basis }}">{{ '{:,.0f}'.format(p.tons_estimate_low) }}–{{ '{:,.0f}'.format(p.tons_estimate_high) }}</a>
+      <a class="cite" /settings/assumptions#{{ assumption_slug(tons_assumption) }}" title="{{ p.estimate_basis }}">{{ '{:,.0f}'.format(p.tons_estimate_low) }}–{{ '{:,.0f}'.format(p.tons_estimate_high) }}</a>
       {%- if p.estimate_low_confidence %}&nbsp;<span class="caveat" title="Sized from floor area only — no stated IT load. Ranking aid, not a takeoff.">fa</span>{% endif -%}
     {%- else -%}<span class="note">—</span>{%- endif -%}
   </td>
@@ -334,13 +334,13 @@
     {%- if p.days_to_estimated_bid is none -%}
       <span class="note">—</span>
     {%- elif p.days_to_estimated_bid_low is not none -%}
-      <a class="cite" href="/assumptions#{{ assumption_slug('Days to estimated bid: entitlement (NOP to NOD)') }}"
+      <a class="cite" /settings/assumptions#{{ assumption_slug('Days to estimated bid: entitlement (NOP to NOD)') }}"
          title="Measured: mean of {{ p.days_to_estimated_bid }} days from CEQAnet NOP→NOD spreads for this territory, 95% CI {{ p.days_to_estimated_bid_low }}–{{ p.days_to_estimated_bid_high }} days (small sample — see /assumptions for size and date range).">{{ p.days_to_estimated_bid }}<span class="note">&nbsp;({{ p.days_to_estimated_bid_low }}–{{ p.days_to_estimated_bid_high }})</span></a>
       {%- if window_progress.get(p.id) is not none -%}
       <br><span title="{{ window_progress[p.id] }}% of the estimated bid window elapsed, counted from when this project was first tracked ({{ p.created_at.strftime('%Y-%m-%d') }}) through the high end of the CI above — see /assumptions for why that start point, not a filed bid date, is the honest anchor.">{{ window_bar(window_progress[p.id]) }}</span>
       {%- endif -%}
     {%- else -%}
-      <a class="cite" href="/assumptions#{{ assumption_slug('Days to estimated bid: other stages') }}"
+      <a class="cite" /settings/assumptions#{{ assumption_slug('Days to estimated bid: other stages') }}"
          title="Fixed constant for the {{ p.stage.value }} stage ({{ days_to_bid_by_stage.get(p.stage.value, '?') }} days per scoring.days_to_bid_by_stage) — not measured or project-specific.">{{ p.days_to_estimated_bid }}</a>
     {%- endif -%}
   </td>
@@ -385,7 +385,7 @@
     <p>{% if is_watchlist %}No out-of-territory projects on file — everything currently tracked is
       in territory.{% else %}No projects yet. This is where every early-signal opportunity in the
       territory would rank once <span class="mono">scout pipeline</span> has run.{% endif %}</p>
-    {% if not is_watchlist %}<a class="chip" href="/health">Check source health</a>{% endif %}
+    {% if not is_watchlist %}<a class="chip" href="/settings/health">Check source health</a>{% endif %}
   </div>
 </td></tr>
 {% endfor %}

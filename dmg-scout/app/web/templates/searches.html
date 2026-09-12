@@ -47,13 +47,13 @@
 </tr>
 {% else %}
 <tr><td colspan="5" class="note">No saved searches yet. Add one below, or ask a question
-  on the <a href="/ask">Ask</a> sheet and save it.</td></tr>
+  on the <a href="/reports/ask">Ask</a> sheet and save it.</td></tr>
 {% endfor %}
 </tbody>
 </table>
 
 <div class="sec-head"><div class="sec-title">New search</div></div>
-<form method="post" action="/searches" class="sheet p-3">
+<form method="post" action="/signals/saved-searches" class="sheet p-3">
   <div class="grid gap-2 mb-2" style="grid-template-columns:repeat(auto-fit,minmax(14rem,1fr))">
     <div>
       <div class="tb-lbl mb-1">Name</div>

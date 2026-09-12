@@ -2,7 +2,7 @@
 {% from "_icon.html" import icon %}
 {% block title %}{{ facility_name or perm_id }} — AB 869{% endblock %}
 {% block content %}
-<h2>{{ facility_name or perm_id }} <a href="/ab869" style="float:right;font-size:12px">← back to AB 869</a></h2>
+<h2>{{ facility_name or perm_id }} <a href="/deadlines/ab869" style="float:right;font-size:12px">← back to AB 869</a></h2>
 <p class="note">Perm ID {{ perm_id }} · as reported by the hospital to HCAI, not verified by Scout
   {% if plan %} · imported {{ plan.imported_at.strftime('%Y-%m-%d %H:%M') }}Z{% endif %} ·
   <a href="{{ tableau_url }}" target="_blank" rel="noopener">HCAI Tableau page for this facility ↗</a></p>

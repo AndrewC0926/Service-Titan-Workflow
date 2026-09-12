@@ -406,7 +406,7 @@ AUTH = {"Authorization": "Basic " + base64.b64encode(b"andrew:testpw").decode()}
 
 def test_lines_index_renders(client, db_session, cfg):
     seed(db_session, cfg)
-    resp = client.get("/lines", headers=AUTH)
+    resp = client.get("/settings/lines", headers=AUTH)
     assert resp.status_code == 200
     assert "Line card" in resp.text
     assert "4 of 70" in resp.text
@@ -556,7 +556,7 @@ def test_lines_index_branch_filter_shows_real_card_status(client, db_session, cf
 def test_lines_index_discloses_socal_scope_even_without_branch_filter(client, db_session, cfg):
     seed(db_session, cfg)
     seed_branches(db_session, cfg)
-    resp = client.get("/lines", headers=AUTH)
+    resp = client.get("/settings/lines", headers=AUTH)
     assert resp.status_code == 200
     assert "SoCal card" in resp.text
     assert "5 of 8 DMG offices have a card on file" in resp.text

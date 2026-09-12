@@ -1,0 +1,76 @@
+{# Block 3 (Master Plan v3.2 section 11): shared macros for the six
+   destinations and their sub-views. New markup only -- see app/web/styles/
+   app.css's own "left rail" comment for the 8-point-spacing / 3-type-scale
+   rule these macros (and the rail itself) follow, and why relocated/
+   pre-existing page content is deliberately NOT retrofitted to it.
+
+   Type scale: exactly 3 of the existing 6 --text-* tokens --
+     --text-xs   (11px) -- rail items, kpi labels, sub-tab labels
+     --text-sm   (13px) -- card titles, empty-state body
+     --text-base (14px) -- kpi values, page body (already the app-wide default)
+   --text-2xs/--text-md/--text-lg are left alone -- they belong to
+   pre-existing/relocated content this item does not touch. #}
+
+{# Sub-tab strip for a hub page (Accounts/Signals/Pipeline/Deadlines/
+   Reports) -- one shared macro instead of five hand-rolled strips.
+   items: list of {href, label, key}. current: the active sub-view's key. #}
+{% macro hub_subtabs(items, current) %}
+<nav class="tabs mb-4" aria-label="Sub-sections">
+  {% for item in items %}
+  <a href="{{ item.href }}" class="tab" {% if current==item.key %}aria-current="page"{% endif %}>{{ item.label }}</a>
+  {% endfor %}
+</nav>
+{% endmacro %}
+
+{# Horizontal strip of stat blocks. items: list of {label, value, href=None}. #}
+{% macro kpi_strip(items) %}
+<div class="kpi-strip">
+  {% for item in items %}
+  {% if item.href %}
+  <a class="kpi-block" href="{{ item.href }}">
+    <span class="kpi-label">{{ item.label }}</span>
+    <span class="kpi-value mono">{{ item.value }}</span>
+  </a>
+  {% else %}
+  <div class="kpi-block">
+    <span class="kpi-label">{{ item.label }}</span>
+    <span class="kpi-value mono">{{ item.value }}</span>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{# Generic card: a title, a body (caller-supplied HTML via caller()), and
+   an optional href making the whole card a link. #}
+{% macro card(title, href=None) %}
+{% if href %}<a class="scout-card" href="{{ href }}" style="display:block;color:inherit;text-decoration:none">{% else %}<div class="scout-card">{% endif %}
+  <div class="scout-card-title">{{ title }}</div>
+  {{ caller() }}
+{% if href %}</a>{% else %}</div>{% endif %}
+{% endmacro %}
+
+{# Generic row: left content, right content (both caller-supplied HTML is
+   awkward with two callers in Jinja, so this takes plain strings/markup
+   already rendered by the caller -- left/right are Markup-safe strings). #}
+{% macro row(left, right='') %}
+<div class="scout-row">
+  <div>{{ left }}</div>
+  {% if right %}<div class="mono">{{ right }}</div>{% endif %}
+</div>
+{% endmacro %}
+
+{# Reusable version of the ad hoc <div class="empty"> pattern already used
+   in today.html (the CSS class already existed, there was no macro) --
+   same class and same icon-then-message shape, so this fits right in
+   wherever "empty" already renders. #}
+{% macro empty_state(message, action_label=None, action_href=None, icon_name='file-text') %}
+{% from "_icon.html" import icon %}
+<div class="empty">
+  {{ icon(icon_name) }}
+  <p>{{ message }}</p>
+  {% if action_label and action_href %}
+  <a class="chip" href="{{ action_href }}">{{ action_label }}</a>
+  {% endif %}
+</div>
+{% endmacro %}

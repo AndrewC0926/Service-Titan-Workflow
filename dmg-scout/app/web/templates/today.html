@@ -38,8 +38,8 @@
    primary tabs now, both live behind the overflow menu) -- their counts
    move here instead, since Today is what loads first. #}
 <div class="mb-3 flex flex-wrap items-center gap-1.5">
-  {% if review_count %}<a class="chip" href="/review">Review queue<span class="ct">{{ review_count }}</span></a>{% endif %}
-  {% if watch_count %}<a class="chip" href="/watchlist">Watch list<span class="ct">{{ watch_count }}</span></a>{% endif %}
+  {% if review_count %}<a class="chip" href="/pipeline/review">Review queue<span class="ct">{{ review_count }}</span></a>{% endif %}
+  {% if watch_count %}<a class="chip" href="/accounts/watchlist">Watch list<span class="ct">{{ watch_count }}</span></a>{% endif %}
 </div>
 {% endif %}
 <div class="today">
@@ -81,7 +81,7 @@
       <div class="empty">
         {{ icon('phone') }}
         <p>Nobody contactable on the board right now. This section fills once a project has a named
-          contact with a phone or email — check <a href="/board">the board</a> for name-only rows worth
+          contact with a phone or email — check <a href="/signals/entitlement">the board</a> for name-only rows worth
           researching.</p>
       </div>
     {% endif %}
@@ -159,7 +159,7 @@
     Field intel: {{ '{:,}'.format(field_intel_activity.total) }} logged
     {%- if field_intel_activity.most_recent %}, most recent {{ field_intel_activity.most_recent.strftime('%Y-%m-%d') }}{% endif %}
     {%- if field_intel_activity.last_30_days %}, {{ field_intel_activity.last_30_days }} in the last 30 days{% endif %}.
-    <a href="/intel">See all</a>
+    <a href="/settings/intel">See all</a>
   </p>
 
 </div>

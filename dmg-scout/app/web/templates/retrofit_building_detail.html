@@ -3,7 +3,7 @@
 {% block sheet_no %}S-16{% endblock %}
 {% block content %}
 <h2>{{ building.address or 'Address unknown' }}
-  <a href="/retrofit?population={{ building.population }}" style="float:right;font-size:12px">← back to retrofit</a>
+  <a /signals/permit-gap?population={{ building.population }}" style="float:right;font-size:12px">← back to retrofit</a>
 </h2>
 <p class="note">APN {{ building.apn }} · {{ building.county }}, {{ building.state }}
   {% if building.use_desc %} · {{ building.use_desc }}{% endif %}
@@ -17,7 +17,7 @@
 <tr><th>Service life</th>
     <td>{% if building.service_life_status %}
       <a class="stamp {{ 'stamp-post' if building.service_life_status in ('overdue','due') else 'stamp-in' if building.service_life_status == 'approaching' else 'stamp-pre' }}"
-         href="/assumptions#{{ assumption_slug('Service life bands — private commercial ownership') }}"
+         /settings/assumptions#{{ assumption_slug('Service life bands — private commercial ownership') }}"
          title="{{ building.service_life_basis }}">{% if building.population == 'replacement_candidate' %}~{% endif %}{{ building.service_life_status.replace('_',' ') }}{% if building.service_life_years_past is not none %} {{ '%+.0f'|format(building.service_life_years_past) }}yr{% endif %}</a>
       {% else %}<span class="note">{{ building.service_life_basis or 'unknown' }}</span>{% endif %}</td>
     <th>Rank score</th><td>{{ '%.2f'|format(building.rank_score) if building.rank_score else '—' }}</td></tr>

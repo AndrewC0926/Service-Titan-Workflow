@@ -1,0 +1,22 @@
+{# GET /search's own fragment -- server-rendered, hx-get from base.html's
+   palette input. Not extended from base.html: this IS the hx-get swap
+   target's innerHTML, not a full page. #}
+{% from "_macros.html" import empty_state %}
+{% if q %}
+  {% if accounts or projects %}
+    {% if accounts %}
+    <div class="palette-section-label">Accounts</div>
+    {% for a in accounts %}
+    <a class="palette-row" href="/accounts/{{ a.id }}">{{ a.name }}</a>
+    {% endfor %}
+    {% endif %}
+    {% if projects %}
+    <div class="palette-section-label">Projects</div>
+    {% for p in projects %}
+    <a class="palette-row" href="/project/{{ p.id }}">{{ p.name }}</a>
+    {% endfor %}
+    {% endif %}
+  {% else %}
+    {{ empty_state("No accounts or projects match \"" + q + "\".", icon_name="search") }}
+  {% endif %}
+{% endif %}

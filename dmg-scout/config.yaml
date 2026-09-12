@@ -1361,8 +1361,23 @@ digest:
   narrate: false
 
 dashboard:
+  # Legacy single-user pair -- kept as the fallback app.access_log.
+  # configured_users() uses when `users` below is empty, so an existing
+  # deploy with no config change keeps working exactly as it did before
+  # Block 3's per-user login (docs/MASTER-PLAN.md section 16a).
   basic_auth_username: "andrew"
   basic_auth_password_env: "DASHBOARD_PASSWORD"
+  # Per-user HTTP Basic Auth, Block 3: one {username, password_env} entry
+  # per real visitor, so app.access_log's AccessLog rows (and
+  # access_summary()) can finally tell Larry/Andy/Jason apart from Andrew
+  # instead of every authenticated hit reading as the same shared name.
+  # Empty today (no second real user's password is provisioned yet) --
+  # add an entry here plus the matching env var on Render when one is.
+  users: []
+  # Usernames allowed into Settings (Reference, Assumptions, Lines admin,
+  # Capture) -- see app.web.main.operator(). Everyone else authenticates
+  # fine but gets 403 on /settings and its sub-pages.
+  operator_usernames: ["andrew"]
 
 # =============================================================================
 # REGULATORY TRIGGERS (Phase 6) — a customer-facing citation table, not a

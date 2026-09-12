@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<div class="sec-head">
+  <div class="sec-title">Settings</div>
+  <span class="note">Operator only (Master Plan v3.2 section 13). Reference, Assumptions, Lines
+    admin and Capture configuration, plus Field intel and Source health -- all relocated here
+    unchanged from the old flat nav.</span>
+</div>
+<ul class="today-list">
+  <li><a href="/settings/reference">Reference</a> — regulatory register, A2L AHJ register, pitches, selection tools</li>
+  <li><a href="/settings/assumptions">Assumptions</a> — constants with source and review date</li>
+  <li><a href="/settings/lines">Lines admin</a> — the line card</li>
+  <li><a href="/settings/capture">Capture</a> — record a capture</li>
+  <li><a href="/settings/captures">Captures</a> — past captures, review queue</li>
+  <li><a href="/settings/intel">Field intel</a> — human-sourced project intelligence</li>
+  <li><a href="/settings/health">Source health</a> — freshness and staleness by source</li>
+</ul>
+{% endblock %}

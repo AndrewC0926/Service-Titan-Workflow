@@ -9,13 +9,21 @@ every request/response the same way, registered once in app/web/main.py.
 
 The notification USED to key on username ("a username other than the
 configured admin user shows up"), on the theory that a second real user
-would show up as a different username. That never happens: app.web.main.
-auth() only accepts one configured username (dashboard.basic_auth_username,
-default "andrew"), so every visitor who is given the shared credential
-authenticates as the same name the admin does. Confirmed directly in production access_log on
-2026-08-13: no username other than the admin's has EVER appeared, shared
-link or not. IP is the only axis that actually distinguishes "someone new
-opened this" from "the admin opened this again" -- see log_access.
+would show up as a different username. That never happened up through
+2026-09-11: app.web.main.auth() accepted exactly one configured username
+(dashboard.basic_auth_username, default "andrew"), so every visitor given
+the shared credential authenticated as the same name the admin does.
+Confirmed directly in production access_log on 2026-08-13: no username
+other than the admin's had EVER appeared, shared link or not.
+
+Block 3 (Master Plan v3.2 section 16a) fixes this for real: auth() now
+validates against configured_users() below, a per-visitor {username,
+password} list from config.yaml's dashboard.users -- a second real
+person now DOES show up as their own name in AccessLog/access_summary().
+The new-IP notification below still keys on IP, not username, on purpose
+(unchanged): a genuinely new username from a KNOWN IP (the admin's own
+machine, say) is not "someone new," and IP is still the axis that
+actually distinguishes that -- see log_access.
 
 username is still read from the raw Authorization header
 (extract_basic_auth_username), never from app.web.main.auth()'s return
@@ -91,6 +99,31 @@ def extract_basic_auth_username(auth_header: str | None) -> str | None:
 
 def admin_username(cfg: Config) -> str:
     return cfg.get("dashboard.basic_auth_username", "andrew")
+
+
+def configured_users(cfg: Config) -> list[tuple[str, str]]:
+    """[(username, password), ...] for app.web.main.auth() to check a
+    submitted credential against -- config.yaml's dashboard.users, one
+    {username, password_env} entry per real visitor (Block 3, Master Plan
+    v3.2 section 16a). Falls back to the single legacy basic_auth_username/
+    basic_auth_password_env pair when `users` is empty or unset, so a
+    deploy with no config.yaml change keeps working exactly as it always
+    has. Entries whose password_env resolves to an empty/unset env var are
+    skipped, same "fail closed, not open" discipline as the legacy path."""
+    out = []
+    for entry in cfg.get("dashboard.users", []) or []:
+        username = entry.get("username")
+        password_env = entry.get("password_env")
+        if not username or not password_env:
+            continue
+        password = os.environ.get(password_env, "")
+        if password:
+            out.append((username, password))
+    if out:
+        return out
+    legacy_user = cfg.get("dashboard.basic_auth_username", "andrew")
+    legacy_password = os.environ.get(cfg.get("dashboard.basic_auth_password_env", "DASHBOARD_PASSWORD"), "")
+    return [(legacy_user, legacy_password)] if legacy_password else []
 
 
 def send_new_ip_notification(cfg: Config, ip: str, when) -> bool:

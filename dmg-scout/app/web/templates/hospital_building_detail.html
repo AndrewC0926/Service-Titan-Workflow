@@ -4,7 +4,7 @@
 {% block sheet_no %}S-19{% endblock %}
 {% block content %}
 <h2>{{ b.facility_name }}
-  <a href="/hospitals" style="float:right;font-size:12px">← back to hospitals</a>
+  <a href="/deadlines/hospitals" style="float:right;font-size:12px">← back to hospitals</a>
 </h2>
 <p class="noprint"><a href="/ab869/{{ b.perm_id }}">AB 869 compliance plan for this facility →</a></p>
 <p class="note">{{ b.building_name or 'Building ' + b.building_nbr }} (HCAI Building Nbr {{ b.building_nbr }})
@@ -22,7 +22,7 @@
       {% if not capability_gaps.fans_covered %}Fans: 0 of {{ capability_gaps.fans_checked }} DMG lines
       hold one. {% endif %}
       Air handling, air distribution &amp; terminal, and humidification are covered.
-      See <a href="/assumptions#{{ assumption_slug("DMG's HCAI OSP capability gap (all 13 roles)") }}">/assumptions</a>.</span>
+      See <a /settings/assumptions#{{ assumption_slug("DMG's HCAI OSP capability gap (all 13 roles)") }}">/assumptions</a>.</span>
     <span class="body">{{ capability_gaps.socal_card_disclosure }}</span>
     </span>
   </div>
@@ -76,5 +76,5 @@
   Hospitals" (CHHS Open Data Portal), imported {{ b.imported_at.strftime('%Y-%m-%d') }}.
   spc_deadline_year/npc_deadline_year are Scout's own derived reading of the base SB 1953
   schedule, not an HCAI-published field — see
-  <a href="/assumptions#{{ assumption_slug('SB 1953 SPC/NPC deadline schedule') }}">/assumptions</a>.</p>
+  <a /settings/assumptions#{{ assumption_slug('SB 1953 SPC/NPC deadline schedule') }}">/assumptions</a>.</p>
 {% endblock %}

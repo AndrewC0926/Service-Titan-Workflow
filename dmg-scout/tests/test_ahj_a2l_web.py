@@ -27,7 +27,7 @@ def test_reference_ahj_a2l_tab_renders_with_counts_and_not_reached_visible(db_se
     load_ahj_a2l_guidance(db_session)
     db_session.commit()
 
-    resp = client.get("/reference?tab=ahj_a2l", headers=AUTH)
+    resp = client.get("/settings/reference?tab=ahj_a2l", headers=AUTH)
     assert resp.status_code == 200
     body = resp.text
     assert "AHJ A2L guidance" in body
@@ -42,9 +42,9 @@ def test_reference_ahj_a2l_tab_renders_with_counts_and_not_reached_visible(db_se
 
 
 def test_reference_ahj_a2l_tab_is_chip_navigable(client):
-    resp = client.get("/reference", headers=AUTH)
+    resp = client.get("/settings/reference", headers=AUTH)
     assert resp.status_code == 200
-    assert '/reference?tab=ahj_a2l' in resp.text
+    assert '/settings/reference?tab=ahj_a2l' in resp.text
 
 
 def test_project_in_la_county_shows_ahj_a2l_badge(db_session, client):

@@ -13,11 +13,11 @@
 }
 </style>
 <p class="noprint"><button onclick="window.print()">{{ icon('printer') }} Print / save PDF</button>
-  <a href="/lines" style="margin-left:12px">← back to lines</a></p>
+  <a href="/settings/lines" style="margin-left:12px">← back to lines</a></p>
 
 <h2>{{ branch }} — line card cheat sheet</h2>
 <p class="note">Confirmed pitches only, generated {{ tb.data_as_of.strftime('%Y-%m-%d') if tb.data_as_of else '' }} —
-  a draft (unreviewed) pitch never appears here. See <a href="/reference?tab=pitches">/reference</a> for
+  a draft (unreviewed) pitch never appears here. See <a /settings/reference?tab=pitches">/reference</a> for
   everything still awaiting review.</p>
 
 {% for r in role_order %}

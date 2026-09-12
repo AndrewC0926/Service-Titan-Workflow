@@ -158,7 +158,7 @@ def test_board_renders_a_sparkline_and_a_window_bar_for_an_entitlement_project(c
 
 
 def test_assumptions_renders_distribution_strips_only_for_entries_with_a_real_range(client, db_session, cfg):
-    r = client.get("/assumptions", headers=AUTH)
+    r = client.get("/settings/assumptions", headers=AUTH)
     assert r.status_code == 200
     # Exactly the entries wired with numeric_value/plausible_low/plausible_high
     # in app/assumptions.py -- Recency half-life, Days to estimated bid:
@@ -169,7 +169,7 @@ def test_assumptions_renders_distribution_strips_only_for_entries_with_a_real_ra
 
 
 def test_recency_half_life_strip_is_marked_as_a_proxy_range(client, db_session, cfg):
-    r = client.get("/assumptions", headers=AUTH)
+    r = client.get("/settings/assumptions", headers=AUTH)
     assert 'class="diststrip-tick proxy"' in r.text
     # Only ONE of the four is a proxy -- the other three carry a real
     # published range or measured CI, not an unvalidated one.
