@@ -1371,9 +1371,14 @@ dashboard:
   # per real visitor, so app.access_log's AccessLog rows (and
   # access_summary()) can finally tell Larry/Andy/Jason apart from Andrew
   # instead of every authenticated hit reading as the same shared name.
-  # Empty today (no second real user's password is provisioned yet) --
-  # add an entry here plus the matching env var on Render when one is.
-  users: []
+  # Andrew moved onto this list 2026-09-12, rotating off the legacy
+  # basic_auth_username/basic_auth_password_env pair above (kept only as
+  # the fallback for a future deploy with no config.yaml change, per its
+  # own comment) -- DASHBOARD_PASSWORD on Render is now unused for auth.
+  # Add the next real person here plus their own env var on Render.
+  users:
+    - username: "andrew"
+      password_env: "DASHBOARD_PASSWORD_ANDREW"
   # Usernames allowed into Settings (Reference, Assumptions, Lines admin,
   # Capture) -- see app.web.main.operator(). Everyone else authenticates
   # fine but gets 403 on /settings and its sub-pages.
