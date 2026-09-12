@@ -468,3 +468,36 @@ New `app/pipeline/today_calls.py::three_calls_from_pipeline()` -- ranks open (no
 ---
 
 ## This completes Block 4A (the loop, the notes, the snapshots). Nothing pushed.
+
+---
+
+## 11. Block 4B-prep (contacts may load to production; order history and customer master still do not)
+
+### Item 1: Contact importer
+
+New `app/importers/netsuite_contacts.py::import_netsuite_contacts()` + `scout import-contacts <path>` CLI command, checked directly against the real 10,401-row file (`ACContactsResults729.csv`, real path `/mnt/c/Users/andrew.crane/Downloads/ACContactsResults729.csv` -- `~/netsuite-exports/` does not hold this file). **Positional columns (`csv.reader`), not `csv.DictReader`** -- same discipline and same reason as the customer importer: the real header has "Internal ID" twice.
+
+**The Name-field pattern, measured, not assumed**: the instruction's described "`<id> <customer name>: <person>`" / "`<id> <customer> - <person>`" shape matched only **23 of 10,401 rows (0.2%)**, not the majority implied -- raised to Andrew directly rather than guessed past. Resolved as: try the strict Name-field parse first (leading digits + a literal `": "` or `" - "` separator, both required, never a looser heuristic -- false positives exist in the real data on both sides, e.g. "3 SHELDON MECHANICAL" and "Air-Ex - Matthew Wilson"), fall back to the CSV's own `Company` column (populated on **96.3%** of rows) as `customer_ref_name` when the Name-field parse doesn't match.
+
+**Account matching, per Andrew's mid-turn correction**: `customer_ref_id -> Account.netsuite_entity_id` first (verified as the correct join key for this export specifically, cross-checked against the real customer master, `ScoutResults653.csv` -- entity id 14006="RDK Mechanical", 1364="Vision Mechanical Services", 13562="I.C.O. Air Inc." all confirmed exact matches), then **exact-only** (never fuzzy) `normalize_company_name` match against `Account.name_norm`. A `name_norm` matching 2+ Accounts is left unmatched, never guessed. No match: `account_id` stays null, `customer_ref_name` kept raw for a later join once the customer master loads.
+
+**Contact table additions** (migration `5897d8167aab`, verified rollback): `netsuite_internal_id` (unique), `first_name`/`last_name` (split only where the person-name portion has exactly two whitespace tokens -- an accepted, named simplification: a two-word company name like "Alakai Mechanical" passes the same check and gets mis-split, never fixed up since the string alone can't disambiguate the two), `mobile`, `is_active` (NetSuite's own Inactive column, inverted), `customer_ref_id`, `customer_ref_name`, `account_id` (nullable), `reachable` (email or phone or mobile present -- a plain source-agnostic fact). Idempotent on `netsuite_internal_id`: upserts, never duplicates across re-imports.
+
+**Report, run against the real file on the local restore:**
+| rows | reachable | matched by ID | matched by exact company name | unmatched |
+|---|---|---|---|---|
+| 10,401 | 3,775 (36.3%) | 0 | 0 | 10,401 (100%) |
+
+**All 10,401 unmatched is the honest, expected result of the local restore's own state, not a bug**: the local DB has exactly **1 Account**, and it carries no `netsuite_entity_id` -- there is nothing in local Account data for either match path to hit yet. This will look very different in production, which has the real, fuller Account table; production's real matched-by-id/matched-by-company-name/unmatched counts are reported in Item 5 below.
+
+**Tests:** 22 new (`tests/test_netsuite_contacts.py`) -- `_parse_name_field` (6, including the false-positive guards above), `_split_first_last` (3), and `import_netsuite_contacts` (13: header rejection, basic row, reachability, is_active, matched-by-id, matched-by-exact-company-name, exact-never-fuzzy, ambiguous-name-norm-left-unmatched, no-ref-unmatched, idempotency, rerun-updates-in-place, and the report totals).
+
+### Item 2: Owner on Opportunity
+
+`Opportunity.owner_user: str` (migration `94adcbd2718d`, verified rollback) -- **required, no application-level default**. "Default to the creating user" is enforced at the one real call site, `app.pipeline.signals_feed.promote_to_opportunity(session, fs, signal_id, owner_user)`, which now requires `owner_user` with no default of its own; the `/signals/promote` web route passes the authenticated username. Migration itself uses a migration-time-only `server_default='system'` (dropped immediately after the `ALTER TABLE`) since there are **0 real Opportunity rows in both local and production** (verified directly via a Render job before writing the migration) -- it never actually backfills a real row with a fake owner.
+
+`app.pipeline.notes.three_deals_to_explain()` **becomes per user**: now requires a `user` argument (no default) and filters `Opportunity.owner_user == user`, closing the gap Item 3 of Block 4A found and explicitly disclosed (Opportunity had no owner field to partition by, so the function could only return one shared list). The `/notes` page route now passes the authenticated username.
+
+**Tests:** 1 new (`tests/test_notes.py::test_is_a_real_per_user_partition_not_a_shared_list` -- two different owners' old, open Opportunities never leak into each other's list) plus the 9 pre-existing test files that construct `Opportunity(...)` directly, all updated to supply `owner_user` (`test_notes.py`, `test_pipeline_and_signals_pages.py`, `test_mcp_tools.py`, `test_metrics.py`, `test_notes_page.py`, `test_outcomes.py`, `test_voice_capture.py`, `test_today_calls.py`, `test_web.py`) and both direct callers of `promote_to_opportunity` (`test_signals_feed.py`, `test_opportunity_anchors.py`).
+
+**Full suite: 2205 passed, 0 failed, 2 deselected**, 3:03 unchunked (up from Block 4A's close-out baseline by the 22 Item-1 tests + the 1 new Item-2 test; no regressions).

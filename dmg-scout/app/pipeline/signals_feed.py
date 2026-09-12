@@ -508,7 +508,7 @@ def four_part_filter(session: Session, fs: FeedSignal) -> FourPartResult:
 # Promote to Opportunity
 # ---------------------------------------------------------------------------
 
-def promote_to_opportunity(session: Session, fs: FeedSignal, signal_id: int) -> Opportunity:
+def promote_to_opportunity(session: Session, fs: FeedSignal, signal_id: int, owner_user: str) -> Opportunity:
     """Creates the Opportunity and its three-row ReasonBlock from a
     FeedSignal that has already passed four_part_filter (callers must
     check first -- this function does not re-check, so it can also be used
@@ -516,6 +516,9 @@ def promote_to_opportunity(session: Session, fs: FeedSignal, signal_id: int) -> 
     signal_id is the real `signals` table row to attach (Opportunity.
     signal_id is not nullable, Item 1) -- FeedSignal itself is never
     persisted, so callers resolve or create that row before calling this.
+    owner_user is required, no default (Block 4B-prep Item 2) -- "default
+    to the creating user" is the CALLER's job (the authenticated username
+    triggering this promotion), never a value this function invents.
 
     "Why them"/"why now"/"why win" are filled from what this module can
     actually see today -- Block 3 is public data only, no DMG data, no
@@ -540,6 +543,7 @@ def promote_to_opportunity(session: Session, fs: FeedSignal, signal_id: int) -> 
         line_id=result.line_id,
         pen_state=fs.pen_state,
         origin=origin,
+        owner_user=owner_user,
     )
     session.add(opp)
     session.flush()

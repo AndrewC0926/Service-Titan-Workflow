@@ -271,7 +271,7 @@ class TestPromoteToOpportunity:
         fs = FeedSignal(source="project", source_id="1", trigger_type=TriggerType.entitlement_milestone,
                         trigger_date=datetime(2026, 1, 1), evidence="Board project fired", confidence=None,
                         account_id=42)
-        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id)
+        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id, owner_user="andrew")
 
         assert opp.id is not None
         assert opp.signal_id == signal.id
@@ -291,7 +291,7 @@ class TestPromoteToOpportunity:
         db_session.commit()
         fs = FeedSignal(source="project", source_id="1", trigger_type=TriggerType.entitlement_milestone,
                         trigger_date=datetime(2026, 1, 1), evidence="x", confidence=None, account_id=1)
-        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id)
+        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id, owner_user="andrew")
         win_block = db_session.exec(
             select(ReasonBlock).where(ReasonBlock.opportunity_id == opp.id, ReasonBlock.why_kind == WhyKind.win)
         ).first()
@@ -303,7 +303,7 @@ class TestPromoteToOpportunity:
         db_session.commit()
         fs = FeedSignal(source="project", source_id="1", trigger_type=TriggerType.entitlement_milestone,
                         trigger_date=datetime(2026, 1, 1), evidence="x", confidence=None, account_id=1)
-        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id)
+        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id, owner_user="andrew")
         them_block = db_session.exec(
             select(ReasonBlock).where(ReasonBlock.opportunity_id == opp.id, ReasonBlock.why_kind == WhyKind.them)
         ).first()
@@ -317,7 +317,7 @@ class TestPromoteToOpportunity:
         db_session.commit()
         fs = FeedSignal(source="retrofit_building", source_id=str(b.id), trigger_type=TriggerType.permit_gap,
                         trigger_date=None, evidence="x", confidence=None, building_id=b.id)
-        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id)
+        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id, owner_user="andrew")
         them_block = db_session.exec(
             select(ReasonBlock).where(ReasonBlock.opportunity_id == opp.id, ReasonBlock.why_kind == WhyKind.them)
         ).first()
@@ -331,7 +331,7 @@ class TestPromoteToOpportunity:
         db_session.commit()
         fs = FeedSignal(source="project", source_id="1", trigger_type=TriggerType.entitlement_milestone,
                         trigger_date=datetime(2026, 1, 1), evidence="x", confidence=None, account_id=1)
-        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id)
+        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id, owner_user="andrew")
         assert opp.origin == Origin.scout_signal
 
     def test_origin_is_relationship_intro_for_a_field_intel_trigger(self, db_session):
@@ -342,5 +342,5 @@ class TestPromoteToOpportunity:
         db_session.commit()
         fs = FeedSignal(source="field_intel", source_id="1", trigger_type=TriggerType.relationship_intro,
                         trigger_date=datetime(2026, 1, 1), evidence="x", confidence=None, account_id=1)
-        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id)
+        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id, owner_user="andrew")
         assert opp.origin == Origin.relationship_intro

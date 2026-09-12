@@ -14,11 +14,11 @@ from app.pipeline.notes import (
 )
 
 
-def _opportunity(db_session, created_at=None):
+def _opportunity(db_session, created_at=None, owner_user="andrew"):
     signal = Signal(signal_type=SignalType.ceqa_nop)
     db_session.add(signal)
     db_session.flush()
-    opp = Opportunity(signal_id=signal.id, account_id=1)
+    opp = Opportunity(signal_id=signal.id, account_id=1, owner_user=owner_user)
     if created_at is not None:
         opp.created_at = created_at
     db_session.add(opp)
@@ -100,7 +100,7 @@ class TestThreeDealsToExplain:
     def test_returns_open_opportunities_older_than_14_days(self, db_session):
         old_opp = _opportunity(db_session, created_at=utcnow() - timedelta(days=20))
         new_opp = _opportunity(db_session, created_at=utcnow() - timedelta(days=1))
-        result = three_deals_to_explain(db_session)
+        result = three_deals_to_explain(db_session, user="andrew")
         ids = [o.id for o in result]
         assert old_opp.id in ids
         assert new_opp.id not in ids
@@ -110,15 +110,26 @@ class TestThreeDealsToExplain:
         won_opp.stage = OpportunityStage.won
         db_session.add(won_opp)
         db_session.commit()
-        result = three_deals_to_explain(db_session)
+        result = three_deals_to_explain(db_session, user="andrew")
         assert won_opp.id not in [o.id for o in result]
 
     def test_caps_at_three_oldest_first(self, db_session):
         opps = [_opportunity(db_session, created_at=utcnow() - timedelta(days=15 + i)) for i in range(5)]
-        result = three_deals_to_explain(db_session)
+        result = three_deals_to_explain(db_session, user="andrew")
         assert len(result) == 3
         # Oldest (largest offset) should be first.
         assert result[0].id == opps[-1].id
+
+    def test_is_a_real_per_user_partition_not_a_shared_list(self, db_session):
+        """Block 4B-prep Item 2: 'becomes per user' -- a second rep's old,
+        open Opportunity must never show up in andrew's list, and vice
+        versa."""
+        andrew_opp = _opportunity(db_session, created_at=utcnow() - timedelta(days=20), owner_user="andrew")
+        maria_opp = _opportunity(db_session, created_at=utcnow() - timedelta(days=20), owner_user="maria")
+        andrew_result = three_deals_to_explain(db_session, user="andrew")
+        maria_result = three_deals_to_explain(db_session, user="maria")
+        assert [o.id for o in andrew_result] == [andrew_opp.id]
+        assert [o.id for o in maria_result] == [maria_opp.id]
 
 
 class TestConfigDrivenLists:

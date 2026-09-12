@@ -13,6 +13,7 @@ def _opportunity(db_session, **kw):
     signal = Signal(signal_type=SignalType.ceqa_nop)
     db_session.add(signal)
     db_session.flush()
+    kw = {"owner_user": "andrew", **kw}
     opp = Opportunity(signal_id=signal.id, account_id=1, **kw)
     db_session.add(opp)
     db_session.commit()

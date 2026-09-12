@@ -25,7 +25,7 @@ def _opportunity(db_session, created_at=None):
     signal = Signal(signal_type=SignalType.ceqa_nop)
     db_session.add(signal)
     db_session.flush()
-    opp = Opportunity(signal_id=signal.id, account_id=1)
+    opp = Opportunity(signal_id=signal.id, account_id=1, owner_user="andrew")
     if created_at is not None:
         opp.created_at = created_at
     db_session.add(opp)

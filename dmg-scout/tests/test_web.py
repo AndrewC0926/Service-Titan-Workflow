@@ -106,7 +106,7 @@ def test_today_connected_button_logs_an_outcome_without_navigating(client, db_se
     signal = Signal(signal_type=SignalType.ceqa_nop)
     db_session.add(signal)
     db_session.flush()
-    opp = Opportunity(signal_id=signal.id, account_id=1)
+    opp = Opportunity(signal_id=signal.id, account_id=1, owner_user="andrew")
     db_session.add(opp)
     db_session.flush()
     for kind in WhyKind:

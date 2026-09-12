@@ -89,17 +89,17 @@ def log_note(session, *, note_type, lead_source, author: str, opportunity_id: in
     return note
 
 
-def three_deals_to_explain(session, min_age_days: int = 14, limit: int = 3) -> list[Opportunity]:
+def three_deals_to_explain(session, user: str, min_age_days: int = 14, limit: int = 3) -> list[Opportunity]:
     """Master Plan v3.6 section 31: "a weekly per-user list, 'three deals,
     tell us why,' generated from NetSuite closes once loaded and from
     Scout opportunities until then... Thirty seconds each."
 
-    "For now" (the item's own words): Opportunity has no owner/assigned-
-    rep field anywhere in Scout today, so this returns ONE shared
-    candidate list, not a real per-user partition -- a true per-user split
-    needs either an Opportunity.owner field or an attribution rule (e.g.
-    the last Outcome.user to touch it), neither of which exists yet. Every
-    open (not won/lost) Opportunity older than min_age_days, oldest first,
+    Block 4B-prep Item 2: now a real per-user partition via
+    Opportunity.owner_user, required here (no default) for the same
+    reason it is required on Opportunity itself -- the caller (the
+    authenticated username viewing /notes) always knows who it is asking
+    for; this function never guesses. Every open (not won/lost)
+    Opportunity owned by `user`, older than min_age_days, oldest first,
     capped at `limit`."""
     from datetime import timedelta
 
@@ -110,6 +110,7 @@ def three_deals_to_explain(session, min_age_days: int = 14, limit: int = 3) -> l
     cutoff = utcnow() - timedelta(days=min_age_days)
     return session.exec(
         select(Opportunity)
+        .where(Opportunity.owner_user == user)
         .where(Opportunity.stage.not_in((OpportunityStage.won, OpportunityStage.lost)))
         .where(Opportunity.created_at <= cutoff)
         .order_by(Opportunity.created_at.asc())

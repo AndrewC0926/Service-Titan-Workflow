@@ -13,6 +13,7 @@ def _opportunity_with_reason_block(db_session, strengths, **opp_kw):
     signal = Signal(signal_type=SignalType.ceqa_nop)
     db_session.add(signal)
     db_session.flush()
+    opp_kw = {"owner_user": "andrew", **opp_kw}
     opp = Opportunity(signal_id=signal.id, account_id=1, **opp_kw)
     db_session.add(opp)
     db_session.flush()
@@ -72,7 +73,7 @@ class TestThreeCallsFromPipeline:
         signal = Signal(signal_type=SignalType.ceqa_nop)
         db_session.add(signal)
         db_session.flush()
-        opp = Opportunity(signal_id=signal.id, account_id=1)
+        opp = Opportunity(signal_id=signal.id, account_id=1, owner_user="andrew")
         db_session.add(opp)
         db_session.flush()
         db_session.add(ReasonBlock(opportunity_id=opp.id, why_kind=WhyKind.them,

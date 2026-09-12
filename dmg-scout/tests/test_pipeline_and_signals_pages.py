@@ -150,7 +150,7 @@ class TestPipelinePage:
         signal = Signal(signal_type=SignalType.ceqa_nop, event_date=datetime(2026, 1, 1))
         db_session.add(signal)
         db_session.flush()
-        opp = Opportunity(signal_id=signal.id, account_id=1, stage=OpportunityStage.identified)
+        opp = Opportunity(signal_id=signal.id, account_id=1, stage=OpportunityStage.identified, owner_user="andrew")
         db_session.add(opp)
         db_session.flush()
         for kind, strength in ((WhyKind.them, ReasonStrength.Strong), (WhyKind.now, ReasonStrength.Strong),
@@ -169,8 +169,8 @@ class TestPipelinePage:
         sig1 = Signal(signal_type=SignalType.ceqa_nop, event_date=datetime(2026, 1, 1))
         sig2 = Signal(signal_type=SignalType.ceqa_nop, event_date=datetime(2026, 1, 1))
         db_session.add(sig1); db_session.add(sig2); db_session.flush()
-        strong_opp = Opportunity(signal_id=sig1.id, account_id=1, next_action="call strong")
-        abstain_opp = Opportunity(signal_id=sig2.id, account_id=2, next_action="call abstain")
+        strong_opp = Opportunity(signal_id=sig1.id, account_id=1, next_action="call strong", owner_user="andrew")
+        abstain_opp = Opportunity(signal_id=sig2.id, account_id=2, next_action="call abstain", owner_user="andrew")
         db_session.add(strong_opp); db_session.add(abstain_opp); db_session.flush()
         for kind in WhyKind:
             db_session.add(ReasonBlock(opportunity_id=strong_opp.id, why_kind=kind, strength=ReasonStrength.Strong, evidence="x"))
@@ -189,7 +189,7 @@ class TestPipelineOutcomeLogging:
         signal = Signal(signal_type=SignalType.ceqa_nop)
         db_session.add(signal)
         db_session.flush()
-        opp = Opportunity(signal_id=signal.id, account_id=1)
+        opp = Opportunity(signal_id=signal.id, account_id=1, owner_user="andrew")
         db_session.add(opp)
         db_session.commit()
         return opp

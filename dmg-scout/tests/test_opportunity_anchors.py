@@ -189,7 +189,7 @@ class TestPromoteWithBuildingAnchorEndToEnd:
 
         signal_id = ensure_signal_for_promotion(db_session, fs)
         assert signal_id is not None
-        opp = promote_to_opportunity(db_session, fs, signal_id=signal_id)
+        opp = promote_to_opportunity(db_session, fs, signal_id=signal_id, owner_user="andrew")
         db_session.commit()
 
         assert opp.building_id == b.id

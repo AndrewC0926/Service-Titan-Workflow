@@ -3606,6 +3606,14 @@ class Opportunity(SQLModel, table=True):
     # Block 4A Item 4 (Master Plan v3.6 section 32) -- see Origin's own
     # docstring for why this is a distinct enum from DecisionNote.lead_source.
     origin: Origin = Field(default=Origin.scout_signal, index=True)
+    # Block 4B-prep Item 2: required, no application-level default -- every
+    # real caller (app.pipeline.signals_feed.promote_to_opportunity) must
+    # state who is creating this Opportunity; "default to the creating
+    # user" is enforced at each call site (the authenticated username),
+    # never silently filled in here. Closes the gap Block 4A Item 3 found
+    # (three_deals_to_explain could only return one shared list, since
+    # Opportunity had no owner field to partition by at all).
+    owner_user: str = Field(index=True)
     next_action: str | None = None
     last_touch: datetime | None = Field(default=None, index=True)
     # Never overwritten once set -- see class docstring.

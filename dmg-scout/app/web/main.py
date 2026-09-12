@@ -575,7 +575,7 @@ def _note_anchor_label(session: Session, note) -> str:
 
 @app.get("/notes", response_class=HTMLResponse)
 def notes_index(request: Request, anchor_type: str = "", anchor_id: str = "",
-                session: Session = Depends(get_session), _: str = Depends(auth)):
+                session: Session = Depends(get_session), username: str = Depends(auth)):
     """Block 4A Item 3 (Master Plan v3.6 section 31): the /notes page --
     the weekly "three deals, tell us why" list, every note ever logged
     (most recent first, capped), and an add-note form. anchor_type/
@@ -589,7 +589,7 @@ def notes_index(request: Request, anchor_type: str = "", anchor_id: str = "",
 
     notes = session.exec(select(DecisionNote).order_by(DecisionNote.created_at.desc()).limit(100)).all()
     notes_with_labels = [{"note": n, "anchor_label": _note_anchor_label(session, n)} for n in notes]
-    candidates = three_deals_to_explain(session)
+    candidates = three_deals_to_explain(session, user=username)
 
     return templates.TemplateResponse(request, "notes_index.html", {
         "tb": _title_block(session), "active": "notes",
@@ -684,7 +684,7 @@ def signals_index(request: Request, trigger: str = "",
 
 @app.post("/signals/promote")
 def signals_promote(source: str = Form(...), source_id: str = Form(...),
-                    session: Session = Depends(get_session), _: str = Depends(auth)):
+                    session: Session = Depends(get_session), username: str = Depends(auth)):
     """Re-finds the one matching FeedSignal from its own source builder
     (not a full unified_signals() rebuild -- see the per-source dispatch
     below) and promotes it if it still passes. A rare action (0 signals
@@ -718,7 +718,7 @@ def signals_promote(source: str = Form(...), source_id: str = Form(...),
     if signal_id is None:
         raise HTTPException(status.HTTP_409_CONFLICT,
                             detail=f"cannot promote: no Signal record possible for source {match.source!r}")
-    opp = sf.promote_to_opportunity(session, match, signal_id=signal_id)
+    opp = sf.promote_to_opportunity(session, match, signal_id=signal_id, owner_user=username)
     session.commit()
     return RedirectResponse(f"/pipeline#opp-{opp.id}", status_code=303)
 
