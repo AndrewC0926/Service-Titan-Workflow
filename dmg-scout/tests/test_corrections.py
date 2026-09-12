@@ -8,7 +8,8 @@ import pytest
 from sqlmodel import select
 
 from app.models import (
-    Category, PinnedFieldConflict, Project, ProjectSignal, Signal, SignalType, Stage, utcnow,
+    Category, ManualCorrection, PinnedFieldConflict, Project, ProjectSignal, Signal,
+    SignalType, Stage, utcnow,
 )
 from app.pipeline.corrections import apply_manual_correction, latest_correction
 from app.pipeline.resolve import link_signal_to_project
@@ -182,3 +183,70 @@ def test_best_excludes_an_already_linked_pre_pin_signal_from_the_max(db_session,
     db_session.refresh(p)
     assert p.tons_estimate_low is None, \
         "best() let the pre-pin signal's mw_it=40 size the project despite the pin"
+
+
+# --- migration c1a4f6d2e9b0: legacy field='delivery_method' rows still resolve -----
+#
+# Gap found in a3d719c04b5e (the Project column rename): it never rewrote a
+# pre-existing manual_corrections/pinned_field_conflicts row whose `field`
+# column literally stores the string "delivery_method" -- FIELD_CONVERTERS
+# was renamed to key on "delivery_method_llm_hint" in the same commit, so a
+# legacy-keyed row would otherwise stop resolving entirely. Migration
+# c1a4f6d2e9b0 fixes this with a plain UPDATE; these tests exercise the same
+# rewrite at the application level (the migration itself is Postgres-only
+# raw SQL via alembic's `op`, not something this SQLite-backed suite can
+# invoke directly -- see that migration's own module docstring) and confirm
+# a rewritten row is fully usable afterward, standing in for "the 11
+# unworked corrections still resolve" since this restore's own
+# manual_corrections table has 0 rows to check that against directly.
+
+def test_legacy_delivery_method_keyed_row_is_orphaned_before_the_rewrite(db_session, cfg):
+    """Demonstrates the bug the migration fixes: a row still keyed
+    "delivery_method" (as if a3d719c04b5e's rewrite had never run) cannot be
+    resolved under the new field name at all."""
+    p = _project(db_session)
+    db_session.add(ManualCorrection(project_id=p.id, field="delivery_method",
+                                    old_value=None, new_value="design_build",
+                                    reason="pre-migration row", corrected_by="Andrew"))
+    db_session.commit()
+    assert latest_correction(db_session, p.id, "delivery_method_llm_hint") is None
+
+
+def test_after_the_rewrite_the_same_row_resolves_under_the_new_field_name(db_session, cfg):
+    """The exact UPDATE migration c1a4f6d2e9b0 performs, applied at the ORM
+    level: field='delivery_method' -> field='delivery_method_llm_hint'.
+    Once rewritten, latest_correction finds it and a new signal correctly
+    gets pinned against it -- the full round-trip "still resolves" check."""
+    # delivery_method_llm_hint already carries the correction's own
+    # new_value -- matching apply_manual_correction's real behavior (it
+    # writes the field directly, the ManualCorrection row is the audit
+    # trail alongside it), and needed for the pin-conflict branch in
+    # _absorb to fire at all (it's a no-op while the hint is still None).
+    p = _project(db_session, delivery_method_llm_hint="design_build")
+    correction = ManualCorrection(project_id=p.id, field="delivery_method",
+                                  old_value=None, new_value="design_build",
+                                  reason="pre-migration row", corrected_by="Andrew")
+    db_session.add(correction)
+    db_session.commit()
+
+    # The migration's rewrite.
+    correction.field = "delivery_method_llm_hint"
+    db_session.add(correction)
+    db_session.commit()
+
+    found = latest_correction(db_session, p.id, "delivery_method_llm_hint")
+    assert found is not None
+    assert found.new_value == "design_build"
+
+    # And the pin actually governs a later signal, same as any other
+    # correction -- a real "still resolves" check, not just a row lookup.
+    newer_signal = _signal(db_session, delivery_method="cm_at_risk",
+                          event_date=utcnow() + timedelta(days=1))
+    link_signal_to_project(db_session, cfg, newer_signal, p, 1.0, "direct")
+    db_session.commit()
+    conflicts = db_session.exec(
+        select(PinnedFieldConflict).where(PinnedFieldConflict.project_id == p.id,
+                                          PinnedFieldConflict.field == "delivery_method_llm_hint")
+    ).all()
+    assert len(conflicts) == 1
+    assert conflicts[0].candidate_value == "cm_at_risk"

@@ -960,9 +960,12 @@ class StageObservation(SQLModel, table=True):
 
 
 class ManualCorrection(SQLModel, table=True):
-    """A human overriding stage/mw_it/mw_total/delivery_method directly --
-    the ONLY path allowed to move these backward (stage), shrink them
-    (mw_it/mw_total), or replace an already-stated one (delivery_method).
+    """A human overriding stage/mw_it/mw_total/delivery_method_llm_hint
+    directly -- the ONLY path allowed to move these backward (stage), shrink
+    them (mw_it/mw_total), or replace an already-stated one
+    (delivery_method_llm_hint, display-only as of Build Plan v2.1 Block 2's
+    WS3.1 decision -- corrections here fix what a human reads, never a rule
+    input).
     See app.pipeline.corrections' module docstring for the full design
     (the RATCHET BUG diagnosis and RATCHET OVERRIDE proposal, both
     2026-09-06) and apply_manual_correction, the only writer.
@@ -985,7 +988,7 @@ class ManualCorrection(SQLModel, table=True):
 
     field/new_value are both stored as plain strings (an enum's .value for
     stage, a plain number-string for mw_it/mw_total, the string itself for
-    delivery_method) -- one shape covers all four correctable fields
+    delivery_method_llm_hint) -- one shape covers all four correctable fields
     without three near-identical tables, since nothing here ever needs to
     query or aggregate across mixed value types, only display them.
     """
@@ -996,7 +999,7 @@ class ManualCorrection(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     project_id: int = Field(foreign_key="projects.id", index=True)
-    field: str = Field(index=True)  # stage | mw_it | mw_total | delivery_method
+    field: str = Field(index=True)  # stage | mw_it | mw_total | delivery_method_llm_hint
     old_value: str | None = None
     new_value: str
     reason: str = Field(sa_column=Column(Text, nullable=False))
@@ -1007,7 +1010,7 @@ class ManualCorrection(SQLModel, table=True):
 class PinnedFieldConflict(SQLModel, table=True):
     """A signal observed AFTER a ManualCorrection's corrected_at that would
     still move the pinned field forward (stage/mw_it/mw_total) or propose a
-    different value (delivery_method) -- surfaced for a human to confirm or
+    different value (delivery_method_llm_hint) -- surfaced for a human to confirm or
     reject, never applied automatically. The forward-only rule alone is no
     longer sufficient justification once a human has actively overridden a
     field; this is the fork in app.pipeline.resolve._absorb() that runs
