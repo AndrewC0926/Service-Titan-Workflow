@@ -189,3 +189,14 @@ def test_pipeline_runs_normally_when_last_success_is_old(db_session, monkeypatch
 
     assert "fetch" in calls, "a success older than RECENT_SUCCESS_SKIP_HOURS must not block a new run"
     assert result.exit_code == 0
+
+
+def test_snapshot_metrics_cmd_runs_and_prints_a_count_per_metric(db_session):
+    """Block 4A Item 4: `scout snapshot-metrics` on its own, not just as
+    part of the full pipeline."""
+    result = CliRunner().invoke(cli_app, ["snapshot-metrics"])
+    assert result.exit_code == 0
+    import json
+    output = json.loads(result.output)
+    assert "qualified_opportunities" in output
+    assert output["qualified_opportunities"] == 1  # one dimensionless row: {} -> value

@@ -232,6 +232,20 @@ def notify() -> None:
     typer.echo(json.dumps(result))
 
 
+@app.command(name="snapshot-metrics")
+def snapshot_metrics_cmd() -> None:
+    """Block 4A Item 4: write today's metric_snapshot rows -- signals by
+    trigger type, opportunities by stage/engine/owner, whys-strength
+    distribution, earliness rate, deadline exposure by regulation,
+    outcomes/notes per user, ABSTAIN rates, source freshness. Idempotent
+    -- safe to re-run the same day. Runs right after `notify` in `scout
+    pipeline` (see that command's own docstring)."""
+    from app.pipeline.metrics import run_metric_snapshot
+    with session_scope() as session:
+        written = run_metric_snapshot(session)
+    typer.echo(json.dumps({k: len(v) for k, v in written.items()}))
+
+
 # hours_stale() < this -> `scout pipeline` refuses to start a second time
 # without --force. Sized against the real gap between Render's own "0 13
 # * * *" schedule and .github/workflows/pipeline-backup.yml's 13:20 UTC
@@ -250,10 +264,11 @@ def pipeline(force: bool = typer.Option(
         "Never bypasses the currently-running guard -- that one is not optional.",
 )) -> None:
     """Run the full pipeline: fetch → triage → extract → resolve → score →
-    notify → diff-sources → fetch-ebewe-benchmarks → build-retrofit-buildings →
-    find-replacement-candidates (the last two -- ebewe and replacement-
-    candidates -- Sundays only, see RETROFIT_WEEKLY_WEEKDAY above;
-    diff-sources runs daily, see its own docstring). Pings the
+    notify → diff-sources → snapshot-metrics → fetch-ebewe-benchmarks →
+    build-retrofit-buildings → find-replacement-candidates (the last two --
+    ebewe and replacement-candidates -- Sundays only, see
+    RETROFIT_WEEKLY_WEEKDAY above; diff-sources and snapshot-metrics run
+    daily, see their own docstrings). Pings the
     dead man's switch (HEALTHCHECK_URL) on completion, and records a
     pipeline_run row for the in-app staleness alarm (`scout check-freshness`
     / the root dashboard banner) — see app.pipeline_health, which also now
@@ -386,7 +401,15 @@ def pipeline(force: bool = typer.Option(
         # load-hcai-projects` or `scout import-ab869` mid-day) by the very
         # next morning, regardless of which source's own cadence changed.
         # Pure SQL, no LLM, no fetch -- see app/pipeline/diffs.py.
+        #
+        # snapshot_metrics_cmd (Block 4A Item 4) sits right after
+        # diff_sources_cmd -- "after notify" per the item's own words, and
+        # specifically after diff_sources_cmd rather than immediately
+        # after notify so its source_freshness_days metric reads
+        # SourceRowSeen.last_seen_at values diff_sources_cmd just updated
+        # THIS run, not yesterday's.
         for step in (fetch, triage, extract, grounding, resolve, score, notify, diff_sources_cmd,
+                    snapshot_metrics_cmd,
                     fetch_ebewe_benchmarks_cmd, fetch_local250_cmd, fetch_ownership_recency_cmd,
                     build_retrofit_buildings_cmd, find_replacement_candidates_cmd,
                     match_contractors_cmd, match_contractors_overdue_cmd):

@@ -91,6 +91,23 @@ class PenState(str, enum.Enum):
     ABSTAIN = "ABSTAIN"
 
 
+class Origin(str, enum.Enum):
+    """Block 4A Item 4 (Master Plan v3.6 section 32): "Every Opportunity
+    and every Decision Note carries an origin." Deliberately a SEPARATE
+    enum from DecisionNote's own LeadSource (Item 3), even though four of
+    the five values look alike -- section 32's own literal list says
+    relationship_intro, section 31's says relationship. relationship_intro
+    matches TriggerType.relationship_intro (Item 2) exactly -- an
+    Opportunity promoted from a FieldIntel-sourced signal -- so this enum
+    tracks that real distinction rather than silently reusing a
+    near-miss vocabulary that would blur it."""
+    scout_signal = "scout_signal"
+    relationship_intro = "relationship_intro"
+    rep_originated = "rep_originated"
+    inbound = "inbound"
+    inside_sales = "inside_sales"
+
+
 class Window(str, enum.Enum):
     PRE_BOD = "PRE_BOD"
     IN_BOD = "IN_BOD"
@@ -3527,6 +3544,9 @@ class Opportunity(SQLModel, table=True):
     stage: OpportunityStage = Field(default=OpportunityStage.identified, index=True)
     pen_holder: PenHolderRole = Field(default=PenHolderRole.ABSTAIN, index=True)
     pen_state: PenState = Field(default=PenState.ABSTAIN, index=True)
+    # Block 4A Item 4 (Master Plan v3.6 section 32) -- see Origin's own
+    # docstring for why this is a distinct enum from DecisionNote.lead_source.
+    origin: Origin = Field(default=Origin.scout_signal, index=True)
     next_action: str | None = None
     last_touch: datetime | None = Field(default=None, index=True)
     # Never overwritten once set -- see class docstring.
@@ -3738,3 +3758,32 @@ class DecisionNote(SQLModel, table=True):
     role: str | None = None
     created_at: datetime = Field(default_factory=utcnow, index=True)
     source: OutcomeSource = Field(default=OutcomeSource.web, index=True)
+
+
+class MetricSnapshot(SQLModel, table=True):
+    """Block 4A Item 4 (Master Plan v3.6 section 30): "A metric_snapshot
+    table... written by the nightly cron, append-only, never recomputed
+    from mutable tables... Reports reads only from this table."
+
+    Append-only, idempotent per day (app.pipeline.metrics.write_snapshot):
+    re-running today's snapshot computation replaces today's own rows for
+    a given (metric_key, dimensions) pair rather than duplicating them,
+    but a PAST day's rows are never touched by a later run -- "append-
+    only" describes the table across days, "idempotent" describes one
+    day's own re-run.
+
+    dimensions is a JSON object, not a fixed set of columns, because
+    different metrics break out along genuinely different axes (trigger_
+    type, stage, source, user...) -- a single dimensions blob keeps this
+    one table instead of one per metric shape. See metrics.yaml (repo
+    root) for every metric_key's formula/sources/owner/cadence, and
+    tests/test_metrics.py's test_every_written_metric_key_is_documented
+    for the guard that keeps the two from drifting apart."""
+    __tablename__ = "metric_snapshots"
+
+    id: int | None = Field(default=None, primary_key=True)
+    snapshot_date: datetime = Field(index=True)
+    metric_key: str = Field(index=True)
+    dimensions: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
+    value: float = 0.0
+    computed_by: str = "pipeline"

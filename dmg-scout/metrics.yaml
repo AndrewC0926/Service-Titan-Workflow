@@ -1,0 +1,110 @@
+# Block 4A Item 4 (Master Plan v3.6 sections 30/34): every metric_key
+# app.pipeline.metrics writes, defined once so "how is that computed" is a
+# link, not a guess. tests/test_metrics.py's
+# test_every_written_metric_key_is_documented fails if a metric_key ever
+# gets written here without a matching entry, or vice versa.
+#
+# owner: who is accountable for this number meaning what it says.
+# cadence: how often it's recomputed (all of these: daily, via the
+# pipeline step registered right after `notify`).
+# last_validated: the date a human last confirmed the formula matches
+# what's actually in the plan/codebase -- update this whenever the
+# formula changes, not just when the code changes.
+
+signals_by_trigger_type:
+  formula: "count(unified_signals()), grouped by trigger_type"
+  sources: ["app.pipeline.signals_feed.unified_signals"]
+  owner: andrew
+  cadence: daily
+  last_validated: "2026-09-13"
+
+qualified_opportunities:
+  formula: "count(Opportunity) -- every row already passed the four-part filter by construction"
+  sources: ["opportunities"]
+  owner: andrew
+  cadence: daily
+  last_validated: "2026-09-13"
+
+opportunities_by_stage:
+  formula: "count(Opportunity), grouped by stage"
+  sources: ["opportunities.stage"]
+  owner: andrew
+  cadence: daily
+  last_validated: "2026-09-13"
+
+opportunities_by_engine:
+  formula: "count(Opportunity), grouped by origin (section 13's 'engine' filter and section 32's 'origin' field are the same concept)"
+  sources: ["opportunities.origin"]
+  owner: andrew
+  cadence: daily
+  last_validated: "2026-09-13"
+
+opportunities_by_owner:
+  formula: "count(Opportunity), one ABSTAIN bucket -- Opportunity has no owner/rep field yet"
+  sources: ["opportunities"]
+  owner: andrew
+  cadence: daily
+  last_validated: "2026-09-13"
+
+whys_strength_distribution:
+  formula: "count(Opportunity with a complete 3-row Reason Block), grouped by how many of the 3 ReasonBlocks are Strong (0-3)"
+  sources: ["reason_blocks.strength"]
+  owner: andrew
+  cadence: daily
+  last_validated: "2026-09-13"
+
+earliness_rate:
+  formula: "count(Opportunity where pen_state=not_moved) / count(Opportunity)"
+  sources: ["opportunities.pen_state"]
+  owner: andrew
+  cadence: daily
+  last_validated: "2026-09-13"
+
+deadline_exposure_by_regulation:
+  formula: "count(rows) from app.pipeline.deadlines.deadlines_by_regulation(), grouped by regulation"
+  sources: ["app.pipeline.deadlines.deadlines_by_regulation"]
+  owner: andrew
+  cadence: daily
+  last_validated: "2026-09-13"
+
+outcomes_logged_per_user:
+  formula: "count(Outcome), grouped by user"
+  sources: ["outcomes.user"]
+  owner: andrew
+  cadence: daily
+  last_validated: "2026-09-13"
+
+notes_per_user:
+  formula: "count(DecisionNote), grouped by author"
+  sources: ["decision_notes.author"]
+  owner: andrew
+  cadence: daily
+  last_validated: "2026-09-13"
+
+abstain_rate_delivery_method_class:
+  formula: "count(Project where delivery_method_class=ABSTAIN) / count(Project)"
+  sources: ["projects.delivery_method_class"]
+  owner: andrew
+  cadence: daily
+  last_validated: "2026-09-13"
+
+abstain_rate_pen_state:
+  formula: "count(Signal where pen_state=ABSTAIN) / count(Signal) -- measured against signals, not opportunities, per section 12b's own wording"
+  sources: ["signals.pen_state"]
+  owner: andrew
+  cadence: daily
+  last_validated: "2026-09-13"
+
+abstain_rate_contact:
+  formula: "count(unified_signals() with no resolvable Contact via the four-part filter's named_reachable_contact part) / count(unified_signals())"
+  sources: ["app.pipeline.signals_feed._named_reachable_contact"]
+  owner: andrew
+  cadence: daily
+  last_validated: "2026-09-13"
+
+source_freshness_days:
+  formula: "(now - max(last_seen_at)) in days, grouped by source"
+  sources: ["source_rows_seen.last_seen_at"]
+  owner: andrew
+  cadence: daily
+  last_validated: "2026-09-13"

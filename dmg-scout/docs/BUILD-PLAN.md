@@ -415,3 +415,38 @@ New `DecisionNote` table (migration `e99344983e3e`, verified rollback): `NoteTyp
 **Tests:** 26 new -- `tests/test_notes.py` (16: every anchor type accepted alone and in combination, at-least-one-anchor enforcement, netsuite_ref requiring its type, three_deals_to_explain's age/stage filtering and cap, config-driven lists) and `tests/test_notes_page.py` (10: page loads, three-deals widget renders, add-note form writes with the authenticated user as author, no-anchor 400s, anchor pre-fill from query params, the anchor-label resolution, and the four add-note links actually rendering on their object pages).
 
 **Full suite: 2150 passed, 0 failed, 2 deselected** (up from the post-bugfix 2124/0/2 baseline by exactly the 26 new tests).
+
+### Item 4: Metric snapshots and attribution
+
+New `MetricSnapshot` table (migration `cb0064d3f10d`, shared with the new `Opportunity.origin` column, verified rollback): `snapshot_date`, `metric_key`, `dimensions` (JSON), `value`, `computed_by`. `app/pipeline/metrics.py::write_snapshot()` is append-only across days, idempotent within a day (re-running today replaces today's own `(metric_key, dimensions)` row, never touches a prior day). New `origin` field on `Opportunity` (`Origin`: scout_signal/relationship_intro/rep_originated/inbound/inside_sales) -- deliberately a separate enum from Decision Notes' `LeadSource` (Item 3), since section 32's literal list says `relationship_intro` (matching `TriggerType.relationship_intro` from Item 2 exactly) where section 31's says `relationship`; `promote_to_opportunity` sets it directly from the promoted signal's trigger type.
+
+**`metrics.yaml`** (repo root): every metric_key's formula/sources/owner/cadence/last_validated, with `tests/test_metrics.py::test_every_written_metric_key_is_documented` running the real computation and asserting every key it writes has an entry. New `scout snapshot-metrics` CLI command, wired into `scout pipeline` right after `diff-sources` (not immediately after `notify` -- "after notify" per the item's own words, but specifically after `diff-sources` so `source_freshness_days` reads the freshest `SourceRowSeen` state from the same run, not yesterday's).
+
+**Fourteen metric families, fourteen real, honest formulas** -- nothing re-derived with a new judgment call: `opportunities_by_owner` reports one ABSTAIN bucket because Opportunity has no owner/rep field (Item 3's own disclosed gap, not a new guess); `abstain_rate_pen_state` is measured against the real `signals` table (not Opportunity) per section 12b's own wording; `abstain_rate_contact` reuses the four-part filter's `named_reachable_contact` check directly rather than re-deriving the same test a second way; `opportunities_by_engine` reads `Opportunity.origin` directly, since section 13's "engine" and section 32's "origin" are the same concept, not two.
+
+**Backfilled today's snapshot on the local restore -- every value:**
+| metric_key | dimensions | value |
+|---|---|---|
+| signals_by_trigger_type | trigger_type=deadline | 188 |
+| signals_by_trigger_type | trigger_type=entitlement_milestone | 442 |
+| signals_by_trigger_type | trigger_type=permit_gap | 53,252 |
+| signals_by_trigger_type | trigger_type=public_work | 783 |
+| qualified_opportunities | (none) | 0 |
+| opportunities_by_owner | owner=ABSTAIN | 0 |
+| earliness_rate | (none) | 0.0 |
+| deadline_exposure_by_regulation | regulation=AB 869 | 188 |
+| deadline_exposure_by_regulation | regulation=SB 1206 | 4,304 |
+| deadline_exposure_by_regulation | regulation=EBEWE | 4,790 |
+| deadline_exposure_by_regulation | regulation=Rule 1146.2 | 33 |
+| abstain_rate_delivery_method_class | (none) | 0.9706 (97.1%) |
+| abstain_rate_pen_state | (none) | 1.0 (100%) |
+| abstain_rate_contact | (none) | 1.0 (100%) |
+| source_freshness_days | source=ab802_buildings | 1.34 |
+| source_freshness_days | source=ab869_plans | 1.35 |
+| source_freshness_days | source=hcai_projects | 1.35 |
+| source_freshness_days | source=opsc_projects | 1.34 |
+| source_freshness_days | source=scaqmd_facilities | 1.34 |
+
+**19 rows written total.** `opportunities_by_stage`, `opportunities_by_engine`, `whys_strength_distribution`, `outcomes_logged_per_user`, and `notes_per_user` wrote **zero rows today** -- not a bug, there is nothing to group: 0 Opportunities, 0 Outcomes, 0 Decision Notes exist in the local restore (unchanged fact throughout this entire block). `abstain_rate_pen_state` at 100% is the expected, honest state of the real `signals` table: almost no row has ever been through the promotion-synthesis path that sets a real `pen_state` (Item 1) -- everything else still carries the column's own ABSTAIN default. `abstain_rate_delivery_method_class` at 97.1% matches Block 2's own prior finding (442/442 ABSTAIN then; two projects have since gained a real classification).
+
+**Tests:** 20 new -- `tests/test_metrics.py` (19: `write_snapshot`'s append-only/idempotent-per-day behavior including the "a past day is never touched" case, the metrics.yaml consistency guard both directions, and one focused test per metric family) and `tests/test_cli.py` (1: `snapshot-metrics` runs standalone and prints a count per metric_key). `tests/test_signals_feed.py` gained 2 more (`origin` set correctly for a relationship-intro vs. a regular promotion).

@@ -322,3 +322,25 @@ class TestPromoteToOpportunity:
             select(ReasonBlock).where(ReasonBlock.opportunity_id == opp.id, ReasonBlock.why_kind == WhyKind.them)
         ).first()
         assert them_block.strength == ReasonStrength.Weak
+
+    def test_origin_is_scout_signal_for_a_non_relationship_trigger(self, db_session):
+        from app.models import Origin
+
+        signal = Signal(signal_type=SignalType.ceqa_nop, event_date=datetime(2026, 1, 1))
+        db_session.add(signal)
+        db_session.commit()
+        fs = FeedSignal(source="project", source_id="1", trigger_type=TriggerType.entitlement_milestone,
+                        trigger_date=datetime(2026, 1, 1), evidence="x", confidence=None, account_id=1)
+        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id)
+        assert opp.origin == Origin.scout_signal
+
+    def test_origin_is_relationship_intro_for_a_field_intel_trigger(self, db_session):
+        from app.models import Origin
+
+        signal = Signal(signal_type=SignalType.ceqa_nop, event_date=datetime(2026, 1, 1))
+        db_session.add(signal)
+        db_session.commit()
+        fs = FeedSignal(source="field_intel", source_id="1", trigger_type=TriggerType.relationship_intro,
+                        trigger_date=datetime(2026, 1, 1), evidence="x", confidence=None, account_id=1)
+        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id)
+        assert opp.origin == Origin.relationship_intro

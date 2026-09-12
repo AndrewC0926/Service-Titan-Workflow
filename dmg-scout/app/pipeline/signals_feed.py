@@ -33,6 +33,7 @@ from app.models import (
     HcaiProject,
     HospitalBuilding,
     Opportunity,
+    Origin,
     OpscProject,
     PenState,
     Project,
@@ -522,6 +523,14 @@ def promote_to_opportunity(session: Session, fs: FeedSignal, signal_id: int) -> 
     every promotion this block ever makes; that is an honest reflection
     of scope, not a bug to route around here."""
     result = four_part_filter(session, fs)
+    # Block 4A Item 4: relationship_intro matches TriggerType.relationship_
+    # intro exactly (a FieldIntel-sourced signal) -- every other trigger
+    # type this module promotes today comes from a real regulatory/board
+    # feed, i.e. scout_signal. rep_originated/inbound/inside_sales have no
+    # promotion path yet (no manual Opportunity-creation UI exists), so
+    # they never get set here -- an honest reflection of what exists, not
+    # a gap silently patched.
+    origin = Origin.relationship_intro if fs.trigger_type == TriggerType.relationship_intro else Origin.scout_signal
     opp = Opportunity(
         account_id=fs.account_id,
         building_id=fs.building_id,
@@ -530,6 +539,7 @@ def promote_to_opportunity(session: Session, fs: FeedSignal, signal_id: int) -> 
         signal_id=signal_id,
         line_id=result.line_id,
         pen_state=fs.pen_state,
+        origin=origin,
     )
     session.add(opp)
     session.flush()
