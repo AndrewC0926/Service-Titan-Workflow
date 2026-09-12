@@ -506,11 +506,17 @@ def signals_index(request: Request, session: Session = Depends(get_session), _: 
 
 @app.get("/deadlines", response_class=HTMLResponse)
 def deadlines_index(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
-    """Minimal hub index -- Item 4 of this same block builds the real
-    grouped-by-regulation view (AB 869, SB 1206, EBEWE, Rule 1146.2). For
-    now: the sub-tab strip to Hospitals/AB 869 (relocated, unchanged)."""
+    """Block 3 Item 4 (Master Plan v3.2 section 13): grouped by regulation,
+    nearest date first -- app.pipeline.deadlines.deadlines_by_regulation
+    does the real work; this route just renders it and counts rows per
+    group for the sub-tab strip below and the item's own report."""
+    from app.pipeline.deadlines import deadlines_by_regulation
+
+    groups = deadlines_by_regulation(session)
+    counts = {reg: len(rows) for reg, rows in groups.items()}
     return templates.TemplateResponse(request, "deadlines_index.html", {
-        "tb": _title_block(session), "active": "deadlines",
+        "tb": _title_block(session), "active": "deadlines", "subview": "deadlines",
+        "groups": groups, "counts": counts,
     })
 
 

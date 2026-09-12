@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import hub_subtabs, empty_state %}
+{% from "_macros.html" import hub_subtabs, kpi_strip, empty_state %}
 {% block title %}Deadlines{% endblock %}
 {% block content %}
 {{ hub_subtabs([
@@ -9,14 +9,38 @@
 ], subview) }}
 <div class="sec-head">
   <div class="sec-title">Deadlines</div>
-  <span class="note">Grouped by regulation: AB 869 (facility, NPC buildings outstanding, plan
-    status, OSP-eligible lines), SB 1206 (R-410A install-year inference, Jan 1 2030 virgin
-    cutoff), EBEWE (audit due), Rule 1146.2 (boilers by age). Item 4 of this block builds the
-    real grouped, nearest-date-first view; this is the destination shell.</span>
+  <span class="note">Every regulatory clock Scout tracks, grouped by regulation, nearest date
+    first within each group. Each row links to the real record it comes from. A blank date or
+    line means ABSTAIN -- not known, never guessed.</span>
 </div>
-{{ empty_state(
-  "The grouped regulation view lands in Item 4 of this block. Hospitals and AB 869 plans "
-  "still have their full pages, relocated below.",
-  action_label="Hospitals", action_href="/deadlines/hospitals"
-) }}
+{{ kpi_strip([
+  {'label': 'AB 869', 'value': counts['AB 869']},
+  {'label': 'SB 1206', 'value': counts['SB 1206']},
+  {'label': 'EBEWE', 'value': counts['EBEWE']},
+  {'label': 'Rule 1146.2', 'value': counts['Rule 1146.2']},
+]) }}
+
+{% for regulation, rows in groups.items() %}
+<div class="sec-head mt-4"><div class="sec-title">{{ regulation }}</div><span class="note">{{ rows|length }} row{{ 's' if rows|length != 1 }}</span></div>
+{% if rows %}
+<table class="tbl">
+  <thead><tr>
+    <th>Account or building</th><th>Date</th><th>Exposure</th><th>Eligible line</th><th>OSP status</th>
+  </tr></thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td><a href="{{ row.detail_url }}">{{ row.account_or_building }}</a></td>
+      <td class="mono">{{ row.date.strftime('%Y-%m-%d') if row.date else '' }}{% if not row.date %}<span class="chip">ABSTAIN</span>{% endif %}</td>
+      <td>{{ row.exposure }}</td>
+      <td>{{ row.eligible_line if row.eligible_line else '' }}{% if not row.eligible_line %}<span class="chip">ABSTAIN</span>{% endif %}</td>
+      <td>{{ row.osp_status if row.osp_status else '' }}{% if not row.osp_status %}<span class="chip">n/a</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+{{ empty_state("No " ~ regulation ~ " deadlines in the current data.") }}
+{% endif %}
+{% endfor %}
 {% endblock %}
