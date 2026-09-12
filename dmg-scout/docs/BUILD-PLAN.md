@@ -524,3 +524,28 @@ New `app/pipeline/equipment_eligibility.py` -- an `EquipmentClass` enum (rooftop
 **Honest, measured, zero practical impact on unified_signals() today, reported plainly rather than silently worked around**: `unified_signals()`'s `retrofit_building` source ONLY draws from `RetrofitBuilding.population == 'replacement_candidate'` (`_retrofit_replacement_candidates` -- see Item 4's rerun below), and that population's `equipment_type` is always null. Verified directly: of the 53,252 retrofit_building signals `unified_signals()` currently produces, **`eligible_fitting_line` now resolves for exactly 0 of them** -- identical to before this item, because the 6,914 `recently_active` rows that DO carry real equipment-class evidence (33.5% coverage) never reach `unified_signals()` at all under today's population rule. Widening `_retrofit_replacement_candidates` to also cover `recently_active` was not asked for here and was not done; disclosing the gap is the deliverable this item's own instructions called for ("report coverage"), not silently expanding scope to manufacture an improvement.
 
 **Tests:** 12 new (`tests/test_equipment_eligibility.py`: the retrofit-type mapping including the `vav_terminal`/null/unrecognized ABSTAIN cases, role-based line lookup, the OSP-required include/exclude cases, and the coverage report's per-population math) + 3 new in `tests/test_signals_feed.py` (a retrofit_building signal with a known equipment type now resolves `eligible_fitting_line`; one with no equipment type still ABSTAINs; an ab869_plan signal always ABSTAINs since no equipment-class field exists for that source).
+
+### Item 4: Rerun the four-part filter with contacts loaded
+
+**Report, computed against the real local restore (54,665 unified signals, unchanged in count from Block 3's original measurement -- Items 1-3 add no new signal sources):**
+
+| part | pass | missing |
+|---|---|---|
+| named_reachable_contact | **0** | 54,665 |
+| sellable_account_or_building | 53,376 | 1,289 |
+| dated_reason | 1,411 | 53,254 |
+| eligible_fitting_line | 442 | 54,223 |
+
+**By trigger type:**
+| trigger_type | total | named_reachable_contact | sellable_account_or_building | dated_reason | eligible_fitting_line | all four |
+|---|---|---|---|---|---|---|
+| permit_gap (retrofit_building) | 53,252 | 0 | 53,252 | 0 | 0 | 0 |
+| public_work (hcai_project + opsc_project) | 783 | 0 | 0 | 783 | 0 | 0 |
+| entitlement_milestone (project) | 442 | 0 | 0 | 440 | 442 | 0 |
+| deadline (ab869_plan) | 188 | 0 | 124 | 188 | 0 | 0 |
+
+**Pass all four: 0 of 54,665 -- unchanged from Block 3's original report, and named_reachable_contact is the reason, still at 0/54,665 despite 10,401 real contacts now loaded (Item 1).** Measured directly, root cause confirmed, not assumed: `_named_reachable_contact` only ever checks a Contact joined via `ProjectContact` to the signal's `project_id` (see its own docstring, unchanged since Block 3) -- and the 10,401 newly-imported NetSuite contacts are linked via `Contact.account_id` (Item 1's own design, per Andrew's exact-match-only instruction), never via `ProjectContact`. The local restore's only 10 `ProjectContact` rows point at the 5 pre-existing Contact rows, none of which are `reach_status='confirmed'`. **Item 1's contacts genuinely cannot reach this check today, by construction, not by a bug in Item 1 or in this rerun** -- there is no Project-to-Account (or Project-to-Contact-via-Account) join anywhere in Scout for a project-sourced signal to use, and no other signal source (retrofit_building/ab869_plan/hcai_project/opsc_project) has ever had a contact-join path at all. Widening `_named_reachable_contact` to also resolve via `fs.account_id -> Contact.account_id` was not part of this item's own instructions ("rerun," not "extend") and was not done here -- flagged as the natural next step if Andrew wants Item 1's contact data to actually move this number, rather than silently built without being asked.
+
+**One real, measured change from Block 3's original report**: `sellable_account_or_building` rose from 53,252 to 53,376 (+124) -- entirely the `deadline`/ab869_plan trigger type, now passing when `pen_state` is `not_moved`/`moving` (Block 4A Item 1's own facility-anchor + pen_state gating, not new to this item, just newly visible in this rerun's by-trigger-type breakdown).
+
+**Promote the top ten that pass: zero exist to promote.** With 0 of 54,665 signals passing all four parts, there is no top ten to rank or promote -- reported honestly rather than forcing a synthetic promotion to produce a Reason Block table that doesn't reflect real, qualified data. (The wiring itself -- that a passing signal DOES promote correctly end-to-end with a real three-row Reason Block -- is already proven by `tests/test_opportunity_anchors.py::test_promotion_creates_opportunity_anchored_on_a_building_with_a_real_signal` and `tests/test_signals_feed.py::TestPromoteToOpportunity`, both built on a hand-constructed passing signal for exactly this reason.)
