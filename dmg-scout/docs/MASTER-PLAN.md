@@ -1,7 +1,7 @@
-# Scout and DMG: Master Plan v3.2
-Saturday, September 12, 2026. Supersedes v3.1. Changes in v3.2: a memory-wide alignment pass against every Scout, DMG and NetSuite conversation since August. It adds the Reason Block as the center of the product spec, the relationship-sourced pipeline (Ryan Hill, Will, Gennivieve, Ross alumni), the Apple, DaVita, Alaka'i and boiler leads, the DIR PWC-100 data, the VRF/A2L workbook as a separate DMG deliverable, Will's replacement-selection rule, the standing SDLC rules, and the small open items that were scattered across files. Nothing in v3.1 was removed. This version folds in every research deliverable produced to date as working specification: the Scout redesign study (Sep 11), the DMG go-to-market strategy study (Sep 11), the delivery-method and decision-chain study (Sep 10), and the agent-architecture study (Aug 25). Where the research made a recommendation, it is adopted here as the default until DMG's own data or people say otherwise.
+# Scout and DMG: Master Plan v3.6
+Saturday, September 12, 2026. Supersedes v3.5. v3.6 makes Larry's criterion, early enough in the process, a hard rule: two clocks (spec and replacement), a pen state on every Signal and Opportunity, the four-part filter rejecting pen-moved for spec work, an earliness KPI, and lag sources tagged as evidence never leads (section 12b). Earlier v3.5 changes: v3.5 adds Part VIII, the per-rep experience: Guide mode for a new rep and Radar mode for a 20-year veteran on the same data, what a veteran gets that pays for ten minutes a week, what Scout never does to a veteran's book, ask-the-room, and the adoption sequence (Andy first). Earlier v3.4 changes: v3.4 adds Part VII, Reporting and Design: the four-report family for the VP, COO, CEO and CFO, the executive communication principles, the design system shared by the app and the PDFs, and delivery. Earlier v3.3 changes: v3.3 adds Part VI, the Decision Layer: metric snapshots, attribution with a control group, Decision Notes for every rep and inside sales engineer, the segment scorecard, forecast, metric definitions as code, and the engineering standard for a system leadership runs decisions on. Block 4 is rewritten to carry it. The target is no longer a better tool for one rep; it is the system a COO, VP of Sales and CFO use to decide where DMG sells, and the record that shows what Scout-generated leads produced. Earlier v3.2 changes: Changes in v3.2: a memory-wide alignment pass against every Scout, DMG and NetSuite conversation since August. It adds the Reason Block as the center of the product spec, the relationship-sourced pipeline (Ryan Hill, Will, Gennivieve, Ross alumni), the Apple, DaVita, Alaka'i and boiler leads, the DIR PWC-100 data, the VRF/A2L workbook as a separate DMG deliverable, Will's replacement-selection rule, the standing SDLC rules, and the small open items that were scattered across files. Nothing in v3.1 was removed. This version folds in every research deliverable produced to date as working specification: the Scout redesign study (Sep 11), the DMG go-to-market strategy study (Sep 11), the delivery-method and decision-chain study (Sep 10), and the agent-architecture study (Aug 25). Where the research made a recommendation, it is adopted here as the default until DMG's own data or people say otherwise.
 
-Structure: Part I is strategy (what to sell, to whom, why). Part II is the operating model (how Andrew works the territory week to week). Part III is the product specification (what Scout becomes). Part IV is the research plan (what we still have to learn and how). Part V is sequencing and ownership.
+Structure: Part I is strategy (what to sell, to whom, why). Part II is the operating model (how Andrew works the territory week to week). Part III is the product specification (what Scout becomes). Part IV is the research plan (what we still have to learn and how). Part V is sequencing and ownership. Part VI is the decision layer: how the numbers become trends, attribution and target-market decisions. Part VII is reporting and design: what leadership receives, how often, and how it looks. Part VIII is the per-rep experience: how the same tool serves a beginner and a veteran.
 
 ---
 
@@ -99,7 +99,7 @@ Andrew's book today: Creative Air (assigned), Air Control Systems (Jason verifyi
 
 ## 8. KPIs (8 to 12, leading above lagging)
 
-Leading: spec-position rate (share of tracked opportunities where a DMG line is basis of design), quotes issued and quote-capture rate in NetSuite, calls logged, opportunities created with all four parts present, house-to-rep conversions, dormant reactivations, days since last touch on Tier 1 and 2.
+Leading: earliness rate (share of opportunities surfaced with pen not moved), spec-position rate (share of tracked opportunities where a DMG line is basis of design), quotes issued and quote-capture rate in NetSuite, calls logged, opportunities created with all four parts present, house-to-rep conversions, dormant reactivations, days since last touch on Tier 1 and 2.
 
 Lagging: bookings by vertical, quote-to-order conversion, win rate split by basis-of-design yes or no, lines per account, pipeline coverage computed as 1 divided by DMG's own trailing win rate (not the "3x" rule, which has no evidence behind it).
 
@@ -144,6 +144,11 @@ Every Opportunity carries three answers, each with evidence, a source and a conf
 **Example, Rady Children's.** Why them: $9M sold through University Mechanical, OSP-eligible on air handling and terminal units (Strong). Why now: AB 869 plan Not Approved, NPC buildings outstanding, 2030 clock (Strong). Why we win: University Mechanical is the incumbent contractor on campus; engineer of record unknown (ABSTAIN). Do: call University Mechanical's project executive about the next NPC package and ask who is designing it.
 
 **Example, UC Davis Health CUP.** Why them: UC progressive design-build, air handling and heat rejection in scope (Weak, no DMG history at UC Davis). Why now: team awarded, design not started, pen not yet moved (Strong). Why we win: Rudolph and Sletten awarded; pairing table says WSP is the likely MEP; DMG has no history with WSP Sacramento (Weak). Do: research, not a call; find the WSP lead through Jason's WSP Irvine relationship.
+
+### 12b. Early enough, as a hard rule (Larry's criterion)
+Two clocks. **Spec clock** (new construction, major renovation): early means before Division 23 is written and a basis of design is named. The pen holder follows Larry's delivery-method map: design-bid-build, the consulting mechanical engineer; design-build, the design-builder's precon or engineer; progressive design-build and P3, the team is public at RFQ or award before design, the earliest public moment that exists; K-12, the architect award; data centers, the owner's standards team, where the regional rep has no early in. **Replacement clock** (existing buildings): early means before the owner commits to like-for-like and before a contractor is hired; the deadline is the trigger, the owner is the door, and the window closes when a contractor with an incumbent brand relationship is on site.
+
+Enforced, not advised: every Signal and Opportunity carries pen_state (not_moved, moving, moved, ABSTAIN). The four-part filter's dated-reason part requires not_moved or moving; moved fails the spec-clock filter and is routed to the replacement clock or the next cycle, never to Today as a spec call. The Reason Block's Why now states the clock and the pen state in words. The earliness rate (share of opportunities surfaced with pen not moved, weekly) is a KPI on Reports, so drift toward bid boards is visible. Lag sources (OPSC closed, DIR awards, bid results, permits) are tagged evidence for the replacement clock and the pairing table, never spec-clock leads. On AB 869, earliness is plan status: Not Approved with no contractor named is early; an HCAI project number with a mechanical contractor on record is late for that building and early only for the next.
 
 Relationship intros are a Signal source in their own right ("relationship intro," reported_by, verbatim note), so Gennivieve's ACS intro or Ryan's pursuit list enters the same pipeline as a public deadline and gets the same three whys.
 
@@ -261,11 +266,13 @@ Standing SDLC rules carried from the build history, applied to every block: full
 
 **Block 2 closeout and WS6 (this weekend).** Verify commits. Check that diff rows get changed_at when content changes and that the rename migration rewrote correction rows. WS6 item-master reports: dollars by normalized vendor, lines under 1%, one-vendor buyers, quote-to-order by vendor. Output docs/LINE-CARD-GAP-DRAFT.md.
 
-**Block 3, redesign skeleton on public data (no gate).** Object model and cross-links with a mapping report first. Signals feed consolidation and the four-part filter as a config-driven function. Left-rail navigation, base template, KPI strip, empty states, command palette. Deadlines page. Per-user login from config. The Reason Block as the core table with the three whys and the weakest-why rule; Today and Pipeline render it. Regression tests that fail on the old navigation.
+**Block 3, redesign skeleton on public data (no gate).** Object model and cross-links with a mapping report first. Signals feed consolidation and the four-part filter as a config-driven function, with pen_state on every Signal and a test that pen-moved fails the spec-clock filter. Left-rail navigation, base template, KPI strip, empty states, command palette. Deadlines page. Per-user login from config. The Reason Block as the core table with the three whys and the weakest-why rule; Today and Pipeline render it. Regression tests that fail on the old navigation.
 
-**Block 4, the loop and the report (no gate).** Pipeline page with dispositions and reason codes; /capture wired to Outcome; NetSuite Opportunity ID stored and never overwritten. Today re-sourced from Pipeline with active-learning spread. Reports page with the three-tier funnel, the whys-strength band, KPI strip, whitespace summary, Lines view, weekly export. Lead Report per opportunity. A verified sending domain for the weekly report, or a manual-send path until then.
+**Block 4, the loop, the notes and the report (no gate).** Pipeline page with dispositions and reason codes; /capture wired to Outcome; NetSuite Opportunity ID stored and never overwritten. Decision Notes (section 31) on any object or on a typed NetSuite reference, with the weekly "three deals, tell us why" list per user. Metric snapshots written nightly from day one (section 30). Attribution ledger with origin on every Opportunity and Note (section 32). Metric definitions as code rendered on Reports (section 34). Today re-sourced from Pipeline with active-learning spread. Reports page with the three-tier funnel, the whys-strength band, KPI strip with trend arrows from snapshots, whitespace summary, Lines view, notes patterns for managers. The design system (section 39) applied to the app and the PDFs. The Weekly Sales Intelligence Brief (section 38) as the first shipped report; the Monthly Pipeline and Attribution Review once attribution has a month of data. Lead Report per opportunity. Roles (rep, inside_sales, manager, executive, operator) and an audit log. A verified sending domain for the weekly report, or a manual-send path until then.
 
-**Block 5, the account engine, dark until Gate 1 clears.** Account 360 behind a feature flag. NetSuiteOrderLine and NetSuiteProject tables. Canonical account grouping. BPELSG match on Contacts. Flag flips the day ownership is answered.
+**Block 4b, the scorecard and forecast (needs the Project export and the county allocation).** Segment scorecard by county (section 33). Stage-weighted forecast from DMG's own conversion history. The Quarterly Market Review and the facility and deadline briefs (section 38). Backups with a tested restore, cron and freshness alerts, changelog.
+
+**Block 5, the account engine, dark until Gate 1 clears.** Account 360 behind a feature flag. Radar mode per rep (section 43): my book, what changed, my quiet accounts and whitespace, my deadline exposure, my notes and patterns, confirm-or-deny pairings, ask-the-room. Adoption sequence per section 46. NetSuiteOrderLine and NetSuiteProject tables. Canonical account grouping. BPELSG match on Contacts. Flag flips the day ownership is answered.
 
 **Block 6, research agents.** Evaluation harness, then the daily digest, then the weekly memo, under section 16.
 
@@ -273,6 +280,9 @@ Standing SDLC rules carried from the build history, applied to every block: full
 
 ## 26. Workstream C, data
 Item master (done). Opportunity, Project, Contact (Andrew, this week). House DMG meaning (Andy). Engineers of record on top ten sold projects (Larry). Dodge or ConstructConnect trial (Jason). Rep-portal registrations (Andy). Twenty win/loss interviews (Andrew, days 15 to 45). County-by-vertical allocation of the $960M (Claude Code, after the Project export). Competitor line holdings by county (Claude research plus Andy). DIR PWC-100 follow-up for the contractor table (sent Sep 11; load when it arrives, no schema change). Three public records requests out (HCAI, DIR, SCAQMD). Will's per-city permit-requirements need (named four times; equipment type and tonnage vary by city, ACCO would want guarantees): measure first as a Reference extension of the AHJ register, never as a guaranteed product.
+
+## 26a. Ninety-day success, restated for the decision layer
+Every KPI on Reports has ninety days of nightly history behind it. An attribution number (originated, influenced, and the matched-cohort counterfactual) a CFO can audit. At least 100 Decision Notes written by more than one person. The segment scorecard live for the seven counties. Forty or more logged outcomes.
 
 ## 27. Decisions
 Made: identity, priors, timing as the product; Board demoted to a feed; six-destination redesign adopted, skeleton on public data first, account engine dark until ownership; research agents under propose-never-assert; blocks with verified closeouts; Option A engine, Option B overlay, Option C seeded; segment priority per section 3.
@@ -286,3 +296,104 @@ Andrew sells, calls, logs, asks, pulls exports, pastes prompts and reports, deci
 "Scout organizes everything we already know about our own customers, every account, what they've bought, what they've stopped buying, who to call, and which of our lines fits, and pairs it with the public deadlines that force building owners to spend on HVAC, like the 2030 hospital seismic law and the refrigerant phase-out. It turns that into a short, ranked call list for each engineer and says in one sentence why each name is worth a call.
 
 "It is not a second CRM. NetSuite stays the system of record; Scout is the working layer that finds the opportunity and hands off to a NetSuite Opportunity once a deal is real. Every call outcome is logged in one tap, so over time it learns which reasons turn into orders, and the weekly report separates raw market signals from qualified opportunities from real pipeline so nobody mistakes data volume for leads. It is built to grow the accounts we already have, which is where most of our revenue and nearly all of our untapped revenue sits."
+
+
+---
+
+# PART VI. THE DECISION LAYER
+
+The bar: a COO, VP of Sales and CFO open Reports and can decide where to point people, and can see what Scout-generated leads produced, defended against "I would have sold that anyway." Three tests, and each needs a component Scout does not have today: trends need snapshots, target-market decisions need a scorecard, "grew by X" needs attribution with a control.
+
+## 30. Metric snapshots
+A `metric_snapshot` table (snapshot_date, metric_key, dimensions as JSON, value, computed_by) written by the nightly cron, append-only, never recomputed from mutable tables. Metrics from day one: signals by trigger type; qualified opportunities; pipeline count and dollars by stage, engine and owner; whys-strength distribution (3, 2, 1 Strong); quiet accounts and house-only accounts (once loaded); spec-position rate; deadline exposure by regulation (buildings, facilities, dollars where known); outcomes logged per user; Decision Notes per user; ABSTAIN rate per field; join hit rates; source freshness in days. Weekly and monthly rollups are derived views over the snapshots. Reports reads only from this table.
+
+## 31. Decision Notes: every rep and inside sales engineer contributes
+A note is the smallest unit of institutional memory: who decided, what, why, and what it was worth. It attaches to a Scout Opportunity, Project, Building, Account or Signal, or to a typed NetSuite Opportunity, Project or Sales Order reference, so a deal that never touched Scout still counts.
+
+Fields, dropdowns except one: note_type (won, lost, quote_lost, intel, decision); pen_holder (engineer, contractor, owner, gc, unknown); basis_of_design (ours, competitor named, open, none); reason_code (the same eight as lost dispositions); lead_source (scout_signal with signal id, relationship, inbound, rep_originated, inside_sales); line and competitor line; dollars if known or the NetSuite reference to reconcile later; one free-text line; author, role, timestamp; voice entry through /capture.
+
+The ask that fills it: a weekly per-user list, "three deals, tell us why," generated from NetSuite closes once loaded and from Scout opportunities until then. Thirty seconds each. Inside sales engineers answer at the quote, where the spec position and the competitor are visible; outside reps answer at award. Over a quarter this becomes DMG's first real win/loss dataset, written by the people closest to the deals.
+
+What each contributor gets back: their own Today, Pipeline, Accounts view and notes; the line docs; the same three-whys logic on their calls. Managers see the notes as patterns: which engineers spec DMG, which competitor keeps winning on which line, where the pen sits by segment. That is the VP's screen for deciding where to point people.
+
+Boundary: notes reference NetSuite records and never manage them. Stage moves, quotes and orders stay in NetSuite.
+
+## 32. Attribution ledger
+Every Opportunity and every Decision Note carries an origin: scout_signal (with the signal id), relationship_intro, rep_originated, inbound, inside_sales. The NetSuite Opportunity ID is stored the moment it exists and never overwritten. A monthly reconciliation job matches NetSuite order lines to Opportunities and Notes by customer and project (the same decode used in the backtest). Three numbers, always reported together: **originated** (Scout created the opportunity), **influenced** (a Note cites a Scout signal or a Scout-surfaced account), and **counterfactual** (bookings at Scout-touched accounts versus a matched cohort of untouched accounts in the same tier, county and period). The third is what makes the first two defensible. Attribution by user and by source, so "Andrew's leads produced X" is a query, not a claim.
+
+## 33. Segment scorecard
+Monthly, one row per segment by county (and by line on drill-down): DMG bookings and share of the addressable pool; external demand (HCAI buildings outstanding, building stock past service life, deadline pools, PDB awards); competitor rep holdings by line; DMG win rate and quote-to-order conversion; pipeline coverage computed as 1 over DMG's trailing win rate for that segment; trend arrows from snapshots; a right-to-win rating from the Reason Block distribution. This is the attractiveness matrix from the strategy study, live. Decision rules render beside it: invest where right-to-win and size times growth times tailwind are both high; harvest where right-to-win is high and growth is low; build capability where tailwind is high and right-to-win is blocked. Needs the NetSuite Project export and the county allocation of the $960M.
+
+## 34. Forecast and metric definitions as code
+Stage-weighted forecast using DMG's own stage conversion rates from NetSuite history, never generic benchmarks, with the interval shown. Every KPI defined once in a `metrics.yaml`: formula, sources, owner, refresh cadence, and the date it was last validated; rendered on Reports so "how is that computed" is a link.
+
+## 35. Engineering standard for a system leadership runs decisions on
+Roles, not just logins: rep, inside_sales, manager, executive, operator; each sees its own default views and the executive sees Reports first. Audit log of who viewed and changed what. Source URL and retrieval date on every fact. Nightly database backups with a tested restore. Alerts when the cron fails or a source exceeds its freshness SLO. A changelog users can read. Export to xlsx and PDF for anything on Reports. A sync boundary designed for NetSuite from day one, even though the sync waits on ownership. Every number on a screen traceable to a snapshot row, a source document, or a person's note.
+
+## 36. The honest constraint
+Attribution shows zero if opportunities are not entered before they close and outcomes are not logged. Decision Notes lower that bar to thirty seconds and extend it to deals Scout never saw, but someone still has to type. The first 40 logged calls and the first 100 notes are worth more to the "grew by X" story than any component above.
+
+
+---
+
+# PART VII. REPORTING AND DESIGN
+
+A report to a CEO is a communications product, not a database view. This part defines what leadership receives, how often, in what shape, and how it looks.
+
+## 37. Executive communication principles
+- Lead with the decision being asked for, then the evidence. Three lines of recommendation before any table.
+- One number per idea, always with its trend. A count without last period beside it is noise.
+- Name the owner on every item.
+- Mark confidence visibly: verified, estimated, abstained. Trust comes from the report saying what it does not know.
+- Same layout every time, so the reader knows where each number lives before opening it.
+- Chart titles state the takeaway, not the metric: "Hospital pipeline doubled since July," never "Pipeline by segment."
+- No jargon that needs Scout to explain it. ABSTAIN renders as "unknown, not guessed."
+
+## 38. The report family
+| Report | Audience | Cadence | Length | Contents |
+|---|---|---|---|---|
+| Weekly Sales Intelligence Brief | Jason, Larry, Andy | Friday, email PDF | 1 page | Funnel band with week-over-week deltas; three moves made (calls, outcomes, notes) and three next; new deadline exposure entering a window; one lead explained in full (three whys and the do); what Scout got wrong this week; signed by Andrew |
+| Monthly Pipeline and Attribution Review | Jason, COO | First Monday | 6 pages | Pipeline by stage and engine with 90-day trend; win/loss from Decision Notes (basis-of-design rate, top reason codes, competitor by line); attribution (originated, influenced, counterfactual with the cohort shown); whitespace movement (reactivated, converted, lines added); data health (outcome logging rate by user, ABSTAIN rate, source freshness); decisions requested of leadership, each with cost and date |
+| Quarterly Market Review | CEO, COO, CFO, VP | Quarterly, deck-style PDF | 12 pages | Segment scorecard by county with invest/harvest/build ruling per row; line-card review with the ranked gap list; deadline pools sized and DMG's share; forecast with interval; twelve-week trends; three strategic asks |
+| Account, Facility and Deadline Briefs | Reps, and customers or principals when handed over | On demand | 1 page each | Account brief (exists); facility brief for hospitals (NPC status, OSP-eligible package, incumbent contractor, sold history); deadline exposure sheet suitable for a customer or principal, which doubles as marketing |
+
+Every report is archived so the quarterly review can show the weekly briefs it was built from.
+
+## 39. Design system, shared by the app and the PDFs
+DMG mark top left; report title and period; a KPI tile row (value, delta, sparkline); sparse tables with right-aligned numbers; server-rendered SVG charts, no JavaScript charting; one accent color reserved for "action needed," gray for abstained; generous whitespace; one typeface at three sizes; 8-point spacing scale. Same base stylesheet renders the web page, the print view and the PDF, so nothing is designed twice. Empty states written as sentences, not blank tables.
+
+## 40. Delivery
+PDF and xlsx from the Reports page; scheduled email through a verified DMG sending domain (until then, Andrew sends by hand from Outlook); a print stylesheet; per-role default landing (executives land on Reports); an archive of every issued report with its snapshot date.
+
+## 41. Placement in the blocks
+Design system and the Weekly Brief in Block 4 (they need snapshots and notes only). Monthly Review at the end of Block 4 once attribution has a month of data. Quarterly Review and the facility and deadline briefs in Block 4b with the scorecard. The first Weekly Brief Larry receives is the moment the redesign stops being a demo.
+
+
+---
+
+# PART VIII. THE PER-REP EXPERIENCE
+
+The test for a rep with twenty years in the industry: does Scout show them something about their own accounts they could not see this morning, in under ten minutes a week, without asking them to type anything they do not want to. Fail that and they open it once.
+
+## 42. Two modes on the same data
+**Guide mode** (a new rep): three calls with the three whys, the person and the ask, line docs and the pitch, the deadline explained, a script on request. Scout leads.
+
+**Radar mode** (a rep with a book): no suggested calls. Four panels, all scoped to their accounts: what changed overnight (a permit at a customer's building, a plan filed, a PDB award naming a firm they know, a deadline entering its window); their quiet accounts and whitespace by line from NetSuite; deadline exposure across their book; their own notes and patterns under their name. They decide.
+
+Mode is a preference, not a role. A veteran flips to Guide on a segment they do not know; a new rep flips to Radar once they have a book.
+
+## 43. What a veteran gets that pays for the ten minutes
+- The aggregated view of their own book, which NetSuite has never shown them: which accounts went quiet, which buy one line, which stopped buying a line they used to buy.
+- Early warning on their accounts from public records, the one input twenty years of relationships does not provide.
+- Credit: attribution by user, notes under their name, pairing knowledge recorded as theirs. The quarterly review names who grew what.
+- Confirm-or-deny instead of data entry: Scout proposes a pairing ("does P2S usually design for Hensel Phelps?") and the veteran taps yes, no, or names the real one. Tacit knowledge becomes the priors layer without a form.
+- Their own patterns back: where they lose, to whom, on which line; where they win and why. Nobody has shown them that.
+
+## 44. What Scout never does to a veteran's book
+Never scores or ranks their customers for them. Never makes notes mandatory; notes are optional, voice-first, three a week at most. Never shows one rep's book to another rep; managers see the team, reps see their own. Never suggests a call on an account assigned to someone else.
+
+## 45. Ask the room
+A rep posts a one-line question ("who knows the mechanical engineer on the Scripps tower?"). It lands in Radar for anyone with that account or a note mentioning it. They answer in one line; the answer becomes a note under their name. The beginner learns from the veteran inside the tool, and the veteran's answer becomes a permanent record.
+
+## 46. Adoption sequence
+Do not launch to the team. Give Radar to Andy first, on his book, and ask what is wrong with it. Then Chris Robles, because ACS and Christian Brothers are shared ground. When two veterans say it is worth ten minutes a week, Jason has his reason to roll it out. Inside sales engineers get Decision Notes at the quote stage at the same time, because that is where they see the spec position and the competitor.
