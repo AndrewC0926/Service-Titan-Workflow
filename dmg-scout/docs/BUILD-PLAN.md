@@ -330,3 +330,25 @@ Corrected scope (superseding an earlier full-retirement plan I proposed and the 
 **Report, computed against the real local restore:** 0 Opportunities exist (unchanged from Item 2's report -- nothing has been promoted, and per the finding above, nothing structurally can be through the real UI yet). `/signals` and `/pipeline` both smoke-tested 200 against the local DB. A disclosed performance gap: `unified_signals()` rebuilds its full 54,665-signal list (including a full `RetrofitBuilding` scan) on every `/signals` page load regardless of the `trigger` filter, since filtering happens in Python after construction -- observed ~3.5s per load locally; acceptable for this block's "minimal" scope but a real thing to fix before this page sees real traffic.
 
 **Tests:** `tests/test_pipeline_and_signals_pages.py`, 13 new tests -- `weakest_of`, `resolve_signal_id`'s project-vs-non-project split, the Signals page's chips/disabled-Promote/filter behavior, `/signals/promote`'s fail-closed paths (still-failing filter -> 409, unknown source -> 400, not-found -> 404), an end-to-end promote-succeeds test (project-sourced signal manufactured by hand, since no real signal can pass today per the finding above -- proves the dispatch/re-check/promote/redirect wiring, not that real data can reach it), and the Pipeline table's weakest-why sort and Reason Block expansion.
+
+---
+
+## 10. Block 4A (Master Plan v3.6 Parts VI-VIII): the loop, the notes, the snapshots
+
+`docs/MASTER-PLAN.md` updated to v3.6 -- adds Part VI (Decision Layer), Part VII (Reporting and Design), Part VIII (Per-Rep Experience), none of which existed in v3.2, plus `pen_state` (not_moved/moving/moved/ABSTAIN) on every Signal and Opportunity, gating the four-part filter's dated-reason part -- new in v3.6, so Block 3 was not incomplete against what it actually had to read at the time (confirmed: `pen_state` does not appear anywhere in the v3.2 copy committed during Block 3).
+
+### Item 0: test speed
+
+**Measured the actual bottleneck before changing anything**, per instruction: `tests/conftest.py`'s `db_session` fixture creates a fresh file-backed SQLite database per test via `SQLModel.metadata.create_all()` (73 tables). Timed directly: **6-14 seconds per `create_all()` call**, with heavy variance, on this machine -- SQLite's default `synchronous=FULL`/journal-mode behavior fsyncs after each of the ~300+ CREATE TABLE/CREATE INDEX statements, and WSL2's virtualized disk I/O makes each fsync round-trip expensive. With roughly 2,000 tests each paying this cost once, this alone plausibly accounts for the entire 40-90 minute chunked runtime -- confirmed by fixing it and re-measuring, not assumed.
+
+**Fix:** two SQLite PRAGMAs (`synchronous=OFF`, `journal_mode=MEMORY`) attached via a `connect` event listener in `app.db.get_engine()`, gated to the `sqlite` branch only (production always uses postgresql, per `database_url()` -- zero production behavior change). Chosen over both alternatives the item suggested (session-scoped schema + per-test transaction rollback, or a template database) because it requires **zero structural change** to the fixture or to any test: every test still gets its own fresh, fully isolated, real on-disk file and its own real connection, exactly as before -- durability (fsync) is the only thing being skipped, and a throwaway per-test file has no durability requirement. This also automatically covers `tests/test_migration_guard.py`'s three tests that reset `app.db._engine` and call `init_db()` directly, bypassing the `db_session` fixture, since the fix lives in the one shared `get_engine()` function both paths call. **Zero test files touched** -- confirmed via `git diff --stat`: only `app/db.py` changed.
+
+**Report:**
+| | Before | After |
+|---|---|---|
+| `create_all()` (73 tables, single call, measured directly) | 6-14s | 0.05-0.07s |
+| One real chunk (`chunk_00`, 421 tests, re-run identically) | 53:39 (3,219.66s) | 0:46 (46.42s) -- **69x** |
+| Full suite, single process, no chunking needed at all | 40-90 min chunked across 6 parallel workers (this session's own baseline throughout Blocks 3-4A) | **2:56 (176.61s)**, one `pytest tests/` invocation |
+| Result | -- | 2,081 passed, 0 failed, 2 deselected (identical to the pre-fix baseline -- same test count, same pass count) |
+
+**Target was under 15 minutes; actual is under 3, with no parallelization.** Chunking is no longer necessary for this suite's runtime and I stopped using it for the rest of Block 4A's items as a result -- a single `pytest tests/ -q` run now serves the same "chunked suite" verification purpose in a fraction of the time.

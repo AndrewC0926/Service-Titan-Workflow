@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Iterator
 from urllib.parse import urlparse
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlmodel import Session, SQLModel
 
 from app.config import CONFIG_PATH_ENV, DEFAULT_CONFIG, database_url
@@ -120,6 +120,20 @@ def get_engine():
         url = database_url()
         kwargs = {"pool_pre_ping": True} if url.startswith("postgresql") else {}
         _engine = create_engine(url, **kwargs)
+        if url.startswith("sqlite"):
+            # Tests/local dev only -- production always uses postgresql (see
+            # database_url's own DEFAULT_CONFIG). A throwaway per-test sqlite
+            # file has no durability requirement, so skipping fsync is free:
+            # measured directly, a 73-table create_all() drops from 6-14s to
+            # under 0.1s with these two pragmas, which was ~90% of the
+            # pre-Block-4A test suite's 40-90 minute chunked runtime (Block
+            # 4A Item 0).
+            @event.listens_for(_engine, "connect")
+            def _fast_sqlite_pragmas(dbapi_connection, connection_record):
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA synchronous=OFF")
+                cursor.execute("PRAGMA journal_mode=MEMORY")
+                cursor.close()
     return _engine
 
 
