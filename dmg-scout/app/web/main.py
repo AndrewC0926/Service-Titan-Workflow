@@ -554,6 +554,89 @@ def pipeline_log_outcome(opportunity_id: int, request: Request, disposition: str
     return RedirectResponse(f"/pipeline#opp-{opportunity_id}", status_code=303)
 
 
+def _note_anchor_label(session: Session, note) -> str:
+    """Resolves whichever anchor a DecisionNote actually carries to a
+    human-readable label -- a note can have more than one set
+    (test_multiple_anchors_can_be_set_together), so this shows every
+    anchor it has, not just the first non-null one."""
+    from app.models import Account, DecisionNote, Opportunity
+
+    labels = []
+    if note.opportunity_id:
+        labels.append(f"Opportunity #{note.opportunity_id}")
+    if note.project_id:
+        p = session.get(Project, note.project_id)
+        labels.append(f"Project: {p.name}" if p else f"Project #{note.project_id}")
+    if note.building_id:
+        b = session.get(RetrofitBuilding, note.building_id)
+        labels.append(f"Building: {b.address or b.apn}" if b else f"Building #{note.building_id}")
+    if note.account_id:
+        a = session.get(Account, note.account_id)
+        labels.append(f"Account: {a.name}" if a else f"Account #{note.account_id}")
+    if note.signal_id:
+        labels.append(f"Signal #{note.signal_id}")
+    if note.netsuite_ref:
+        labels.append(f"NetSuite {note.netsuite_ref_type.value if note.netsuite_ref_type else '?'}: {note.netsuite_ref}")
+    return ", ".join(labels) if labels else "ABSTAIN"
+
+
+@app.get("/notes", response_class=HTMLResponse)
+def notes_index(request: Request, anchor_type: str = "", anchor_id: str = "",
+                session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Block 4A Item 3 (Master Plan v3.6 section 31): the /notes page --
+    the weekly "three deals, tell us why" list, every note ever logged
+    (most recent first, capped), and an add-note form. anchor_type/
+    anchor_id (from an object page's own "+ Note" link) pre-fill the form
+    so a rep never has to look up an id by hand."""
+    from app.models import DecisionNote
+    from app.pipeline.notes import (
+        basis_of_design_options, lead_sources, note_types, pen_holders, three_deals_to_explain,
+    )
+    from app.pipeline.outcomes import reason_codes
+
+    notes = session.exec(select(DecisionNote).order_by(DecisionNote.created_at.desc()).limit(100)).all()
+    notes_with_labels = [{"note": n, "anchor_label": _note_anchor_label(session, n)} for n in notes]
+    candidates = three_deals_to_explain(session)
+
+    return templates.TemplateResponse(request, "notes_index.html", {
+        "tb": _title_block(session), "active": "notes",
+        "notes_with_labels": notes_with_labels, "candidates": candidates,
+        "note_types": note_types(), "pen_holders": pen_holders(),
+        "basis_of_design_options": basis_of_design_options(), "lead_sources": lead_sources(),
+        "reason_codes": reason_codes(),
+        "anchor_type": anchor_type, "anchor_id": anchor_id,
+    })
+
+
+@app.post("/notes")
+def notes_create(request: Request, note_type: str = Form(...), lead_source: str = Form(...),
+                 opportunity_id: str = Form(""), project_id: str = Form(""), building_id: str = Form(""),
+                 account_id: str = Form(""), signal_id: str = Form(""),
+                 netsuite_ref_type: str = Form(""), netsuite_ref: str = Form(""),
+                 pen_holder: str = Form("unknown"), basis_of_design: str = Form("open"),
+                 reason_code: str = Form(""), line: str = Form(""), competitor_line: str = Form(""),
+                 dollars: str = Form(""), free_text: str = Form(""), role: str = Form(""),
+                 session: Session = Depends(get_session), username: str = Depends(auth)):
+    from app.pipeline.notes import log_note
+
+    def _int_or_none(s: str) -> int | None:
+        return int(s) if s.strip() else None
+
+    try:
+        log_note(session, note_type=note_type, lead_source=lead_source, author=username,
+                 opportunity_id=_int_or_none(opportunity_id), project_id=_int_or_none(project_id),
+                 building_id=_int_or_none(building_id), account_id=_int_or_none(account_id),
+                 signal_id=_int_or_none(signal_id), netsuite_ref_type=netsuite_ref_type or None,
+                 netsuite_ref=netsuite_ref or None, pen_holder=pen_holder, basis_of_design=basis_of_design,
+                 reason_code=reason_code or None, line=line or None, competitor_line=competitor_line or None,
+                 dollars=float(dollars) if dollars.strip() else None, free_text=free_text,
+                 role=role or None, source="web")
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    session.commit()
+    return RedirectResponse("/notes", status_code=303)
+
+
 # Signals cards are capped regardless of filter -- Master Plan v3.2 section
 # 17's own "no browsable 53,000-row page" applies here just as much as it
 # does to /retrofit's full list (permit_gap alone is 53,000+ signals in the

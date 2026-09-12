@@ -3638,3 +3638,103 @@ class Outcome(SQLModel, table=True):
     note: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
     source: OutcomeSource = Field(default=OutcomeSource.web, index=True)
     created_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class NoteType(str, enum.Enum):
+    won = "won"
+    lost = "lost"
+    quote_lost = "quote_lost"
+    intel = "intel"
+    decision = "decision"
+
+
+class NotePenHolder(str, enum.Enum):
+    """A DIFFERENT, deliberately simpler vocabulary than Opportunity's own
+    PenHolderRole (consulting_me/design_builder/owner_standards/unknown/
+    ABSTAIN) -- Master Plan v3.6 section 31's own literal field list for
+    Decision Notes ("engineer, contractor, owner, gc, unknown") does not
+    match PenHolderRole's values, so this is its own enum rather than a
+    forced reuse of one that means something adjacent but not the same
+    thing."""
+    engineer = "engineer"
+    contractor = "contractor"
+    owner = "owner"
+    gc = "gc"
+    unknown = "unknown"
+
+
+class BasisOfDesign(str, enum.Enum):
+    ours = "ours"
+    competitor_named = "competitor_named"
+    open = "open"
+    none = "none"
+
+
+class LeadSource(str, enum.Enum):
+    scout_signal = "scout_signal"
+    relationship = "relationship"
+    inbound = "inbound"
+    rep_originated = "rep_originated"
+    inside_sales = "inside_sales"
+
+
+class NetsuiteRefType(str, enum.Enum):
+    opportunity = "opportunity"
+    project = "project"
+    sales_order = "sales_order"
+
+
+class DecisionNote(SQLModel, table=True):
+    """Block 4A Item 3 (Master Plan v3.6 section 31): "the smallest unit
+    of institutional memory: who decided, what, why, and what it was
+    worth." Attaches to a Scout Opportunity, Project, Building
+    (RetrofitBuilding), Account, or Signal, OR to a typed NetSuite
+    reference (netsuite_ref_type + netsuite_ref, "sales order number as
+    text") -- "so a deal that never touched Scout still counts."
+
+    At least one anchor is required in application code
+    (app.pipeline.notes.log_note), same "no unresolved-entity concept"
+    discipline as app.outreach.Outreach/log_outreach -- not a DB
+    constraint, for the same reason Opportunity's own multi-anchor fields
+    (Block 3/4A) aren't one either.
+
+    reason_code reuses Outcome's own LostReasonCode ("the same eight as
+    lost dispositions" -- section 31's literal words), nullable since it
+    only applies to some note_types (won/decision/intel notes have no lost
+    reason to give). source reuses OutcomeSource (web/capture) --
+    identical two-value list, no reason to duplicate it.
+
+    line/competitor_line are plain text, not ProductLine FKs: a
+    competitor's line has no row in that table at all, and keeping both
+    the same shape (text) matches how section 31 itself lists them as a
+    pair ("line and competitor line"), not a Scout-internal-only field
+    beside a free-text one.
+
+    role is a plain string snapshot of the author's role AT THE TIME
+    (e.g. "rep", "inside_sales"), not a foreign key into any roles table
+    -- Scout has no user/role table yet (section 35's fuller "roles, not
+    just logins" engineering standard is out of this item's scope)."""
+    __tablename__ = "decision_notes"
+
+    id: int | None = Field(default=None, primary_key=True)
+    opportunity_id: int | None = Field(default=None, foreign_key="opportunities.id", index=True)
+    project_id: int | None = Field(default=None, foreign_key="projects.id", index=True)
+    building_id: int | None = Field(default=None, foreign_key="retrofit_buildings.id", index=True)
+    account_id: int | None = Field(default=None, foreign_key="accounts.id", index=True)
+    signal_id: int | None = Field(default=None, foreign_key="signals.id", index=True)
+    netsuite_ref_type: NetsuiteRefType | None = Field(default=None, index=True)
+    netsuite_ref: str | None = Field(default=None, index=True)
+
+    note_type: NoteType = Field(index=True)
+    pen_holder: NotePenHolder = Field(default=NotePenHolder.unknown, index=True)
+    basis_of_design: BasisOfDesign = Field(default=BasisOfDesign.open, index=True)
+    reason_code: LostReasonCode | None = Field(default=None, index=True)
+    lead_source: LeadSource = Field(index=True)
+    line: str | None = None
+    competitor_line: str | None = None
+    dollars: float | None = None
+    free_text: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    author: str = Field(index=True)
+    role: str | None = None
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    source: OutcomeSource = Field(default=OutcomeSource.web, index=True)

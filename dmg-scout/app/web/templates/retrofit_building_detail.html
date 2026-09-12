@@ -4,6 +4,7 @@
 {% block content %}
 <h2>{{ building.address or 'Address unknown' }}
   <a /signals/permit-gap?population={{ building.population }}" style="float:right;font-size:12px">← back to retrofit</a>
+  <a href="/notes?anchor_type=building&anchor_id={{ building.id }}" style="float:right;font-size:12px;margin-right:16px">+ Note</a>
 </h2>
 <p class="note">APN {{ building.apn }} · {{ building.county }}, {{ building.state }}
   {% if building.use_desc %} · {{ building.use_desc }}{% endif %}

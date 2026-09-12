@@ -7,7 +7,8 @@
   <span class="tag">{{ p.status }}</span>
   {% if ahj_a2l_hit %}<a class="stamp stamp-pre" title="{{ ahj_a2l_hit.doc_title }}" /settings/reference?tab=ahj_a2l#ahj-{{ ahj_a2l_hit.jurisdiction|lower|replace(' ', '-') }}">AHJ has written A2L guidance</a>{% endif %}
   <a href="/project/{{ p.id }}/brief" style="float:right;font-size:12px">{{ icon('file-text') }} One-page brief</a>
-  <a href="/project/{{ p.id }}/precall" style="float:right;font-size:12px;margin-right:16px">{{ icon('phone') }} Pre-call brief</a></h2>
+  <a href="/project/{{ p.id }}/precall" style="float:right;font-size:12px;margin-right:16px">{{ icon('phone') }} Pre-call brief</a>
+  <a href="/notes?anchor_type=project&anchor_id={{ p.id }}" style="float:right;font-size:12px;margin-right:16px">{{ icon('plus') }} Note</a></h2>
 
 <table style="max-width:900px">
 <tr><th>Developer</th><td>{% if p.developer %}<a href="/developer/{{ p.developer | urlencode }}">{{ p.developer }}</a>{% else %}—{% endif %}</td>

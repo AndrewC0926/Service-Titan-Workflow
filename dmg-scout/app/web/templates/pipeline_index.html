@@ -74,6 +74,7 @@
           {% if rows and r.reason_blocks and r.reason_blocks[0].do_person %}
           <p><strong>Do:</strong> {{ r.reason_blocks[0].do_person }} -- {{ r.reason_blocks[0].do_ask }}</p>
           {% endif %}
+          <a href="/notes?anchor_type=opportunity&anchor_id={{ r.opportunity.id }}">+ Note</a>
         </details>
       </td>
     </tr>

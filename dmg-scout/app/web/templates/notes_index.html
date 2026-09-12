@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% from "_macros.html" import empty_state %}
+{% block title %}Notes{% endblock %}
+{% block content %}
+<div class="sec-head">
+  <div class="sec-title">Decision Notes</div>
+  <span class="note">The smallest unit of institutional memory: who decided, what, why, and what it
+    was worth. Attaches to an Opportunity, Project, Building, Account, Signal, or a NetSuite
+    reference -- so a deal that never touched Scout still counts.</span>
+</div>
+
+<div class="sec-head mt-4"><div class="sec-title">Three deals, tell us why</div>
+  <span class="note">Open opportunities older than 14 days. Not yet per-user -- Scout has no
+    owner/rep assignment field on Opportunity today.</span>
+</div>
+{% if candidates %}
+<ul>
+  {% for opp in candidates %}
+  <li>Opportunity #{{ opp.id }} -- open since {{ opp.created_at.strftime('%Y-%m-%d') }}
+    (<a href="/notes?anchor_type=opportunity&anchor_id={{ opp.id }}">add a note</a>)</li>
+  {% endfor %}
+</ul>
+{% else %}
+{{ empty_state("No open opportunities older than 14 days.") }}
+{% endif %}
+
+<div class="sec-head mt-4"><div class="sec-title">Add a note</div></div>
+<form method="post" action="/notes" class="mb-4">
+  <div class="kv mb-3">
+    <div><div class="k">Note type</div>
+      <select name="note_type" required>
+        {% for t in note_types %}<option value="{{ t.value }}">{{ t.label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div><div class="k">Lead source</div>
+      <select name="lead_source" required>
+        {% for s in lead_sources %}<option value="{{ s.value }}">{{ s.label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div><div class="k">Pen holder</div>
+      <select name="pen_holder">
+        {% for p in pen_holders %}<option value="{{ p.value }}">{{ p.label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div><div class="k">Basis of design</div>
+      <select name="basis_of_design">
+        {% for b in basis_of_design_options %}<option value="{{ b.value }}">{{ b.label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div><div class="k">Reason (if lost)</div>
+      <select name="reason_code">
+        <option value="">--</option>
+        {% for rc in reason_codes %}<option value="{{ rc.value }}">{{ rc.label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div><div class="k">Line</div><input type="text" name="line"></div>
+    <div><div class="k">Competitor line</div><input type="text" name="competitor_line"></div>
+    <div><div class="k">Dollars</div><input type="number" step="0.01" name="dollars"></div>
+  </div>
+
+  <div class="kv mb-3">
+    <div><div class="k">Opportunity ID</div>
+      <input type="number" name="opportunity_id" value="{{ anchor_id if anchor_type == 'opportunity' else '' }}">
+    </div>
+    <div><div class="k">Project ID</div>
+      <input type="number" name="project_id" value="{{ anchor_id if anchor_type == 'project' else '' }}">
+    </div>
+    <div><div class="k">Building ID</div>
+      <input type="number" name="building_id" value="{{ anchor_id if anchor_type == 'building' else '' }}">
+    </div>
+    <div><div class="k">Account ID</div>
+      <input type="number" name="account_id" value="{{ anchor_id if anchor_type == 'account' else '' }}">
+    </div>
+    <div><div class="k">Signal ID</div>
+      <input type="number" name="signal_id" value="{{ anchor_id if anchor_type == 'signal' else '' }}">
+    </div>
+    <div><div class="k">NetSuite ref type</div>
+      <select name="netsuite_ref_type">
+        <option value="">--</option>
+        <option value="opportunity">Opportunity</option>
+        <option value="project">Project</option>
+        <option value="sales_order">Sales order</option>
+      </select>
+    </div>
+    <div><div class="k">NetSuite ref (text)</div><input type="text" name="netsuite_ref"></div>
+  </div>
+
+  <div class="mb-3"><textarea name="free_text" placeholder="One line: what happened, why" style="width:100%"></textarea></div>
+  <input type="hidden" name="role" value="">
+  <button type="submit">Add note</button>
+</form>
+
+<div class="sec-head mt-4"><div class="sec-title">Recent notes</div></div>
+{% if notes_with_labels %}
+<table class="tbl">
+  <thead><tr><th>When</th><th>Type</th><th>Anchor</th><th>Author</th><th>Basis of design</th><th>Note</th></tr></thead>
+  <tbody>
+    {% for item in notes_with_labels %}
+    <tr>
+      <td class="mono">{{ item.note.created_at.strftime('%Y-%m-%d') }}</td>
+      <td><span class="chip">{{ item.note.note_type.value }}</span></td>
+      <td>{{ item.anchor_label }}</td>
+      <td>{{ item.note.author }}</td>
+      <td>{{ item.note.basis_of_design.value }}</td>
+      <td>{{ item.note.free_text }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+{{ empty_state("No notes logged yet.") }}
+{% endif %}
+{% endblock %}

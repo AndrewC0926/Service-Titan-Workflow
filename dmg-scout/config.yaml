@@ -1412,6 +1412,36 @@ outcomes:
     - {value: "other", label: "Other"}
 
 # =============================================================================
+# DECISION NOTES (Block 4A Item 3, Master Plan v3.6 section 31) -- labels
+# and display order only, same discipline as OUTCOMES above. reason_code
+# reuses outcomes.reason_codes (identical list, not duplicated here).
+# =============================================================================
+notes:
+  note_types:
+    - {value: "won", label: "Won"}
+    - {value: "lost", label: "Lost"}
+    - {value: "quote_lost", label: "Quote lost"}
+    - {value: "intel", label: "Intel"}
+    - {value: "decision", label: "Decision"}
+  pen_holders:
+    - {value: "engineer", label: "Engineer"}
+    - {value: "contractor", label: "Contractor"}
+    - {value: "owner", label: "Owner"}
+    - {value: "gc", label: "GC"}
+    - {value: "unknown", label: "Unknown"}
+  basis_of_design:
+    - {value: "ours", label: "Ours"}
+    - {value: "competitor_named", label: "Competitor named"}
+    - {value: "open", label: "Open"}
+    - {value: "none", label: "None"}
+  lead_sources:
+    - {value: "scout_signal", label: "Scout signal"}
+    - {value: "relationship", label: "Relationship"}
+    - {value: "inbound", label: "Inbound"}
+    - {value: "rep_originated", label: "Rep originated"}
+    - {value: "inside_sales", label: "Inside sales"}
+
+# =============================================================================
 # REGULATORY TRIGGERS (Phase 6) — a customer-facing citation table, not a
 # scoring input. Every entry was traced to bill text, CCR text, or the
 # regulator's own page (not trade press) before it was hard-coded here — see
