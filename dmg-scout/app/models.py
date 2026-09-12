@@ -536,6 +536,55 @@ class Contact(SQLModel, table=True):
     # state -- see app/enrichment.py.
     reach_status: str = Field(default="confirmed", index=True)
 
+    # Block 4B-prep Item 1: NetSuite contact import (app.importers.
+    # netsuite_contacts). Unique because NetSuite's own Internal ID is
+    # unique per contact record; NULL for any non-NetSuite-sourced row.
+    netsuite_internal_id: int | None = Field(default=None, unique=True, index=True)
+    # Split from `name` ONLY when the (NetSuite Name field's own person-name
+    # portion) has exactly two whitespace-separated tokens -- an accepted,
+    # named simplification (per the item that shipped this: some two-word
+    # COMPANY names, e.g. "Alakai Mechanical", pass this same check and get
+    # split as if they were first+last; never fixed up here, since there is
+    # no way to distinguish the two from the string alone without guessing).
+    # Both None otherwise -- `name` is always the full, unsplit string.
+    first_name: str | None = None
+    last_name: str | None = None
+    mobile: str | None = None
+    # NetSuite's own "Inactive" column, inverted (Inactive=No -> True). NULL
+    # for any non-NetSuite-sourced row (this system never asserts active/
+    # inactive on a manually-entered contact).
+    is_active: bool | None = None
+    # The customer identity text this contact came in attached to, kept
+    # even when it produced no Account match -- "for a later join once the
+    # customer master loads" (most Accounts don't exist locally yet).
+    # customer_ref_id is the NUMERIC id parsed from the NetSuite Name
+    # field's own "<id> <customer>: <person>"/"<id> <customer> - <person>"
+    # shape (rare -- 23 of 10,401 real rows) -- matched against Account.
+    # netsuite_entity_id, verified directly against the real NetSuite
+    # customer master (ScoutResults653.csv) before this field existed:
+    # entity id 14006 is "RDK Mechanical", 1364 is "Vision Mechanical
+    # Services", 13562 is "I.C.O. Air Inc." -- exact matches to real Name-
+    # field prefixes, not netsuite_internal_id (a much larger, unrelated
+    # number range in the same file). customer_ref_name is the best
+    # available plain-text company name (the CSV's own Company column when
+    # present -- 96.3% of rows -- else the Name-field-embedded customer
+    # name when that pattern matched), matched against Account.name_norm
+    # via normalize_company_name -- EXACT match only, never fuzzy (an
+    # explicit, deliberate choice: a wrong fuzzy match here silently
+    # attaches a real person to the wrong customer, which is worse than
+    # leaving account_id null and customer_ref_name raw for a human or a
+    # later, cleaner customer-master join to resolve).
+    customer_ref_id: str | None = Field(default=None, index=True)
+    customer_ref_name: str | None = Field(default=None, index=True)
+    account_id: int | None = Field(default=None, foreign_key="accounts.id", index=True)
+    # email or phone or mobile present -- a plain, source-agnostic fact,
+    # deliberately separate from reach_status above (which describes
+    # identity PROVENANCE -- confirmed vs. a pending paid-reveal search --
+    # not whether a phone/email is actually on file). NetSuite-imported
+    # contacts always get reach_status='confirmed' (a real NetSuite record,
+    # not a pending reveal) regardless of this flag.
+    reachable: bool = Field(default=False, index=True)
+
 
 class ProjectContact(SQLModel, table=True):
     __tablename__ = "project_contacts"
@@ -1442,8 +1491,18 @@ class Account(SQLModel, table=True):
     netsuite_internal_id: int | None = Field(default=None, unique=True, index=True)
     # NetSuite's own "ID" column (a human-facing entity number, e.g. "1" or,
     # for a sub-customer, "18:1" -- parent id colon child sequence). Text,
-    # not int: the colon form is not itself numeric. Purely descriptive,
-    # never a join key -- see netsuite_internal_id for that.
+    # not int: the colon form is not itself numeric. Descriptive, not the
+    # join key for anything NetSuite's OWN Internal-ID-keyed exports carry
+    # (sales order lines, this table's own re-imports -- see
+    # netsuite_internal_id for those). It IS a real join key for one other
+    # source: the NetSuite contacts export's own "Name" field encodes THIS
+    # id, not Internal ID, as its leading customer-identifying number --
+    # verified directly against the real customer master before
+    # app.importers.netsuite_contacts was written to rely on it (entity id
+    # 14006 is "RDK Mechanical" in both files; Internal ID for that same
+    # customer is a different, much larger number). Which id a given
+    # NetSuite export actually encodes is a property of THAT export, not
+    # a universal rule -- check before assuming either way for a new one.
     netsuite_entity_id: str | None = None
     # The PARENT's own netsuite_internal_id, populated only when NetSuite's
     # export actually carried a differing parent Internal ID for this row

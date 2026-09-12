@@ -1889,6 +1889,25 @@ def import_accounts_cmd(
                    f"(blank in the file, and city not in app.geo's table — not a guess)")
 
 
+@app.command("import-contacts")
+def import_contacts_cmd(
+    path: str = typer.Argument(..., help="Path to the NetSuite contacts export CSV"),
+) -> None:
+    """Block 4B-prep Item 1: import the NetSuite contacts export. Idempotent
+    on netsuite_internal_id -- safe to re-run. See
+    app.importers.netsuite_contacts's module docstring for the Name-field
+    parsing rule (measured, not assumed) and the exact-only company-name
+    match policy."""
+    from pathlib import Path
+
+    from app.importers.netsuite_contacts import import_netsuite_contacts
+    text = Path(path).read_text(encoding="utf-8-sig")
+
+    with session_scope() as session:
+        stats = import_netsuite_contacts(session, text)
+    typer.echo(json.dumps(stats))
+
+
 @app.command("account-join-report")
 def account_join_report_cmd(
     limit: int = typer.Option(25, help="Max accounts to print (report is per-account, can get long)"),
