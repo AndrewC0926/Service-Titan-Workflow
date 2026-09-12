@@ -96,7 +96,7 @@ def _ab869_rows(session: Session) -> list[DeadlineRow]:
                      f"NPC outstanding on {len(outstanding)} of {len(by_perm.get(plan.perm_id, []))} building(s)",
             eligible_line=eligible_line,
             osp_status=osp_status,
-            detail_url=f"/ab869-facility/{plan.perm_id}",
+            detail_url=f"/ab869/{plan.perm_id}",
             source_id=plan.perm_id,
         ))
     return _sort_nearest_first(rows)
@@ -113,7 +113,7 @@ def _sb1206_rows(session: Session) -> list[DeadlineRow]:
             exposure=b.sb1206_detail or b.sb1206_trigger_status,
             eligible_line=None,  # refrigerant-transition exposure, not a line-card question
             osp_status=None,  # SB 1206 is not HCAI-governed -- OSP does not apply
-            detail_url=f"/retrofit-building/{b.id}",
+            detail_url=f"/retrofit/building/{b.id}",
             source_id=str(b.id),
         )
         for b in buildings
@@ -136,7 +136,7 @@ def _ebewe_rows(session: Session) -> list[DeadlineRow]:
                       else "A/RCx filing due, not this year"),
             eligible_line=None,
             osp_status=None,
-            detail_url=f"/retrofit-building/{b.id}",
+            detail_url=f"/retrofit/building/{b.id}",
             source_id=str(b.id),
         )
         for b in buildings
@@ -164,7 +164,7 @@ def _rule_1146_2_rows(session: Session) -> list[DeadlineRow]:
             exposure=exposure,
             eligible_line=None,
             osp_status=None,
-            detail_url=f"/retrofit-building/{b.id}",
+            detail_url=f"/retrofit/building/{b.id}",
             source_id=str(b.id),
         ))
     return _sort_nearest_first(rows)

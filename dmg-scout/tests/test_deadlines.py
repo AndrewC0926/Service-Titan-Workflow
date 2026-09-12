@@ -1,9 +1,25 @@
 """Block 3 Item 4 (Master Plan v3.2 section 13): the Deadlines page,
 grouped by regulation, nearest date first (app.pipeline.deadlines)."""
+import base64
 from datetime import datetime
 
+import pytest
+from fastapi.testclient import TestClient
+
+from app.db import get_session
 from app.models import Ab869Plan, HospitalBuilding, RetrofitBuilding
 from app.pipeline.deadlines import SB1206_VIRGIN_CUTOFF, deadlines_by_regulation
+from app.web.main import app
+
+AUTH = {"Authorization": "Basic " + base64.b64encode(b"andrew:testpw").decode()}
+
+
+@pytest.fixture()
+def client(db_session, monkeypatch):
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "testpw")
+    app.dependency_overrides[get_session] = lambda: db_session
+    yield TestClient(app)
+    app.dependency_overrides.clear()
 
 
 def test_four_regulation_groups_always_present(db_session):
@@ -30,7 +46,7 @@ def test_ab869_npc_outstanding_facility_appears_with_earliest_deadline_year(db_s
     assert len(rows) == 1
     assert rows[0].date == datetime(2030, 1, 1)  # earliest of the two outstanding buildings
     assert "2 of 2" in rows[0].exposure
-    assert rows[0].detail_url == "/ab869-facility/P1"
+    assert rows[0].detail_url == "/ab869/P1"
 
 
 def test_ab869_facility_with_all_buildings_compliant_is_excluded(db_session):
@@ -153,3 +169,29 @@ def test_rows_with_no_date_sort_after_dated_rows_within_their_group(db_session):
     rows = deadlines_by_regulation(db_session)["AB 869"]
     assert [r.account_or_building for r in rows] == ["Dated Hospital", "No Deadline Year Hospital"]
     assert rows[1].date is None
+
+
+def test_every_detail_url_resolves_to_a_real_route(client, db_session):
+    """Regression: every detail_url in this module previously pointed at a
+    URL that did not exist (/ab869-facility/... and /retrofit-building/...
+    -- the real routes are /ab869/... and /retrofit/building/...), caught
+    only by actually hitting each one through the live app, not by
+    checking the string against itself."""
+    db_session.add(HospitalBuilding(
+        perm_id="P7", building_nbr="B1", facility_name="Route Check Hospital",
+        county="Los Angeles", npc_rating="2", npc_deadline_year=2030,
+        snapshot_date=datetime(2026, 1, 1), source_url="https://x",
+    ))
+    db_session.add(Ab869Plan(perm_id="P7", plan_status="Not Approved",
+                             source_pdf_path="/x.pdf", source_pdf_hash="h7"))
+    db_session.add(RetrofitBuilding(apn="10-10-10", address="10 Test Way",
+                                    sb1206_trigger_status="in_effect", ebewe_matched=True,
+                                    ebewe_arcx_next_compliance_date=datetime(2027, 12, 1),
+                                    equipment_type="boiler"))
+    db_session.commit()
+
+    groups = deadlines_by_regulation(db_session)
+    for regulation, rows in groups.items():
+        for row in rows:
+            r = client.get(row.detail_url, headers=AUTH)
+            assert r.status_code == 200, f"{regulation} row detail_url {row.detail_url!r} returned {r.status_code}"
