@@ -138,6 +138,31 @@ def test_changed_at_never_set_on_baseline_run(db_session):
     assert seen.changed_at is None
 
 
+def test_changed_at_is_stamped_on_a_genuine_fingerprint_change(db_session):
+    """Block 2 closeout: changed_at is NULL on all 118,742 real rows
+    locally -- this checks whether that's a bug in the diff or a genuine
+    quiet period. A row whose fingerprint (hcai_projects keys on `stage`,
+    see SOURCE_FINGERPRINT_FIELDS) actually changes between two diff_source
+    runs must get changed_at stamped on the second run, not left NULL."""
+    db_session.add(_hcai("A", "plan_review"))
+    db_session.commit()
+    diff_source(db_session, "hcai_projects", _hcai_projects_rows(db_session))  # baseline
+    db_session.commit()
+    seen = db_session.exec(select(SourceRowSeen).where(SourceRowSeen.natural_key == "A")).one()
+    assert seen.changed_at is None  # baseline: nothing "changed" yet
+
+    row = db_session.get(HcaiProject, "A")
+    row.stage = "bidding"
+    db_session.commit()
+    r = diff_source(db_session, "hcai_projects", _hcai_projects_rows(db_session))
+    db_session.commit()
+    assert r.changed == [("A", "plan_review|False", "bidding|False")]
+
+    db_session.expire_all()
+    seen = db_session.exec(select(SourceRowSeen).where(SourceRowSeen.natural_key == "A")).one()
+    assert seen.changed_at is not None
+
+
 def test_removed_row_that_reappears_is_flagged_reappeared_and_unremoved(db_session):
     db_session.add(_hcai("X", "plan_review"))
     db_session.commit()
