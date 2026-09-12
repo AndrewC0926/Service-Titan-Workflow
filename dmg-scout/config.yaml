@@ -2634,3 +2634,138 @@ pen_holder_role:
       - basis of design engineer
       - consulting mechanical engineer
       - consulting engineer
+
+# WS6 (Build Plan v2.1): vendor normalization for ACItemMasterResults493.csv's
+# Preferred Vendor field -- the item family key (97.7% filled; Manufacturer
+# is ignored, "Needs Update" on 324k rows). Report only, docs/LINE-CARD-GAP
+# -DRAFT.md -- read against the real 542,610-row export, not wired into any
+# live pipeline.
+#
+# MATCHING RULE (apply in this exact order before looking a raw value up
+# here): 1) strip the leading "<digits> " NetSuite vendor-record-id prefix
+# every one of the 543 real raw values carries; 2) if what's left starts
+# with "R " (a second, parallel naming pattern this file uses for the same
+# manufacturers -- confirmed by cross-referencing e.g. "R DANFOSS LLC"
+# against "DANFOSS INC" and "R NAILOR INDUSTRIES INC." against "NAILOR
+# INDUSTRIES INC", both same company, same dollar-relevant lines), strip
+# that "R " token too; 3) strip exactly one trailing corporate suffix token
+# (INC, INC., CORP, CORPORATION, CO, CO., COMPANY, LLC, LTD -- REQUIRING a
+# preceding space or comma, never a bare substring match: "TACO INC" ->
+# "TACO" is correct, but a boundary-free match would wrongly strip "CO" out
+# of "MAPCO"/"MEHECO"/"INDEECO" etc, and did in an earlier, discarded pass
+# of this map -- checked directly against the real file before finalizing);
+# 4) uppercase and collapse whitespace. The result is the key into this
+# map. Anything not listed here is ABSTAIN, not guessed at -- see
+# docs/LINE-CARD-GAP-DRAFT.md's own unmapped-vendor list (116 distinct
+# unmapped raw values, $15.1M of $805.3M in Equipment Sales dollars since
+# 2021, 1.9% -- not dominant, not hidden).
+line_card:
+  vendor_normalization:
+    Nailor: [NAILOR INDUSTRIES, NAILOR INDUSTRIES OF]
+    LG Electronics: [LG ELECTRONICS, LG ELECTRONICS ALABAMA, LG ELECTRONICS OF ALABAMA,
+                    LG ELECTRONICS U.S.A, LG ELECTRONICS USA, LG FULFILLMENT, M LG ELECTRONICS USA]
+    AAON: [AAON, AAON COIL PRODUCTS]
+    EBTRON: [EBTRON]
+    ClimateMaster: [CLIMATE MASTER, CLIMATEMASTER]
+    Danfoss: [DANFOSS]
+    Laars Heating Systems: [LAARS HEATING SYSTEMS]
+    International Environmental (IEC): [IEC - INTERNATIONAL ENVIRO COR,
+                                        IEC INTERNATIONAL ENVIROMENTAL, INTERNATIONAL ENVIRONMENTAL]
+    SPX Cooling Technologies: [SPX COOLING TECH, SPX COOLING TECHNOLOGIES]
+    Energy Labs: [ENERGY LABS]
+    Critical Room Control: [CRITICAL ROOM CONTROL]
+    Twin City Fan: [AEROVENT TCF - VENTCO, AEROVENT TCF-VENTCO, TCF AEROVENT,
+                    TWIN CITY FAN & BLOWER, TWIN CITY FAN COMPANIES]
+    Loren Cook: [LOREN COOK]
+    MacroAir: [MACROAIR, MACROAIR TECHNOLOGIES]
+    PennBarry: [AIR SYSTEM COMPONENTS, "AIR SYSTEM COMPONENTS INC (PENNBARRY)", PENNBARRY]
+    UVDI (Ultra Violet Devices): ["ULTRA VIOLET DEVICES (UVDI)", UVDI]
+    Vibro Acoustics: [VIBRO ACOUSTICS]
+    Sharpe Heating & Ventilating: [SHARPE HEATING & VENTILATING, SHARPE HTG. & VENTILATING]
+    Toro-Aire (DMG): [TORO AIRE, TORO SELLS TO DMG, TORO-AIRE]
+    HVAC-R International: [HVAC-R INTERNATIONAL]
+    Metropolitan Air Technology: [METROPOLITAN AIR TECHNOLOGY]
+    Thybar: [THYBAR]
+    Pamex: [PAMEX]
+    Clean Air Group / AtmosAir: [CLEAN AIR GROUP, "CLEAN AIR GROUP. INC - ATMOSAIR",
+                                 CLEAN AIR GRP INC - ATMOSAIR]
+    RAE Corporation: [RAE]
+    VTS America: [VTS AMERICA]
+    Modine: [ABSOLUTAIRE BY MODINE, MODINE LOUISVILLE, MODINE MANUFACTURING, MODINE MFG]
+    Strobic Air: [STROBIC AIR, STROBIC AIR TECHNOLOGIES]
+    Wattmaster Controls: [WATTMASTER CONTROLS]
+    Uni-Products: [UNI-PRODUCTS]
+    York International: [YORK INTERNATIONAL]
+    Vertiv: [VERTIV]
+    WaterFurnace: [WATERFURNACE INTERNATIONAL]
+    Yaskawa: [YASKAWA AMERICA, YASKAWA AMERICAN]
+    Marley Engineered Products: [MARLEY ENGINEERED PRODUCTS]
+    Howden American Fan: [HOWDEN AMERICA FAN, HOWDEN AMERICAN FAN]
+    Dunham-Bush: [DUNHAM BUSH USA, DUNHAM-BUSH USA]
+    Hydronic Components (HCI): ["HCI - HYDRONIC COMPONENTS", HYDRONIC COMPONENTS,
+                                "HYDRONIC COMPONENTS INC.--HCI"]
+    Nortec Humidity: [NORTEC HUMIDITY]
+    Multiaqua: [MULTIAQUA]
+    Belimo: [BELIMO AIRCONTROLS, BELIMO U.S]
+    Carel USA: [CAREL USA]
+    Diversitech: [DIVERSITECH]
+    Hays Fluid Controls: [HAYS FLUID CONTROLS]
+    MicroMetl: [MICRO METL, MICROMETL]
+    Camfil USA: [CAMFIL USA]
+    Islandaire: [ISLANDAIRE]
+    Kees: [KEES]
+    Patterson Pump: [PATTERSON PUMP]
+    S&P Ventilation Systems: ["S&P USA VENTILATION SYSTEMS", "S&P VENTILATION SYSTEMS"]
+    Safe-Air Dowco: [SAFE AIR-DOWCO, SAFE-AIR DOWCO]
+    Scott Springfield Manufacturing: [SCOTT SPRINGFIELD MFG]
+    Specified Controls: [SPECIFIED CONTROLS]
+    Neptronic: [NEPTRONIC]
+    Sierra Filtration Products: [SIERRA FILTRATION PRODUCTS]
+    Panasonic: [PANASONIC CORPORATION OF N.A, PANASONIC CORPORATION OF NORTH AMERICA,
+               PANASONIC VENT-BUILD FANS]
+    Schwank: [SCHWANK USA]
+    American Aldes: [AMERICAN ALDES, AMERICAN ALDES VENTILATION]
+    Anemostat: [ANEMOSTAT]
+    Arctic Chiller Group: [ARCTIC CHILLER GROUP, ARCTIC COOL CHILLERS LIMITED]
+    ASC-Krueger: ["ASC- KRUEGER (798901)"]
+    Allied Air Enterprises: [ALLIED AIR ENTERPRISES]
+    American Vulkan: [AMERICAN VULKAN]
+    Benoist: [BENOIST]
+    Bosch Thermotechnology: [BOSCH THERMOTECHNOLOGY]
+    Johnson Controls: [JOHNSON CONTROLS SAC-RENO]
+    Kelvion: [KELVION]
+    M.A.T.: [M.A.T]
+    McClintock & Bustad: [MCCLINTOCK & BUSTAD]
+    Metalform / Commercial Acoustics: [METALFORM-COMMERCIAL ACOUSTICS]
+    Munters: [MUNTERS CORPORATION-AIRT DIV]
+    Thermal Products Corporation: [THERMAL PRODUCTS]
+    Toxalert International: [TOXALERT INTERNATIONAL]
+    Ventaire: [VENTAIRE]
+    AES Industries: [AES INDUSTRIES]
+    Nortek Air Solutions: [NORTEK AIR SOLUTIONS]
+    Griswold Controls: [GRISWOLD CONTROLS]
+    Reliable Controls: [RELIABLE CONTROLS]
+    RenewAire: [RENEWAIRE]
+    American Metal Filter: [AMERICAN METAL FILTER]
+    Systemair / Fantech: [SYSTEMAIR INC.-FANTECH, SYSTEMAIR MFG]
+    Mestex: [APPLIED AIR DIVISION OF MESTEX, MESTEX]
+    Taco: [TACO]
+    Grainger: [GRAINGER]
+    Badger Meter: [BADGER METER]
+    United Enertech: [UNITED ENERTECH]
+    Pure Humidifier: [PURE HUMIDIFIER]
+    ClimateCraft: [CLIMATECRAFT]
+    CDI - Crystal Distribution: [CDI - CRYSTAL DISTRIBUTION]
+    Condair: [CONDAIR]
+    FabricAir: [FABRICAIR]
+    McMaster-Carr: [MCMASTER-CARR]
+    Cambridge Air Solutions: [CAMBRIDGE AIR SOLUTIONS]
+    TPI Corporation: [TPI]
+    Heat Pipe Technology: [HEAT PIPE TECHNOLOGY]
+    Seresco Technologies: [SERESCO TECHNOLOGIES]
+    BASX: [BASX, BASX SOLUTIONS]
+    RectorSeal: [RECTORSEAL, "RECTORSEAL, LLC DBA DUST FREE"]
+    Stulz Air Technology Systems: [STULZ AIR TECHNOLOGY SYSTEMS]
+    Navac: [NAVAC]
+    Climacool: [CLIMACOOL]
+    Amiad Water Systems: [AMIAD - PEP FILTERS, AMIAD WATER SYSTEMS]
