@@ -1,25 +1,92 @@
 {% extends "base.html" %}
-{% from "_macros.html" import hub_subtabs, kpi_strip %}
+{% from "_macros.html" import hub_subtabs, kpi_tile_strip, abstain_note, empty_state %}
 {% block title %}Reports{% endblock %}
 {% block content %}
 {{ hub_subtabs([
   {'href': '/reports', 'label': 'Reports', 'key': 'reports'},
+  {'href': '/reports/weekly', 'label': 'Weekly Brief', 'key': 'weekly'},
   {'href': '/reports/ask', 'label': 'Ask', 'key': 'ask'},
 ], subview) }}
 <div class="sec-head">
   <div class="sec-title">Reports</div>
-  <span class="note">The executive one-pager: Signals (market context) -&gt; Qualified opportunities
-    (passed the four-part filter) -&gt; Pipeline (has a NetSuite ID). No later item in this block
-    builds this out further, so what's below is real, not a stub -- the same counts computed
-    elsewhere in Scout, gathered in one place.</span>
+  <span class="note">Reads only from metric_snapshot (Master Plan v3.6 section 30) -- every number below is
+    exactly what the nightly snapshot wrote, not a live re-derivation. Sparklines cover the last
+    {{ WEEKS_OF_TREND }} weeks where that much history exists; {{ abstain_note('shorter history is stated plainly, not stretched') }}.</span>
 </div>
-{{ kpi_strip([
-  {'label': 'Projects', 'value': kpis.project_count, 'href': '/signals/entitlement'},
-  {'label': 'Signals (unified)', 'value': total_signals, 'href': '/signals'},
-  {'label': 'Opportunities', 'value': kpis.opportunity_count, 'href': '/pipeline'},
-]) }}
-{% if trigger_kpi_items %}
-<div class="sec-head mt-4"><div class="sec-title">Signals by trigger type</div></div>
-{{ kpi_strip(trigger_kpi_items) }}
+
+<h2>Funnel: Signals &rarr; Qualified &rarr; Pipeline</h2>
+{{ kpi_tile_strip(funnel_tiles) }}
+
+<h2>Whys-strength band</h2>
+{% if whys_strength_chart %}
+{{ whys_strength_chart | safe }}
+<p class="note">Opportunities by how many of their three Reason Block whys are Strong. 0 Strong is the
+  action-needed bar.</p>
+{% else %}
+{{ empty_state("No Opportunity has a complete three-row Reason Block yet.") }}
+{% endif %}
+
+<h2>Leading indicators</h2>
+<span class="note">Leading, above their lagging pair -- section 8's own ordering.</span>
+{{ kpi_tile_strip(kpi_tiles_leading) }}
+{% if kpi_tiles_lagging %}
+{{ kpi_tile_strip(kpi_tiles_lagging) }}
+{% endif %}
+
+<h2>Deadline exposure by regulation</h2>
+{{ kpi_tile_strip(deadline_tiles) }}
+
+<h2>Data health</h2>
+<table class="tbl mb-3">
+  <thead><tr><th>ABSTAIN rate</th><th class="num">Rate</th></tr></thead>
+  <tbody>
+    {% for row in data_health_abstain %}
+    <tr>
+      <td><a href="/reports/metrics/{{ row.key }}">{{ row.key.replace('_', ' ') }}</a></td>
+      <td class="num mono">{% if row.value is not none %}{{ '%.0f%%' % (row.value * 100) }}{% else %}{{ abstain_note('not loaded') }}{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if source_freshness %}
+<table class="tbl mb-3">
+  <thead><tr><th>Source</th><th class="num">Freshness (days)</th></tr></thead>
+  <tbody>
+    {% for row in source_freshness %}
+    <tr><td>{{ row.source }}</td><td class="num mono">{{ '%.1f' % row.days }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+{{ empty_state("Source freshness has not been snapshotted yet.") }}
+{% endif %}
+{% if outcome_logging_by_user %}
+<table class="tbl">
+  <thead><tr><th>User</th><th class="num">Outcomes logged</th></tr></thead>
+  <tbody>
+    {% for row in outcome_logging_by_user %}
+    <tr><td>{{ row.user }}</td><td class="num mono">{{ row.count | int }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+{{ empty_state("No Outcome has been logged by anyone yet.") }}
+{% endif %}
+
+<h2>Why leads exist</h2>
+{% if why_leads_exist %}
+{% for item in why_leads_exist %}
+<div class="scout-card mb-3">
+  <div class="scout-card-title">Opportunity #{{ item.opportunity.id }}</div>
+  {% for rb in item.reason_blocks %}
+  <div class="mb-2">
+    <strong>{{ rb.why_kind.value }}</strong> -- {% if rb.strength.value != 'ABSTAIN' %}<span class="chip">{{ rb.strength.value }}</span>{% else %}{{ abstain_note() }}{% endif %}
+    <p>{{ rb.evidence }}</p>
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+{% else %}
+{{ empty_state("No Opportunity exists yet to explain.") }}
 {% endif %}
 {% endblock %}

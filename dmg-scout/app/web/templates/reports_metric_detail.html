@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Metric: {{ metric_key }}{% endblock %}
+{% block content %}
+<div class="sec-head">
+  <div class="sec-title">{{ metric_key.replace('_', ' ') }}</div>
+  <span class="note">metrics.yaml's own entry for this metric_key -- never a second, paraphrased description.</span>
+</div>
+{% if entry %}
+<div class="kv">
+  <div><div class="k">Formula</div><div class="v">{{ entry.formula }}</div></div>
+  <div><div class="k">Sources</div><div class="v mono">{{ entry.sources | join(', ') }}</div></div>
+  <div><div class="k">Owner</div><div class="v">{{ entry.owner }}</div></div>
+  <div><div class="k">Cadence</div><div class="v">{{ entry.cadence }}</div></div>
+  <div><div class="k">Last validated</div><div class="v mono">{{ entry.last_validated }}</div></div>
+</div>
+{% else %}
+<p class="note">No metrics.yaml entry for {{ metric_key }} -- this is a real gap, not a rendering bug.</p>
+{% endif %}
+<p class="mt-3"><a href="/reports">&larr; Back to Reports</a></p>
+{% endblock %}

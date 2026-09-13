@@ -81,6 +81,13 @@ notes_per_user:
   cadence: daily
   last_validated: "2026-09-13"
 
+spec_position_rate:
+  formula: "count(DecisionNote where basis_of_design=ours) / count(DecisionNote) -- 0.0 with zero notes logged"
+  sources: ["decision_notes.basis_of_design"]
+  owner: andrew
+  cadence: daily
+  last_validated: "2026-09-13"
+
 abstain_rate_delivery_method_class:
   formula: "count(Project where delivery_method_class=ABSTAIN) / count(Project)"
   sources: ["projects.delivery_method_class"]

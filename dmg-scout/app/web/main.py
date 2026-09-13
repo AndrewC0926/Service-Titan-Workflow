@@ -739,22 +739,91 @@ def deadlines_index(request: Request, session: Session = Depends(get_session), _
     })
 
 
+def _delta_badge(wow: dict | None) -> dict | None:
+    """{label, direction} for kpi_tile()'s own `delta` param, or None
+    when week_over_week() couldn't compute one (fewer than two real
+    weeks of history) -- the template renders nothing rather than a
+    fabricated "vs last week" line in that case."""
+    return {"label": wow["label"], "direction": wow["direction"]} if wow else None
+
+
+def _sparkline(session: Session, metric_key: str, dimensions: dict | None = None) -> str:
+    from app.pipeline.reports import weekly_series
+    from app.web.charts import sparkline_svg
+    return sparkline_svg(weekly_series(session, metric_key, dimensions))
+
+
 @app.get("/reports", response_class=HTMLResponse)
 def reports_index(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
-    """No later Block 3 item builds this out further, so this is a light
-    but real version, not a total stub: the same KPI numbers already
-    computed elsewhere (project/signal/opportunity counts, Item 2's
-    unified-signal trigger-type breakdown) in one place, plus the
-    relocated Ask sub-view."""
-    from app.pipeline.signals_feed import unified_signals
-    from collections import Counter
-    kpis = _hub_kpis(session)
-    signals = unified_signals(session)
-    by_trigger = Counter(s.trigger_type.value for s in signals)
-    trigger_kpi_items = [{"label": k.replace("_", " "), "value": v} for k, v in sorted(by_trigger.items())]
+    """Block 4B Item 2 (Master Plan v3.6 sections 30/34/38): the funnel
+    band, whys-strength band, leading-KPI strip, deadline exposure with
+    trend, data health, and a live "why leads exist" sample -- reading
+    only from metric_snapshots (see app.pipeline.reports' own module
+    docstring for the one deliberate exception). Every number here is
+    exactly what the nightly snapshot already wrote, never re-derived on
+    page load."""
+    from app.pipeline.reports import WEEKS_OF_TREND, report_data
+
+    data = report_data(session)
+    funnel_tiles = [
+        {"label": f["label"], "value": "{:g}".format(f["value"]) if f["value"] is not None else "0",
+         "delta": _delta_badge(f["wow"]), "sparkline_svg": _sparkline(session, f["key"]), "href": None}
+        for f in data["funnel"]
+    ]
+    kpi_tiles_leading = [
+        {"label": k["key"].replace("_", " "),
+         "value": ("{:.0%}".format(k["value"]) if "rate" in k["key"] and k["value"] is not None
+                   else ("{:g}".format(k["value"]) if k["value"] is not None else "0")),
+         "delta": _delta_badge(k["wow"]), "sparkline_svg": _sparkline(session, k["key"]),
+         "href": f"/reports/metrics/{k['key']}"}
+        for k in data["kpis_leading"]
+    ]
+    kpi_tiles_lagging = [
+        {"label": k.replace("_", " "), "value": "not loaded", "abstain": True, "href": f"/reports/metrics/{k}"}
+        for k in data["kpis_lagging_not_loaded"] if k in ("bookings", "conversion_rate")
+    ]
+    deadline_tiles = [
+        {"label": d["regulation"], "value": "{:g}".format(d["value"]) if d["value"] is not None else "0",
+         "delta": _delta_badge(d["wow"]),
+         "sparkline_svg": _sparkline(session, "deadline_exposure_by_regulation", {"regulation": d["regulation"]}),
+         "href": "/deadlines"}
+        for d in data["deadline_exposure"]
+    ]
     return templates.TemplateResponse(request, "reports_index.html", {
-        "tb": _title_block(session), "active": "reports", "kpis": kpis,
-        "total_signals": len(signals), "trigger_kpi_items": trigger_kpi_items,
+        "tb": _title_block(session), "active": "reports",
+        "funnel_tiles": funnel_tiles,
+        "whys_strength": data["whys_strength"],
+        "whys_strength_chart": bar_chart_svg_for_whys(data["whys_strength"]),
+        "kpi_tiles_leading": kpi_tiles_leading,
+        "kpi_tiles_lagging": kpi_tiles_lagging,
+        "deadline_tiles": deadline_tiles,
+        "data_health_abstain": data["data_health_abstain"],
+        "source_freshness": data["source_freshness"],
+        "outcome_logging_by_user": data["outcome_logging_by_user"],
+        "why_leads_exist": data["why_leads_exist"],
+        "weeks_of_history": data["weeks_of_history"],
+        "WEEKS_OF_TREND": WEEKS_OF_TREND,
+    })
+
+
+def bar_chart_svg_for_whys(whys_strength: list[dict]) -> str:
+    from app.web.charts import bar_chart_svg
+    items = [(f"{w['strong_count']} Strong", w["value"]) for w in whys_strength]
+    return bar_chart_svg(items, width=420, height=120, action_labels={"0 Strong"})
+
+
+@app.get("/reports/metrics/{metric_key}", response_class=HTMLResponse)
+def reports_metric_detail(request: Request, metric_key: str,
+                          session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Block 4B Item 2 (section 34): "how is that computed" as a link --
+    the metrics.yaml entry for one metric_key, rendered directly, never
+    paraphrased into a second, driftable description."""
+    from app.pipeline.metrics import load_metrics_yaml
+
+    documented = load_metrics_yaml()
+    entry = documented.get(metric_key)
+    return templates.TemplateResponse(request, "reports_metric_detail.html", {
+        "tb": _title_block(session), "active": "reports", "metric_key": metric_key, "entry": entry,
     })
 
 

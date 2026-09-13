@@ -154,6 +154,24 @@ class TestIndividualMetrics:
         written = run_metric_snapshot(db_session)
         assert {"dimensions": {"user": "andrew"}, "value": 1} in written["notes_per_user"]
 
+    def test_spec_position_rate(self, db_session):
+        from app.models import BasisOfDesign
+
+        opp = _opportunity(db_session)
+        db_session.add(DecisionNote(opportunity_id=opp.id, note_type=NoteType.won,
+                                    lead_source=LeadSource.scout_signal, author="andrew",
+                                    basis_of_design=BasisOfDesign.ours))
+        db_session.add(DecisionNote(opportunity_id=opp.id, note_type=NoteType.lost,
+                                    lead_source=LeadSource.scout_signal, author="andrew",
+                                    basis_of_design=BasisOfDesign.competitor_named))
+        db_session.commit()
+        written = run_metric_snapshot(db_session)
+        assert written["spec_position_rate"] == [{"dimensions": {}, "value": 0.5}]
+
+    def test_spec_position_rate_with_no_notes_is_zero_not_a_crash(self, db_session):
+        written = run_metric_snapshot(db_session)
+        assert written["spec_position_rate"] == [{"dimensions": {}, "value": 0.0}]
+
     def test_abstain_rate_delivery_method_class(self, db_session):
         db_session.add(Project(name="Abstained", category=Category.data_center,
                                delivery_method_class=DeliveryMethodClass.ABSTAIN))

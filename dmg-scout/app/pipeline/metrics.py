@@ -22,13 +22,29 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import timedelta
+from pathlib import Path
 
+import yaml
 from sqlmodel import Session, select
 
 from app.models import (
-    DecisionNote, DeliveryMethodClass, MetricSnapshot, Opportunity, OpportunityStage, Outcome,
-    PenState, Project, ReasonBlock, ReasonStrength, Signal, SourceRowSeen, utcnow,
+    BasisOfDesign, DecisionNote, DeliveryMethodClass, MetricSnapshot, Opportunity, OpportunityStage,
+    Outcome, PenState, Project, ReasonBlock, ReasonStrength, Signal, SourceRowSeen, utcnow,
 )
+
+
+METRICS_YAML_PATH = Path(__file__).resolve().parent.parent.parent / "metrics.yaml"
+
+
+def load_metrics_yaml() -> dict:
+    """Block 4B Item 2 (section 34): "Every KPI defined once in a
+    metrics.yaml... rendered on Reports so 'how is that computed' is a
+    link." Re-reads the file every call (not cached) -- this is an
+    operator-facing reference page, hit rarely, and a stale cache after
+    Andrew edits the file by hand would be a worse failure mode than one
+    extra file read per view."""
+    with open(METRICS_YAML_PATH) as f:
+        return yaml.safe_load(f)
 
 
 def write_snapshot(session: Session, *, metric_key: str, value: float, dimensions: dict | None = None,
@@ -149,6 +165,21 @@ def _notes_per_user(session: Session) -> list[dict]:
             for k, v in counts.items()]
 
 
+def _spec_position_rate(session: Session) -> list[dict]:
+    """Block 4B Item 2 (section 8's own leading indicator, section 30's
+    own named metric -- "spec-position rate"): "share of tracked
+    opportunities where a DMG line is basis of design." DecisionNote.
+    basis_of_design defaults to `open` (never null), so every logged note
+    is "tracked" by construction -- this is count(ours) / count(all
+    notes), 0.0 with zero notes logged rather than a divide-by-zero or a
+    guessed rate."""
+    notes = session.exec(select(DecisionNote)).all()
+    if not notes:
+        return [{"metric_key": "spec_position_rate", "dimensions": {}, "value": 0.0}]
+    ours = sum(1 for n in notes if n.basis_of_design == BasisOfDesign.ours)
+    return [{"metric_key": "spec_position_rate", "dimensions": {}, "value": ours / len(notes)}]
+
+
 def _abstain_rate_delivery_method_class(session: Session) -> list[dict]:
     projects = session.exec(select(Project)).all()
     if not projects:
@@ -210,6 +241,7 @@ _METRIC_FUNCTIONS = (
     _deadline_exposure_by_regulation,
     _outcomes_logged_per_user,
     _notes_per_user,
+    _spec_position_rate,
     _abstain_rate_delivery_method_class,
     _abstain_rate_pen_state,
     _abstain_rate_contact,

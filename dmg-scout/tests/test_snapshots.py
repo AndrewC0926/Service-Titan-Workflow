@@ -70,6 +70,7 @@ def client(db_session, monkeypatch):
     ("signals_empty", "/signals"),
     ("deadlines_empty", "/deadlines"),
     ("notes_empty", "/notes"),
+    ("reports_empty", "/reports"),
 ])
 def test_page_empty_state_snapshot(client, name, path):
     resp = client.get(path, headers=AUTH)
