@@ -2075,6 +2075,27 @@ def recompute_opportunity_lines_cmd() -> None:
     typer.echo(json.dumps({"considered": len(opps), "changed": changed}))
 
 
+@app.command("generate-weekly-brief")
+def generate_weekly_brief_cmd(
+    owner_user: str = typer.Option("andrew", help="Who this brief is signed by"),
+) -> None:
+    """Block 4B Item 3: build this week's Weekly Sales Intelligence
+    Brief and archive it as a new, immutable WeeklyBrief row (see that
+    model's own docstring -- a regeneration is always a new row, never
+    an update). This is the one place a real brief actually gets issued;
+    /reports/weekly is a live preview that never writes anything."""
+    from app.pipeline.weekly_brief import archive_weekly_brief
+
+    with session_scope() as session:
+        row = archive_weekly_brief(session, owner_user=owner_user)
+        result = {
+            "id": row.id, "snapshot_date": row.snapshot_date.isoformat(),
+            "week_start": row.week_start.isoformat(), "week_end": row.week_end.isoformat(),
+            "generated_by": row.generated_by, "recommendation": row.payload["recommendation"],
+        }
+    typer.echo(json.dumps(result))
+
+
 @app.command("account-join-report")
 def account_join_report_cmd(
     limit: int = typer.Option(25, help="Max accounts to print (report is per-account, can get long)"),

@@ -827,6 +827,65 @@ def reports_metric_detail(request: Request, metric_key: str,
     })
 
 
+def _brief_funnel_tiles(session: Session, funnel: list[dict]) -> list[dict]:
+    return [
+        {"label": f["label"], "value": "{:g}".format(f["value"]) if f["value"] is not None else "0",
+         "delta": _delta_badge(f["wow"]), "sparkline_svg": _sparkline(session, f["key"]), "href": None}
+        for f in funnel
+    ]
+
+
+@app.get("/reports/weekly", response_class=HTMLResponse)
+def reports_weekly(request: Request, session: Session = Depends(get_session), username: str = Depends(auth)):
+    """Block 4B Item 3 (Master Plan v3.6 section 38): one page, generated
+    from the same snapshot data Reports reads. This route is the
+    PREVIEW -- it builds but does not archive; `scout generate-weekly-
+    brief` is the one place a WeeklyBrief row actually gets written (see
+    that command's own docstring for why preview and archive are kept
+    separate)."""
+    from app.pipeline.weekly_brief import build_weekly_brief
+
+    brief = build_weekly_brief(session, owner_user=username)
+    return templates.TemplateResponse(request, "reports_weekly.html", {
+        "tb": _title_block(session), "active": "reports", "brief": brief,
+        "funnel_tiles": _brief_funnel_tiles(session, brief["funnel"]),
+    })
+
+
+@app.get("/reports/weekly.pdf")
+def reports_weekly_pdf(session: Session = Depends(get_session), username: str = Depends(auth)):
+    """Block 4B Item 3 (section 40): "PDF export via the same template."
+    Renders reports_weekly_pdf.html (the same _weekly_brief_body.html
+    partial the screen view includes) with the built stylesheet inlined,
+    then weasyprint turns that into a PDF -- no second document
+    definition anywhere."""
+    from app.pipeline.weekly_brief import build_weekly_brief
+    from app.web.pdf import inline_app_css, render_html_to_pdf
+
+    brief = build_weekly_brief(session, owner_user=username)
+    html = templates.env.get_template("reports_weekly_pdf.html").render(
+        brief=brief, funnel_tiles=_brief_funnel_tiles(session, brief["funnel"]), inline_css=inline_app_css())
+    pdf_bytes = render_html_to_pdf(html)
+    filename = f'weekly-brief-{brief["week_end"].strftime("%Y-%m-%d")}.pdf'
+    return Response(content=pdf_bytes, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@app.get("/reports/weekly.xlsx")
+def reports_weekly_xlsx(session: Session = Depends(get_session), username: str = Depends(auth)):
+    """Block 4B Item 3 (section 40): "xlsx export of the underlying
+    rows" -- the same brief content, one sheet per section."""
+    from app.pipeline.weekly_brief import build_weekly_brief
+    from app.web.xlsx import weekly_brief_xlsx
+
+    brief = build_weekly_brief(session, owner_user=username)
+    xlsx_bytes = weekly_brief_xlsx(brief)
+    filename = f'weekly-brief-{brief["week_end"].strftime("%Y-%m-%d")}.xlsx'
+    return Response(content=xlsx_bytes,
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
 @app.get("/settings", response_class=HTMLResponse)
 def settings_index(request: Request, session: Session = Depends(get_session), _: str = Depends(operator)):
     """Operator-only landing page (Master Plan v3.2 section 13): Reference,

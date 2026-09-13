@@ -3903,3 +3903,34 @@ class MetricSnapshot(SQLModel, table=True):
     dimensions: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, default=dict))
     value: float = 0.0
     computed_by: str = "pipeline"
+
+
+class WeeklyBrief(SQLModel, table=True):
+    """Block 4B Item 3 (Master Plan v3.6 sections 38/40): "Archive every
+    generated brief with its snapshot date." payload is the FULL,
+    already-computed content the brief was rendered from (funnel,
+    moves made/next, deadline exposure, the one lead explained, what
+    Scout got wrong) -- frozen at generation time, not re-derived from
+    live tables on every future view. This is deliberate: Outcome/
+    DecisionNote/Opportunity rows can change or be deleted after a brief
+    is issued (a disposition corrected, a note edited), and an archived
+    brief must keep showing exactly what Larry actually received that
+    Friday, not a live query that silently drifts out from under it --
+    "so the quarterly review can show the weekly briefs it was built
+    from" only works if those briefs are immutable.
+
+    snapshot_date is the metric_snapshot day this brief's funnel/KPI
+    numbers came from (app.pipeline.reports reads only from that table,
+    same discipline as the Reports page); generated_at is when this row
+    was written, which can be later the same day if the brief is
+    regenerated. Never updated once written -- a regeneration is a new
+    row, so the archive itself is append-only too."""
+    __tablename__ = "weekly_briefs"
+
+    id: int | None = Field(default=None, primary_key=True)
+    snapshot_date: datetime = Field(index=True)
+    generated_at: datetime = Field(default_factory=utcnow, index=True)
+    generated_by: str
+    week_start: datetime
+    week_end: datetime
+    payload: dict = Field(sa_column=Column(JSON, nullable=False))

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% from "_macros.html" import hub_subtabs %}
+{% block title %}Weekly Brief{% endblock %}
+{% block content %}
+{{ hub_subtabs([
+  {'href': '/reports', 'label': 'Reports', 'key': 'reports'},
+  {'href': '/reports/weekly', 'label': 'Weekly Brief', 'key': 'weekly'},
+  {'href': '/reports/ask', 'label': 'Ask', 'key': 'ask'},
+], 'weekly') }}
+<div class="sec-head noprint">
+  <div class="sec-title">Weekly Sales Intelligence Brief</div>
+  <span class="note">One page, generated from the same snapshot data Reports reads. Print this page
+    directly, or use the exports below -- same template, same numbers.</span>
+</div>
+<div class="flex gap-2 mb-3 noprint">
+  <a class="chip" href="/reports/weekly.pdf">Download PDF</a>
+  <a class="chip" href="/reports/weekly.xlsx">Download xlsx</a>
+</div>
+{% include "_weekly_brief_body.html" %}
+{% endblock %}

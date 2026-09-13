@@ -29,15 +29,20 @@ from app.web.main import app
 SNAPSHOT_DIR = Path(__file__).parent / "snapshots"
 AUTH = {"Authorization": "Basic " + base64.b64encode(b"andrew:testpw").decode()}
 
-# Volatile substrings normalized before comparison: ISO-ish timestamps and
-# freshness "X.Xd ago"/"X days" text that would otherwise make every
-# snapshot fail on wall-clock drift even with identical markup.
-_ISO_DATETIME = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?")
+# Volatile substrings normalized before comparison: ISO-ish timestamps,
+# bare dates, and freshness "X.Xd ago"/"X days" text that would otherwise
+# make every snapshot fail on wall-clock drift even with identical
+# markup. Order matters: the full timestamp pattern must run before the
+# bare-date one, or it would eat the date half of a timestamp and leave
+# the time half behind.
+_ISO_DATETIME = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?")
+_BARE_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _FRESHNESS = re.compile(r"\b\d+(\.\d+)?\s*(d|days?|h|hours?)\b")
 
 
 def _normalize(html: str) -> str:
     html = _ISO_DATETIME.sub("<TIMESTAMP>", html)
+    html = _BARE_DATE.sub("<DATE>", html)
     html = _FRESHNESS.sub("<FRESHNESS>", html)
     return html
 
@@ -71,6 +76,7 @@ def client(db_session, monkeypatch):
     ("deadlines_empty", "/deadlines"),
     ("notes_empty", "/notes"),
     ("reports_empty", "/reports"),
+    ("reports_weekly_empty", "/reports/weekly"),
 ])
 def test_page_empty_state_snapshot(client, name, path):
     resp = client.get(path, headers=AUTH)

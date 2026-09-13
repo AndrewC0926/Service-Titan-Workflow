@@ -1,0 +1,83 @@
+{# Block 4B Item 3: the Weekly Sales Intelligence Brief's own content,
+   shared verbatim by the screen view (reports_weekly.html, wrapped in
+   base.html) and the PDF source (reports_weekly_pdf.html, standalone) --
+   "nothing designed twice." brief is app.pipeline.weekly_brief.
+   build_weekly_brief()'s own return value. #}
+{% from "_macros.html" import report_title_block, kpi_tile_strip, abstain_note %}
+<div class="report-sheet">
+  {{ report_title_block("Weekly Sales Intelligence Brief",
+    brief.week_start.strftime('%Y-%m-%d') ~ " to " ~ brief.week_end.strftime('%Y-%m-%d')) }}
+
+  <div class="rec-lines mb-3">
+    {% for line in brief.recommendation %}
+    <p>{{ line }}</p>
+    {% endfor %}
+  </div>
+
+  <h2>Funnel</h2>
+  {{ kpi_tile_strip(funnel_tiles) }}
+
+  <h2>Three moves made this week</h2>
+  {% if brief.moves_made %}
+  <ul>
+    {% for m in brief.moves_made %}
+    <li>{{ m.text }} -- {{ m.user or m.author }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="note">{{ abstain_note('no Outcome or Decision Note was logged this week') }}</p>
+  {% endif %}
+
+  <h2>Three moves next week</h2>
+  {% if brief.moves_next %}
+  <ul>
+    {% for r in brief.moves_next %}
+    <li>Opportunity #{{ r.opportunity_id }} ({{ r.account_or_building }}) -- weakest why:
+      {% if r.weakest_why and r.weakest_why != 'ABSTAIN' %}{{ r.weakest_why }}{% else %}{{ abstain_note() }}{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="note">{{ abstain_note('no Opportunity exists in Pipeline yet') }}</p>
+  {% endif %}
+
+  <h2>New deadline exposure (next {{ brief.new_deadline_exposure.window_days }} days)</h2>
+  {% if brief.new_deadline_exposure.rows %}
+  <table class="tbl">
+    <thead><tr><th>Regulation</th><th>Account or building</th><th>Date</th></tr></thead>
+    <tbody>
+      {% for row in brief.new_deadline_exposure.rows %}
+      <tr><td>{{ row.regulation }}</td><td>{{ row.account_or_building }}</td>
+        <td class="mono num">{{ row.date.strftime('%Y-%m-%d') }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="note">{{ abstain_note('no deadline falls inside this window') }}</p>
+  {% endif %}
+
+  <h2>One lead, explained in full</h2>
+  {% if brief.one_lead %}
+  <div class="scout-card mb-3">
+    <div class="scout-card-title">Opportunity #{{ brief.one_lead.opportunity_id }} -- {{ brief.one_lead.account_or_building }}</div>
+    {% for rb in brief.one_lead.reason_blocks %}
+    <p><strong>{{ rb.why_kind }}</strong> -- {% if rb.strength != 'ABSTAIN' %}{{ rb.strength }}{% else %}{{ abstain_note() }}{% endif %}: {{ rb.evidence }}</p>
+    {% endfor %}
+    {% if brief.one_lead_do %}<p class="action-needed">{{ brief.one_lead_do }}</p>{% endif %}
+  </div>
+  {% else %}
+  <p class="note">{{ abstain_note('no Opportunity exists yet to explain') }}</p>
+  {% endif %}
+
+  <h2>What Scout got wrong this week</h2>
+  {% if brief.got_wrong %}
+  <ul>
+    {% for w in brief.got_wrong %}
+    <li>Opportunity #{{ w.opportunity_id }} -- bad number or wrong contact ({{ w.user }})</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="note">No Opportunity was dispositioned bad number or wrong contact this week.</p>
+  {% endif %}
+
+  <div class="signed">Signed, {{ brief.generated_by }} -- generated {{ brief.generated_at.strftime('%Y-%m-%d %H:%M') }}</div>
+</div>
