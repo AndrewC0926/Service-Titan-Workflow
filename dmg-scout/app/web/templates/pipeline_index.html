@@ -74,6 +74,10 @@
           {% if rows and r.reason_blocks and r.reason_blocks[0].one_sentence %}
           <p>{{ r.reason_blocks[0].one_sentence }}</p>
           {% endif %}
+          {% if r.contractor_id %}
+          <p><a class="chip" href="/contractor/{{ r.contractor_id }}/buildings.xlsx"
+               title="Buildings within 15 miles of this contractor's yard, past service life, no replacement permit on record -- the artifact to hand them.">Download buildings.xlsx for this contractor</a></p>
+          {% endif %}
           <a href="/notes?anchor_type=opportunity&anchor_id={{ r.opportunity.id }}">+ Note</a>
         </details>
       </td>

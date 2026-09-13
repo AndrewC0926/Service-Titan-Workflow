@@ -1,7 +1,8 @@
 """Block 4B Item 3 (Master Plan v3.6 section 40): "xlsx export of the
-underlying rows" for the Weekly Sales Intelligence Brief. One sheet per
-section, plain rows -- a rep or Larry pastes this into whatever they
-already use, not a second dashboard.
+underlying rows" for the Weekly Sales Intelligence Brief. Block 4B Item 6
+adds the contractor handoff list. One sheet per section, plain rows -- a
+rep or Larry pastes this into whatever they already use, not a second
+dashboard.
 """
 from __future__ import annotations
 
@@ -47,6 +48,33 @@ def weekly_brief_xlsx(brief: dict) -> bytes:
     for w in brief["got_wrong"]:
         wrong_ws.append([w["opportunity_id"], w["user"], w["created_at"]])
 
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def contractor_buildings_xlsx(contractor_name: str, radius_miles: float, rows: list[dict]) -> bytes:
+    """Block 4B Item 6: "the artifact the rep hands the contractor" --
+    buildings within radius_miles of the contractor's own yard, past
+    service life, with no replacement permit on record. One sheet;
+    rows come from app.contractors.buildings_past_service_life_near_
+    contractor, already plain dicts."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Buildings"
+    ws.append([f"{contractor_name} -- buildings within {radius_miles:g} miles past service life, "
+              f"no replacement permit on record"])
+    ws.append(["Address", "APN", "Equipment class", "Install year", "Year built", "Service life status",
+              "Nearest permit reference", "Distance (mi)"])
+    for row in rows:
+        ws.append([
+            row["address"], row["apn"], row["equipment_class"],
+            row["install_year"] or "unknown, not guessed",
+            row["year_built"] or "unknown, not guessed",
+            row["service_life_status"],
+            row["nearest_permit_reference"] or "no permit on record",
+            row["distance_miles"],
+        ])
     buf = BytesIO()
     wb.save(buf)
     return buf.getvalue()

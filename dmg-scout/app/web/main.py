@@ -505,6 +505,17 @@ def pipeline_index(request: Request, session: Session = Depends(get_session), _:
     facilities = {p.perm_id: p for p in session.exec(
         select(Ab869Plan).where(Ab869Plan.perm_id.in_(facility_perm_ids)))} if facility_perm_ids else {}
     lines = {l.id: l for l in session.exec(select(ProductLine).where(ProductLine.id.in_(line_ids)))} if line_ids else {}
+    contact_ids = [o.contact_id for o in opportunities if o.contact_id]
+    contacts = {c.id: c for c in session.exec(select(Contact).where(Contact.id.in_(contact_ids)))} if contact_ids else {}
+    # Block 4B Item 6: which contractor_id (if any) backs each Opportunity's
+    # matched contact -- so a contractor-anchored row's Reason Block
+    # expansion can link straight to that contractor's own buildings.xlsx
+    # (the exact same artifact the Accounts contractors tab links to, not
+    # a second export built for this one page).
+    contractor_id_by_opp = {
+        o.id: contacts[o.contact_id].contractor_id
+        for o in opportunities if o.contact_id in contacts and contacts[o.contact_id].contractor_id
+    }
 
     rows = []
     for o in opportunities:
@@ -519,6 +530,7 @@ def pipeline_index(request: Request, session: Session = Depends(get_session), _:
         rows.append({
             "opportunity": o,
             "account_or_building": account_or_building,
+            "contractor_id": contractor_id_by_opp.get(o.id),
             "line_name": lines[o.line_id].name if o.line_id in lines else None,
             "weakest_why": weakest_of(strengths) if len(strengths) == 3 else None,
             "sort_key": weakest_why_rank(strengths) if len(strengths) == 3 else (99, 99),
@@ -1723,6 +1735,34 @@ def contractor_detail(contractor_id: int, request: Request,
         "c": contractor, "nearby": nearby[:10], "nearby_total": len(nearby), "radius_miles": radius,
         "tb": _title_block(session), "active": "accounts", "subview": "contractors",
     })
+
+
+@app.get("/contractor/{contractor_id}/buildings.xlsx")
+def contractor_buildings_xlsx_export(contractor_id: int, session: Session = Depends(get_session),
+                                     _: str = Depends(auth)):
+    """Block 4B Item 6: "the artifact the rep hands the contractor" --
+    buildings within contractors.default_radius_miles (15mi, the same
+    "realistically reachable" dispatch radius Item 4's handoff-play do-
+    sentence names -- deliberately NOT ranking_radius_miles's tighter 3mi,
+    which answers a different question, "who to call first among many
+    contractors," not "what can this one contractor realistically reach")
+    of the contractor's own yard, past service life, no replacement
+    permit on record. Linked from both the Accounts contractors tab and
+    any contractor-anchored Opportunity's Reason Block expansion."""
+    from app.contractors import buildings_past_service_life_near_contractor, default_radius_miles
+    from app.web.xlsx import contractor_buildings_xlsx
+
+    contractor = session.get(Contractor, contractor_id)
+    if not contractor:
+        raise HTTPException(404)
+    cfg = load_config()
+    radius = default_radius_miles(cfg)
+    rows = buildings_past_service_life_near_contractor(session, contractor, radius)
+    xlsx_bytes = contractor_buildings_xlsx(contractor.business_name, radius, rows)
+    filename = f"{contractor.business_name.strip().replace(' ', '-')}-buildings.xlsx"
+    return Response(content=xlsx_bytes,
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 @app.get("/signals/replacement-leads", response_class=HTMLResponse)

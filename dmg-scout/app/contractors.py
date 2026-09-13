@@ -591,6 +591,64 @@ def nearest_mechanical_contractor_bulk(session: Session, buildings: list[Retrofi
     return out
 
 
+def buildings_past_service_life_near_contractor(
+    session: Session, contractor: Contractor, radius_miles: float,
+) -> list[dict]:
+    """Block 4B Item 6: "an xlsx of buildings within 15 miles of that
+    contractor's yard past service life with no replacement permit on
+    record" -- the artifact a rep hands the contractor. population==
+    'replacement_candidate' IS "no replacement permit on record" (see
+    that population's own docstring on RetrofitBuilding: "absence of a
+    permit is the signal"); service_life_status in (due, overdue) is
+    "past service life," the same field app.pipeline.retrofit already
+    computes for this population from building_age_years (a YEARBUILT-
+    DERIVED proxy, since no permit-verified install date exists for a
+    building with no permit).
+
+    "Nearest permit reference" is honestly null for every row this
+    returns: a replacement_candidate building has never had a permit at
+    all, by the population's own definition -- there is no permit to be
+    "nearest" to. Returned as None here, rendered as "no permit on
+    record" by the caller, never a nearby DIFFERENT building's permit
+    substituted in to fill the column.
+
+    Returns plain dicts (address, apn, equipment_class, install_year,
+    service_life_status, nearest_permit_reference, distance_miles),
+    nearest first -- ready for app.web.xlsx, never ORM rows a template
+    or a workbook writer would have to know how to unpack."""
+    from app.pipeline.equipment_eligibility import equipment_class_from_retrofit_type
+
+    if contractor.latitude is None or contractor.longitude is None:
+        return []
+    lat_min, lat_max, lon_min, lon_max = _bounding_box(contractor.latitude, contractor.longitude, radius_miles)
+    candidates = session.exec(
+        select(RetrofitBuilding).where(
+            RetrofitBuilding.population == "replacement_candidate",
+            RetrofitBuilding.service_life_status.in_(("due", "overdue")),
+            RetrofitBuilding.latitude.is_not(None),
+            RetrofitBuilding.latitude.between(lat_min, lat_max),
+            RetrofitBuilding.longitude.between(lon_min, lon_max),
+        )
+    ).all()
+
+    rows = []
+    for b in candidates:
+        d = haversine_miles(contractor.latitude, contractor.longitude, b.latitude, b.longitude)
+        if d <= radius_miles:
+            rows.append({
+                "address": b.address or b.apn,
+                "apn": b.apn,
+                "equipment_class": equipment_class_from_retrofit_type(b.equipment_type).value,
+                "install_year": b.latest_install_year,
+                "year_built": b.year_built,
+                "service_life_status": b.service_life_status,
+                "nearest_permit_reference": b.latest_permit_nbr,
+                "distance_miles": round(d, 1),
+            })
+    rows.sort(key=lambda r: r["distance_miles"])
+    return rows
+
+
 # ---- account roster <-> CSLB join --------------------------------------
 #
 # The join most likely to actually fire for a rep's roster: Jason's list is
