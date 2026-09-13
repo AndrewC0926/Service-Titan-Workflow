@@ -3931,6 +3931,22 @@ class RoomQuestion(SQLModel, table=True):
     answered_note_id: int | None = Field(default=None, foreign_key="decision_notes.id", index=True)
 
 
+class UserPreference(SQLModel, table=True):
+    """Block 4C Item 5 (Master Plan v3.6 section 42): "Mode is a
+    preference, not a role." One row per username that has ever set a
+    preference -- a user who never has defaults to mode="guide" in
+    application code (app.pipeline.radar.DEFAULT_MODE), never a row
+    inserted for a default nobody chose. last_radar_visit_at powers
+    Radar's own "what changed since last visit" panel (app.pipeline.
+    radar.record_radar_visit)."""
+    __tablename__ = "user_preferences"
+
+    username: str = Field(primary_key=True)
+    mode: str = Field(index=True)
+    last_radar_visit_at: datetime | None = Field(default=None)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
 class MetricSnapshot(SQLModel, table=True):
     """Block 4A Item 4 (Master Plan v3.6 section 30): "A metric_snapshot
     table... written by the nightly cron, append-only, never recomputed

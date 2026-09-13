@@ -445,6 +445,17 @@ def today(request: Request, session: Session = Depends(get_session), username: s
     landing = default_landing_for_role(user_role(cfg, username))
     if landing != "/":
         return RedirectResponse(landing, status_code=status.HTTP_303_SEE_OTHER)
+    # Block 4C Item 5: mode is a per-user PREFERENCE (app.pipeline.radar.
+    # get_mode), checked before anything else on this route -- Radar is a
+    # completely different render (four panels, no suggested calls), not
+    # an overlay on Guide's own brief.
+    from app.pipeline.radar import get_mode, radar_data
+    if get_mode(session, username) == "radar":
+        data = radar_data(session, cfg, username)
+        session.commit()  # record_radar_visit's stamp
+        return templates.TemplateResponse(request, "radar.html", {
+            **data, "tb": _title_block(session), "active": "today",
+        })
     brief = today_brief(session, cfg)
     # Block 4A Item 5: Today's own "Three to call" is re-sourced from
     # Pipeline (Opportunities ranked by weakest why, filled from Deadlines
@@ -483,6 +494,23 @@ def today(request: Request, session: Session = Depends(get_session), username: s
         **brief, "staleness": staleness, "tb": _title_block(session), "active": "today",
         "watch_count": watch_count, "review_count": review_count,
     })
+
+
+@app.post("/today/mode")
+def set_today_mode(mode: str = Form(...), session: Session = Depends(get_session),
+                   username: str = Depends(auth)) -> RedirectResponse:
+    """Block 4C Item 5: the Guide/Radar toggle -- a per-user PREFERENCE
+    (app.pipeline.radar.set_mode), never config-driven. 400 on an unknown
+    mode rather than silently falling back to a default, since a typo'd
+    form value should be visible, not swallowed."""
+    from app.pipeline.radar import set_mode
+
+    try:
+        set_mode(session, username, mode)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    session.commit()
+    return RedirectResponse("/", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.get("/search", response_class=HTMLResponse)

@@ -100,3 +100,52 @@ class TestPenHolderBySignalType:
         db_session.commit()
         rows = pen_holder_by_signal_type(db_session)
         assert rows == [{"pen_holder": "contractor", "signal_type": "ceqa_nop", "count": 1}]
+
+
+class TestUserScoping:
+    """Block 4C Item 5 (Radar mode): the optional `user` kwarg added to
+    all three functions -- None (every existing call site above) must
+    keep behaving exactly as before; a username scopes to just that
+    person, the new Radar "Notes and patterns" panel's own need."""
+
+    def test_reason_code_counts_user_none_is_unchanged(self, db_session):
+        db_session.add(Outcome(opportunity_id=1, user="andrew", disposition=Disposition.lost,
+                               reason_code=LostReasonCode.price))
+        db_session.commit()
+        assert reason_code_counts(db_session) == reason_code_counts(db_session, user=None)
+
+    def test_reason_code_counts_scoped_excludes_other_users(self, db_session):
+        db_session.add(Outcome(opportunity_id=1, user="andrew", disposition=Disposition.lost,
+                               reason_code=LostReasonCode.price))
+        db_session.add(Outcome(opportunity_id=1, user="jason", disposition=Disposition.lost,
+                               reason_code=LostReasonCode.price))
+        db_session.commit()
+        assert reason_code_counts(db_session, user="andrew") == [{"reason_code": "price", "count": 1}]
+        assert reason_code_counts(db_session) == [{"reason_code": "price", "count": 2}]
+
+    def test_competitor_by_line_scoped_to_one_author(self, db_session):
+        opp = _opportunity(db_session)
+        db_session.add(DecisionNote(opportunity_id=opp.id, note_type=NoteType.intel,
+                                    lead_source=LeadSource.scout_signal, author="andrew",
+                                    line="Chiller", competitor_line="Trane"))
+        db_session.add(DecisionNote(opportunity_id=opp.id, note_type=NoteType.intel,
+                                    lead_source=LeadSource.scout_signal, author="jason",
+                                    line="Chiller", competitor_line="Trane"))
+        db_session.commit()
+        assert competitor_by_line(db_session, user="andrew") == [
+            {"line": "Chiller", "competitor_line": "Trane", "count": 1}]
+
+    def test_pen_holder_by_signal_type_scoped_to_one_author(self, db_session):
+        signal = Signal(signal_type=SignalType.ceqa_nop)
+        db_session.add(signal)
+        db_session.flush()
+        opp = _opportunity(db_session)
+        db_session.add(DecisionNote(opportunity_id=opp.id, note_type=NoteType.intel,
+                                    lead_source=LeadSource.scout_signal, author="andrew",
+                                    pen_holder=NotePenHolder.contractor, signal_id=signal.id))
+        db_session.add(DecisionNote(opportunity_id=opp.id, note_type=NoteType.intel,
+                                    lead_source=LeadSource.scout_signal, author="jason",
+                                    pen_holder=NotePenHolder.contractor, signal_id=signal.id))
+        db_session.commit()
+        assert pen_holder_by_signal_type(db_session, user="andrew") == [
+            {"pen_holder": "contractor", "signal_type": "ceqa_nop", "count": 1}]

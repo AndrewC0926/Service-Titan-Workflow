@@ -43,6 +43,12 @@
   {% if watch_count %}<a class="chip" href="/accounts/watchlist">Watch list<span class="ct">{{ watch_count }}</span></a>{% endif %}
 </div>
 {% endif %}
+<div class="mb-2">
+  <form method="post" action="/today/mode" style="display:inline">
+    <input type="hidden" name="mode" value="radar">
+    <button type="submit" class="chip" title="Radar: what changed, your book weakest-why first, deadline exposure, your notes and patterns. No suggested calls -- you decide.">Switch to Radar</button>
+  </form>
+</div>
 <div class="today">
 
   <section class="today-section">

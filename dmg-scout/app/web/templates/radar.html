@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% from "_icon.html" import icon %}
+{% from "_macros.html" import abstain_note, empty_state %}
+{% block title %}Radar{% endblock %}
+{% block sheet_no %}S-00{% endblock %}
+{% block content %}
+<div class="mb-2">
+  <form method="post" action="/today/mode" style="display:inline">
+    <input type="hidden" name="mode" value="guide">
+    <button type="submit" class="chip" title="Guide: three calls with the three whys, the person and the ask.">Switch to Guide</button>
+  </form>
+</div>
+<div class="sec-head">
+  <div class="sec-title">Radar</div>
+  <span class="note">Master Plan v3.6 section 42: no suggested calls -- four panels scoped to your own
+    book. You decide. {{ 'First visit -- no prior "since last visit" to compare against yet.' if since is none
+    else 'Since your last visit, ' ~ since.strftime('%Y-%m-%d %H:%M') ~ ' UTC.' }}</span>
+</div>
+
+<div class="today">
+  <section class="today-section">
+    <h2>{{ icon('triangle-alert') }} What changed</h2>
+    <span class="note">New Signals on your own Opportunities' buildings.
+      {{ abstain_note('contractor-anchored buildings are not covered by this panel yet') }}.</span>
+    {% if new_signals %}
+      <ul class="today-list">
+        {% for s in new_signals %}
+        <li>Building #{{ s.building_id }} -- {{ s.trigger_type }}
+          {% if s.trigger_date %}({{ s.trigger_date.strftime('%Y-%m-%d') }}){% endif %}: {{ s.evidence }}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      {{ empty_state("Nothing new on your own buildings since your last visit.") }}
+    {% endif %}
+  </section>
+
+  <section class="today-section">
+    <h2>Your Opportunities, weakest why first</h2>
+    {% if weakest_why %}
+      <table class="tbl">
+        <thead><tr><th>Account or building</th><th>Weakest why</th></tr></thead>
+        <tbody>
+        {% for r in weakest_why %}
+        <tr>
+          <td><a href="/pipeline#opp-{{ r.opportunity_id }}">{{ r.account_or_building }}</a></td>
+          <td>{% if r.weakest_why and r.weakest_why != 'ABSTAIN' %}<span class="chip">{{ r.weakest_why }}</span>{% else %}{{ abstain_note() }}{% endif %}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <p class="note">Quiet accounts and whitespace by line: {{ customer_master_note }}.</p>
+    {% else %}
+      {{ empty_state("No Opportunities under your name yet.") }}
+    {% endif %}
+  </section>
+
+  <section class="today-section">
+    <h2>{{ icon('triangle-alert') }} Deadline exposure across your book</h2>
+    {% if deadline_exposure %}
+      <ul class="today-list">
+        {% for row in deadline_exposure %}
+        <li><a href="{{ row.detail_url }}">{{ row.account_or_building }}</a> -- {{ row.regulation }}:
+          {{ row.exposure }}{% if row.date %} ({{ row.date.strftime('%Y-%m-%d') }}){% endif %}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      {{ empty_state("No deadline exposure on your own Opportunities right now.") }}
+    {% endif %}
+  </section>
+
+  <section class="today-section">
+    <h2>Your Notes and patterns</h2>
+    {% if notes_and_patterns.notes %}
+      <ul class="today-list">
+        {% for n in notes_and_patterns.notes %}
+        <li class="mono">{{ n.created_at.strftime('%Y-%m-%d') }} -- {{ n.note_type.value }}: {{ n.free_text[:140] }}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      {{ empty_state("You haven't logged a Note yet.") }}
+    {% endif %}
+    <div class="flex flex-wrap gap-3 mt-2">
+      <div>
+        <div class="note">Lost reason codes</div>
+        {% for row in notes_and_patterns.reason_code_counts %}<div>{{ row.reason_code }}: {{ row.count }}</div>{% else %}<div class="note">none yet</div>{% endfor %}
+      </div>
+      <div>
+        <div class="note">Competitor by line</div>
+        {% for row in notes_and_patterns.competitor_by_line %}<div>{{ row.line }} vs {{ row.competitor_line }}: {{ row.count }}</div>{% else %}<div class="note">none yet</div>{% endfor %}
+      </div>
+      <div>
+        <div class="note">Pen holder by signal type</div>
+        {% for row in notes_and_patterns.pen_holder_by_signal_type %}<div>{{ row.signal_type }} / {{ row.pen_holder }}: {{ row.count }}</div>{% else %}<div class="note">none yet</div>{% endfor %}
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
