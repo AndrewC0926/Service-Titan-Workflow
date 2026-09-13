@@ -378,18 +378,30 @@ def _title_block(session: Session) -> dict:
 
 
 @app.get("/", response_class=HTMLResponse)
-def today(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
+def today(request: Request, session: Session = Depends(get_session), username: str = Depends(auth)):
     """The Today view: the same four sections as the digest email — three
     calls, what changed, what's due, one thing worth knowing — clickable, and
     the first thing seen rather than the board. See app/pipeline/notify.py's
     module docstring for why these four; changes_preview() specifically (not
     the digest's own _changes_since_last_digest) so loading this page never
     consumes a change tomorrow's real digest email would otherwise report.
+
+    Block 4B Item 5: "/" is also the per-role default-landing redirect
+    point -- an executive's or operator's own GET / sends them straight to
+    their real default landing instead of rendering Today underneath them.
+    A rep/inside_sales/manager's default landing IS "/" (DEFAULT_LANDING_
+    BY_ROLE has no entry for them), so this never redirects for the
+    majority of real users -- it only ever fires for the two roles that
+    are supposed to land somewhere else.
     """
+    from app.access_log import default_landing_for_role, user_role
     from app.pipeline.notify import today_brief
     from app.pipeline.today_calls import three_calls_from_pipeline
     from app.pipeline_health import check_and_alert_staleness
     cfg = load_config()
+    landing = default_landing_for_role(user_role(cfg, username))
+    if landing != "/":
+        return RedirectResponse(landing, status_code=status.HTTP_303_SEE_OTHER)
     brief = today_brief(session, cfg)
     # Block 4A Item 5: Today's own "Three to call" is re-sourced from
     # Pipeline (Opportunities ranked by weakest why, filled from Deadlines
@@ -573,6 +585,9 @@ def _note_anchor_label(session: Session, note) -> str:
     return ", ".join(labels) if labels else "ABSTAIN"
 
 
+_TEAM_VISIBILITY_ROLES = frozenset({"manager", "executive", "operator"})
+
+
 @app.get("/notes", response_class=HTMLResponse)
 def notes_index(request: Request, anchor_type: str = "", anchor_id: str = "",
                 session: Session = Depends(get_session), username: str = Depends(auth)):
@@ -580,16 +595,36 @@ def notes_index(request: Request, anchor_type: str = "", anchor_id: str = "",
     the weekly "three deals, tell us why" list, every note ever logged
     (most recent first, capped), and an add-note form. anchor_type/
     anchor_id (from an object page's own "+ Note" link) pre-fill the form
-    so a rep never has to look up an id by hand."""
+    so a rep never has to look up an id by hand.
+
+    Block 4B Item 5: "A manager can see the team's Outcomes and Notes as
+    patterns... a rep sees only their own." manager/executive/operator
+    see every note plus the three team-pattern breakdowns (app.pipeline.
+    team_patterns); rep/inside_sales see only notes they themselves
+    authored, and no patterns section at all -- there is no "someone
+    else's row" for them to see a pattern over."""
+    from app.access_log import user_role
     from app.models import DecisionNote
     from app.pipeline.notes import (
         basis_of_design_options, lead_sources, note_types, pen_holders, three_deals_to_explain,
     )
     from app.pipeline.outcomes import reason_codes
 
-    notes = session.exec(select(DecisionNote).order_by(DecisionNote.created_at.desc()).limit(100)).all()
+    cfg = load_config()
+    role = user_role(cfg, username)
+    sees_team = role in _TEAM_VISIBILITY_ROLES
+
+    notes_query = select(DecisionNote).order_by(DecisionNote.created_at.desc()).limit(100)
+    if not sees_team:
+        notes_query = notes_query.where(DecisionNote.author == username)
+    notes = session.exec(notes_query).all()
     notes_with_labels = [{"note": n, "anchor_label": _note_anchor_label(session, n)} for n in notes]
     candidates = three_deals_to_explain(session, user=username)
+
+    patterns = None
+    if sees_team:
+        from app.pipeline.team_patterns import team_patterns
+        patterns = team_patterns(session)
 
     return templates.TemplateResponse(request, "notes_index.html", {
         "tb": _title_block(session), "active": "notes",
@@ -598,6 +633,7 @@ def notes_index(request: Request, anchor_type: str = "", anchor_id: str = "",
         "basis_of_design_options": basis_of_design_options(), "lead_sources": lead_sources(),
         "reason_codes": reason_codes(),
         "anchor_type": anchor_type, "anchor_id": anchor_id,
+        "role": role, "sees_team": sees_team, "patterns": patterns,
     })
 
 

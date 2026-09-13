@@ -2592,6 +2592,15 @@ class AccessLog(SQLModel, table=True):
     ip: str | None = None
     user_agent: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     created_at: datetime = Field(default_factory=utcnow)
+    # Block 4B Item 5 (Master Plan v3.6 section 35): "Audit log of who
+    # viewed and changed what" -- role is a plain string SNAPSHOT of
+    # app.access_log.user_role()'s answer at the moment of this hit, same
+    # "recorded at the time, not a live foreign key" discipline
+    # DecisionNote.role already uses (a person's role can change later
+    # without rewriting history). Null for a request with no username
+    # (unauthenticated, or no Authorization header at all) -- there is no
+    # role to look up for someone who was never identified.
+    role: str | None = Field(default=None, index=True)
 
 
 class PipelineRun(SQLModel, table=True):

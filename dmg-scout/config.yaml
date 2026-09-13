@@ -1376,12 +1376,33 @@ dashboard:
   # the fallback for a future deploy with no config.yaml change, per its
   # own comment) -- DASHBOARD_PASSWORD on Render is now unused for auth.
   # Add the next real person here plus their own env var on Render.
+  #
+  # role (Block 4B Item 5, Master Plan v3.6 section 35 -- "Roles, not just
+  # logins"): one of rep, inside_sales, manager, executive, operator.
+  # app.access_log.user_role() reads this; a user with no role entry (or
+  # not listed here at all -- the legacy single-user fallback) resolves
+  # to "operator" if they're in operator_usernames below, else "rep" --
+  # never guessed past that, and never a SIXTH value invented here.
+  # Drives two things, each independently: the default landing a role's
+  # own root-page GET redirects to (executive -> /reports, operator ->
+  # /settings, everyone else -> Today, section 35/40's own "per-role
+  # default landing"), and whether /notes shows only the viewer's own
+  # rows or the team's aggregate patterns (manager/executive/operator see
+  # the team; rep/inside_sales see their own -- section 31's own "Managers
+  # see the notes as patterns... reps see their own").
   users:
     - username: "andrew"
       password_env: "DASHBOARD_PASSWORD_ANDREW"
+      role: "operator"
   # Usernames allowed into Settings (Reference, Assumptions, Lines admin,
   # Capture) -- see app.web.main.operator(). Everyone else authenticates
-  # fine but gets 403 on /settings and its sub-pages.
+  # fine but gets 403 on /settings and its sub-pages. Deliberately kept as
+  # its OWN list, not derived from role=="operator" above: this is Item 3's
+  # already-shipped, already-tested Settings gate, and this item's role
+  # concept is layered on top of it (default landing, notes visibility)
+  # rather than replacing it -- see app.access_log.user_role()'s own
+  # docstring for exactly how the two relate when a user has no explicit
+  # role.
   operator_usernames: ["andrew"]
 
 # =============================================================================

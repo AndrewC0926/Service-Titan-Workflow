@@ -90,7 +90,11 @@
   <button type="submit">Add note</button>
 </form>
 
-<div class="sec-head mt-4"><div class="sec-title">Recent notes</div></div>
+<div class="sec-head mt-4">
+  <div class="sec-title">{{ "Recent notes -- the whole team" if sees_team else "Your recent notes" }}</div>
+  <span class="note">{% if sees_team %}Role: {{ role }} -- managers, executives and operators see every note.
+    {% else %}Role: {{ role }} -- reps and inside sales see only their own notes.{% endif %}</span>
+</div>
 {% if notes_with_labels %}
 <table class="tbl">
   <thead><tr><th>When</th><th>Type</th><th>Anchor</th><th>Author</th><th>Basis of design</th><th>Note</th></tr></thead>
@@ -108,6 +112,55 @@
   </tbody>
 </table>
 {% else %}
-{{ empty_state("No notes logged yet.") }}
+{{ empty_state("No notes logged yet." if sees_team else "You haven't logged a note yet.") }}
+{% endif %}
+
+{% if sees_team %}
+<div class="sec-head mt-4"><div class="sec-title">Team patterns</div>
+  <span class="note">Outcomes and Notes combined, as patterns -- section 31's own "which engineers
+    spec DMG, which competitor keeps winning on which line, where the pen sits."</span>
+</div>
+
+<div class="sec-head mt-3"><div class="sec-title">By reason code</div></div>
+{% if patterns.reason_code_counts %}
+<table class="tbl mb-3">
+  <thead><tr><th>Reason code</th><th class="num">Count</th></tr></thead>
+  <tbody>
+    {% for row in patterns.reason_code_counts %}
+    <tr><td>{{ row.reason_code }}</td><td class="num mono">{{ row.count }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+{{ empty_state("No lost Outcome or Note has a reason code yet.") }}
+{% endif %}
+
+<div class="sec-head mt-3"><div class="sec-title">Competitor by line</div></div>
+{% if patterns.competitor_by_line %}
+<table class="tbl mb-3">
+  <thead><tr><th>Line</th><th>Competitor</th><th class="num">Count</th></tr></thead>
+  <tbody>
+    {% for row in patterns.competitor_by_line %}
+    <tr><td>{{ row.line }}</td><td>{{ row.competitor_line }}</td><td class="num mono">{{ row.count }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+{{ empty_state("No Note has named a competitor yet.") }}
+{% endif %}
+
+<div class="sec-head mt-3"><div class="sec-title">Pen holder by signal type</div></div>
+{% if patterns.pen_holder_by_signal_type %}
+<table class="tbl">
+  <thead><tr><th>Pen holder</th><th>Signal type</th><th class="num">Count</th></tr></thead>
+  <tbody>
+    {% for row in patterns.pen_holder_by_signal_type %}
+    <tr><td>{{ row.pen_holder }}</td><td>{{ row.signal_type }}</td><td class="num mono">{{ row.count }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+{{ empty_state("No Note has a pen holder recorded yet.") }}
+{% endif %}
 {% endif %}
 {% endblock %}

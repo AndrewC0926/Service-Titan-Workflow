@@ -126,6 +126,59 @@ def configured_users(cfg: Config) -> list[tuple[str, str]]:
     return [(legacy_user, legacy_password)] if legacy_password else []
 
 
+# Block 4B Item 5 (Master Plan v3.6 section 35): "Roles, not just logins."
+# The closed set config.yaml's dashboard.users[].role is checked against --
+# never a sixth value silently accepted from a typo in config.yaml.
+VALID_ROLES = frozenset({"rep", "inside_sales", "manager", "executive", "operator"})
+
+# Role -> the page its own root-page GET redirects to (section 35/40's
+# "per-role default landing"). Deliberately NOT "operator": the item's own
+# wording distinguishes "executives LAND ON Reports; reps LAND ON Today;
+# operators SEE Settings" -- a different verb for operator, on purpose.
+# "See Settings" describes the ALREADY-SHIPPED, unchanged capability
+# app.web.main.operator()/operator_usernames already gate (the Settings
+# nav item is visible, /settings is reachable) -- not a second landing-
+# page redirect. Confirmed the hard way: redirecting operator's own "/" to
+# /settings broke Andrew's own Today page (he is Scout's one real
+# configured operator today), which is exactly the outcome section 35's
+# "per-rep experience" work this whole system is built around would call
+# a regression, not a feature. Every role not listed here (rep,
+# inside_sales, manager, operator) lands on Today ("/") -- the same page
+# they'd already be looking at, so no redirect fires for them at all; see
+# app.web.main's own root route for that short-circuit.
+DEFAULT_LANDING_BY_ROLE = {
+    "executive": "/reports",
+}
+
+
+def user_role(cfg: Config, username: str | None) -> str:
+    """One of VALID_ROLES for a given username, per config.yaml's
+    dashboard.users[].role. A configured user with no role field, or a
+    username not in dashboard.users at all (the legacy single-user
+    fallback path, or simply unrecognized), resolves to "operator" if
+    they're in operator_usernames (Item 3's own, already-shipped Settings
+    gate), else "rep" -- the most conservative default (Today landing,
+    own-notes-only visibility), never guessed into something more
+    privileged than what's actually configured."""
+    if username:
+        for entry in cfg.get("dashboard.users", []) or []:
+            if entry.get("username") == username:
+                role = entry.get("role")
+                if role in VALID_ROLES:
+                    return role
+                break
+    operators = cfg.get("dashboard.operator_usernames", ["andrew"])
+    if username in operators:
+        return "operator"
+    return "rep"
+
+
+def default_landing_for_role(role: str) -> str:
+    """Where a role's own root-page GET redirects to -- "/" (Today, no
+    redirect needed) for any role not named in DEFAULT_LANDING_BY_ROLE."""
+    return DEFAULT_LANDING_BY_ROLE.get(role, "/")
+
+
 def send_new_ip_notification(cfg: Config, ip: str, when) -> bool:
     """Best-effort -- a failed send must never be the reason a page didn't
     load. Always via Resend, independent of digest.transport (this is a
@@ -176,8 +229,9 @@ def log_access(session, *, username: str | None, path: str, method: str,
         ).first()
         is_first_appearance = existing is None
 
+    role = user_role(cfg, username) if username is not None else None
     entry = AccessLog(username=username, path=path, method=method, ip=ip,
-                      user_agent=user_agent, created_at=now)
+                      user_agent=user_agent, created_at=now, role=role)
     session.add(entry)
     session.commit()
 
