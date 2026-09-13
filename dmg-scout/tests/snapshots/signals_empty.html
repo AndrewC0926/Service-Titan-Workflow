@@ -92,12 +92,14 @@
 
 <div class="sec-head">
   <div class="sec-title">Signals</div>
-  <span class="note">One feed, seven trigger types. A card's Promote button is disabled and names
-    exactly what's missing when the four-part filter fails (named reachable contact, sellable
-    account or building, dated reason, eligible fitting line) -- or when no Signal record exists
-    yet for that source. Permit gap alone is 0too
-    large to browse card-by-card -- use its own list-builder at /signals/permit-gap instead;
-    cards here are capped at 200 regardless of filter.</span>
+  <span class="note">One feed, seven trigger types, read from a nightly-refreshed table (never
+    computed live on page load -- see app.pipeline.signals_feed.refresh_signals_feed). A card's
+    Promote button is disabled and names exactly what's missing when the four-part filter fails
+    (named reachable contact, sellable account or building, dated reason, eligible fitting line)
+    -- or when no Signal record exists yet for that source. Permit gap alone is
+    0too large to browse card-by-card --
+    use its own list-builder at /signals/permit-gap instead; 50 shown per page here
+    regardless of filter.</span>
 </div>
 
 <div class="kpi-strip">

@@ -17,7 +17,7 @@ from app.models import (
 )
 from app.pipeline.reason_block import weakest_of
 from app.pipeline.resolve import run_resolve
-from app.pipeline.signals_feed import FeedSignal, resolve_signal_id
+from app.pipeline.signals_feed import FeedSignal, refresh_signals_feed, resolve_signal_id
 from app.pipeline.size_score import run_size_score
 from app.web.main import app
 
@@ -72,12 +72,14 @@ class TestResolveSignalId:
 class TestSignalsPage:
     def test_page_loads_and_shows_filter_chips(self, client, db_session, cfg):
         seed_project_signal(db_session, cfg)
+        refresh_signals_feed(db_session)
         r = client.get("/signals", headers=AUTH)
         assert r.status_code == 200
         assert 'href="/signals?trigger=entitlement_milestone"' in r.text
 
     def test_card_promote_button_is_disabled_and_names_missing_parts(self, client, db_session, cfg):
         seed_project_signal(db_session, cfg)
+        refresh_signals_feed(db_session)
         r = client.get("/signals?trigger=entitlement_milestone", headers=AUTH)
         assert r.status_code == 200
         assert "disabled" in r.text
@@ -86,35 +88,54 @@ class TestSignalsPage:
 
     def test_filter_by_trigger_type_narrows_the_cards(self, client, db_session, cfg):
         seed_project_signal(db_session, cfg)
+        refresh_signals_feed(db_session)
         r = client.get("/signals?trigger=deadline", headers=AUTH)
         assert r.status_code == 200
         assert "entitlement milestone --" not in r.text
+
+    def test_page_reads_the_persisted_table_not_a_live_recompute(self, client, db_session, cfg):
+        """Hotfix (2026-09-13): the whole point of signals_feed -- seeding
+        a real signal WITHOUT refreshing must show nothing, proving the
+        route never falls back to a live unified_signals() call."""
+        seed_project_signal(db_session, cfg)
+        r = client.get("/signals", headers=AUTH)
+        assert r.status_code == 200
+        assert "No signals match this filter." in r.text
 
 
 class TestSignalsPromote:
     def test_promote_fails_closed_when_the_filter_still_fails(self, client, db_session, cfg):
         project = seed_project_signal(db_session, cfg)
+        refresh_signals_feed(db_session)
         r = client.post("/signals/promote", data={"source": "project", "source_id": str(project.id)}, headers=AUTH)
         assert r.status_code == 409
 
-    def test_promote_unknown_source_is_a_400(self, client, db_session, cfg):
+    def test_promote_unknown_source_returns_404(self, client, db_session, cfg):
+        """Hotfix (2026-09-13): a per-source dispatch dict used to 400 on
+        an unrecognized source name specifically; a direct (source,
+        source_id) table lookup has no such list to validate against
+        anymore -- an unrecognized source and a real-but-nonexistent
+        source_id are now the same "row not found" case, both 404."""
         r = client.post("/signals/promote", data={"source": "nonsense", "source_id": "1"}, headers=AUTH)
-        assert r.status_code == 400
+        assert r.status_code == 404
 
     def test_promote_missing_signal_returns_404(self, client, db_session, cfg):
         r = client.post("/signals/promote", data={"source": "project", "source_id": "999999"}, headers=AUTH)
         assert r.status_code == 404
 
     def test_promote_succeeds_end_to_end_when_every_part_is_manufactured_to_pass(
-            self, client, db_session, cfg, monkeypatch):
+            self, client, db_session, cfg):
         """The realistic path (a card built from unified_signals()) can
         never pass today -- see resolve_signal_id/four_part_filter's own
         findings (docs/BUILD-PLAN.md section 9's Item 5 report: Promote is
         structurally unreachable given current data, not just empirically
-        at 0). This test proves the WIRING (dispatch -> re-check ->
+        at 0). This test proves the WIRING (table lookup -> re-check ->
         promote -> redirect) works correctly for the day a real signal
-        can pass, by manufacturing one -- project-sourced (a real
-        resolvable signal_id) with account_id set by hand."""
+        can pass, by manufacturing one directly in signals_feed --
+        project-sourced (a real resolvable signal_id) with account_id set
+        by hand. Hotfix (2026-09-13): used to monkeypatch _project_signals
+        to inject this; promote now reads signals_feed directly, so the
+        row goes straight into that table instead."""
         project = seed_project_signal(db_session, cfg)
         contact = Contact(name="Jane PE", phone="555-1234", reach_status="confirmed")
         db_session.add(contact)
@@ -122,15 +143,13 @@ class TestSignalsPromote:
         db_session.add(ProjectContact(project_id=project.id, contact_id=contact.id, role="engineer_of_record"))
         db_session.add(ProductLine(name="Test AHU", name_norm="test ahu",
                                    category="air_handling_units", building_role="air_handling"))
-        db_session.commit()
-
-        fake_fs = FeedSignal(
+        from app.models import SignalFeedRow
+        db_session.add(SignalFeedRow(
             source="project", source_id=str(project.id), trigger_type=TriggerType.entitlement_milestone,
             trigger_date=datetime(2026, 1, 1), evidence="manufactured for this test", confidence=None,
             project_id=project.id, account_id=999, category=Category.data_center,
-        )
-        import app.pipeline.signals_feed as sf
-        monkeypatch.setattr(sf, "_project_signals", lambda session: [fake_fs])
+        ))
+        db_session.commit()
 
         r = client.post("/signals/promote", data={"source": "project", "source_id": str(project.id)},
                         headers=AUTH, follow_redirects=False)

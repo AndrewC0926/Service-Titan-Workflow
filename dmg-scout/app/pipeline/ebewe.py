@@ -240,7 +240,8 @@ def ebewe_matches_by_normalized_address(session, candidate_addresses: dict[str, 
     from app.models import RetrofitBuilding
     rb_addrs: dict[str, set[str]] = {}
     existing_rows = session.exec(
-        select(RetrofitBuilding.apn, RetrofitBuilding.address).where(RetrofitBuilding.address.is_not(None))
+        select(RetrofitBuilding.apn, RetrofitBuilding.address).where(
+            RetrofitBuilding.address.is_not(None), RetrofitBuilding.is_active == True)  # noqa: E712
     ).all()
     for apn, address in (*existing_rows, *candidate_addresses.items()):
         norm = normalize_address(address)

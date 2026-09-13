@@ -10,7 +10,8 @@ from app.models import (
     ReasonStrength, RetrofitBuilding, Signal, SignalType, TriggerType, WhyKind,
 )
 from app.pipeline.signals_feed import (
-    FeedSignal, _owner_evidence_from_fields, four_part_filter, promote_to_opportunity, unified_signals,
+    FeedSignal, _feed_signal_from_row, _owner_evidence_from_fields, four_part_filter, promote_to_opportunity,
+    refresh_signals_feed, unified_signals,
 )
 
 
@@ -702,3 +703,101 @@ class TestWinEvidenceContractorDmgCustomerStatus:
         ).first()
         assert "yes, assigned rep Pat Rivera" in win_block.evidence
         assert win_block.strength == ReasonStrength.ABSTAIN  # contractor status is context, not win evidence itself
+
+
+class TestRefreshSignalsFeed:
+    """Hotfix (2026-09-13): GET /signals used to call unified_signals()
+    live, materializing every FeedSignal from every source on every page
+    load -- measured 536MB peak RSS against the real local restore, on a
+    512MB web instance. refresh_signals_feed() persists that same output
+    into signals_feed once (the nightly pipeline's own job); the web route
+    only ever reads that table now."""
+
+    def test_persists_every_source_exactly_like_unified_signals(self, db_session):
+        from app.models import SignalFeedRow
+
+        db_session.add(RetrofitBuilding(
+            apn="9001-001-001", address="1 Refresh Way", population="replacement_candidate",
+            year_built=1990,
+        ))
+        db_session.commit()
+
+        live = unified_signals(db_session)
+        stats = refresh_signals_feed(db_session)
+        assert stats["total"] == len(live)
+        persisted = db_session.exec(select(SignalFeedRow)).all()
+        assert len(persisted) == len(live)
+        assert {r.source_id for r in persisted} >= {s.source_id for s in live if s.source == "retrofit_building"}
+
+    def test_rerun_replaces_not_appends(self, db_session):
+        from app.models import SignalFeedRow
+
+        db_session.add(RetrofitBuilding(
+            apn="9002-001-001", address="1 Rerun Way", population="replacement_candidate",
+            year_built=1990,
+        ))
+        db_session.commit()
+
+        refresh_signals_feed(db_session)
+        first_count = len(db_session.exec(select(SignalFeedRow)).all())
+        refresh_signals_feed(db_session)
+        second_count = len(db_session.exec(select(SignalFeedRow)).all())
+        assert first_count == second_count > 0
+
+    def test_a_row_that_stops_qualifying_disappears_on_the_next_refresh(self, db_session):
+        """Unlike RetrofitBuilding's own upsert-and-deactivate discipline
+        (app.pipeline.retrofit._upsert_population), signals_feed really is
+        a full delete-and-reinsert -- nothing FKs into its own id, so a
+        row that stops qualifying should simply be gone, not soft-deleted."""
+        from app.models import SignalFeedRow
+
+        b = RetrofitBuilding(apn="9003-001-001", address="1 Gone Way",
+                             population="replacement_candidate", year_built=1990)
+        db_session.add(b)
+        db_session.commit()
+        refresh_signals_feed(db_session)
+        assert len(db_session.exec(select(SignalFeedRow).where(SignalFeedRow.source_id == str(b.id))).all()) == 1
+
+        db_session.delete(b)
+        db_session.commit()
+        refresh_signals_feed(db_session)
+        assert db_session.exec(select(SignalFeedRow).where(SignalFeedRow.source_id == str(b.id))).first() is None
+
+
+class TestFeedSignalFromRow:
+    def test_round_trips_every_field(self, db_session):
+        from app.models import SignalFeedRow
+
+        row = SignalFeedRow(
+            source="project", source_id="42", trigger_type=TriggerType.entitlement_milestone,
+            trigger_date=datetime(2026, 1, 1), evidence="round trip", confidence=0.5,
+            project_id=42, building_id=None, facility_perm_id=None, account_id=7,
+            category=Category.data_center, pen_state=PenState.moving,
+        )
+        fs = _feed_signal_from_row(row)
+        assert fs.source == "project"
+        assert fs.source_id == "42"
+        assert fs.trigger_type == TriggerType.entitlement_milestone
+        assert fs.trigger_date == datetime(2026, 1, 1)
+        assert fs.evidence == "round trip"
+        assert fs.confidence == 0.5
+        assert fs.project_id == 42
+        assert fs.account_id == 7
+        assert fs.category == Category.data_center
+        assert fs.pen_state == PenState.moving
+
+
+class TestRefreshSignalsFeedCmd:
+    def test_cli_command_runs_and_reports_a_count(self, db_session):
+        from typer.testing import CliRunner
+
+        from app.cli import app as cli_app
+
+        # session_scope() reads DATABASE_URL directly, not the db_session
+        # fixture's own seam -- same caveat every other CLI-command test in
+        # this suite already carries (see tests/test_weekly_brief.py's
+        # TestGenerateWeeklyBriefCmd). This only proves the command runs
+        # and prints the expected shape.
+        result = CliRunner().invoke(cli_app, ["refresh-signals-feed"])
+        assert result.exit_code == 0
+        assert "signals refreshed into signals_feed" in result.output

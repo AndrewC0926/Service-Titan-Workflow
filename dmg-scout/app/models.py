@@ -2489,6 +2489,27 @@ class RetrofitBuilding(SQLModel, table=True):
     latitude: float | None = None
     longitude: float | None = None
 
+    # Hotfix (2026-09-13): build_retrofit_buildings/find_replacement_
+    # candidates used to DELETE every row in a population and reinsert
+    # fresh rows with new autoincrement ids on every rebuild, even for an
+    # apn whose data hadn't changed at all -- silently orphaning every
+    # Opportunity.building_id/DecisionNote.building_id FK anchored on a
+    # building that still existed in the new data, just under a different
+    # id. Both rebuilds now UPSERT keyed on apn (see
+    # app.pipeline.retrofit._upsert_population), preserving the id for any
+    # apn that still appears. is_active=False is what happens instead of
+    # a DELETE to a row whose apn genuinely stopped appearing in a given
+    # population's own rebuild (rare -- see that function's docstring for
+    # the one real case, a replacement_candidate getting its first permit
+    # and transitioning to recently_active under the SAME row) -- every
+    # other field is left exactly as last computed, so a dangling FK still
+    # resolves to a real, inspectable row instead of nothing. Every LIVE
+    # listing/board/feed read must filter is_active == True; a lookup by a
+    # specific known id (an Opportunity/Note resolving its own anchor)
+    # deliberately does not, since that building existing under any
+    # is_active state is exactly the point of not deleting it.
+    is_active: bool = Field(default=True, index=True)
+
     built_at: datetime = Field(default_factory=utcnow, index=True)
 
 
@@ -4014,3 +4035,45 @@ class WeeklyBrief(SQLModel, table=True):
     # which never emails anything and was never asked to explain why not.
     emailed: bool = Field(default=False)
     email_skip_reason: str | None = Field(default=None)
+
+
+class SignalFeedRow(SQLModel, table=True):
+    """Persisted cache of app.pipeline.signals_feed.unified_signals()'s own
+    output -- Hotfix (2026-09-13): GET /signals measured at 536MB peak RSS
+    (395MB above process baseline) against the real local restore, because
+    unified_signals() materializes every FeedSignal from every source
+    (~60k retrofit_buildings rows alone) on EVERY page load, on a 512MB
+    web instance. Refreshed by the nightly pipeline
+    (app.pipeline.signals_feed.refresh_signals_feed, called by `scout
+    refresh-signals-feed` right after find-replacement-candidates, so it
+    reflects that run's own retrofit rebuild) -- never computed live in a
+    web request again. app.pipeline.signals_feed.four_part_filter and
+    POST /signals/promote both read FROM this table too (via
+    _feed_signal_from_row), not a live per-source rebuild, so a signal a
+    rep sees on the page and one Promote acts on are always the exact same
+    row -- the trade is a real one, disclosed here: "still qualifies" at
+    promote time is only as fresh as the last nightly refresh, not
+    re-checked against the live source tables the way it used to be.
+
+    Full delete-and-reinsert on every refresh, UNLIKE RetrofitBuilding's
+    own upsert discipline (see app.pipeline.retrofit._upsert_population) --
+    nothing FKs into this table's own id. An Opportunity/DecisionNote
+    anchors on the REAL underlying row (Project/RetrofitBuilding/
+    Ab869Plan/etc), never on this cache, so there is no id-preservation
+    constraint to honor here."""
+    __tablename__ = "signals_feed"
+
+    id: int | None = Field(default=None, primary_key=True)
+    source: str = Field(index=True)
+    source_id: str = Field(index=True)
+    trigger_type: TriggerType = Field(index=True)
+    trigger_date: datetime | None = Field(default=None, index=True)
+    evidence: str
+    confidence: float | None = None
+    project_id: int | None = None
+    building_id: int | None = None
+    facility_perm_id: str | None = None
+    account_id: int | None = None
+    category: Category | None = None
+    pen_state: PenState = Field(default=PenState.ABSTAIN)
+    refreshed_at: datetime = Field(default_factory=utcnow, index=True)

@@ -117,7 +117,10 @@ def fetch_ownership_recency(session: Session, cfg: Config, client: PoliteClient)
     error = None
     matched = 0
     checked_at = utcnow()
-    apns = session.exec(select(RetrofitBuilding.apn)).all()
+    # is_active == True -- a building that dropped out of its population
+    # on its last rebuild has no live board row to enrich, so it's not
+    # worth spending a rate-limited-by-courtesy FeatureServer call on.
+    apns = session.exec(select(RetrofitBuilding.apn).where(RetrofitBuilding.is_active == True)).all()  # noqa: E712
     try:
         existing = {r.apn: r for r in session.exec(select(OwnershipRecency)).all()}
         for i in range(0, len(apns), BATCH_SIZE):

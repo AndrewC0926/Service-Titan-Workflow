@@ -199,8 +199,10 @@ def equipment_class_coverage_report(session: Session) -> dict:
     """Measured, not assumed, coverage of the new EquipmentClass mapping
     across every real source that could carry equipment-class evidence
     today -- see module docstring for why AB 802's own share is 0% by
-    construction rather than a bug in this report."""
-    retrofit_rows = session.exec(select(RetrofitBuilding)).all()
+    construction rather than a bug in this report. is_active == True: a
+    row that dropped out of its population on its last rebuild is not
+    part of the live board this coverage report is about."""
+    retrofit_rows = session.exec(select(RetrofitBuilding).where(RetrofitBuilding.is_active == True)).all()  # noqa: E712
     by_population: dict[str, dict] = {}
     for pop in ("recently_active", "replacement_candidate"):
         rows = [r for r in retrofit_rows if r.population == pop]

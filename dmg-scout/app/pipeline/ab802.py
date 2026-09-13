@@ -306,7 +306,8 @@ def match_to_retrofit(session: Session, rows: list[Ab802Building]) -> int:
     geocoded_rb = session.exec(
         select(RetrofitBuilding.apn, RetrofitBuilding.latitude, RetrofitBuilding.longitude,
               RetrofitBuilding.address)
-        .where(RetrofitBuilding.latitude.is_not(None), RetrofitBuilding.longitude.is_not(None))
+        .where(RetrofitBuilding.latitude.is_not(None), RetrofitBuilding.longitude.is_not(None),
+              RetrofitBuilding.is_active == True)  # noqa: E712
     ).all()
     # Grid-indexed, same shape as the geocoder comparison app/pipeline/ebewe.py's
     # docstring describes -- avoids an O(len(rows) * len(geocoded_rb)) scan
@@ -363,7 +364,7 @@ def match_to_retrofit(session: Session, rows: list[Ab802Building]) -> int:
         # match doesn't need one
         no_coord_rb = session.exec(
             select(RetrofitBuilding.apn, RetrofitBuilding.address)
-            .where(RetrofitBuilding.latitude.is_(None))
+            .where(RetrofitBuilding.latitude.is_(None), RetrofitBuilding.is_active == True)  # noqa: E712
         ).all()
         for apn, address in no_coord_rb:
             norm = normalize_address(address)

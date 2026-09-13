@@ -72,10 +72,14 @@ def test_latest_service_frequency_picks_the_most_recent_report(db_session, cfg):
 
 @respx.mock
 def test_manual_report_survives_a_full_rebuild(db_session, cfg):
-    """The core guarantee: build_retrofit_buildings DELETEs and reinserts
-    every 'recently_active' row every run (see its own docstring). A
-    ServiceFrequencyReport must still be attached to the NEW row after that
-    happens -- proving the join, not a column that would get wiped."""
+    """The core guarantee: build_retrofit_buildings UPSERTs the
+    'recently_active' population every run, keyed on apn (see
+    app.pipeline.retrofit._upsert_population) -- an apn that still exists
+    keeps its row's id, on purpose (Hotfix 2026-09-13: the old delete-and-
+    reinsert silently orphaned every Opportunity/DecisionNote.building_id
+    FK anchored on a building that survived a rebuild, just under a new
+    id). A ServiceFrequencyReport must still be attached after a rebuild
+    either way -- proving the join, not a column that would get wiped."""
     db_session.add(_permit("9999999999", datetime.utcnow(), "Replace RTU", "P1"))
     db_session.add(ServiceFrequencyReport(apn="9999999999", service_calls_per_year=24.0,
                                           source="Acme HVAC", reported_at=datetime(2026, 8, 1)))
@@ -91,13 +95,13 @@ def test_manual_report_survives_a_full_rebuild(db_session, cfg):
     assert row1.service_calls_per_year_source == "Acme HVAC"
     assert row1.rank_score > 1000  # the override tier, not the proxy tier
 
-    # rebuild again -- same permits, same report, nothing new. The row was
-    # deleted and reinserted; the manual figure must reappear via the join,
-    # not by accident of not having been deleted.
+    # rebuild again -- same permits, same report, nothing new. The row is
+    # updated in place under its SAME id; the manual figure must reappear
+    # via the join, not by accident of the row never having been touched.
     stats2 = build_retrofit_buildings(db_session, cfg, fast_client())
     assert stats2["service_frequency_reports_applied"] == 1
     row2 = db_session.exec(select(RetrofitBuilding)).one()
-    assert row2.built_at != row1.built_at  # genuinely rebuilt, not the same row surviving the delete
+    assert row2.id == row1.id  # same row, same id -- an anchored FK survives
     assert row2.service_calls_per_year == 24.0
     assert row2.rank_score > 1000
 

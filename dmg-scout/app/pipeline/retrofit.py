@@ -16,7 +16,7 @@ import logging
 import re
 from datetime import datetime
 
-from sqlmodel import delete, select
+from sqlmodel import select
 
 from app.config import Config
 from app.http import PoliteClient
@@ -172,7 +172,8 @@ def latest_service_frequency_by_apn(session, apns: list[str]) -> dict[str, Servi
 def geocodes_by_apn(session, apns: list[str]) -> dict[str, RetrofitGeocode]:
     """RetrofitGeocode rows for the apns given -- same pattern as
     latest_service_frequency_by_apn above and for the same reason: this
-    table's own DELETE-and-reinsert rebuild would otherwise wipe a geocode
+    table's own upsert rebuild recomputes every row's own fields fresh each
+    run rather than reading this back off the row itself -- wiping a geocode
     that cost a real (rate-limited-by-courtesy) call to the Census
     geocoder. One row per apn already (unique index), so no "latest of
     several" reduction is needed here."""
@@ -185,7 +186,8 @@ def geocodes_by_apn(session, apns: list[str]) -> dict[str, RetrofitGeocode]:
 def ownership_by_apn(session, apns: list[str]) -> dict[str, "OwnershipRecency"]:
     """OwnershipRecency rows for the apns given -- same pattern as
     geocodes_by_apn above and for the same reason: this table's own
-    DELETE-and-reinsert rebuild would otherwise wipe a fetch that cost real
+    upsert rebuild recomputes every row's own fields fresh each run rather
+    than reading this back off the row itself -- wiping a fetch that cost real
     (rate-limited-by-courtesy) calls against LA County's own FeatureServer.
     See app/pipeline/ownership.py for the fetch and OwnershipRecency's
     docstring for the compliance finding."""
@@ -278,7 +280,8 @@ def geocode_retrofit_buildings(session, *, batch_limit: int | None = None,
     skip = already if retry_unmatched else already | previously_failed
     q = (select(RetrofitBuilding.apn, RetrofitBuilding.address, RetrofitBuilding.state,
                RetrofitBuilding.county)
-        .where(RetrofitBuilding.address.is_not(None), RetrofitBuilding.population == population)
+        .where(RetrofitBuilding.address.is_not(None), RetrofitBuilding.population == population,
+              RetrofitBuilding.is_active == True)  # noqa: E712
         .order_by(RetrofitBuilding.rank_score.desc().nulls_last()))
     if top_n is not None:
         q = q.limit(top_n)
@@ -519,13 +522,86 @@ def rank_buildings(*, service_life_status: str | None, sqft: float | None,
     return round(life_tier + within_tier, 4)
 
 
+def _upsert_population(session, population: str, rows: list[dict]) -> dict:
+    """Rebuilds ONE population (recently_active or replacement_candidate)
+    without breaking Opportunity.building_id/DecisionNote.building_id --
+    both FK into retrofit_buildings.id. The old rebuild DELETEd every row
+    in the population and reinserted fresh autoincrement ids every run,
+    even for an apn whose data hadn't changed at all -- silently orphaning
+    (or, worse, silently REPOINTING at whatever unrelated row Postgres
+    handed the reused id to next) every Opportunity/Note anchored on a
+    building that still existed in the new data, just under a different
+    id. Hit in production as a pipeline-run FK violation the first time a
+    row that survived a rebuild happened to collide with an id an
+    Opportunity already anchored on.
+
+    Keyed on apn ALONE, not (apn, population) -- retrofit_buildings.apn
+    carries a real, global UNIQUE constraint (one row per parcel, see that
+    model's own docstring), so a row can only ever belong to ONE
+    population at a time; looking up by (apn, population) instead would
+    make the one real cross-population transition (a replacement_
+    candidate parcel gets its first permit and becomes recently_active on
+    the very next build_retrofit_buildings run) insert a SECOND row for
+    the same apn and collide with that unique constraint. Finding the
+    existing row by apn alone and updating its population field along
+    with everything else handles that transition correctly under the same
+    id, with nothing left for find_replacement_candidates to deactivate
+    later (its own next run's existing-rows query is scoped to
+    population == "replacement_candidate", which this apn no longer is).
+
+    `rows`: this run's fully-computed field dicts for `population`, one
+    per apn -- exactly what used to be passed straight to
+    RetrofitBuilding(...) at insert time. Loads the FULL table (both
+    populations, ~53k rows in production) rather than just this
+    population, for that same cross-population lookup; a nightly cron job
+    on a 2GB instance has the headroom for it (this function is never
+    called from a web request).
+
+    Returns counts: created (apn never seen before), updated (existing
+    row matched by apn, any population, same id preserved),
+    deactivated (a row that WAS population == `population` and
+    is_active before this call, but whose apn did not appear in `rows`
+    this run -- is_active flips to False; population and every other
+    field are left exactly as last computed, so a dangling FK still
+    resolves to a real, inspectable row instead of nothing)."""
+    existing_by_apn = {b.apn: b for b in session.exec(select(RetrofitBuilding)).all()}
+    seen_apns: set[str] = set()
+    created = updated = 0
+    for fields in rows:
+        apn = fields["apn"]
+        seen_apns.add(apn)
+        row = existing_by_apn.get(apn)
+        if row is None:
+            row = RetrofitBuilding(**fields, is_active=True)
+            session.add(row)
+            existing_by_apn[apn] = row
+            created += 1
+        else:
+            for key, value in fields.items():
+                setattr(row, key, value)
+            row.is_active = True
+            updated += 1
+
+    deactivated = 0
+    for apn, row in existing_by_apn.items():
+        if row.population == population and row.is_active and apn not in seen_apns:
+            row.is_active = False
+            deactivated += 1
+
+    session.commit()
+    return {"created": created, "updated": updated, "deactivated": deactivated}
+
+
 def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict:
     """The full pipeline: dedup permits to buildings, join assessor
     characteristics, evaluate regulatory triggers, compute service life and
-    rank. Replaces the entire RetrofitBuilding table on each run — this is a
-    derived view over EquipmentPermit/AssessorCandidate, not its own source
-    of truth, so a full rebuild is the correct semantics (same reasoning as
-    IEPR's replace-on-import)."""
+    rank. Recomputes the entire recently_active population on each run --
+    this is a derived view over EquipmentPermit/AssessorCandidate, not its
+    own source of truth, so a full recompute is the correct semantics (same
+    reasoning as IEPR's replace-on-import). Written via _upsert_population,
+    NOT a delete-and-reinsert -- see that function's own docstring for why
+    (an apn that still appears keeps its row's id, which is what every
+    Opportunity/DecisionNote anchored on this table's a FK depends on)."""
     permits = session.exec(
         select(EquipmentPermit).where(EquipmentPermit.apn.is_not(None))).all()
 
@@ -569,10 +645,8 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
     }
     ebewe_index = ebewe_matches_by_normalized_address(session, candidate_addresses)
 
-    session.exec(delete(RetrofitBuilding).where(RetrofitBuilding.population == "recently_active"))
-
     now = utcnow()
-    built = 0
+    rows: list[dict] = []
     ebewe_matched_count = 0
     for apn, group in by_apn.items():
         latest = max(group, key=lambda p: p.issue_date or datetime.min)
@@ -622,7 +696,7 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
             recency_weight=recency_weight,
         )
 
-        session.add(RetrofitBuilding(
+        rows.append(dict(
             apn=apn, population="recently_active",
             address=row_address,
             use_code=chars.get("use_code"), use_desc=chars.get("use_desc"),
@@ -649,9 +723,9 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
             built_at=now,
             **ebewe,
         ))
-        built += 1
 
-    session.commit()
+    upsert_stats = _upsert_population(session, "recently_active", rows)
+    built = len(rows)
 
     from app.portfolios import apply_portfolio_grouping
     portfolio_stats = apply_portfolio_grouping(session, "recently_active")
@@ -659,6 +733,9 @@ def build_retrofit_buildings(session, cfg: Config, client: PoliteClient) -> dict
     return {
         "permits_considered": len(permits),
         "permits_masked_apn_skipped": masked,
+        "upsert_created": upsert_stats["created"],
+        "upsert_updated": upsert_stats["updated"],
+        "upsert_deactivated": upsert_stats["deactivated"],
         "distinct_buildings": built,
         "assessor_matched": sum(1 for a in apns if a in characteristics),
         "assessor_unmatched": sum(1 for a in apns if a not in characteristics),
@@ -861,9 +938,8 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
     ebewe_index = ebewe_matches_by_normalized_address(session, candidate_addresses)
 
     now = utcnow()
-    session.exec(delete(RetrofitBuilding).where(RetrofitBuilding.population == "replacement_candidate"))
+    rows: list[dict] = []
 
-    candidates = 0
     apn_excluded = 0
     address_excluded = 0
     service_life_abstained = 0
@@ -954,7 +1030,7 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
             recency_weight=recency_weight,
         )
 
-        session.add(RetrofitBuilding(
+        rows.append(dict(
             apn=ain, population="replacement_candidate",
             address=attrs.get("PropertyLocation"),
             use_code=attrs.get("UseCode"), use_desc=use_desc,
@@ -978,9 +1054,9 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
             built_at=now,
             **ebewe,
         ))
-        candidates += 1
 
-    session.commit()
+    upsert_stats = _upsert_population(session, "replacement_candidate", rows)
+    candidates = len(rows)
 
     from app.portfolios import apply_portfolio_grouping
     portfolio_stats = apply_portfolio_grouping(session, "replacement_candidate")
@@ -993,6 +1069,9 @@ def find_replacement_candidates(session, cfg: Config, client: PoliteClient, *,
         "already_permitted_excluded": apn_excluded,
         "masked_or_null_apn_address_excluded": address_excluded,
         "replacement_candidates": candidates,
+        "upsert_created": upsert_stats["created"],
+        "upsert_updated": upsert_stats["updated"],
+        "upsert_deactivated": upsert_stats["deactivated"],
         "use_codes": use_codes, "min_sqft": min_sqft, "year_built_before": year_built_before,
         "service_frequency_reports_applied": len(service_freq),
         "service_life_abstained": service_life_abstained,
@@ -1007,9 +1086,10 @@ def service_calls_coverage(session) -> dict:
     service_calls_per_year, against the total -- "so I know when the sample
     is too small to mean anything." Read at call time from the live board,
     not cached, so it can never drift from what's actually populated."""
-    total = len(session.exec(select(RetrofitBuilding.id)).all())
+    total = len(session.exec(select(RetrofitBuilding.id).where(RetrofitBuilding.is_active == True)).all())  # noqa: E712
     reported = len(session.exec(
-        select(RetrofitBuilding.id).where(RetrofitBuilding.service_calls_per_year.is_not(None))).all())
+        select(RetrofitBuilding.id).where(RetrofitBuilding.service_calls_per_year.is_not(None),
+                                          RetrofitBuilding.is_active == True)).all())  # noqa: E712
     distinct_apns_reported = len(session.exec(select(ServiceFrequencyReport.apn).distinct()).all())
     return {
         "retrofit_buildings_total": total,

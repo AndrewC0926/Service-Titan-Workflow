@@ -14,12 +14,14 @@
 ], subview) }}
 <div class="sec-head">
   <div class="sec-title">Signals</div>
-  <span class="note">One feed, seven trigger types. A card's Promote button is disabled and names
-    exactly what's missing when the four-part filter fails (named reachable contact, sellable
-    account or building, dated reason, eligible fitting line) -- or when no Signal record exists
-    yet for that source. Permit gap alone is {{ '{:,}'.format(total_signals) if trigger == '' else '' }}too
-    large to browse card-by-card -- use its own list-builder at /signals/permit-gap instead;
-    cards here are capped at {{ card_cap }} regardless of filter.</span>
+  <span class="note">One feed, seven trigger types, read from a nightly-refreshed table (never
+    computed live on page load -- see app.pipeline.signals_feed.refresh_signals_feed). A card's
+    Promote button is disabled and names exactly what's missing when the four-part filter fails
+    (named reachable contact, sellable account or building, dated reason, eligible fitting line)
+    -- or when no Signal record exists yet for that source. Permit gap alone is
+    {{ '{:,}'.format(total_signals) if trigger == '' else '' }}too large to browse card-by-card --
+    use its own list-builder at /signals/permit-gap instead; {{ page_size }} shown per page here
+    regardless of filter.</span>
 </div>
 {{ kpi_strip(trigger_kpi_items) }}
 
@@ -31,7 +33,8 @@
 </div>
 
 {% if cards %}
-<div class="note mb-3">Showing {{ cards|length }} of {{ total_for_filter }}{{ ' (capped)' if total_for_filter > card_cap }}.</div>
+<div class="note mb-3">Showing {{ ((page - 1) * page_size) + 1 }}-{{ ((page - 1) * page_size) + cards|length }}
+  of {{ total_for_filter }}.</div>
 {% for c in cards %}
 <div class="scout-card mb-3">
   <div class="scout-card-title">{{ c.fs.trigger_type.value.replace('_', ' ') }} -- {{ c.fs.source.replace('_', ' ') }}</div>
@@ -52,6 +55,15 @@
   {% endif %}
 </div>
 {% endfor %}
+<div class="mb-3 flex items-center gap-1.5">
+  {% if has_prev_page %}
+  <a class="chip" href="/signals?trigger={{ trigger }}&page={{ page - 1 }}">&larr; Prev</a>
+  {% endif %}
+  <span class="note">Page {{ page }}</span>
+  {% if has_next_page %}
+  <a class="chip" href="/signals?trigger={{ trigger }}&page={{ page + 1 }}">Next &rarr;</a>
+  {% endif %}
+</div>
 {% else %}
 {{ empty_state("No signals match this filter.") }}
 {% endif %}

@@ -104,7 +104,8 @@ def _ab869_rows(session: Session) -> list[DeadlineRow]:
 
 def _sb1206_rows(session: Session) -> list[DeadlineRow]:
     buildings = session.exec(
-        select(RetrofitBuilding).where(RetrofitBuilding.sb1206_trigger_status.is_not(None))).all()
+        select(RetrofitBuilding).where(RetrofitBuilding.sb1206_trigger_status.is_not(None),
+                                       RetrofitBuilding.is_active == True)).all()  # noqa: E712
     rows = [
         DeadlineRow(
             regulation="SB 1206",
@@ -126,6 +127,7 @@ def _ebewe_rows(session: Session) -> list[DeadlineRow]:
         select(RetrofitBuilding).where(
             RetrofitBuilding.ebewe_matched == True,  # noqa: E712
             RetrofitBuilding.ebewe_arcx_next_compliance_date.is_not(None),
+            RetrofitBuilding.is_active == True,  # noqa: E712
         )).all()
     rows = [
         DeadlineRow(
@@ -152,7 +154,8 @@ def _rule_1146_2_rows(session: Session) -> list[DeadlineRow]:
     the exposure text carries the only real information: age when known,
     an explicit ABSTAIN when not."""
     buildings = session.exec(
-        select(RetrofitBuilding).where(RetrofitBuilding.equipment_type == "boiler")).all()
+        select(RetrofitBuilding).where(RetrofitBuilding.equipment_type == "boiler",
+                                       RetrofitBuilding.is_active == True)).all()  # noqa: E712
     rows = []
     for b in buildings:
         age = b.equipment_age_years if b.equipment_age_years is not None else b.building_age_years

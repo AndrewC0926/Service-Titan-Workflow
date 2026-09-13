@@ -869,17 +869,21 @@ def room_answer(question_id: int, answer_text: str = Form(...),
     return RedirectResponse("/room", status_code=303)
 
 
-# Signals cards are capped regardless of filter -- Master Plan v3.2 section
-# 17's own "no browsable 53,000-row page" applies here just as much as it
-# does to /retrofit's full list (permit_gap alone is 53,000+ signals in the
-# real restore): a card-per-signal UI does not scale to that, and this
-# item's own scope is "minimal", not a paginated card browser. The full
-# retrofit list-builder still exists, unchanged, at /signals/permit-gap.
-_SIGNALS_CARD_CAP = 200
+# Hotfix (2026-09-13): GET /signals used to call unified_signals()
+# straight from the request -- measured 536MB peak RSS (395MB above
+# process baseline) against the real local restore, materializing every
+# FeedSignal from every source (permit_gap alone is 53,000+ in the real
+# restore) on EVERY page load, on a 512MB web instance. Now reads
+# app.models.SignalFeedRow, refreshed by the nightly pipeline
+# (app.pipeline.signals_feed.refresh_signals_feed), server-side filtered
+# and paginated at _SIGNALS_PAGE_SIZE/page -- never the full table in one
+# response. The full retrofit list-builder still exists, unchanged, at
+# /signals/permit-gap.
+_SIGNALS_PAGE_SIZE = 50
 
 
 @app.get("/signals", response_class=HTMLResponse)
-def signals_index(request: Request, trigger: str = "",
+def signals_index(request: Request, trigger: str = "", page: int = 1,
                   session: Session = Depends(get_session), _: str = Depends(auth)):
     """Block 3 Item 5 (Master Plan v3.2 section 13): filter chips by
     trigger type, each card with trigger/date/evidence/confidence, and a
@@ -889,63 +893,79 @@ def signals_index(request: Request, trigger: str = "",
     disabled -- Block 4A Item 1: project/retrofit_building/ab869_plan all
     have a path to a real `signals` row now (the latter two created AT
     PROMOTION TIME, see ensure_signal_for_promotion); hcai_project/
-    opsc_project/field_intel still do not."""
-    from collections import Counter
+    opsc_project/field_intel still do not.
 
-    from app.pipeline.signals_feed import can_promote_signal, four_part_filter, unified_signals
+    Reads signals_feed, not a live unified_signals() call -- see
+    _SIGNALS_PAGE_SIZE's own comment above."""
+    from app.models import SignalFeedRow
+    from app.pipeline.signals_feed import _feed_signal_from_row, can_promote_signal, four_part_filter
 
-    signals = unified_signals(session)
-    by_trigger = Counter(s.trigger_type.value for s in signals)
+    page = max(1, page)
+
+    trigger_counts = dict(session.exec(
+        select(SignalFeedRow.trigger_type, func.count(SignalFeedRow.id)).group_by(SignalFeedRow.trigger_type)
+    ).all())
+    total_signals = sum(trigger_counts.values())
     trigger_kpi_items = [
-        {"label": k.replace("_", " "), "value": v, "href": f"/signals?trigger={k}"}
-        for k, v in sorted(by_trigger.items())
+        {"label": t.value.replace("_", " "), "value": n, "href": f"/signals?trigger={t.value}"}
+        for t, n in sorted(trigger_counts.items(), key=lambda kv: kv[0].value)
     ]
 
-    shown = [s for s in signals if not trigger or s.trigger_type.value == trigger][:_SIGNALS_CARD_CAP]
+    filter_q = select(func.count(SignalFeedRow.id))
+    rows_q = select(SignalFeedRow)
+    if trigger:
+        filter_q = filter_q.where(SignalFeedRow.trigger_type == trigger)
+        rows_q = rows_q.where(SignalFeedRow.trigger_type == trigger)
+    total_for_filter = session.exec(filter_q).one()
+    rows = session.exec(
+        rows_q.order_by(SignalFeedRow.trigger_date.desc().nulls_last(), SignalFeedRow.id)
+        .offset((page - 1) * _SIGNALS_PAGE_SIZE).limit(_SIGNALS_PAGE_SIZE)
+    ).all()
+
     cards = []
-    for s in shown:
-        result = four_part_filter(session, s)
-        has_signal_path = can_promote_signal(s)
+    for row in rows:
+        fs = _feed_signal_from_row(row)
+        result = four_part_filter(session, fs)
+        has_signal_path = can_promote_signal(fs)
         missing = list(result.missing)
         if not has_signal_path:
             missing = missing + ["no_signal_record_for_this_source_yet"]
-        cards.append({"fs": s, "can_promote": result.passed and has_signal_path,
+        cards.append({"fs": fs, "can_promote": result.passed and has_signal_path,
                       "missing": missing})
 
-    total_for_filter = sum(1 for s in signals if not trigger or s.trigger_type.value == trigger)
     return templates.TemplateResponse(request, "signals_index.html", {
         "tb": _title_block(session), "active": "signals", "subview": "signals",
-        "total_signals": len(signals), "trigger_kpi_items": trigger_kpi_items,
+        "total_signals": total_signals, "trigger_kpi_items": trigger_kpi_items,
         "cards": cards, "trigger": trigger, "total_for_filter": total_for_filter,
-        "card_cap": _SIGNALS_CARD_CAP,
+        "page": page, "page_size": _SIGNALS_PAGE_SIZE,
+        "has_next_page": page * _SIGNALS_PAGE_SIZE < total_for_filter,
+        "has_prev_page": page > 1,
     })
 
 
 @app.post("/signals/promote")
 def signals_promote(source: str = Form(...), source_id: str = Form(...),
                     session: Session = Depends(get_session), username: str = Depends(auth)):
-    """Re-finds the one matching FeedSignal from its own source builder
-    (not a full unified_signals() rebuild -- see the per-source dispatch
-    below) and promotes it if it still passes. A rare action (0 signals
-    pass locally today), so this is deliberately not optimized past "find
-    it, check it again, promote it" -- see app.pipeline.signals_feed.
-    promote_to_opportunity."""
+    """Re-finds the one matching signals_feed row and promotes it if it
+    still passes -- Hotfix (2026-09-13): used to re-run the matching
+    source's own builder (e.g. _retrofit_replacement_candidates, 53,000+
+    rows) just to find ONE row by source_id; now a single indexed lookup
+    against the persisted table (source, source_id) both index. The
+    real trade this makes, same as GET /signals: "still qualifies" is
+    only as fresh as the last nightly refresh_signals_feed() run, not
+    re-derived from the live source tables the way it used to be -- see
+    SignalFeedRow's own docstring. A rare action (0 signals pass locally
+    today), so this is deliberately not optimized past that one lookup --
+    see app.pipeline.signals_feed.promote_to_opportunity."""
+    from app.models import SignalFeedRow
     from app.pipeline import signals_feed as sf
 
-    builders = {
-        "project": sf._project_signals,
-        "retrofit_building": sf._retrofit_replacement_candidates,
-        "ab869_plan": sf._ab869_npc_outstanding,
-        "hcai_project": sf._hcai_open_mechanical,
-        "opsc_project": sf._opsc_pre_spec,
-        "field_intel": sf._field_intel_signals,
-    }
-    builder = builders.get(source)
-    if builder is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"unknown source {source!r}")
-    match = next((s for s in builder(session) if s.source_id == source_id), None)
-    if match is None:
+    row = session.exec(
+        select(SignalFeedRow).where(SignalFeedRow.source == source, SignalFeedRow.source_id == source_id)
+    ).first()
+    if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="signal not found (may no longer qualify)")
+    match = sf._feed_signal_from_row(row)
 
     result = sf.four_part_filter(session, match)
     if not result.passed:
@@ -1466,7 +1486,13 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
     effective_county = county
     if effective_county is None and territory == "mine":
         effective_county = next(iter(MY_TERRITORY_COUNTIES)).title()
-    base_q = select(RetrofitBuilding).where(RetrofitBuilding.population == population)
+    # is_active == True -- excludes a building that dropped out of this
+    # population on its most recent rebuild (app.pipeline.retrofit.
+    # _upsert_population soft-deletes rather than removing the row, so an
+    # Opportunity/Note anchored on it still resolves; the live board is not
+    # where that row should keep showing up).
+    base_q = select(RetrofitBuilding).where(RetrofitBuilding.population == population,
+                                            RetrofitBuilding.is_active == True)  # noqa: E712
     if effective_county:
         base_q = base_q.where(RetrofitBuilding.county == effective_county)
     territory_hidden_count = 0
@@ -1474,6 +1500,7 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
         territory_hidden_count = session.exec(
             select(func.count(RetrofitBuilding.id)).where(
                 RetrofitBuilding.population == population,
+                RetrofitBuilding.is_active == True,  # noqa: E712
                 RetrofitBuilding.county != effective_county)).one()
     STATUS_ORDER = ["overdue", "due", "approaching", "not_due"]
     if min_status and min_status in STATUS_ORDER:
@@ -1584,7 +1611,9 @@ def retrofit_board(request: Request, county: str = None, min_status: str = None,
     # That allocation, repeated across a couple of hits with no OS-level
     # release between them, is what was OOM-killing the 512MB web instance.
     counties = sorted(session.exec(
-        select(RetrofitBuilding.county).where(RetrofitBuilding.population == population).distinct()).all())
+        select(RetrofitBuilding.county).where(
+            RetrofitBuilding.population == population, RetrofitBuilding.is_active == True,  # noqa: E712
+        ).distinct()).all())
     # Mobile card view's tel: link (app/web/templates/retrofit_board.html) --
     # one nearest-mechanical-contractor lookup for the whole page, not one
     # per row. See app.contractors.nearest_mechanical_contractor_bulk's own
@@ -1630,8 +1659,10 @@ def retrofit_report(request: Request, county: str = None, min_status: str = "due
     recently_active rows carry. Hand this to a service contractor — every
     fact traces to a public record. No-address rows are excluded, same as
     the board itself: a call list should not contain a row that can't be
-    called."""
+    called -- neither should one that dropped out of this population on
+    its last rebuild (is_active == True)."""
     q = select(RetrofitBuilding).where(RetrofitBuilding.population == population,
+                                       RetrofitBuilding.is_active == True,  # noqa: E712
                                        RetrofitBuilding.address.is_not(None), RetrofitBuilding.address != "")
     if county:
         q = q.where(RetrofitBuilding.county == county)

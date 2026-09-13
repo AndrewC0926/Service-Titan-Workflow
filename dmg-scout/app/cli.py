@@ -275,11 +275,13 @@ def pipeline(force: bool = typer.Option(
 )) -> None:
     """Run the full pipeline: fetch → triage → extract → resolve → score →
     notify → diff-sources → snapshot-metrics → fetch-ebewe-benchmarks →
-    build-retrofit-buildings → find-replacement-candidates → match-contractors
-    → match-contractors-overdue → alert-check (the middle four -- ebewe,
-    replacement-candidates, match-contractors, match-contractors-overdue --
-    Sundays only, see RETROFIT_WEEKLY_WEEKDAY above; everything else,
-    alert-check included, runs daily, see their own docstrings). Pings the
+    build-retrofit-buildings → find-replacement-candidates →
+    refresh-signals-feed → match-contractors → match-contractors-overdue →
+    alert-check (the middle four -- ebewe, replacement-candidates,
+    match-contractors, match-contractors-overdue -- Sundays only, see
+    RETROFIT_WEEKLY_WEEKDAY above; everything else, refresh-signals-feed
+    and alert-check included, runs daily, see their own docstrings). Pings
+    the
     dead man's switch (HEALTHCHECK_URL) on completion, and records a
     pipeline_run row for the in-app staleness alarm (`scout check-freshness`
     / the root dashboard banner) — see app.pipeline_health, which also now
@@ -419,10 +421,20 @@ def pipeline(force: bool = typer.Option(
         # after notify so its source_freshness_days metric reads
         # SourceRowSeen.last_seen_at values diff_sources_cmd just updated
         # THIS run, not yesterday's.
+        # refresh_signals_feed_cmd (Hotfix 2026-09-13) sits right after
+        # find_replacement_candidates_cmd, NOT in the Sundays-only gate
+        # below -- build_retrofit_buildings_cmd (recently_active) and every
+        # non-retrofit source unified_signals() folds in (Project,
+        # Ab869Plan, HcaiProject, OpscProject, FieldIntel) all rebuild
+        # daily, so signals_feed needs a daily refresh too; on a non-Sunday
+        # day it just reuses last Sunday's still-current replacement_
+        # candidate snapshot, which is exactly correct since that
+        # population itself didn't change today.
         for step in (fetch, triage, extract, grounding, resolve, score, notify, diff_sources_cmd,
                     snapshot_metrics_cmd,
                     fetch_ebewe_benchmarks_cmd, fetch_local250_cmd, fetch_ownership_recency_cmd,
                     build_retrofit_buildings_cmd, find_replacement_candidates_cmd,
+                    refresh_signals_feed_cmd,
                     match_contractors_cmd, match_contractors_overdue_cmd, alert_check_cmd):
             if (step in (find_replacement_candidates_cmd, fetch_ebewe_benchmarks_cmd,
                         fetch_local250_cmd, fetch_ownership_recency_cmd,
@@ -1181,7 +1193,7 @@ def find_replacement_candidates_cmd(
 
         ranked = session.exec(
             select(RetrofitBuilding)
-            .where(RetrofitBuilding.population == "replacement_candidate")
+            .where(RetrofitBuilding.population == "replacement_candidate", RetrofitBuilding.is_active == True)  # noqa: E712
             .order_by(RetrofitBuilding.rank_score.desc().nulls_last())
             .limit(top)
         ).all()
@@ -1201,6 +1213,24 @@ def find_replacement_candidates_cmd(
             addr = b.address or f"APN {b.apn}"
             typer.echo(f"  {i:>3}. {addr[:45]:<45} built {b.year_built or '?'} | {tons:<14} | "
                        f"{status:<20} | {regs}")
+
+
+@app.command("refresh-signals-feed")
+def refresh_signals_feed_cmd() -> None:
+    """Hotfix (2026-09-13): recomputes app.pipeline.signals_feed.
+    unified_signals() ONCE and persists it to the signals_feed table --
+    GET /signals, four_part_filter, and POST /signals/promote all read
+    from that table now, never computing the feed live in a web request
+    (measured 536MB peak RSS, 395MB above baseline, doing exactly that on
+    the 512MB web instance). Run this AFTER find-replacement-candidates
+    (and build-retrofit-buildings) in any manual sequence, same as
+    `scout pipeline` itself always does -- this reads whatever retrofit
+    rebuild already ran, it does not trigger one."""
+    from app.pipeline.signals_feed import refresh_signals_feed
+
+    with session_scope() as session:
+        stats = refresh_signals_feed(session)
+    typer.echo(f"{stats['total']:,} signals refreshed into signals_feed")
 
 
 @app.command("report-service-frequency")

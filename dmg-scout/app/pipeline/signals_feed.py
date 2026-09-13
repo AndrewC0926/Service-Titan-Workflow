@@ -15,6 +15,17 @@ identity and write path exactly as it already had one (see docs/BUILD-
 PLAN.md section 9's mapping report for why each source maps to which
 trigger_type).
 
+Hotfix (2026-09-13): unified_signals() itself is still exactly that --
+compute-live, no migration -- but calling it from a WEB request measured
+536MB peak RSS (395MB above baseline) against the real local restore on
+the 512MB web instance, because it materializes every FeedSignal from
+every source on every page load. refresh_signals_feed() below persists
+its output into the signals_feed table, called once by the nightly
+pipeline (`scout refresh-signals-feed`, right after find-replacement-
+candidates) -- GET /signals, four_part_filter, and POST /signals/promote
+now all read FROM that table (via _feed_signal_from_row), never from a
+live unified_signals() call inside a web request again.
+
 four_part_filter() and promote_to_opportunity() are pure/config-driven, no
 LLM -- reusing the SAME eligibility machinery the rest of Scout already
 has (app.accounts.line_offering_by_role, app.pipeline.opsc.classify_opsc_
@@ -24,7 +35,7 @@ import weakref
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from sqlmodel import Session, or_, select
+from sqlmodel import Session, delete, or_, select
 
 from app.config import load_config
 from app.contractors import default_radius_miles, haversine_miles
@@ -47,6 +58,7 @@ from app.models import (
     ReasonStrength,
     RetrofitBuilding,
     Signal as SignalRow,
+    SignalFeedRow,
     SignalType,
     Stage,
     TriggerType,
@@ -164,9 +176,13 @@ def _retrofit_replacement_candidates(session: Session) -> list[FeedSignal]:
     record at all. trigger_date is always None (there is, by definition,
     no dated event for this population -- the whole point is the absence
     of one), which is why this trigger_type is named permit_gap, not
-    permit_activity."""
+    permit_activity. is_active == True excludes a building that dropped
+    out of this population on its most recent rebuild (app.pipeline.
+    retrofit._upsert_population) -- signals never come from a row nobody
+    would show on the live board."""
     rows = session.exec(
-        select(RetrofitBuilding).where(RetrofitBuilding.population == "replacement_candidate")).all()
+        select(RetrofitBuilding).where(RetrofitBuilding.population == "replacement_candidate",
+                                       RetrofitBuilding.is_active == True)).all()  # noqa: E712
     out = []
     for b in rows:
         band = (f"{b.estimated_tons_low:.0f}-{b.estimated_tons_high:.0f} tons ({b.estimated_tons_basis})"
@@ -223,9 +239,11 @@ def _retrofit_recently_active(session: Session) -> list[FeedSignal]:
     not_moved. service_life_status is null on 4,512 of 6,914 (population
     definition guarantees a real install year but not a resolvable
     service-life band for every use code) -- ABSTAIN there, never guessed
-    into either state."""
+    into either state. is_active == True -- see _retrofit_replacement_
+    candidates' identical note above."""
     rows = session.exec(
-        select(RetrofitBuilding).where(RetrofitBuilding.population == "recently_active")).all()
+        select(RetrofitBuilding).where(RetrofitBuilding.population == "recently_active",
+                                       RetrofitBuilding.is_active == True)).all()  # noqa: E712
     out = []
     for b in rows:
         trigger_date = datetime(b.latest_install_year, 1, 1) if b.latest_install_year else None
@@ -408,6 +426,47 @@ def unified_signals(session: Session) -> list[FeedSignal]:
         + _hcai_open_mechanical(session)
         + _opsc_pre_spec(session)
         + _field_intel_signals(session)
+    )
+
+
+def refresh_signals_feed(session: Session) -> dict:
+    """Recomputes unified_signals() ONCE and persists it to signals_feed --
+    called by `scout refresh-signals-feed`, itself called by the nightly
+    pipeline right after find-replacement-candidates (so this reflects
+    that run's own retrofit rebuild), never from a web request. Full
+    delete-and-reinsert -- see SignalFeedRow's own docstring for why
+    that's safe here (nothing FKs into this table's own id, unlike
+    RetrofitBuilding -- app.pipeline.retrofit._upsert_population's upsert
+    discipline does not apply)."""
+    signals = unified_signals(session)
+    session.exec(delete(SignalFeedRow))
+    for fs in signals:
+        session.add(SignalFeedRow(
+            source=fs.source, source_id=fs.source_id, trigger_type=fs.trigger_type,
+            trigger_date=fs.trigger_date, evidence=fs.evidence, confidence=fs.confidence,
+            project_id=fs.project_id, building_id=fs.building_id,
+            facility_perm_id=fs.facility_perm_id, account_id=fs.account_id,
+            category=fs.category, pen_state=fs.pen_state,
+        ))
+    session.commit()
+    return {"total": len(signals)}
+
+
+def _feed_signal_from_row(row: SignalFeedRow) -> FeedSignal:
+    """Reconstructs the in-memory FeedSignal shape four_part_filter/
+    promote_to_opportunity expect, from one already-persisted signals_feed
+    row -- a plain attribute copy, not a recompute. The one thing this
+    does NOT give back is liveness: `row` is only as fresh as the last
+    refresh_signals_feed() run, so a signal that stopped qualifying since
+    then (e.g. its retrofit_building got permitted) can still show up here
+    until the next nightly refresh -- a disclosed trade for never
+    recomputing the whole feed inside a web request again."""
+    return FeedSignal(
+        source=row.source, source_id=row.source_id, trigger_type=row.trigger_type,
+        trigger_date=row.trigger_date, evidence=row.evidence, confidence=row.confidence,
+        project_id=row.project_id, building_id=row.building_id,
+        facility_perm_id=row.facility_perm_id, account_id=row.account_id,
+        category=row.category, pen_state=row.pen_state,
     )
 
 

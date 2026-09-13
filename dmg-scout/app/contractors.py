@@ -150,6 +150,7 @@ def nearby_replacement_candidates(session: Session, contractor: Contractor,
     boxed = session.exec(
         select(RetrofitBuilding).where(
             RetrofitBuilding.population == "replacement_candidate",
+            RetrofitBuilding.is_active == True,  # noqa: E712
             RetrofitBuilding.latitude.is_not(None),
             RetrofitBuilding.latitude.between(lat_min, lat_max),
             RetrofitBuilding.longitude.between(lon_min, lon_max),
@@ -633,6 +634,7 @@ def buildings_past_service_life_near_contractor(
     candidates = session.exec(
         select(RetrofitBuilding).where(
             RetrofitBuilding.population == "replacement_candidate",
+            RetrofitBuilding.is_active == True,  # noqa: E712
             RetrofitBuilding.service_life_status.in_(("due", "overdue")),
             RetrofitBuilding.latitude.is_not(None),
             RetrofitBuilding.latitude.between(lat_min, lat_max),

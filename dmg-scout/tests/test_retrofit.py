@@ -317,6 +317,144 @@ def test_rerun_replaces_not_appends(db_session, cfg):
     assert len(rows) == 1
 
 
+# --- upsert rebuild: an Opportunity/Note anchored on a building must survive
+# a rebuild under the SAME id (Opportunity.building_id/DecisionNote.building_id
+# both FK into retrofit_buildings.id -- the old delete-and-reinsert rebuild
+# silently orphaned both on every run an apn's row happened to still exist,
+# just under a new id). See app.pipeline.retrofit._upsert_population. -------
+
+
+def _opportunity_anchored_on(db_session, building_id: int):
+    from app.models import Opportunity, PenState, Signal, SignalType
+
+    signal = Signal(signal_type=SignalType.ceqa_nop)
+    db_session.add(signal)
+    db_session.flush()
+    opp = Opportunity(signal_id=signal.id, building_id=building_id, owner_user="andrew",
+                      pen_state=PenState.not_moved)
+    db_session.add(opp)
+    db_session.commit()
+    return opp
+
+
+@respx.mock
+def test_opportunity_anchored_on_building_survives_rebuild_with_same_id(db_session, cfg):
+    from sqlmodel import select
+
+    db_session.add(_permit("8010101010", datetime.utcnow(), "RTU replacement", "P1"))
+    db_session.commit()
+    feature = [{"AIN": "8010101010", "PropertyLocation": "x", "UseCode": "2100",
+               "UseCodeDescChar1": "Commercial", "YearBuilt": "2000", "SQFTmain": 10000}]
+    _mock_assessor(feature)
+
+    build_retrofit_buildings(db_session, cfg, fast_client())
+    building = db_session.exec(select(RetrofitBuilding).where(RetrofitBuilding.apn == "8010101010")).one()
+    original_id = building.id
+    opp = _opportunity_anchored_on(db_session, original_id)
+
+    # Rerun against the SAME permit/assessor data -- the apn still exists,
+    # so the old delete-and-reinsert would give it a brand new id here,
+    # orphaning opp.building_id.
+    _mock_assessor(feature)
+    build_retrofit_buildings(db_session, cfg, fast_client())
+
+    db_session.refresh(opp)
+    rows = db_session.exec(select(RetrofitBuilding).where(RetrofitBuilding.apn == "8010101010")).all()
+    assert len(rows) == 1, "rerun must not append a second row for the same apn"
+    assert rows[0].id == original_id, "the surviving apn must keep its original id"
+    assert opp.building_id == original_id
+    assert db_session.get(RetrofitBuilding, opp.building_id) is not None, \
+        "the Opportunity's own FK must still resolve to a real row after the rebuild"
+
+
+@respx.mock
+def test_decision_note_anchored_on_building_survives_rebuild_with_same_id(db_session, cfg):
+    from sqlmodel import select
+
+    from app.models import DecisionNote, LeadSource, NoteType
+
+    db_session.add(_permit("8020202020", datetime.utcnow(), "RTU replacement", "P1"))
+    db_session.commit()
+    feature = [{"AIN": "8020202020", "PropertyLocation": "x", "UseCode": "2100",
+               "UseCodeDescChar1": "Commercial", "YearBuilt": "2000", "SQFTmain": 10000}]
+    _mock_assessor(feature)
+    build_retrofit_buildings(db_session, cfg, fast_client())
+    building = db_session.exec(select(RetrofitBuilding).where(RetrofitBuilding.apn == "8020202020")).one()
+    original_id = building.id
+
+    note = DecisionNote(note_type=NoteType.intel, lead_source=LeadSource.scout_signal, author="andrew",
+                        building_id=original_id)
+    db_session.add(note)
+    db_session.commit()
+
+    _mock_assessor(feature)
+    build_retrofit_buildings(db_session, cfg, fast_client())
+
+    db_session.refresh(note)
+    assert note.building_id == original_id
+    assert db_session.get(RetrofitBuilding, note.building_id) is not None
+
+
+@respx.mock
+def test_apn_that_stops_appearing_is_deactivated_not_deleted(db_session, cfg):
+    """An apn whose only permit is later removed -- rare, but exactly the
+    case the old DELETE-and-reinsert handled by destroying the row outright
+    (breaking any FK anchored on it). The new rebuild deactivates it instead
+    -- the row (and any anchor on it) survives."""
+    from sqlmodel import select
+
+    permit = _permit("8030303030", datetime.utcnow(), "RTU replacement", "P1")
+    db_session.add(permit)
+    db_session.commit()
+    feature = [{"AIN": "8030303030", "PropertyLocation": "x", "UseCode": "2100",
+               "UseCodeDescChar1": "Commercial", "YearBuilt": "2000", "SQFTmain": 10000}]
+    _mock_assessor(feature)
+    build_retrofit_buildings(db_session, cfg, fast_client())
+
+    building = db_session.exec(select(RetrofitBuilding).where(RetrofitBuilding.apn == "8030303030")).one()
+    original_id = building.id
+    assert building.is_active is True
+    opp = _opportunity_anchored_on(db_session, original_id)
+
+    db_session.delete(permit)
+    db_session.commit()
+    _mock_assessor([])
+    stats = build_retrofit_buildings(db_session, cfg, fast_client())
+
+    assert stats["upsert_deactivated"] == 1
+    row = db_session.exec(select(RetrofitBuilding).where(RetrofitBuilding.apn == "8030303030")).one()
+    assert row.id == original_id, "deactivation must not delete-and-recreate the row"
+    assert row.is_active is False
+    db_session.refresh(opp)
+    assert opp.building_id == original_id
+    assert db_session.get(RetrofitBuilding, opp.building_id) is not None
+
+
+@respx.mock
+def test_find_replacement_candidates_upsert_preserves_id_across_rebuild(db_session, cfg):
+    """Same upsert discipline as build_retrofit_buildings -- the task's own
+    "confirm the same pattern is not present in find_replacement_candidates"
+    check: it WAS present, this is the fix, verified directly."""
+    from sqlmodel import select
+
+    features = [{"AIN": "8040404040", "PropertyLocation": "1 Old Building Way", "UseCode": "2100",
+                "UseCodeDescChar1": "Commercial", "YearBuilt": "1975", "SQFTmain": 20000}]
+    _mock_commercial_parcels(features)
+    find_replacement_candidates(db_session, cfg, fast_client())
+    row = db_session.exec(select(RetrofitBuilding).where(RetrofitBuilding.apn == "8040404040")).one()
+    original_id = row.id
+    opp = _opportunity_anchored_on(db_session, original_id)
+
+    _mock_commercial_parcels(features)
+    find_replacement_candidates(db_session, cfg, fast_client())
+
+    rows = db_session.exec(select(RetrofitBuilding).where(RetrofitBuilding.apn == "8040404040")).all()
+    assert len(rows) == 1
+    assert rows[0].id == original_id
+    db_session.refresh(opp)
+    assert opp.building_id == original_id
+
+
 # --- absence query: the real retrofit opportunity ---------------------
 
 

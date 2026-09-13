@@ -149,16 +149,21 @@ def detect_portfolios(buildings: list) -> dict[str, dict]:
 
 
 def apply_portfolio_grouping(session: Session, population: str) -> dict:
-    """Runs detect_portfolios over every RetrofitBuilding row currently in
-    `population` (called at the end of build_retrofit_buildings /
-    find_replacement_candidates, right after that population's own DELETE-
-    and-reinsert commit) and writes the grouping fields back. Resets every
-    row's grouping to standalone first, same "full refresh" discipline
+    """Runs detect_portfolios over every ACTIVE RetrofitBuilding row
+    currently in `population` (called at the end of build_retrofit_
+    buildings / find_replacement_candidates, right after that population's
+    own upsert commit) and writes the grouping fields back. Excludes
+    is_active == False rows -- a building that dropped out of this
+    population on the rebuild that just ran (see app.pipeline.retrofit.
+    _upsert_population) has no business anchoring or joining a live
+    portfolio group. Resets every row's grouping to standalone first, same
+    "full refresh" discipline
     app.pipeline.local250's signatory match uses, so a building that fell
     out of a group on this rebuild doesn't keep stale membership."""
     from app.models import RetrofitBuilding
 
-    rows = session.exec(select(RetrofitBuilding).where(RetrofitBuilding.population == population)).all()
+    rows = session.exec(select(RetrofitBuilding).where(
+        RetrofitBuilding.population == population, RetrofitBuilding.is_active == True)).all()  # noqa: E712
     groups = detect_portfolios(rows)
     grouped = 0
     # A production run against 53,252 replacement_candidate rows (2026-08-16)
