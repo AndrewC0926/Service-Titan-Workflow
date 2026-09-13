@@ -47,6 +47,10 @@ services:
         sync: false         # nightly by .github/workflows/dmg-scout-backup.yml -- see that file's
                             # own header for why GitHub Actions triggers this rather than Render's
                             # own cron (confirmed unreliable, see dmg-scout-pipeline-backup.yml).
+      - key: WEEKLY_BRIEF_API_KEY  # bearer token for POST /internal/weekly-briefs (Block 4C Item 6),
+        sync: false               # called every Friday 06:00 Pacific by .github/workflows/dmg-scout-
+                                  # weekly-brief.yml -- same "Render cron is unreliable" reason as
+                                  # BACKUP_API_KEY above, separate secret from it on the same principle.
 
   - type: cron
     name: dmg-scout-pipeline

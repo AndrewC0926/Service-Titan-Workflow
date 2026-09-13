@@ -1360,6 +1360,26 @@ digest:
   # to re-enable; no other code change needed.
   narrate: false
 
+# =============================================================================
+# WEEKLY BRIEF (Block 4C Item 6, Master Plan v3.6 section 42/43): the
+# automated Friday 06:00 Pacific per-user run (app.pipeline.weekly_brief.
+# run_weekly_briefs, triggered by .github/workflows/dmg-scout-weekly-brief.yml
+# via POST /internal/weekly-briefs, same "Render cron is unreliable" reason
+# the nightly backup already uses GitHub Actions). Every active user (an
+# Outcome or DecisionNote logged that week) gets their own brief archived
+# regardless; from_local_part is only the mailbox half of the sender
+# address -- the domain half is Resend's own currently-verified domain,
+# discovered live (app.pipeline.weekly_brief.verified_sending_domain), never
+# hardcoded here, since a brief with no verified domain at all is emailed
+# to nobody on principle (Resend's sandbox sender can only reach the one
+# address on the Resend account itself, not a real per-user recipient list).
+# =============================================================================
+weekly_brief:
+  enabled: true
+  resend: {api_key_env: "RESEND_API_KEY"}
+  from_local_part: "weekly-brief"
+  subject_prefix: "[DMG Scout] Weekly Brief"
+
 dashboard:
   # Legacy single-user pair -- kept as the fallback app.access_log.
   # configured_users() uses when `users` below is empty, so an existing
@@ -1390,10 +1410,15 @@ dashboard:
   # rows or the team's aggregate patterns (manager/executive/operator see
   # the team; rep/inside_sales see their own -- section 31's own "Managers
   # see the notes as patterns... reps see their own").
+  # email (Block 4C Item 6): where this user's own Weekly Brief is sent,
+  # via app.config.user_email(). Optional per entry -- a user with none
+  # gets their brief archived, never emailed, same as no verified Resend
+  # sending domain (app.pipeline.weekly_brief.run_weekly_briefs).
   users:
     - username: "andrew"
       password_env: "DASHBOARD_PASSWORD_ANDREW"
       role: "operator"
+      email: "acrane988@gmail.com"
   # Usernames allowed into Settings (Reference, Assumptions, Lines admin,
   # Capture) -- see app.web.main.operator(). Everyone else authenticates
   # fine but gets 403 on /settings and its sub-pages. Deliberately kept as

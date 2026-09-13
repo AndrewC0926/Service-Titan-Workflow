@@ -1,0 +1,44 @@
+name: dmg-scout weekly brief
+
+# Block 4C Item 6 (Master Plan v3.6 section 42/43): "generates every Friday
+# 06:00 Pacific." Triggered from GitHub Actions rather than Render's own
+# cron schedule for the same reason dmg-scout-pipeline-backup.yml and
+# dmg-scout-db-backup.yml already are: Render's native cron scheduling has
+# been confirmed unreliable (see those workflows' own headers), and a
+# silent no-op here means a rep's Friday brief simply never shows up with
+# nothing anywhere saying why.
+#
+# 13:00 UTC = 6am Pacific Daylight Time, the same simplification render.yaml's
+# own pipeline cron already makes for "6am PT" (an hour early during Pacific
+# Standard Time, in winter) -- no DST-aware cron exists in GitHub Actions, so
+# this matches the one convention this codebase already has rather than
+# inventing a second one. Day-of-week 5 = Friday.
+#
+# Like dmg-scout-db-backup.yml, this is a direct POST against dmg-scout-web
+# (not the Render Jobs API) -- the work itself (archive + best-effort Resend
+# send) is cheap enough to run inline in the request, no separate compute
+# needed.
+
+on:
+  schedule:
+    - cron: '0 13 * * 5'
+  workflow_dispatch: {}
+
+jobs:
+  weekly-brief:
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST /internal/weekly-briefs on dmg-scout-web
+        env:
+          WEEKLY_BRIEF_API_KEY: ${{ secrets.WEEKLY_BRIEF_API_KEY }}
+        run: |
+          set -euo pipefail
+          http_code=$(curl -s -o /tmp/weekly_brief_response.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${WEEKLY_BRIEF_API_KEY}" \
+            "https://dmg-scout-web-84bz.onrender.com/internal/weekly-briefs")
+          cat /tmp/weekly_brief_response.json
+          echo
+          if [ "$http_code" -ge 300 ]; then
+            echo "Weekly brief generation failed with HTTP $http_code" >&2
+            exit 1
+          fi

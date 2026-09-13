@@ -4005,3 +4005,12 @@ class WeeklyBrief(SQLModel, table=True):
     week_start: datetime
     week_end: datetime
     payload: dict = Field(sa_column=Column(JSON, nullable=False))
+
+    # Block 4C Item 6 (Master Plan v3.6 section 42/43's per-rep adoption):
+    # the automated Friday run (app.pipeline.weekly_brief.run_weekly_briefs)
+    # archives regardless of whether the email went out, then stamps what
+    # actually happened here -- these two columns are blank (False/None)
+    # for the Block 4B Item 3 manual `scout generate-weekly-brief` path,
+    # which never emails anything and was never asked to explain why not.
+    emailed: bool = Field(default=False)
+    email_skip_reason: str | None = Field(default=None)

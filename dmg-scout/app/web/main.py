@@ -327,6 +327,39 @@ def backup_auth(request: Request,
     return "backup"
 
 
+weekly_brief_bearer = HTTPBearer(auto_error=False)
+
+
+def weekly_brief_auth(request: Request,
+                      credentials: HTTPAuthorizationCredentials = Depends(weekly_brief_bearer)) -> str:
+    """Auth for POST /internal/weekly-briefs (Block 4C Item 6) -- a bearer
+    token via WEEKLY_BRIEF_API_KEY, same separate-secret pattern as
+    backup_auth above. Called every Friday 06:00 Pacific by
+    .github/workflows/dmg-scout-weekly-brief.yml, never by a browser."""
+    from app.config import weekly_brief_api_key
+    key = weekly_brief_api_key()
+    if not key:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="WEEKLY_BRIEF_API_KEY env var is not set")
+    if credentials is None or not secrets.compare_digest(credentials.credentials, key):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED,
+                            detail="bearer token missing or does not match WEEKLY_BRIEF_API_KEY",
+                            headers={"WWW-Authenticate": "Bearer"})
+    return "weekly_brief"
+
+
+@app.post("/internal/weekly-briefs")
+def internal_weekly_briefs(session: Session = Depends(get_session), _: str = Depends(weekly_brief_auth)) -> dict:
+    """Block 4C Item 6 (Master Plan v3.6 section 42/43): the automated
+    Friday run -- archives one WeeklyBrief per active user this week,
+    emailing via Resend only when a verified sending domain exists (see
+    app.pipeline.weekly_brief.run_weekly_briefs for the full contract)."""
+    from app.pipeline.weekly_brief import run_weekly_briefs
+
+    cfg = load_config()
+    return run_weekly_briefs(session, cfg)
+
+
 @app.post("/internal/backup")
 def internal_backup(_: str = Depends(backup_auth)) -> dict:
     """Block 4C Item 1 (Master Plan v3.6 section 35): the nightly backup.
@@ -983,6 +1016,7 @@ def reports_index(request: Request, session: Session = Depends(get_session), _: 
     exactly what the nightly snapshot already wrote, never re-derived on
     page load."""
     from app.pipeline.reports import WEEKS_OF_TREND, report_data
+    from app.pipeline.weekly_brief import latest_batch_email_status
 
     data = report_data(session)
     funnel_tiles = [
@@ -1023,6 +1057,7 @@ def reports_index(request: Request, session: Session = Depends(get_session), _: 
         "why_leads_exist": data["why_leads_exist"],
         "weeks_of_history": data["weeks_of_history"],
         "WEEKS_OF_TREND": WEEKS_OF_TREND,
+        "weekly_brief_email_status": latest_batch_email_status(session),
     })
 
 

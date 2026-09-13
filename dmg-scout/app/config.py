@@ -87,6 +87,27 @@ def backup_api_key() -> str | None:
     return os.environ.get("BACKUP_API_KEY")
 
 
+def weekly_brief_api_key() -> str | None:
+    """Bearer token for POST /internal/weekly-briefs (Block 4C Item 6) --
+    the Friday cron's own call into the web service, same separate-secret
+    pattern as backup_api_key/capture_api_key above."""
+    return os.environ.get("WEEKLY_BRIEF_API_KEY")
+
+
+def user_email(cfg: Config, username: str) -> str | None:
+    """The email address to send this username's own Weekly Brief to --
+    dashboard.users[].email, optional per entry (Block 4C Item 6). A
+    configured user with no email field, or a username not in
+    dashboard.users at all, returns None -- app.pipeline.weekly_brief.
+    run_weekly_briefs treats that exactly like no verified sending domain:
+    archived, not emailed, with a reason on /reports, never a guessed
+    address."""
+    for entry in cfg.get("dashboard.users", []) or []:
+        if entry.get("username") == username:
+            return entry.get("email")
+    return None
+
+
 def backup_dir() -> str:
     """Where nightly pg_dump files live -- BACKUP_DIR env var, defaulting
     to the mount path of the Render Disk attached to dmg-scout-web in

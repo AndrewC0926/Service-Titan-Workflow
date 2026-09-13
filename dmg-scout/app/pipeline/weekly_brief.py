@@ -8,19 +8,31 @@ build_weekly_brief() computes the full content once; archive_weekly_brief()
 freezes that exact content into a WeeklyBrief row. Two functions, not one,
 so a caller (the web preview route) can render without archiving, and the
 CLI command that actually issues a brief always archives what it showed.
+
+Block 4C Item 6 (Master Plan v3.6 section 42/43): run_weekly_briefs() is
+the automated Friday version of that same CLI idea -- one archived brief
+PER active user (not one, signed by whoever ran the command), emailed via
+Resend only when a currently-verified sending domain exists. See that
+function's own docstring for the full contract.
 """
 from __future__ import annotations
 
+import logging
+import os
 from datetime import datetime, timedelta
 
+import httpx
 from sqlmodel import Session, SQLModel, select
 
+from app.config import Config, user_email
 from app.models import (
     Account, Disposition, DecisionNote, Opportunity, Outcome, ProductLine, ReasonBlock, RetrofitBuilding,
     WeeklyBrief, utcnow,
 )
 from app.pipeline.reason_block import weakest_of, weakest_why_rank
 from app.pipeline.reports import report_data, why_leads_exist_sample
+
+log = logging.getLogger(__name__)
 
 
 def _recent(rows: list, start, end, field: str = "created_at") -> list:
@@ -215,3 +227,172 @@ def archive_weekly_brief(session: Session, *, owner_user: str, week_end=None) ->
     session.add(row)
     session.flush()
     return row
+
+
+def active_users_this_week(session: Session, week_start: datetime, week_end: datetime) -> list[str]:
+    """Block 4C Item 6: who actually gets a Friday brief -- every username
+    with an Outcome.user or DecisionNote.author row inside [week_start,
+    week_end), the same two sources build_weekly_brief's own moves_made
+    already reads, deduped and sorted for a stable run order. A user who
+    owns Opportunities but logged no Outcome/Note this week is silently
+    skipped -- "per user WITH an opportunity or note that week" means the
+    note/outcome itself is the trigger, not mere pipeline ownership."""
+    outcome_users = session.exec(
+        select(Outcome.user).where(Outcome.created_at >= week_start, Outcome.created_at < week_end,
+                                   Outcome.user.is_not(None))
+    ).all()
+    note_authors = session.exec(
+        select(DecisionNote.author).where(DecisionNote.created_at >= week_start, DecisionNote.created_at < week_end,
+                                          DecisionNote.author.is_not(None))
+    ).all()
+    return sorted(set(outcome_users) | set(note_authors))
+
+
+def verified_sending_domain(cfg: Config) -> str | None:
+    """The name of a Resend domain currently in status "verified", or None
+    -- checked live against GET /domains rather than trusted from config,
+    since a domain's verification can lapse (DNS records changed/removed)
+    without this codebase hearing about it any other way. A missing API
+    key and a failed request both return None too: "can't confirm a
+    verified domain exists" and "confirmed none exists" get the same,
+    safer answer here -- see run_weekly_briefs for why that's the right
+    default (archive anyway, skip the email, leave a reason on /reports)
+    rather than a crash that would also lose the archive."""
+    api_key = os.environ.get(cfg.get("weekly_brief.resend.api_key_env", "RESEND_API_KEY"), "")
+    if not api_key:
+        return None
+    try:
+        resp = httpx.get(
+            "https://api.resend.com/domains",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        log.warning("could not check Resend domains: %s", exc)
+        return None
+    for domain in resp.json().get("data", []):
+        if domain.get("status") == "verified":
+            return domain.get("name")
+    return None
+
+
+def send_weekly_brief_email(cfg: Config, *, to_email: str, domain: str, payload: dict) -> bool:
+    """Best-effort, same discipline as app.access_log.
+    send_new_ip_notification and app.pipeline_health.send_staleness_alert
+    -- a failed send must never be the reason the brief itself didn't
+    archive (see run_weekly_briefs, which always archives first and calls
+    this only after). Returns whether it actually sent. `payload` is the
+    ALREADY-ARCHIVED WeeklyBrief.payload (JSON-safe: week_start/week_end
+    are ISO strings, not datetimes) -- the email says exactly what was
+    archived, not a second, freshly-recomputed brief that could drift
+    from it by the time this call happens."""
+    api_key = os.environ.get(cfg.get("weekly_brief.resend.api_key_env", "RESEND_API_KEY"), "")
+    if not api_key:
+        return False
+    from_local_part = cfg.get("weekly_brief.from_local_part", "weekly-brief")
+    subject_prefix = cfg.get("weekly_brief.subject_prefix", "[DMG Scout] Weekly Brief")
+    lines = [f"Week of {payload['week_start'][:10]} to {payload['week_end'][:10]}.", ""]
+    lines += payload["recommendation"]
+    if payload.get("one_lead_do"):
+        lines += ["", payload["one_lead_do"]]
+    lines += ["", "Full brief: /reports/weekly"]
+    try:
+        resp = httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "from": f"{from_local_part}@{domain}",
+                "to": [to_email],
+                "subject": f"{subject_prefix} {payload['week_end'][:10]}",
+                "text": "\n".join(lines),
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return True
+    except httpx.HTTPError as exc:
+        log.warning("failed to send weekly brief email to %s: %s", to_email, exc)
+        return False
+
+
+# Less than the 168h weekly cadence -- guards a retried automated run (a
+# flaky GitHub Actions step retrying the same POST /internal/weekly-briefs
+# within the same day) against archiving and re-emailing a SECOND brief
+# for a user who already got one this week, without blocking next
+# Friday's real run. The manual `scout generate-weekly-brief` CLI command
+# (Block 4B Item 3) has no such guard on purpose -- see archive_weekly_
+# brief's own docstring: a deliberate rerun there is meant to be a new row
+# every time.
+RECENT_ISSUE_SKIP_HOURS = 144.0
+
+
+def _already_issued_recently(session: Session, owner_user: str, within_hours: float = RECENT_ISSUE_SKIP_HOURS) -> bool:
+    since = utcnow() - timedelta(hours=within_hours)
+    return session.exec(
+        select(WeeklyBrief.id).where(WeeklyBrief.generated_by == owner_user, WeeklyBrief.generated_at >= since)
+    ).first() is not None
+
+
+def run_weekly_briefs(session: Session, cfg: Config, *, week_end=None) -> dict:
+    """Block 4C Item 6: the automated Friday run. One archived WeeklyBrief
+    per user who logged an Outcome or DecisionNote this week
+    (active_users_this_week) -- always archived, then emailed via Resend
+    only if BOTH a currently-verified sending domain exists
+    (verified_sending_domain) AND that user has an email configured
+    (app.config.user_email); otherwise archived with the specific reason
+    stamped onto the row (WeeklyBrief.email_skip_reason) for /reports to
+    surface. Called by POST /internal/weekly-briefs, itself called by
+    .github/workflows/dmg-scout-weekly-brief.yml every Friday 06:00
+    Pacific -- never by Render's own cron (see that workflow's own header
+    for why, the same reason the nightly backup already isn't)."""
+    week_end = week_end or utcnow()
+    week_start = week_end - timedelta(days=7)
+    domain = verified_sending_domain(cfg)
+    users = active_users_this_week(session, week_start, week_end)
+
+    results = []
+    for username in users:
+        if _already_issued_recently(session, username):
+            results.append({"user": username, "skipped": True, "reason": "already issued this week"})
+            continue
+        row = archive_weekly_brief(session, owner_user=username, week_end=week_end)
+        to_email = user_email(cfg, username)
+        if domain and to_email:
+            sent = send_weekly_brief_email(cfg, to_email=to_email, domain=domain, payload=row.payload)
+            row.emailed = sent
+            row.email_skip_reason = None if sent else "Resend send failed"
+        elif not domain:
+            row.emailed = False
+            row.email_skip_reason = "no verified Resend sending domain"
+        else:
+            row.emailed = False
+            row.email_skip_reason = "no email configured for user"
+        session.add(row)
+        session.commit()
+        results.append({"user": username, "weekly_brief_id": row.id, "emailed": row.emailed,
+                        "email_skip_reason": row.email_skip_reason})
+    return {"week_start": week_start, "week_end": week_end, "verified_domain": domain, "users": results}
+
+
+def latest_batch_email_status(session: Session) -> dict | None:
+    """Block 4C Item 6: what /reports shows about the most recent
+    automated Friday batch -- None if run_weekly_briefs has never run.
+    "Batch" is every WeeklyBrief row sharing the latest week_start value
+    (one row per active user, archived together in the same run); a
+    manual `scout generate-weekly-brief` row (Block 4B Item 3) can share
+    that same week_start and gets counted alongside the automated ones,
+    since from /reports' own point of view both are real, already-
+    archived briefs for that week -- there is nothing to distinguish
+    "why" a given row exists once it's archived."""
+    latest_week_start = session.exec(select(WeeklyBrief.week_start).order_by(WeeklyBrief.week_start.desc())).first()
+    if latest_week_start is None:
+        return None
+    rows = session.exec(select(WeeklyBrief).where(WeeklyBrief.week_start == latest_week_start)).all()
+    skipped = [r for r in rows if not r.emailed]
+    return {
+        "week_start": latest_week_start,
+        "emailed_count": len(rows) - len(skipped),
+        "skipped_count": len(skipped),
+        "skip_reasons": sorted({r.email_skip_reason for r in skipped if r.email_skip_reason}),
+    }

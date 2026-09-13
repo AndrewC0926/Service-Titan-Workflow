@@ -14,6 +14,17 @@
     {{ WEEKS_OF_TREND }} weeks where that much history exists; {{ abstain_note('shorter history is stated plainly, not stretched') }}.</span>
 </div>
 
+{% if weekly_brief_email_status and weekly_brief_email_status.skipped_count %}
+<div class="callout mb-3">
+  <span class="note">
+    Week of {{ weekly_brief_email_status.week_start.strftime('%Y-%m-%d') }}: {{ weekly_brief_email_status.emailed_count }}
+    Weekly Brief{{ 's' if weekly_brief_email_status.emailed_count != 1 else '' }} emailed,
+    {{ weekly_brief_email_status.skipped_count }} archived but not emailed --
+    {{ weekly_brief_email_status.skip_reasons | join('; ') }}.
+  </span>
+</div>
+{% endif %}
+
 <h2>Funnel: Signals &rarr; Qualified &rarr; Pipeline</h2>
 {{ kpi_tile_strip(funnel_tiles) }}
 
