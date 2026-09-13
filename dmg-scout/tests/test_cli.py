@@ -354,3 +354,56 @@ class TestRecomputeOpportunityLinesCmd:
         assert result.exit_code == 0
         report = json.loads(result.output)
         assert report["considered"] == 0
+
+
+class TestRecomputeDoFieldsCmd:
+    def test_recomputes_a_permit_gap_opportunity_to_the_handoff_play(self, db_session):
+        from app.models import (
+            Contact, Contractor, Opportunity, PenState, ReasonBlock, ReasonStrength, RetrofitBuilding,
+            Signal, SignalType, WhyKind,
+        )
+
+        contractor = Contractor(license_no="CLI-H1", business_name="CLI Handoff Mechanical")
+        db_session.add(contractor)
+        db_session.flush()
+        contact = Contact(name="CLI Contact", phone="555-8888", reach_status="confirmed",
+                          contractor_id=contractor.id)
+        building = RetrofitBuilding(apn="cli-recompute-1", population="replacement_candidate",
+                                    address="789 Elm St")
+        signal = Signal(signal_type=SignalType.retrofit_permit_gap)
+        db_session.add(contact)
+        db_session.add(building)
+        db_session.add(signal)
+        db_session.flush()
+        opp = Opportunity(building_id=building.id, contact_id=contact.id, signal_id=signal.id,
+                          pen_state=PenState.not_moved, owner_user="andrew")
+        db_session.add(opp)
+        db_session.flush()
+        db_session.add(ReasonBlock(opportunity_id=opp.id, why_kind=WhyKind.them,
+                                   strength=ReasonStrength.Weak, evidence="x",
+                                   one_sentence="old generic sentence"))
+        db_session.commit()
+
+        result = CliRunner().invoke(cli_app, ["recompute-do-fields"])
+        assert result.exit_code == 0
+        report = json.loads(result.output)
+        assert len(report["changed"]) == 1
+        assert "Offer the list of buildings" in report["changed"][0]["new_one_sentence"]
+
+    def test_leaves_an_already_correct_sentence_untouched(self, db_session):
+        from app.models import Opportunity, PenState, ReasonBlock, ReasonStrength, Signal, SignalType, WhyKind
+
+        signal = Signal(signal_type=SignalType.ceqa_nop)
+        db_session.add(signal)
+        db_session.flush()
+        opp = Opportunity(account_id=1, signal_id=signal.id, pen_state=PenState.not_moved, owner_user="andrew")
+        db_session.add(opp)
+        db_session.flush()
+        db_session.add(ReasonBlock(opportunity_id=opp.id, why_kind=WhyKind.them,
+                                   strength=ReasonStrength.Weak, evidence="x", one_sentence=None))
+        db_session.commit()
+
+        result = CliRunner().invoke(cli_app, ["recompute-do-fields"])
+        assert result.exit_code == 0
+        report = json.loads(result.output)
+        assert report["changed"] == []

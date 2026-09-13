@@ -2096,6 +2096,64 @@ def generate_weekly_brief_cmd(
     typer.echo(json.dumps(result))
 
 
+@app.command("recompute-do-fields")
+def recompute_do_fields_cmd() -> None:
+    """Block 4B Item 4: re-run compose_do_fields against the CURRENT
+    config.yaml reason_block_do templates for every Opportunity's
+    ReasonBlock rows and update do_person/do_ask/one_sentence in place --
+    for when those templates change (the handoff play / AB 869 rewrite)
+    after real Opportunities already exist.
+
+    trigger_type is re-derived, never read from a field Opportunity
+    doesn't have: a building-anchored Opportunity's trigger_type comes
+    from its RetrofitBuilding.population (recently_active ->
+    permit_activity, replacement_candidate -> permit_gap -- the same
+    mapping app.pipeline.signals_feed's own builders use); a facility-
+    anchored one is always deadline (the only trigger_type ab869_plan
+    sources today). Account-anchored (project-sourced) Opportunities are
+    skipped -- this item never touched entitlement_milestone's own
+    generic template, so there is nothing there to recompute."""
+    from app.models import Opportunity, ReasonBlock, RetrofitBuilding, TriggerType
+    from app.pipeline.reason_block import compose_do_fields
+    from app.pipeline.signals_feed import FeedSignal
+
+    with session_scope() as session:
+        opps = session.exec(select(Opportunity)).all()
+        changed = []
+        for opp in opps:
+            if opp.building_id is not None:
+                building = session.get(RetrofitBuilding, opp.building_id)
+                if building is None:
+                    continue
+                trigger_type = (TriggerType.permit_activity if building.population == "recently_active"
+                               else TriggerType.permit_gap)
+            elif opp.facility_perm_id is not None:
+                trigger_type = TriggerType.deadline
+            else:
+                continue
+
+            fs = FeedSignal(
+                source="retrofit_building" if opp.building_id else "ab869_plan",
+                source_id=str(opp.building_id if opp.building_id is not None else opp.facility_perm_id),
+                trigger_type=trigger_type, trigger_date=None, evidence="", confidence=None,
+                building_id=opp.building_id, facility_perm_id=opp.facility_perm_id, pen_state=opp.pen_state,
+            )
+            do_person, do_ask, one_sentence = compose_do_fields(session, fs, opp.contact_id)
+
+            rows = session.exec(select(ReasonBlock).where(ReasonBlock.opportunity_id == opp.id)).all()
+            old_sentence = rows[0].one_sentence if rows else None
+            if one_sentence != old_sentence:
+                changed.append({"opportunity_id": opp.id, "old_one_sentence": old_sentence,
+                               "new_one_sentence": one_sentence})
+                for rb in rows:
+                    rb.do_person = do_person
+                    rb.do_ask = do_ask
+                    rb.one_sentence = one_sentence
+                    session.add(rb)
+        session.commit()
+    typer.echo(json.dumps({"considered": len(opps), "changed": changed}))
+
+
 @app.command("account-join-report")
 def account_join_report_cmd(
     limit: int = typer.Option(25, help="Max accounts to print (report is per-account, can get long)"),

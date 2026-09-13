@@ -858,7 +858,7 @@ def promote_to_opportunity(session: Session, fs: FeedSignal, signal_id: int, own
     # Block 4B-prep-3 Item 4: composed once, written to all three rows
     # together (ReasonBlock's own docstring: "a human is never left
     # looking at three different actions for one opportunity").
-    do_person, do_ask, one_sentence = compose_do_fields(session, fs.trigger_type, fs.pen_state, result.contact_id)
+    do_person, do_ask, one_sentence = compose_do_fields(session, fs, result.contact_id)
 
     rows = [
         ReasonBlock(opportunity_id=opp.id, why_kind=WhyKind.them, strength=them_strength,

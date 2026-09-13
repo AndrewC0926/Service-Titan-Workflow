@@ -2848,16 +2848,43 @@ line_card:
     Amiad Water Systems: [AMIAD - PEP FILTERS, AMIAD WATER SYSTEMS]
 
 # =============================================================================
-# REASON BLOCK "DO" SYNTHESIS (Block 4B-prep-3 Item 4) -- config-driven, no
-# LLM. app.pipeline.reason_block.compose_do_fields composes do_person/
-# do_ask/one_sentence at PROMOTE TIME from these two templates: by_trigger_
-# type gives the topic/ask ("Do: call X about {topic} and ask {ask}"),
-# by_pen_state gives the urgency note in parentheses. Both dimensions must
-# have an entry for the signal's actual trigger_type/pen_state or
-# compose_do_fields ABSTAINs (all three fields null) rather than guessing
-# at an unconfigured combination -- see that function's own docstring.
+# REASON BLOCK "DO" SYNTHESIS (Block 4B-prep-3 Item 4; the handoff-play and
+# AB 869 rewrite are Block 4B Item 4) -- config-driven, no LLM.
+# app.pipeline.reason_block.compose_do_fields composes do_person/do_ask/
+# one_sentence at PROMOTE TIME, picking ONE of three template shapes:
+#
+# 1. handoff_play -- a permit_gap/permit_activity signal whose matched
+#    contact is anchored on a Contractor firm (Contact.contractor_id).
+#    The ask is the BUILDING LIST that contractor's own yard can reach,
+#    not the single permit this one Opportunity happens to be about --
+#    "Offer the list," not "here's one building." radius_miles comes from
+#    contractors.default_radius_miles (below), never a second, hardcoded
+#    "15" that could drift from the actual matching radius.
+# 2. deadline_ab869 -- a deadline signal (today, exclusively ab869_plan-
+#    sourced) with a resolvable Ab869Plan row: names the real plan_status
+#    and the OSP-eligible package DMG can currently field (app.pipeline.
+#    hcai.hospital_capability_gaps, computed live, never hardcoded).
+# 3. by_trigger_type/by_pen_state -- the original generic pair, still the
+#    fallback for every OTHER case (a permit_gap/permit_activity contact
+#    NOT contractor-anchored, e.g. a project contact; a deadline signal
+#    whose Ab869Plan row can't be found; entitlement_milestone/public_
+#    work/relationship_intro, untouched by this item).
+#
+# Every template ABSTAINs (all three fields null) rather than guessing
+# when a value it needs is missing -- see compose_do_fields' own
+# docstring for the exact fallback order.
 # =============================================================================
 reason_block_do:
+  handoff_play:
+    ask: "who owns it and whether they'd take the list"
+    template: >-
+      Call {contact} at {contractor}. Offer the list of buildings within {radius_miles:g} miles
+      of their yard past HVAC service life with no replacement permit on record; {address} is
+      one of them ({equipment}, {install_year}). Ask {ask}.
+  deadline_ab869:
+    template: >-
+      Do: call {contact} about the AB 869 plan (status: {plan_status}) and ask whether they'd
+      take the OSP-eligible package DMG can currently field: {package}.
   by_trigger_type:
     entitlement_milestone:
       topic: "the project's entitlement/design timeline"
