@@ -20,15 +20,19 @@ LLM -- reusing the SAME eligibility machinery the rest of Scout already
 has (app.accounts.line_offering_by_role, app.pipeline.opsc.classify_opsc_
 status) rather than inventing a second one.
 """
+import weakref
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlmodel import Session, select
 
+from app.config import load_config
+from app.contractors import default_radius_miles, haversine_miles
 from app.models import (
     Ab869Plan,
     Category,
     Contact,
+    Contractor,
     FieldIntel,
     HcaiProject,
     HospitalBuilding,
@@ -160,6 +164,71 @@ def _retrofit_replacement_candidates(session: Session) -> list[FeedSignal]:
             # "no permit on record at all" IS the evidence that no
             # contractor has been engaged yet -- see the model's docstring.
             pen_state=PenState.not_moved,
+        ))
+    return out
+
+
+def _retrofit_recently_active(session: Session) -> list[FeedSignal]:
+    """RetrofitBuilding.population == 'recently_active': the symmetric
+    opposite of _retrofit_replacement_candidates above -- real, dated,
+    permit-VERIFIED mechanical work on record (2010-present), not an
+    absence. 6,914 such rows in the real local restore; only 2,402 of
+    those (34.7%) carry a populated equipment_type -- the rest have a real
+    permit on record but infer_equipment_type's own never-guess-past-the-
+    work-description discipline (see that function's docstring) left it
+    null, exactly like replacement_candidate rows do for a different
+    reason. All 6,914 are still folded in here (the same "include the
+    whole population, let each downstream part ABSTAIN honestly on what
+    it can't determine" discipline replacement_candidate itself uses) --
+    _eligible_fitting_line_from_equipment_class already ABSTAINs
+    (returns None) on a null/unrecognized equipment_type with zero
+    special-casing needed here, since it keys off fs.building_id, not
+    population.
+
+    trigger_date is Jan 1 of latest_install_year -- a real, permit-derived
+    year, populated on all 6,914 rows in the real local restore (this
+    population's own permit-verified definition guarantees it, unlike
+    equipment_type above).
+
+    pen_state, from this table's own already-computed service_life_status
+    (app.replacement's ownership-branched table, keyed off equipment_age_
+    years/latest_install_year -- never re-derived here): a real permit on
+    record is direct evidence a contractor HAS already been engaged, so
+    `not_due`/`approaching` (still within its expected life -- 2,392 of
+    6,914) means that hold is still current, moved -- the window Master
+    Plan v3.6 section 12b describes ("the window closes when a contractor
+    with an incumbent brand relationship is on site") is closed. Where the
+    same field says the equipment has since reached or passed its
+    expected replacement window (`due`/`overdue` -- 10 of 6,914), that
+    presumed hold is stale and the window has plausibly reopened --
+    not_moved. service_life_status is null on 4,512 of 6,914 (population
+    definition guarantees a real install year but not a resolvable
+    service-life band for every use code) -- ABSTAIN there, never guessed
+    into either state."""
+    rows = session.exec(
+        select(RetrofitBuilding).where(RetrofitBuilding.population == "recently_active")).all()
+    out = []
+    for b in rows:
+        trigger_date = datetime(b.latest_install_year, 1, 1) if b.latest_install_year else None
+        equip = b.equipment_type or "equipment type unknown"
+        evidence = (f"{b.address or b.apn}: permit-verified {equip} work on record"
+                   f"{f' ({b.latest_permit_nbr})' if b.latest_permit_nbr else ''}, "
+                   f"install year {b.latest_install_year or '?'}, "
+                   f"service life {b.service_life_status or 'unknown'}")
+        if b.service_life_status is None:
+            pen_state = PenState.ABSTAIN
+        elif b.service_life_status in ("due", "overdue"):
+            pen_state = PenState.not_moved
+        else:  # not_due, approaching
+            pen_state = PenState.moved
+        out.append(FeedSignal(
+            source="retrofit_building", source_id=str(b.id),
+            trigger_type=TriggerType.permit_activity,
+            trigger_date=trigger_date,
+            evidence=evidence,
+            confidence=None,
+            building_id=b.id,
+            pen_state=pen_state,
         ))
     return out
 
@@ -315,6 +384,7 @@ def unified_signals(session: Session) -> list[FeedSignal]:
     return (
         _project_signals(session)
         + _retrofit_replacement_candidates(session)
+        + _retrofit_recently_active(session)
         + _ab869_npc_outstanding(session)
         + _hcai_open_mechanical(session)
         + _opsc_pre_spec(session)
@@ -338,21 +408,115 @@ class FourPartResult:
     line_id: int | None = None
 
 
+# Block 4B-prep-2 Item 2: cell size for the in-memory contractor-contact
+# proximity grid below, in degrees -- 0.5 degrees is ~34.5mi at this
+# state's latitude (app.contractors.MILES_PER_DEGREE_LAT), safely wider
+# than contractors.default_radius_miles (15mi), so a correct search never
+# needs more than the 3x3 neighborhood of a point's own cell -- any point
+# within 15mi of another must fall in an adjacent cell, never two cells
+# away, when the cell itself is wider than the search radius.
+_CONTRACTOR_GRID_DEGREES = 0.5
+
+# Keyed by Session object identity, not a module-level singleton: distinct
+# per request/test (each gets its own Session, so no cross-test leakage
+# through pytest's fresh-SQLite-per-test fixture) and freed automatically
+# via WeakKeyDictionary once that Session is garbage-collected. Avoids
+# re-running the same small query (1,110 rows in the real restore) once
+# per FeedSignal -- four_part_filter is called per-signal, tens of
+# thousands of times per report/page load, and app.contractors' own
+# nearby_* fields exist for exactly this reason: "a live per-request
+# N x M join does not scale at this row count" applies just as much here.
+_contractor_contact_grid_cache: "weakref.WeakKeyDictionary[Session, dict]" = weakref.WeakKeyDictionary()
+
+
+def _build_contractor_contact_grid(session: Session) -> dict[tuple[int, int], list[tuple[int, float, float]]]:
+    """{grid_cell: [(contact_id, contractor_lat, contractor_lon), ...]} for
+    every reachable Contact anchored on a geocoded Contractor firm
+    (Contact.contractor_id, Block 4B-prep-2 Item 1) -- one query, not one
+    per signal."""
+    rows = session.exec(
+        select(Contact.id, Contractor.latitude, Contractor.longitude)
+        .join(Contractor, Contractor.id == Contact.contractor_id)
+        .where(Contact.reach_status == "confirmed", Contractor.latitude.is_not(None))
+    ).all()
+    grid: dict[tuple[int, int], list[tuple[int, float, float]]] = {}
+    for contact_id, lat, lon in rows:
+        cell = (int(lat // _CONTRACTOR_GRID_DEGREES), int(lon // _CONTRACTOR_GRID_DEGREES))
+        grid.setdefault(cell, []).append((contact_id, lat, lon))
+    return grid
+
+
+def _contractor_backed_contact_near(session: Session, lat: float | None, lon: float | None,
+                                    radius_miles: float) -> int | None:
+    """The nearest reachable Contact anchored on a Contractor firm whose
+    geocoded yard sits within radius_miles of (lat, lon) -- real haversine
+    distance, same function app.contractors' own building<->contractor
+    join uses, not a second drifting implementation. None when the anchor
+    point itself has no coordinates, or nothing real is within radius --
+    never a guess at which contractor "probably" covers the area."""
+    if lat is None or lon is None:
+        return None
+    grid = _contractor_contact_grid_cache.get(session)
+    if grid is None:
+        grid = _build_contractor_contact_grid(session)
+        _contractor_contact_grid_cache[session] = grid
+    cell = (int(lat // _CONTRACTOR_GRID_DEGREES), int(lon // _CONTRACTOR_GRID_DEGREES))
+    best_id, best_dist = None, None
+    for dlat in (-1, 0, 1):
+        for dlon in (-1, 0, 1):
+            for contact_id, clat, clon in grid.get((cell[0] + dlat, cell[1] + dlon), ()):
+                d = haversine_miles(lat, lon, clat, clon)
+                if d <= radius_miles and (best_dist is None or d < best_dist):
+                    best_id, best_dist = contact_id, d
+    return best_id
+
+
 def _named_reachable_contact(session: Session, fs: FeedSignal) -> int | None:
     """A Contact row with reach_status='confirmed' (phone or email
-    populated -- see Contact's own docstring), linked to this signal's
-    Project via ProjectContact. Only project-sourced signals have a link
-    table to check today: retrofit/ab869/hcai/opsc/field_intel have no
-    Contact-join table wired to them yet -- this is a real, disclosed gap
-    (see docs/BUILD-PLAN.md section 9's Item 2 report), not an oversight
-    silently worked around here."""
-    if fs.project_id is None:
-        return None
-    rows = session.exec(
-        select(Contact).join(ProjectContact, ProjectContact.contact_id == Contact.id)
-        .where(ProjectContact.project_id == fs.project_id, Contact.reach_status == "confirmed")
-    ).all()
-    return rows[0].id if rows else None
+    populated -- see Contact's own docstring), reachable one of two ways:
+
+    1. Linked to this signal's Project via ProjectContact -- project-
+       sourced signals only (unchanged from Block 3 Item 2).
+    2. Block 4B-prep-2 Item 2: anchored on a Contractor firm
+       (Contact.contractor_id) whose own geocoded yard sits within
+       contractors.default_radius_miles (15mi -- the SAME "realistically
+       reachable" radius app.contractors already uses for a building's
+       own nearest-mechanical-contractors list, not a second number
+       invented here) of the Building or Deadline facility this signal
+       anchors on. A mechanical contractor with a yard 15 minutes from a
+       building that needs work is a real, callable lead for that
+       building even with no per-project link -- exactly the gap Block
+       4A Item 5 flagged: the only sources with a building/facility
+       anchor (retrofit_building, ab869_plan) never had a contact path at
+       all before this.
+
+    hcai_project/opsc_project/field_intel still have neither path (no
+    Project link, and no building/facility anchor this function can
+    resolve coordinates from) -- a real, disclosed gap, not silently
+    worked around."""
+    if fs.project_id is not None:
+        rows = session.exec(
+            select(Contact).join(ProjectContact, ProjectContact.contact_id == Contact.id)
+            .where(ProjectContact.project_id == fs.project_id, Contact.reach_status == "confirmed")
+        ).all()
+        if rows:
+            return rows[0].id
+
+    lat = lon = None
+    if fs.building_id is not None:
+        building = session.get(RetrofitBuilding, fs.building_id)
+        if building is not None:
+            lat, lon = building.latitude, building.longitude
+    elif fs.facility_perm_id is not None:
+        hb = session.exec(
+            select(HospitalBuilding)
+            .where(HospitalBuilding.perm_id == fs.facility_perm_id, HospitalBuilding.latitude.is_not(None))
+        ).first()
+        if hb is not None:
+            lat, lon = hb.latitude, hb.longitude
+
+    radius_miles = default_radius_miles(load_config())
+    return _contractor_backed_contact_near(session, lat, lon, radius_miles)
 
 
 def _sellable_account_or_building(fs: FeedSignal) -> bool:

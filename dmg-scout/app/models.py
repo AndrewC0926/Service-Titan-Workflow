@@ -3539,6 +3539,12 @@ class TriggerType(str, enum.Enum):
     migration."""
     entitlement_milestone = "entitlement_milestone"
     permit_gap = "permit_gap"
+    # Block 4B-prep-2 Item 3: the symmetric opposite of permit_gap -- a
+    # RetrofitBuilding with real, dated, permit-VERIFIED mechanical work on
+    # record (population == "recently_active"), rather than permit_gap's
+    # "absence is the signal" population. See
+    # app.pipeline.signals_feed._retrofit_recently_active.
+    permit_activity = "permit_activity"
     deadline = "deadline"
     quiet_account = "quiet_account"
     public_work = "public_work"

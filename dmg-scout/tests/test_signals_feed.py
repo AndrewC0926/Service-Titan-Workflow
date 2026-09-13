@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlmodel import select
 
 from app.models import (
-    Ab869Plan, Category, Contact, FieldIntel, HcaiProject, HospitalBuilding,
+    Ab869Plan, Category, Contact, Contractor, FieldIntel, HcaiProject, HospitalBuilding,
     Opportunity, OpscProject, PenState, ProductLine, Project, ProjectContact, ReasonBlock,
     ReasonStrength, RetrofitBuilding, Signal, SignalType, TriggerType, WhyKind,
 )
@@ -45,14 +45,49 @@ def test_project_signal_is_entitlement_milestone(db_session):
     assert signals[0].category == Category.data_center
 
 
-def test_retrofit_recently_active_buildings_are_not_in_the_feed(db_session):
-    """Only population=='replacement_candidate' is a Signal -- recently_active
-    buildings (real permit-verified equipment) are not "absence" evidence."""
-    db_session.add(RetrofitBuilding(apn="9999-000-000", population="recently_active"))
+def test_retrofit_recently_active_buildings_are_a_permit_activity_signal(db_session):
+    """Block 4B-prep-2 Item 3 (superseding the old assertion that
+    recently_active buildings were excluded -- real behavior legitimately
+    changed, not a regression): population=='recently_active' is the
+    symmetric opposite of replacement_candidate's absence-is-the-signal
+    permit_gap -- a real, dated, permit-verified install, folded in as its
+    own trigger_type."""
+    db_session.add(RetrofitBuilding(
+        apn="9999-000-000", population="recently_active", equipment_type="packaged_rooftop",
+        latest_install_year=2015, service_life_status="not_due",
+    ))
     db_session.commit()
 
     signals = unified_signals(db_session)
-    assert not any(s.source == "retrofit_building" for s in signals)
+    matches = [s for s in signals if s.source == "retrofit_building" and s.trigger_type == TriggerType.permit_activity]
+    assert len(matches) == 1
+    fs = matches[0]
+    assert fs.trigger_date == datetime(2015, 1, 1)
+    assert fs.pen_state == PenState.moved  # not_due -- a real permit's hold is still current
+
+
+def test_retrofit_recently_active_pen_state_reopens_when_due_or_overdue(db_session):
+    db_session.add(RetrofitBuilding(
+        apn="9999-000-001", population="recently_active", latest_install_year=2000,
+        service_life_status="overdue",
+    ))
+    db_session.commit()
+
+    signals = unified_signals(db_session)
+    fs = next(s for s in signals if s.source == "retrofit_building" and s.trigger_type == TriggerType.permit_activity)
+    assert fs.pen_state == PenState.not_moved
+
+
+def test_retrofit_recently_active_pen_state_abstains_on_unknown_service_life(db_session):
+    db_session.add(RetrofitBuilding(
+        apn="9999-000-002", population="recently_active", latest_install_year=2000,
+        service_life_status=None,
+    ))
+    db_session.commit()
+
+    signals = unified_signals(db_session)
+    fs = next(s for s in signals if s.source == "retrofit_building" and s.trigger_type == TriggerType.permit_activity)
+    assert fs.pen_state == PenState.ABSTAIN
 
 
 def test_ab869_npc_outstanding_is_a_deadline_signal(db_session):
@@ -254,6 +289,104 @@ class TestFourPartFilter:
                         trigger_date=None, evidence="x", confidence=None, project_id=p.id)
         result = four_part_filter(db_session, fs)
         assert "named_reachable_contact" in result.missing
+
+    def test_named_reachable_contact_via_nearby_contractor_yard(self, db_session):
+        """Block 4B-prep-2 Item 2: a building-anchored signal with no
+        Project link at all can still satisfy named_reachable_contact via
+        a reachable Contact anchored on a Contractor whose yard is within
+        15mi."""
+        b = RetrofitBuilding(apn="2-2-1", population="replacement_candidate",
+                             latitude=34.00, longitude=-118.00)
+        contractor = Contractor(license_no="C1", business_name="Nearby Mechanical",
+                                latitude=34.05, longitude=-118.05)  # ~4mi away
+        db_session.add(b)
+        db_session.add(contractor)
+        db_session.flush()
+        contact = Contact(name="Joe", phone="555-1111", reach_status="confirmed", contractor_id=contractor.id)
+        db_session.add(contact)
+        db_session.commit()
+
+        fs = FeedSignal(source="retrofit_building", source_id=str(b.id),
+                        trigger_type=TriggerType.permit_gap, trigger_date=None,
+                        evidence="x", confidence=None, building_id=b.id)
+        result = four_part_filter(db_session, fs)
+        assert "named_reachable_contact" not in result.missing
+        assert result.contact_id == contact.id
+
+    def test_named_reachable_contact_ignores_a_contractor_outside_the_radius(self, db_session):
+        b = RetrofitBuilding(apn="2-2-2", population="replacement_candidate",
+                             latitude=34.00, longitude=-118.00)
+        contractor = Contractor(license_no="C2", business_name="Far Mechanical",
+                                latitude=36.00, longitude=-118.00)  # ~138mi away
+        db_session.add(b)
+        db_session.add(contractor)
+        db_session.flush()
+        db_session.add(Contact(name="Jane", phone="555-2222", reach_status="confirmed",
+                               contractor_id=contractor.id))
+        db_session.commit()
+
+        fs = FeedSignal(source="retrofit_building", source_id=str(b.id),
+                        trigger_type=TriggerType.permit_gap, trigger_date=None,
+                        evidence="x", confidence=None, building_id=b.id)
+        result = four_part_filter(db_session, fs)
+        assert "named_reachable_contact" in result.missing
+
+    def test_named_reachable_contact_ignores_a_contractor_contact_not_confirmed(self, db_session):
+        b = RetrofitBuilding(apn="2-2-3", population="replacement_candidate",
+                             latitude=34.00, longitude=-118.00)
+        contractor = Contractor(license_no="C3", business_name="Nearby But Unreachable",
+                                latitude=34.02, longitude=-118.02)
+        db_session.add(b)
+        db_session.add(contractor)
+        db_session.flush()
+        db_session.add(Contact(name="Pending Person", reach_status="pending", contractor_id=contractor.id))
+        db_session.commit()
+
+        fs = FeedSignal(source="retrofit_building", source_id=str(b.id),
+                        trigger_type=TriggerType.permit_gap, trigger_date=None,
+                        evidence="x", confidence=None, building_id=b.id)
+        result = four_part_filter(db_session, fs)
+        assert "named_reachable_contact" in result.missing
+
+    def test_named_reachable_contact_with_no_building_coordinates_abstains(self, db_session):
+        """No geocode at all on the anchor -- never guessed at a distance
+        that can't be computed."""
+        b = RetrofitBuilding(apn="2-2-4", population="replacement_candidate")
+        contractor = Contractor(license_no="C4", business_name="Anywhere Mechanical",
+                                latitude=34.00, longitude=-118.00)
+        db_session.add(b)
+        db_session.add(contractor)
+        db_session.flush()
+        db_session.add(Contact(name="Joe", phone="555-3333", reach_status="confirmed",
+                               contractor_id=contractor.id))
+        db_session.commit()
+
+        fs = FeedSignal(source="retrofit_building", source_id=str(b.id),
+                        trigger_type=TriggerType.permit_gap, trigger_date=None,
+                        evidence="x", confidence=None, building_id=b.id)
+        result = four_part_filter(db_session, fs)
+        assert "named_reachable_contact" in result.missing
+
+    def test_named_reachable_contact_via_nearby_contractor_yard_on_a_facility_anchor(self, db_session):
+        """The third anchor (facility_perm_id, Block 4A Item 1) gets the
+        same proximity path, via its HospitalBuilding's own coordinates."""
+        db_session.add(HospitalBuilding(
+            perm_id="PERM9", building_nbr="B1", facility_name="Test Hospital",
+            county="Los Angeles", latitude=34.00, longitude=-118.00,
+            snapshot_date=datetime(2026, 1, 1), source_url="https://x",
+        ))
+        contractor = Contractor(license_no="C5", business_name="Hospital-Adjacent Mechanical",
+                                latitude=34.03, longitude=-118.03)
+        db_session.add(contractor)
+        db_session.flush()
+        db_session.add(Contact(name="Ana", phone="555-4444", reach_status="confirmed",
+                               contractor_id=contractor.id))
+        db_session.commit()
+
+        fs = FeedSignal(source="ab869_plan", source_id="PERM9", trigger_type=TriggerType.deadline,
+                        trigger_date=None, evidence="x", confidence=None, facility_perm_id="PERM9")
+        result = four_part_filter(db_session, fs)
+        assert "named_reachable_contact" not in result.missing
 
     def test_no_category_means_eligible_fitting_line_abstains(self, db_session):
         fs = FeedSignal(source="opsc_project", source_id="A1", trigger_type=TriggerType.public_work,
