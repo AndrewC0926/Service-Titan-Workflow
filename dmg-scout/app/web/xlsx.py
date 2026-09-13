@@ -63,15 +63,18 @@ def contractor_buildings_xlsx(contractor_name: str, radius_miles: float, rows: l
     ws = wb.active
     ws.title = "Buildings"
     ws.append([f"{contractor_name} -- buildings within {radius_miles:g} miles past service life, "
-              f"no replacement permit on record"])
+              f"no replacement permit on record -- ranked by urgency (years past service life, "
+              f"then square feet), not distance"])
     ws.append(["Address", "APN", "Equipment class", "Install year", "Year built", "Service life status",
-              "Nearest permit reference", "Distance (mi)"])
+              "Years past service life", "Sqft", "Nearest permit reference", "Distance (mi)"])
     for row in rows:
         ws.append([
             row["address"], row["apn"], row["equipment_class"],
             row["install_year"] or "unknown, not guessed",
             row["year_built"] or "unknown, not guessed",
             row["service_life_status"],
+            row["service_life_years_past"] if row.get("service_life_years_past") is not None else "unknown, not guessed",
+            row["sqft"] if row.get("sqft") is not None else "unknown, not guessed",
             row["nearest_permit_reference"] or "no permit on record",
             row["distance_miles"],
         ])

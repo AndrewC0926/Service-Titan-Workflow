@@ -592,7 +592,7 @@ def nearest_mechanical_contractor_bulk(session: Session, buildings: list[Retrofi
 
 
 def buildings_past_service_life_near_contractor(
-    session: Session, contractor: Contractor, radius_miles: float,
+    session: Session, contractor: Contractor, radius_miles: float, *, limit: int | None = 40,
 ) -> list[dict]:
     """Block 4B Item 6: "an xlsx of buildings within 15 miles of that
     contractor's yard past service life with no replacement permit on
@@ -612,10 +612,19 @@ def buildings_past_service_life_near_contractor(
     record" by the caller, never a nearby DIFFERENT building's permit
     substituted in to fill the column.
 
+    Ranked by urgency, not proximity -- Block 4C: service_life_years_past
+    descending (the same gradient app.contractors._urgency_years and the
+    /accounts/contractors ranking already use, see URGENCY_YEARS_PAST_CAP
+    above), then sqft descending as the tie-break (a bigger building is
+    the bigger job, all else equal). Nulls sort last on each key rather
+    than crashing or being silently dropped. limit=40 by default (the
+    list a rep can actually work in one pass); pass limit=None for every
+    matching row.
+
     Returns plain dicts (address, apn, equipment_class, install_year,
     service_life_status, nearest_permit_reference, distance_miles),
-    nearest first -- ready for app.web.xlsx, never ORM rows a template
-    or a workbook writer would have to know how to unpack."""
+    ready for app.web.xlsx, never ORM rows a template or a workbook
+    writer would have to know how to unpack."""
     from app.pipeline.equipment_eligibility import equipment_class_from_retrofit_type
 
     if contractor.latitude is None or contractor.longitude is None:
@@ -642,10 +651,18 @@ def buildings_past_service_life_near_contractor(
                 "install_year": b.latest_install_year,
                 "year_built": b.year_built,
                 "service_life_status": b.service_life_status,
+                "service_life_years_past": b.service_life_years_past,
+                "sqft": b.sqft,
                 "nearest_permit_reference": b.latest_permit_nbr,
                 "distance_miles": round(d, 1),
             })
-    rows.sort(key=lambda r: r["distance_miles"])
+    rows.sort(key=lambda r: (
+        -(r["service_life_years_past"] if r["service_life_years_past"] is not None else -1.0),
+        -(r["sqft"] if r["sqft"] is not None else -1.0),
+        r["distance_miles"],
+    ))
+    if limit is not None:
+        rows = rows[:limit]
     return rows
 
 

@@ -1738,7 +1738,8 @@ def contractor_detail(contractor_id: int, request: Request,
 
 
 @app.get("/contractor/{contractor_id}/buildings.xlsx")
-def contractor_buildings_xlsx_export(contractor_id: int, session: Session = Depends(get_session),
+def contractor_buildings_xlsx_export(contractor_id: int, limit: int = 40,
+                                     session: Session = Depends(get_session),
                                      _: str = Depends(auth)):
     """Block 4B Item 6: "the artifact the rep hands the contractor" --
     buildings within contractors.default_radius_miles (15mi, the same
@@ -1748,7 +1749,17 @@ def contractor_buildings_xlsx_export(contractor_id: int, session: Session = Depe
     contractors," not "what can this one contractor realistically reach")
     of the contractor's own yard, past service life, no replacement
     permit on record. Linked from both the Accounts contractors tab and
-    any contractor-anchored Opportunity's Reason Block expansion."""
+    any contractor-anchored Opportunity's Reason Block expansion.
+
+    Block 4C: default is the top 40 by urgency (see
+    buildings_past_service_life_near_contractor's own sort), a limit a
+    rep can actually work in one pass over a phone call -- ?limit=100
+    for the wider cut. Filename carries the contractor name and today's
+    date so a rep's downloads folder doesn't collapse a re-pull into one
+    file with the same name as last week's."""
+    import re
+    from datetime import date as _date
+
     from app.contractors import buildings_past_service_life_near_contractor, default_radius_miles
     from app.web.xlsx import contractor_buildings_xlsx
 
@@ -1757,9 +1768,10 @@ def contractor_buildings_xlsx_export(contractor_id: int, session: Session = Depe
         raise HTTPException(404)
     cfg = load_config()
     radius = default_radius_miles(cfg)
-    rows = buildings_past_service_life_near_contractor(session, contractor, radius)
+    rows = buildings_past_service_life_near_contractor(session, contractor, radius, limit=limit)
     xlsx_bytes = contractor_buildings_xlsx(contractor.business_name, radius, rows)
-    filename = f"{contractor.business_name.strip().replace(' ', '-')}-buildings.xlsx"
+    safe_name = re.sub(r"[^A-Za-z0-9]+", "-", contractor.business_name.strip()).strip("-")
+    filename = f"{safe_name}-buildings-{_date.today().isoformat()}.xlsx"
     return Response(content=xlsx_bytes,
                     media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     headers={"Content-Disposition": f'attachment; filename="{filename}"'})
