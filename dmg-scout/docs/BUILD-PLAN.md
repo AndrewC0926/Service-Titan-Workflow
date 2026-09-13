@@ -578,3 +578,20 @@ By trigger type -- same shape as local, same conclusion: `permit_gap` (53,252) p
 **Metric snapshot run on production** (`scout snapshot-metrics`, via a Render job): **19 rows written**, matching the same 19-row shape Block 4A's own post-deploy verification found -- `signals_by_trigger_type` (4 rows, entitlement_milestone now 443 vs. the earlier 442, tracking the same 1-row drift above), `qualified_opportunities`/`opportunities_by_owner`/`earliness_rate` all 0 (0 real Opportunities on production, unchanged), `deadline_exposure_by_regulation` (4 rows, identical to the local restore's own AB 869/SB 1206/EBEWE/Rule 1146.2 counts), `abstain_rate_pen_state`/`abstain_rate_contact` both 1.0 (100%, unchanged), `source_freshness_days` (5 rows, all ~0.41-0.42 days -- fresher than the local restore's own ~1.34-1.35 days, consistent with production's daily cron actually running).
 
 No credential values appear in this report or in the job scripts committed above (all fetched into shell variables and used directly, never echoed into a script or a job payload) -- disclosed separately to Andrew: two credential values (a set of API keys from a local `.env` dump, and the production dashboard password fetched to debug a 401) were accidentally printed to chat mid-session while diagnosing the job-size failure below; flagged immediately, not caught by tooling.
+
+---
+
+## 12. Block 4B-prep-2
+
+### Item 1: Contact-to-Contractor matching
+
+New `app/pipeline/contact_contractor_match.py::match_contacts_to_contractors()` + `scout match-contractors` CLI command. Same exact-only discipline as Block 4B-prep Item 1's Account matching: `normalize_company_name(Contact.customer_ref_name)` against a lookup built from `normalize_company_name` of BOTH `Contractor.business_name` AND `Contractor.full_business_name` (same two-field match `app.pipeline.local250` already uses on this table, for the same reason -- a CSLB business_name is sometimes a "LAST FIRST MIDDLE" sole-proprietor ordering with `full_business_name` carrying the natural-order form). A normalized name colliding across 2+ DISTINCT Contractor rows is left unmatched, never guessed. New `Contact.contractor_id` (migration `593ad5c8447c`, nullable FK to `contractors.id`, verified rollback) -- independent of `account_id`: a Contact can be linked to an Account, a Contractor, both, or neither.
+
+**Report, run against the real local restore:**
+| total considered | matched | unmatched |
+|---|---|---|
+| 10,026 | 6 | 10,020 |
+
+**6 of 10,026 (0.06%) is a real, honest, low number, spot-checked directly, not a bug**: `Contact.customer_ref_name` is overwhelmingly the NAME OF A DMG CUSTOMER (a building owner, GC, MEP, developer, etc.) from the NetSuite contacts export -- most DMG customers are not themselves CSLB-licensed C-20/C-38/B contractors, so a low hit rate against that specific roster is exactly what should happen. The 6 real matches, verified by hand: "I.C.O. Air" -> I C O AIR INC (lic. 1004923), "RDK Mechanical" -> R D K MECHANICAL L L C (1059333), "TRI T Technology" -> TRI T TECHNOLOGY INC (776710), "SHELDON MECHANICAL" -> SHELDON MECHANICAL CORPORATION (463722), "Temperature Equipment Corp" -> TEMPERATURE EQUIPMENT CORPORATION (517612), "Summer Systems" -> SUMMER SYSTEMS INC (560229) -- every one a genuine, exact, sensible identity match, not a spurious hit.
+
+**Tests:** 7 new (`tests/test_contact_contractor_match.py`): exact match on `business_name`, match via `full_business_name`, never-fuzzy no-match (a close-but-not-exact typo stays unmatched), an ambiguous collision across two distinct Contractor rows stays unmatched, a Contact with no `customer_ref_name` is never considered, idempotent re-run is stable, and a re-run correctly CLEARS a stale `contractor_id` when its Contractor row is later removed (never leaves a dangling match behind).

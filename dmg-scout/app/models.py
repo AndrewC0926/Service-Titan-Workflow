@@ -584,6 +584,15 @@ class Contact(SQLModel, table=True):
     # contacts always get reach_status='confirmed' (a real NetSuite record,
     # not a pending reveal) regardless of this flag.
     reachable: bool = Field(default=False, index=True)
+    # Block 4B-prep-2 Item 1: app.pipeline.contact_contractor_match. This
+    # Contact's own customer_ref_name (above), exact-matched (never fuzzy,
+    # same discipline as account_id's own match) against Contractor.
+    # business_name/full_business_name via normalize_company_name -- the
+    # CSLB license roster's own identity anchor, independent of account_id:
+    # a Contact can be linked to an Account, a Contractor, both, or
+    # neither. A name_norm colliding across 2+ Contractor rows is left
+    # unmatched, never guessed -- see that module's own report.
+    contractor_id: int | None = Field(default=None, foreign_key="contractors.id", index=True)
 
 
 class ProjectContact(SQLModel, table=True):

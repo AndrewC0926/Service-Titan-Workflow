@@ -1908,6 +1908,21 @@ def import_contacts_cmd(
     typer.echo(json.dumps(stats))
 
 
+@app.command("match-contractors")
+def match_contractors_cmd() -> None:
+    """Block 4B-prep-2 Item 1: match Contact.customer_ref_name to the CSLB
+    Contractor roster by exact normalize_company_name, storing
+    contractor_id on Contact. Idempotent -- safe to re-run after either
+    Contacts or the Contractor roster changes. See
+    app.pipeline.contact_contractor_match's module docstring for the
+    exact-only match policy."""
+    from app.pipeline.contact_contractor_match import match_contacts_to_contractors
+
+    with session_scope() as session:
+        stats = match_contacts_to_contractors(session)
+    typer.echo(json.dumps(stats))
+
+
 @app.command("account-join-report")
 def account_join_report_cmd(
     limit: int = typer.Option(25, help="Max accounts to print (report is per-account, can get long)"),
