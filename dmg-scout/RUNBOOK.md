@@ -397,20 +397,49 @@ form's category select) sets it. It defaults to `data_center`; if it defaulted t
 
 ## Restore from backup
 
-No `pg_dump` cron — Render's paid Postgres plans run continuous point-in-time
-recovery, which covers this without a separate job that can fail quietly (the
-old dmg-scout-backup cron failed every night for want of AWS credentials that
-were never set). Restore from the Render dashboard: database → Backups → pick
-a timestamp → Restore, which creates a new database you point `DATABASE_URL`
-at after verifying it.
+Two layers, checked 2026-09-13 (Block 4C Item 1):
 
-Test this quarterly: restore to a scratch database first, `SELECT count(*)
-FROM projects;`, then trust it. The irreplaceable data is
+**Render's own PITR** — Render's paid Postgres plans run continuous
+point-in-time recovery; confirmed via `GET /v1/postgres/{id}/recovery`
+(`recoveryStatus: AVAILABLE`), currently covering back to roughly 4 days
+and growing (Render's own docs put the ceiling at 7 days on this
+workspace's plan tier). Restore from the Render dashboard: database →
+Backups → pick a timestamp → Restore, which creates a new database you
+point `DATABASE_URL` at after verifying it.
+
+**Our own nightly `pg_dump`, 14-day retention** — a second, app-owned
+copy, because PITR alone gives no artifact a human can read the restore
+procedure for or drill against on demand. POST `/internal/backup` on
+dmg-scout-web (bearer-auth'd via `BACKUP_API_KEY`) runs `pg_dump` into
+the `scout-backups` Render Disk (`/var/backups/scout`, render.yaml) and
+prunes anything past 14 days. Triggered nightly by
+`.github/workflows/dmg-scout-db-backup.yml` at 13:30 UTC (30 min after
+the pipeline's own schedule) rather than a Render cron, for the same
+reason `dmg-scout-pipeline-backup.yml` exists — Render's native
+scheduling on this account is confirmed unreliable. Object storage
+(S3/R2/B2) was considered and rejected for now: no credentials exist
+anywhere in this project, confirmed by grepping `.env` and both
+services' env vars.
+
+Test the drill whenever you want proof, not just on a schedule:
+
+```bash
+scout backup-now       # or wait for tonight's automatic one
+scout restore-drill    # restores the latest dump into a scratch DB,
+                        # asserts projects/signals/opportunities/
+                        # metric_snapshots each have >0 rows, drops the
+                        # scratch DB, exits non-zero on any failure
+```
+
+Measured against the local restore 2026-09-13: dump 32,299,155 bytes;
+restored counts projects=442, signals=797, opportunities=10,
+metric_snapshots=43 — all asserted non-zero. The irreplaceable data is
 `match_candidates`/`project_signals` (my hand merges), `outcome_events`,
 `outreach`, and `contacts` — everything else refetches.
 
-`scripts/backup.sh` (nightly `pg_dump` to S3) still exists for a Render plan
-without PITR, or a future migration off Render — nothing calls it today.
+`scripts/backup.sh` (the original S3-based design) is superseded by the
+above and left in place only as the object-storage path for a future
+move off Render Disk — see that script's own header.
 
 ## Rotate the API key
 
@@ -448,7 +477,8 @@ without PITR, or a future migration off Render — nothing calls it today.
 - [ ] Spot-check 3 extractions against their source URLs (project detail → source links).
 - [ ] `scout golden report` still zero fabrications; add ~5 fresh docs to the
       golden set (`scout golden collect --limit 5 && scout golden review`).
-- [ ] Quarterly: test restore from Render's point-in-time recovery.
+- [ ] `scout restore-drill` clean (see "Restore from backup" above).
+- [ ] Quarterly: also test a restore from Render's point-in-time recovery directly.
 - [ ] `scout outcomes` — once ≥20 closed outcomes, consider retuning
       `scoring.signal_certainty` toward what actually converts.
 - [ ] Prune watch list (`/watchlist`): archive anything not worth tracking.

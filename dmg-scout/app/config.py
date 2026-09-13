@@ -75,3 +75,21 @@ def capture_api_key() -> str | None:
     different secrets with different exposure surfaces, and a leaked one
     should not hand over the other."""
     return os.environ.get("CAPTURE_API_KEY")
+
+
+def backup_api_key() -> str | None:
+    """Bearer token for POST /internal/backup (Block 4C Item 1) -- the
+    nightly cron's own call into the web service, which is the only
+    service Render allows a persistent Disk on (cron jobs can't have
+    one, confirmed against Render's own docs before this was built).
+    Separate secret from DASHBOARD_PASSWORD/CAPTURE_API_KEY for the same
+    reason those are separate from each other."""
+    return os.environ.get("BACKUP_API_KEY")
+
+
+def backup_dir() -> str:
+    """Where nightly pg_dump files live -- BACKUP_DIR env var, defaulting
+    to the mount path of the Render Disk attached to dmg-scout-web in
+    render.yaml. Overridable so local runs (`scout backup-now`) and tests
+    don't need root to write under /var."""
+    return os.environ.get("BACKUP_DIR", "/var/backups/scout")

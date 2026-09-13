@@ -791,6 +791,48 @@ def access_summary_cmd(days: int = typer.Option(7, help="Look-back window")) -> 
                    f"last={row['last_seen']:%Y-%m-%d %H:%M}  pages={row['page_count']}")
 
 
+@app.command("backup-now")
+def backup_now_cmd() -> None:
+    """Block 4C Item 1: pg_dump this DATABASE_URL into BACKUP_DIR (default
+    /var/backups/scout), pruning dumps past 14 days. On Render, the
+    nightly job hits POST /internal/backup on dmg-scout-web instead (the
+    only service type Render allows a Disk on) -- this command is for a
+    local run or a manual one-off against wherever DATABASE_URL points."""
+    from pathlib import Path
+
+    from app.config import backup_dir, database_url
+    from app.pipeline.backup import run_backup
+    result = run_backup(database_url(), out_dir=Path(backup_dir()))
+    typer.echo(json.dumps(result))
+
+
+@app.command("restore-drill")
+def restore_drill_cmd(dump: str = typer.Option(
+    None, help="Path to a specific dump file; defaults to the latest one in BACKUP_DIR")) -> None:
+    """Block 4C Item 1: "a tested restore." Restores the latest (or a named)
+    dump into a scratch database on the same Postgres server, asserts
+    every one of projects/signals/opportunities/metric_snapshots has at
+    least one row, then drops the scratch database. Exits non-zero if no
+    dump exists or any assertion fails -- this is the drill a human runs
+    (see docs/RUNBOOK.md's monthly maintenance checklist) to find out a
+    backup was silently broken BEFORE the day it's actually needed."""
+    from pathlib import Path
+
+    from app.config import backup_dir, database_url
+    from app.pipeline.backup import latest_dump, restore_drill
+
+    dump_path = Path(dump) if dump else latest_dump(Path(backup_dir()))
+    if dump_path is None:
+        typer.echo(f"No dump found in {backup_dir()!r} -- run `scout backup-now` first.", err=True)
+        raise typer.Exit(1)
+
+    result = restore_drill(database_url(), dump_path=dump_path)
+    typer.echo(json.dumps(result))
+    if not result["ok"]:
+        typer.echo("RESTORE DRILL FAILED -- at least one table restored with zero rows.", err=True)
+        raise typer.Exit(1)
+
+
 @app.command("fix-state-values")
 def fix_state_values_cmd() -> None:
     """One-time (and safe to re-run) cleanup: normalize any non-canonical

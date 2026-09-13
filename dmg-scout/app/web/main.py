@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import secrets
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -303,6 +304,48 @@ def capture_auth(request: Request,
                             detail="bearer token missing or does not match CAPTURE_API_KEY",
                             headers={"WWW-Authenticate": "Bearer"})
     return "capture"
+
+
+backup_bearer = HTTPBearer(auto_error=False)
+
+
+def backup_auth(request: Request,
+                credentials: HTTPAuthorizationCredentials = Depends(backup_bearer)) -> str:
+    """Auth for POST /internal/backup (Block 4C Item 1) -- a bearer token
+    via BACKUP_API_KEY, same separate-secret pattern as capture_auth
+    above. Called nightly by .github/workflows/dmg-scout-backup.yml,
+    never by a browser."""
+    from app.config import backup_api_key
+    key = backup_api_key()
+    if not key:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="BACKUP_API_KEY env var is not set")
+    if credentials is None or not secrets.compare_digest(credentials.credentials, key):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED,
+                            detail="bearer token missing or does not match BACKUP_API_KEY",
+                            headers={"WWW-Authenticate": "Bearer"})
+    return "backup"
+
+
+@app.post("/internal/backup")
+def internal_backup(_: str = Depends(backup_auth)) -> dict:
+    """Block 4C Item 1 (Master Plan v3.6 section 35): the nightly backup.
+    Runs pg_dump against this service's own DATABASE_URL and writes it to
+    the Render Disk mounted at BACKUP_DIR (render.yaml's scout-backups
+    disk, /var/backups/scout) -- the only Render service type a Disk can
+    attach to, which is why this lives here rather than in the cron
+    container that actually triggers it (see app.pipeline.backup's module
+    docstring for the full reasoning). Prunes dumps past 14 days on every
+    call, so retention needs no separate scheduled step."""
+    from app.config import backup_dir, database_url
+    from app.pipeline.backup import run_backup
+
+    try:
+        result = run_backup(database_url(), out_dir=Path(backup_dir()))
+    except subprocess.CalledProcessError as exc:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail=f"pg_dump failed: {exc.stderr[-2000:]}") from exc
+    return result
 
 
 @app.get("/healthz")

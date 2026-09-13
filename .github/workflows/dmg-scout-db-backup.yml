@@ -1,0 +1,40 @@
+name: dmg-scout nightly database backup
+
+# Block 4C Item 1 (Master Plan v3.6 section 35): "a nightly job that runs
+# pg_dump." Triggered from GitHub Actions rather than Render's own cron
+# schedule for the same reason dmg-scout-pipeline-backup.yml already is:
+# Render's native "0 13 * * *" scheduling has been confirmed unreliable
+# (see that workflow's own header) and this backup is exactly the kind of
+# job where a silent no-op is the worst possible failure mode.
+#
+# Unlike the pipeline trigger, this does NOT go through the Render Jobs
+# API -- the actual pg_dump has to run inside dmg-scout-web (the only
+# Render service type that can have a persistent Disk; see
+# app/pipeline/backup.py's module docstring), which is already reachable
+# over plain HTTPS, so a direct POST is simpler and needs no Render API
+# key at all. 30 minutes after the pipeline's own 13:00 UTC schedule, so
+# a backup taken this way includes that night's freshly fetched data.
+
+on:
+  schedule:
+    - cron: '30 13 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST /internal/backup on dmg-scout-web
+        env:
+          BACKUP_API_KEY: ${{ secrets.BACKUP_API_KEY }}
+        run: |
+          set -euo pipefail
+          http_code=$(curl -s -o /tmp/backup_response.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${BACKUP_API_KEY}" \
+            "https://dmg-scout-web-84bz.onrender.com/internal/backup")
+          cat /tmp/backup_response.json
+          echo
+          if [ "$http_code" -ge 300 ]; then
+            echo "Nightly backup failed with HTTP $http_code" >&2
+            exit 1
+          fi
