@@ -68,12 +68,17 @@ class TestEligibleLinesForEquipmentClass:
         names = {l.name for l in eligible_lines_for_equipment_class(db_session, EquipmentClass.rooftop_packaged)}
         assert names == {"AAON", "LG"}
 
-    def test_split_dx_returns_lg_and_the_other_vrf_split_lines_not_climacool(self, db_session):
-        """The bug this replaces: split_dx and chiller both shared
-        "cooling_generation" under the old role-based lookup, so
-        ClimaCool (a chiller line) was wrongly offered for a split-DX
-        replacement -- confirmed on 6 of Block 4B-prep-2's ten real
-        promotions."""
+    def test_split_dx_returns_lg_only_not_climatemaster_or_climacool(self, db_session):
+        """Two corrections layered on the same bug: split_dx and chiller
+        both shared "cooling_generation" under the original role-based
+        lookup, so ClimaCool (a chiller line) was wrongly offered for a
+        split-DX replacement -- confirmed on 6 of Block 4B-prep-2's ten
+        real promotions. The FIRST fix (still Block 4B-prep-3 Item 2)
+        replaced that with every line sharing category='vrf_split', an
+        unconfirmed inference that was ALSO wrong: ClimateMaster is a
+        water-source heat pump line (EquipmentClass.water_source_heat_
+        pump), not split_dx/vrf, confirmed directly by Andrew. split_dx
+        is LG only -- LG's own single-zone product line."""
         db_session.add(_line("LG", "vrf_split", "cooling_generation"))
         db_session.add(_line("ClimateMaster", "vrf_split", "cooling_generation"))
         db_session.add(_line("Islandaire", "vrf_split", "cooling_generation"))
@@ -82,14 +87,24 @@ class TestEligibleLinesForEquipmentClass:
         db_session.add(_line("ClimaCool", "chillers_cooling", "cooling_generation", osp=False))
         db_session.commit()
         names = {l.name for l in eligible_lines_for_equipment_class(db_session, EquipmentClass.split_dx)}
-        assert names == {"LG", "ClimateMaster", "Islandaire", "Hitachi", "Engineered Comfort"}
-        assert "ClimaCool" not in names
+        assert names == {"LG"}
 
-    def test_vrf_gets_the_same_lines_as_split_dx(self, db_session):
+    def test_vrf_gets_lg_only_too(self, db_session):
+        """"Multi V S" (Andrew's own words) is LG's real VRF product --
+        the same catalog row as split_dx's single-zone products, not a
+        second, different line."""
         db_session.add(_line("LG", "vrf_split", "cooling_generation"))
+        db_session.add(_line("ClimateMaster", "vrf_split", "cooling_generation"))
         db_session.commit()
         names = {l.name for l in eligible_lines_for_equipment_class(db_session, EquipmentClass.vrf)}
         assert names == {"LG"}
+
+    def test_water_source_heat_pump_returns_climatemaster_only(self, db_session):
+        db_session.add(_line("ClimateMaster", "vrf_split", "cooling_generation"))
+        db_session.add(_line("LG", "vrf_split", "cooling_generation"))
+        db_session.commit()
+        names = {l.name for l in eligible_lines_for_equipment_class(db_session, EquipmentClass.water_source_heat_pump)}
+        assert names == {"ClimateMaster"}
 
     def test_cooling_tower_returns_marley_not_recold(self, db_session):
         db_session.add(_line("Marley", "cooling_towers", "heat_rejection", osp=True))

@@ -43,12 +43,15 @@ EQUIPMENT CLASS SOURCES, measured directly, not assumed:
   equipment export, say); it is written here on principle, not because
   today's data can exercise it.
 
-vav_terminal has NO home in the eight EquipmentClass values this item asks
-for (rooftop_packaged/split_dx/vrf/chiller/cooling_tower/boiler/ahu/
+vav_terminal has NO home in EquipmentClass's values (rooftop_packaged/
+split_dx/vrf/water_source_heat_pump/chiller/cooling_tower/boiler/ahu/
 unknown) -- a VAV terminal is a distribution/mixing box, not any of those
 central-plant or unitary equipment types. Mapped to `unknown` (ABSTAIN) on
 the same never-guess discipline as everywhere else, not forced into `ahu`
-just because both touch air handling.
+just because both touch air handling. water_source_heat_pump (added
+Block 4B-prep-3, this module's own follow-up correction) has no home in
+RETROFIT_TYPE_TO_CLASS either -- same "defined, unreached by any real
+retrofit permit today" status as `vrf` below.
 
 No retrofit permit today can ever classify as `vrf` either: infer_
 equipment_type's own keyword patterns (app/pipeline/retrofit.py) have no
@@ -72,6 +75,15 @@ class EquipmentClass(str, Enum):
     rooftop_packaged = "rooftop_packaged"
     split_dx = "split_dx"
     vrf = "vrf"
+    # Block 4B-prep-3 Item 2 correction: a real, distinct class on DMG's
+    # card, not a split_dx/vrf synonym -- ClimateMaster is a water-source
+    # heat pump line, never a mini-split/VRF one (see this module's own
+    # correction note on EQUIPMENT_CLASS_TO_LINE_NAMES below). No
+    # RetrofitBuilding.equipment_type value maps to this today (the same
+    # "defined on principle, unreached by any real permit" status vrf
+    # already has -- see module docstring) -- added because Andrew named
+    # it directly, not because today's data can exercise it.
+    water_source_heat_pump = "water_source_heat_pump"
     chiller = "chiller"
     cooling_tower = "cooling_tower"
     boiler = "boiler"
@@ -104,9 +116,9 @@ def equipment_class_from_retrofit_type(equipment_type: str | None) -> EquipmentC
 
 # Block 4B-prep-3 Item 2: DMG's own real line card, named directly by
 # Andrew -- NOT the generic building_role/category lookup this map
-# replaces (kept as EQUIPMENT_CLASS_TO_ROLES's own history below this
-# comment for context on what changed and why). The old role-based lookup
-# was measurably wrong on the real card: split_dx and chiller both
+# replaces (that lookup, EQUIPMENT_CLASS_TO_ROLES, was removed outright,
+# not left dead). The old role-based lookup was measurably wrong on the
+# real card: split_dx and chiller both
 # resolved to "cooling_generation" and so both matched EVERY line tagged
 # that role, including ClimaCool -- a chillers_cooling line -- being
 # offered as a split-DX replacement it has no business being offered for
@@ -114,17 +126,23 @@ def equipment_class_from_retrofit_type(equipment_type: str | None) -> EquipmentC
 # had a split_dx building matched to "ClimaCool" as its eligible line).
 # name_norm-matched, never role-matched, going forward.
 #
-# split_dx: LG plus the other lines actually tagged category='vrf_split'
-# on the real card today (ClimateMaster, Islandaire, Hitachi, Engineered
-# Comfort) -- DMG's own mini-split/VRF category bucket, not literally
-# named one-by-one in the instruction beyond LG; inferred from that shared
-# category tag and disclosed here so any of the four can be pulled out
-# directly if it doesn't actually belong on this list.
-# vrf: no retrofit permit today ever classifies as vrf (see module
-# docstring), so this has no real effect either way -- given the same
-# lines as split_dx on the view that VRF and mini-split are the same
-# physical equipment family on this card (both category='vrf_split'),
-# not a second, inconsistent judgment call.
+# split_dx: LG only -- CORRECTED (was wrongly widened to every line
+# sharing category='vrf_split' on the real card: ClimateMaster,
+# Islandaire, Hitachi, Engineered Comfort -- an unconfirmed inference
+# from a shared category tag, not a named fact, and it was wrong for at
+# least ClimateMaster, confirmed directly by Andrew: LG's own single-zone
+# and Multi V S products are what actually cover split_dx/vrf on this
+# card; ClimateMaster is a water-source heat pump line, a real but
+# DIFFERENT equipment class (see EquipmentClass.water_source_heat_pump).
+# Islandaire/Hitachi/Engineered Comfort dropped too, not reassigned
+# anywhere -- the same category tag that wrongly implied ClimateMaster
+# belonged here gives no real basis for keeping the other three either,
+# and this module never guesses past what's actually been confirmed.
+# vrf: LG too -- "Multi V S" (named directly by Andrew) is LG's own real
+# VRF product line, the same catalog row as split_dx's "single-zone"
+# products, not a second, different line.
+# water_source_heat_pump: ClimateMaster -- named directly by Andrew ("maps
+# to water_source_heat_pump only").
 # rooftop_packaged: AAON, LG -- named directly.
 # chiller: ClimaCool -- named directly, "only where OSP is not required."
 # ClimaCool's own oshpd_osp=False on the real card makes that fall out of
@@ -141,8 +159,9 @@ def equipment_class_from_retrofit_type(equipment_type: str | None) -> EquipmentC
 # ahu: Energy Labs, AAON, ClimateCraft -- named directly.
 EQUIPMENT_CLASS_TO_LINE_NAMES: dict[EquipmentClass, tuple[str, ...]] = {
     EquipmentClass.rooftop_packaged: ("aaon", "lg"),
-    EquipmentClass.split_dx: ("lg", "climatemaster", "islandaire", "hitachi", "engineered comfort"),
-    EquipmentClass.vrf: ("lg", "climatemaster", "islandaire", "hitachi", "engineered comfort"),
+    EquipmentClass.split_dx: ("lg",),
+    EquipmentClass.vrf: ("lg",),
+    EquipmentClass.water_source_heat_pump: ("climatemaster",),
     EquipmentClass.chiller: ("climacool",),
     EquipmentClass.cooling_tower: ("marley",),
     EquipmentClass.boiler: (),
