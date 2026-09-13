@@ -456,6 +456,11 @@ def today(request: Request, session: Session = Depends(get_session), username: s
     # shared function's own contract (and the digest's own behavior)
     # exactly as it was.
     brief["calls"] = three_calls_from_pipeline(session)
+    # Block 4C Item 4 ("Ask the room"): same override-after-the-fact
+    # pattern as brief["calls"] above -- today_brief() itself (shared with
+    # the email digest) stays untouched.
+    from app.pipeline.ask_room import open_questions_for_user
+    brief["room_questions"] = open_questions_for_user(session, cfg, username)
     # Best-effort: a failure here (DB hiccup, Resend down) must never be the
     # reason the Today page itself fails to load -- see
     # app.pipeline_health's module docstring.
@@ -619,7 +624,7 @@ def _note_anchor_label(session: Session, note) -> str:
     human-readable label -- a note can have more than one set
     (test_multiple_anchors_can_be_set_together), so this shows every
     anchor it has, not just the first non-null one."""
-    from app.models import Account, DecisionNote, Opportunity
+    from app.models import Account, Contractor, DecisionNote, Opportunity
 
     labels = []
     if note.opportunity_id:
@@ -633,6 +638,9 @@ def _note_anchor_label(session: Session, note) -> str:
     if note.account_id:
         a = session.get(Account, note.account_id)
         labels.append(f"Account: {a.name}" if a else f"Account #{note.account_id}")
+    if note.contractor_id:
+        c = session.get(Contractor, note.contractor_id)
+        labels.append(f"Contractor: {c.business_name}" if c else f"Contractor #{note.contractor_id}")
     if note.signal_id:
         labels.append(f"Signal #{note.signal_id}")
     if note.netsuite_ref:
@@ -695,7 +703,7 @@ def notes_index(request: Request, anchor_type: str = "", anchor_id: str = "",
 @app.post("/notes")
 def notes_create(request: Request, note_type: str = Form(...), lead_source: str = Form(...),
                  opportunity_id: str = Form(""), project_id: str = Form(""), building_id: str = Form(""),
-                 account_id: str = Form(""), signal_id: str = Form(""),
+                 account_id: str = Form(""), signal_id: str = Form(""), contractor_id: str = Form(""),
                  netsuite_ref_type: str = Form(""), netsuite_ref: str = Form(""),
                  pen_holder: str = Form("unknown"), basis_of_design: str = Form("open"),
                  reason_code: str = Form(""), line: str = Form(""), competitor_line: str = Form(""),
@@ -710,7 +718,8 @@ def notes_create(request: Request, note_type: str = Form(...), lead_source: str 
         log_note(session, note_type=note_type, lead_source=lead_source, author=username,
                  opportunity_id=_int_or_none(opportunity_id), project_id=_int_or_none(project_id),
                  building_id=_int_or_none(building_id), account_id=_int_or_none(account_id),
-                 signal_id=_int_or_none(signal_id), netsuite_ref_type=netsuite_ref_type or None,
+                 signal_id=_int_or_none(signal_id), contractor_id=_int_or_none(contractor_id),
+                 netsuite_ref_type=netsuite_ref_type or None,
                  netsuite_ref=netsuite_ref or None, pen_holder=pen_holder, basis_of_design=basis_of_design,
                  reason_code=reason_code or None, line=line or None, competitor_line=competitor_line or None,
                  dollars=float(dollars) if dollars.strip() else None, free_text=free_text,
@@ -719,6 +728,84 @@ def notes_create(request: Request, note_type: str = Form(...), lead_source: str 
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
     session.commit()
     return RedirectResponse("/notes", status_code=303)
+
+
+def _room_anchor_label(session: Session, anchor_type: str, anchor_id: int) -> str:
+    """Same "resolve to something human-readable" job _note_anchor_label
+    does for a DecisionNote, for a single account/contractor/project/
+    building anchor -- shared by /room's own page and Today's question
+    list so the two can never describe the same anchor differently."""
+    from app.models import Account, Contractor, RetrofitBuilding
+
+    if anchor_type == "account":
+        a = session.get(Account, anchor_id)
+        return f"Account: {a.name}" if a else f"Account #{anchor_id}"
+    if anchor_type == "contractor":
+        c = session.get(Contractor, anchor_id)
+        return f"Contractor: {c.business_name}" if c else f"Contractor #{anchor_id}"
+    if anchor_type == "project":
+        p = session.get(Project, anchor_id)
+        return f"Project: {p.name}" if p else f"Project #{anchor_id}"
+    if anchor_type == "building":
+        b = session.get(RetrofitBuilding, anchor_id)
+        return f"Building: {b.address or b.apn}" if b else f"Building #{anchor_id}"
+    return f"{anchor_type} #{anchor_id}"
+
+
+@app.get("/room", response_class=HTMLResponse)
+def room_index(request: Request, anchor_type: str = "", anchor_id: str = "",
+               session: Session = Depends(get_session), username: str = Depends(auth)):
+    """Block 4C Item 4 (Master Plan v3.6 section 45): "Ask the room" --
+    every open question this user should see (their own posts plus
+    whatever app.pipeline.ask_room.users_for_question routes to them),
+    every answered one for context, and the post-a-question form.
+    anchor_type/anchor_id (from an object page's own "Ask the room" link)
+    pre-fill the form, same convention /notes already uses."""
+    from app.models import RoomQuestion
+    from app.pipeline.ask_room import open_questions_for_user
+
+    cfg = load_config()
+    open_qs = open_questions_for_user(session, cfg, username)
+    answered_qs = session.exec(
+        select(RoomQuestion).where(RoomQuestion.answered_note_id.is_not(None))
+        .order_by(RoomQuestion.created_at.desc()).limit(50)
+    ).all()
+    open_with_labels = [{"q": q, "anchor_label": _room_anchor_label(session, q.anchor_type, q.anchor_id)}
+                        for q in open_qs]
+    answered_with_labels = [{"q": q, "anchor_label": _room_anchor_label(session, q.anchor_type, q.anchor_id)}
+                            for q in answered_qs]
+    return templates.TemplateResponse(request, "room.html", {
+        "tb": _title_block(session), "active": "notes",
+        "open_questions": open_with_labels, "answered_questions": answered_with_labels,
+        "anchor_type": anchor_type, "anchor_id": anchor_id,
+    })
+
+
+@app.post("/room")
+def room_create(anchor_type: str = Form(...), anchor_id: int = Form(...), text: str = Form(...),
+                session: Session = Depends(get_session), username: str = Depends(auth)):
+    from app.pipeline.ask_room import post_question
+    try:
+        post_question(session, anchor_type=anchor_type, anchor_id=anchor_id, text=text, author=username)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    session.commit()
+    return RedirectResponse("/room", status_code=303)
+
+
+@app.post("/room/{question_id}/answer")
+def room_answer(question_id: int, answer_text: str = Form(...),
+                session: Session = Depends(get_session), username: str = Depends(auth)):
+    """Answerable from both /room and Today's own question list -- always
+    redirects to /room, same "one fixed destination" simplicity as most
+    of this app's other one-tap POST forms."""
+    from app.pipeline.ask_room import answer_question
+    try:
+        answer_question(session, question_id=question_id, answer_text=answer_text, answerer=username)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    session.commit()
+    return RedirectResponse("/room", status_code=303)
 
 
 # Signals cards are capped regardless of filter -- Master Plan v3.2 section

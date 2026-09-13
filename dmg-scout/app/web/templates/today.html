@@ -119,6 +119,26 @@
   </section>
   {% endif %}
 
+  {% if room_questions %}
+  {# Block 4C Item 4 ("Ask the room"): only ever rendered when this user
+     has something to see -- own posts, or routed here via app.pipeline.
+     ask_room.users_for_question (an Outcome/Note/Opportunity touching
+     the same anchor, or an "always notify" role like manager). #}
+  <section class="today-section">
+    <h2>{{ icon('search') }} Ask the room</h2>
+    {% for q in room_questions %}
+    <div class="call-card">
+      <div class="call-name">"{{ q.text }}"<span class="dim"> — {{ q.author }}</span></div>
+      <form class="call-action" method="post" action="/room/{{ q.id }}/answer">
+        <input type="text" name="answer_text" placeholder="One-line answer" required maxlength="500">
+        <button type="submit">{{ icon('check') }} Answer</button>
+      </form>
+    </div>
+    {% endfor %}
+    <a href="/room">See all questions</a>
+  </section>
+  {% endif %}
+
   {% if one_thing %}
   <section class="today-section today-onething">
     <h2>One thing</h2>

@@ -3833,9 +3833,10 @@ class DecisionNote(SQLModel, table=True):
     """Block 4A Item 3 (Master Plan v3.6 section 31): "the smallest unit
     of institutional memory: who decided, what, why, and what it was
     worth." Attaches to a Scout Opportunity, Project, Building
-    (RetrofitBuilding), Account, or Signal, OR to a typed NetSuite
-    reference (netsuite_ref_type + netsuite_ref, "sales order number as
-    text") -- "so a deal that never touched Scout still counts."
+    (RetrofitBuilding), Account, Contractor (Block 4C Item 4), or Signal,
+    OR to a typed NetSuite reference (netsuite_ref_type + netsuite_ref,
+    "sales order number as text") -- "so a deal that never touched Scout
+    still counts."
 
     At least one anchor is required in application code
     (app.pipeline.notes.log_note), same "no unresolved-entity concept"
@@ -3867,6 +3868,12 @@ class DecisionNote(SQLModel, table=True):
     building_id: int | None = Field(default=None, foreign_key="retrofit_buildings.id", index=True)
     account_id: int | None = Field(default=None, foreign_key="accounts.id", index=True)
     signal_id: int | None = Field(default=None, foreign_key="signals.id", index=True)
+    # Block 4C Item 4 ("Ask the room"): a note answering a contractor-
+    # anchored question needs a real anchor of its own, not an unrelated
+    # Opportunity's account_id borrowed as a stand-in -- this model's own
+    # docstring's "no unresolved-entity concept" rule applies here exactly
+    # as it does to every other anchor above.
+    contractor_id: int | None = Field(default=None, foreign_key="contractors.id", index=True)
     netsuite_ref_type: NetsuiteRefType | None = Field(default=None, index=True)
     netsuite_ref: str | None = Field(default=None, index=True)
 
@@ -3883,6 +3890,45 @@ class DecisionNote(SQLModel, table=True):
     role: str | None = None
     created_at: datetime = Field(default_factory=utcnow, index=True)
     source: OutcomeSource = Field(default=OutcomeSource.web, index=True)
+
+
+# Block 4C Item 4 (Master Plan v3.6 section 45): "Ask the room." The
+# closed set of anchor kinds a question can be posted against -- matches
+# DecisionNote's own four Scout-side anchors that make sense as a shared
+# subject for a question (opportunity/signal are excluded on purpose:
+# they're too narrow to be "the same thing several people would know
+# about" the way an account, contractor, project, or building is).
+ASK_ROOM_ANCHOR_TYPES = frozenset({"account", "contractor", "project", "building"})
+
+
+class RoomQuestion(SQLModel, table=True):
+    """Block 4C Item 4 (Master Plan v3.6 section 45): "A rep posts a
+    one-line question... It lands in Radar for anyone with that account or
+    a note mentioning it... The answer becomes a note under their name."
+
+    anchor_type/anchor_id name the account/contractor/project/building the
+    question is about -- app.pipeline.ask_room.users_for_question reads
+    these to find who has an Outcome, Note, or Opportunity referencing the
+    same one (plus every configured "always notify" role, e.g. manager),
+    which is who sees it on Today.
+
+    answered_note_id is set the moment someone answers -- app.pipeline.
+    ask_room.answer_question() writes the actual answer as a real
+    DecisionNote(note_type=intel) under the answerer's name FIRST, then
+    stamps this row with that note's id, so the answer is never lost even
+    if this second write somehow failed (the note is the permanent
+    record; this row is just "is it still open"). Never deleted -- an
+    answered question stays visible as answered, the same append-only
+    discipline as every other record in this app."""
+    __tablename__ = "room_questions"
+
+    id: int | None = Field(default=None, primary_key=True)
+    anchor_type: str = Field(index=True)
+    anchor_id: int = Field(index=True)
+    text: str = Field(sa_column=Column(Text, nullable=False))
+    author: str = Field(index=True)
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    answered_note_id: int | None = Field(default=None, foreign_key="decision_notes.id", index=True)
 
 
 class MetricSnapshot(SQLModel, table=True):

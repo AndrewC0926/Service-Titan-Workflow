@@ -1406,6 +1406,18 @@ dashboard:
   operator_usernames: ["andrew"]
 
 # =============================================================================
+# ASK THE ROOM (Block 4C Item 4, Master Plan v3.6 section 45): "Config-
+# driven routing." Roles in always_notify_roles see EVERY posted question
+# on their own Today, regardless of whether they have any Outcome, Note,
+# or Opportunity touching that question's own account/contractor/project/
+# building -- the item's own literal "and to managers." Everyone else
+# only sees a question if app.pipeline.ask_room.users_for_question finds
+# them connected to its anchor.
+# =============================================================================
+ask_the_room:
+  always_notify_roles: ["manager"]
+
+# =============================================================================
 # OUTCOMES (Block 4A Item 2, Master Plan v3.6 section 15) -- labels and
 # display order only. The valid VALUE SET is a closed, migration-defined
 # Postgres enum (app.models.Disposition/LostReasonCode); editing this list

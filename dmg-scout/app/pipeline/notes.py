@@ -49,16 +49,18 @@ def lead_sources() -> list[dict]:
 
 def log_note(session, *, note_type, lead_source, author: str, opportunity_id: int | None = None,
             project_id: int | None = None, building_id: int | None = None, account_id: int | None = None,
-            signal_id: int | None = None, netsuite_ref_type=None, netsuite_ref: str | None = None,
+            signal_id: int | None = None, contractor_id: int | None = None, netsuite_ref_type=None,
+            netsuite_ref: str | None = None,
             pen_holder=NotePenHolder.unknown, basis_of_design=BasisOfDesign.open, reason_code=None,
             line: str | None = None, competitor_line: str | None = None, dollars: float | None = None,
             free_text: str = "", role: str | None = None, source=OutcomeSource.web) -> DecisionNote:
     """"A note is the smallest unit of institutional memory... It attaches
-    to a Scout Opportunity, Project, Building, Account or Signal, or to a
-    typed NetSuite Opportunity, Project or Sales Order reference, so a
-    deal that never touched Scout still counts." At least one anchor
-    (5 Scout-side FKs, or netsuite_ref) is required -- same "no
-    unresolved-entity concept" discipline as app.outreach.log_outreach."""
+    to a Scout Opportunity, Project, Building, Account, Contractor (Block
+    4C Item 4) or Signal, or to a typed NetSuite Opportunity, Project or
+    Sales Order reference, so a deal that never touched Scout still
+    counts." At least one anchor (6 Scout-side FKs, or netsuite_ref) is
+    required -- same "no unresolved-entity concept" discipline as
+    app.outreach.log_outreach."""
     note_type = NoteType(note_type)
     lead_source = LeadSource(lead_source)
     pen_holder = NotePenHolder(pen_holder)
@@ -70,10 +72,10 @@ def log_note(session, *, note_type, lead_source, author: str, opportunity_id: in
     source = OutcomeSource(source)
 
     scout_anchors = dict(opportunity_id=opportunity_id, project_id=project_id, building_id=building_id,
-                        account_id=account_id, signal_id=signal_id)
+                        account_id=account_id, signal_id=signal_id, contractor_id=contractor_id)
     if not any(scout_anchors.values()) and not netsuite_ref:
         raise ValueError("log_note requires at least one anchor: opportunity_id, project_id, "
-                        "building_id, account_id, signal_id, or netsuite_ref")
+                        "building_id, account_id, signal_id, contractor_id, or netsuite_ref")
     if netsuite_ref and netsuite_ref_type is None:
         raise ValueError("netsuite_ref requires netsuite_ref_type")
 

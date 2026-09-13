@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% from "_macros.html" import empty_state %}
+{% block title %}Ask the room{% endblock %}
+{% block sheet_no %}S-04{% endblock %}
+{% block content %}
+<div class="sec-head">
+  <div class="sec-title">Ask the room</div>
+  <span class="note">Master Plan v3.6 section 45: post a one-line question about an account, contractor,
+    project, or building. It lands on Today for anyone with an Outcome, Note, or Opportunity touching
+    the same one, plus managers. Answers become a Decision Note under the answerer's own name.</span>
+</div>
+
+<details class="mb-3">
+  <summary class="chip">Ask a question</summary>
+  <form method="post" action="/room" class="mt-2" style="max-width:640px">
+    <label>Anchor type
+      <select name="anchor_type" required>
+        <option value="">Choose one</option>
+        <option value="account" {{ 'selected' if anchor_type=='account' }}>Account</option>
+        <option value="contractor" {{ 'selected' if anchor_type=='contractor' }}>Contractor</option>
+        <option value="project" {{ 'selected' if anchor_type=='project' }}>Project</option>
+        <option value="building" {{ 'selected' if anchor_type=='building' }}>Building</option>
+      </select>
+    </label>
+    <label>Anchor ID
+      <input type="number" name="anchor_id" value="{{ anchor_id }}" required>
+    </label>
+    <label>Question (one line)
+      <input type="text" name="text" required maxlength="500">
+    </label>
+    <button type="submit">Post</button>
+  </form>
+</details>
+
+<h2>Open</h2>
+{% if open_questions %}
+<table class="tbl">
+  <thead><tr><th>Question</th><th>About</th><th>Asked by</th><th>Answer</th></tr></thead>
+  <tbody>
+  {% for item in open_questions %}
+    <tr>
+      <td>"{{ item.q.text }}"</td>
+      <td>{{ item.anchor_label }}</td>
+      <td>{{ item.q.author }}</td>
+      <td>
+        <form method="post" action="/room/{{ item.q.id }}/answer" class="flex gap-1">
+          <input type="text" name="answer_text" placeholder="One-line answer" required maxlength="500">
+          <button type="submit">Answer</button>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+{{ empty_state("No open questions right now -- post one above, or check back once someone routes one to you.") }}
+{% endif %}
+
+<h2>Answered</h2>
+{% if answered_questions %}
+<table class="tbl">
+  <thead><tr><th>Question</th><th>About</th><th>Asked by</th></tr></thead>
+  <tbody>
+  {% for item in answered_questions %}
+    <tr>
+      <td>"{{ item.q.text }}"</td>
+      <td>{{ item.anchor_label }}</td>
+      <td>{{ item.q.author }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+{{ empty_state("No question has been answered yet.") }}
+{% endif %}
+{% endblock %}
