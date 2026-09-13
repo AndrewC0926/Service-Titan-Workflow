@@ -632,7 +632,85 @@
     padding: 0.05rem 0.4rem; font-family: var(--font-mono); font-weight: 700;
   }
   form.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 0.6rem; }
-  @media print { .noprint { display: none; } }
+
+  /* ---- Block 4B Item 1: the Reports/PDF design system ---------------------
+   * Master Plan v3.6 section 39: "DMG mark top left... a KPI tile row
+   * (value, delta, sparkline)... server-rendered SVG charts, no JavaScript
+   * charting... one accent color reserved for 'action needed', gray for
+   * abstained... one typeface at three sizes; 8-point spacing scale. Same
+   * base stylesheet renders the web page, the print view and the PDF."
+   *
+   * "One typeface" here means one PROSE face (Geist) -- the pre-existing
+   * "numbers are DATA, set in --font-mono, never the prose face" rule
+   * (this file's own header comment) is a data-integrity discipline this
+   * system does not relax just because the master plan says "one
+   * typeface"; a KPI tile's VALUE is still mono, same as every other
+   * figure on a sheet. "Three sizes" reuses the exact --text-xs/--text-sm/
+   * --text-base restriction Block 4A Item 3 already established for new
+   * markup (see _macros.html's own comment) -- not a fourth, parallel
+   * type-scale invented for this item.
+   *
+   * Accent: --color-stamp-warn (the existing amber "attention" token,
+   * already used for IN_BOD/Susp-shaped states) is reused as THE one
+   * "action needed" accent here, rather than --color-blueprint (already
+   * doing separate, neutral work everywhere as the link/focus/navigation
+   * accent) or introducing a fourth palette color. Gray for ABSTAIN reuses
+   * --color-ink-dim, the existing muted-text token.
+   */
+  .kpi-tile {
+    display: flex; flex-direction: column; gap: 0.4rem;
+    padding: 1rem; min-width: 9rem;
+    border: 1px solid var(--color-rule); border-radius: var(--radius-sm);
+  }
+  a.kpi-tile { color: inherit; }
+  a.kpi-tile:hover { text-decoration: none; border-color: var(--color-ink-mid); }
+  .kpi-tile-label { font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-ink-dim); }
+  .kpi-tile-value { font-family: var(--font-mono); font-size: var(--text-base); font-weight: 600; }
+  .kpi-tile-row { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+  .kpi-tile-delta { font-family: var(--font-mono); font-size: var(--text-xs); }
+  .kpi-tile-delta.up { color: var(--color-stamp-ok); }
+  .kpi-tile-delta.down { color: var(--color-stamp-bad); }
+  .kpi-tile-delta.flat, .kpi-tile-delta.unknown { color: var(--color-ink-dim); }
+  .kpi-tile-spark { display: block; margin-top: 0.15rem; }
+  .kpi-tile-spark path { fill: none; stroke: var(--color-ink-mid); stroke-width: 1.5; }
+  .kpi-tile-spark circle { fill: var(--color-blueprint); }
+  .kpi-strip-row { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; }
+
+  /* Server-rendered SVG chart wrapper (Reports/Weekly Brief bands) -- never
+   * a JS charting library, per section 39's own words. */
+  .chart-svg { display: block; max-width: 100%; height: auto; }
+  .chart-svg .bar { fill: var(--color-blueprint); }
+  .chart-svg .bar.action { fill: var(--color-stamp-warn); }
+  .chart-svg .axis { stroke: var(--color-rule); stroke-width: 1; }
+  .chart-svg text { font-family: var(--font-mono); font-size: 9px; fill: var(--color-ink-dim); }
+
+  /* One accent reserved for "action needed" (never reused for anything
+   * else on a report surface) and gray/prose for an ABSTAIN rendered as a
+   * sentence, not a bare enum value -- see _macros.html: abstain_note(). */
+  .action-needed { color: var(--color-stamp-warn); font-weight: 600; }
+  .abstain-note { color: var(--color-ink-dim); font-style: italic; }
+
+  /* The report sheet itself: same class renders on-screen, in the browser
+   * print dialog, and inside the weasyprint-rendered PDF (app.pipeline.
+   * reports_pdf passes this same template through, no second stylesheet)
+   * -- "nothing is designed twice." */
+  .report-sheet { max-width: 52rem; margin: 0 auto; }
+  .report-sheet .report-title-block { display: flex; align-items: baseline; justify-content: space-between;
+    gap: 1rem; border-bottom: 2px solid var(--color-rule-hard); padding-bottom: 0.5rem; margin-bottom: 1rem; }
+  .report-sheet .report-mark { font-weight: 700; letter-spacing: 0.04em; }
+  .report-sheet .report-period { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-ink-dim); }
+  .report-sheet h2 { font-size: var(--text-sm); letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--color-ink-mid); border-bottom: 1px solid var(--color-rule); padding-bottom: 0.25rem;
+    margin: 1.5rem 0 0.75rem; }
+  .report-sheet .rec-lines { font-size: var(--text-base); line-height: 1.5; }
+  .report-sheet .signed { margin-top: 2rem; font-size: var(--text-xs); color: var(--color-ink-dim); }
+
+  @media print {
+    .noprint { display: none; }
+    body { background: white; }
+    .report-sheet { max-width: none; }
+    a { color: inherit; text-decoration: none; }
+  }
 
   /* Form controls: the previous stylesheet set these globally. */
   input, select, textarea {

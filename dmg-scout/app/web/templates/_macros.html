@@ -74,3 +74,73 @@
   {% endif %}
 </div>
 {% endmacro %}
+
+{# ==========================================================================
+   Block 4B Item 1: the Reports/PDF design system (Master Plan v3.6
+   section 39). New markup, same 8-point-spacing/3-type-scale rule as the
+   rest of this file -- see app/web/styles/app.css's own "Block 4B Item 1"
+   comment for the accent/typeface reasoning these macros render against.
+   ========================================================================== #}
+
+{# "DMG mark top left" -- reuses the exact text wordmark base.html's own
+   masthead already renders (no separate logo image file exists anywhere
+   in this repo, confirmed by reading base.html directly rather than
+   inventing a second, inconsistent mark here). For a report's own title
+   block, outside the app's nav chrome -- the print/PDF rendering has no
+   masthead at all, so this is that surface's only mark. #}
+{% macro dmg_mark() %}<span class="report-mark">DMG&nbsp;SCOUT</span>{% endmacro %}
+
+{# A report/PDF sheet's title block: the mark, the report title, and the
+   period it covers -- section 39's "report title and period." #}
+{% macro report_title_block(title, period) %}
+<div class="report-title-block">
+  {{ dmg_mark() }}
+  <div>
+    <div>{{ title }}</div>
+    <div class="report-period">{{ period }}</div>
+  </div>
+</div>
+{% endmacro %}
+
+{# "Gray for abstained, rendered as 'unknown, not guessed'" -- the one
+   place that exact sentence lives, so every ABSTAIN-shaped value across
+   Today/Pipeline/Signals/Deadlines/Reports/Notes renders the same prose
+   instead of five different bare "ABSTAIN" chips. #}
+{% macro abstain_note(text='unknown, not guessed') %}<span class="abstain-note">{{ text }}</span>{% endmacro %}
+
+{# The KPI tile: value, delta vs last period, sparkline from
+   metric_snapshot -- section 39's own words. `delta` is a pre-computed
+   {label, direction} dict (direction one of up/down/flat/unknown) built
+   by the CALLER, never derived here: whether "up" is good depends on the
+   metric (earliness rate up is good; an ABSTAIN rate up is not), and
+   that judgment belongs with whoever is building the KPI list for a
+   given page, not a generic tile macro. sparkline_svg is pre-rendered,
+   already-safe markup from app.web.charts.sparkline_svg -- this macro
+   never touches chart math, only layout. abstain=True renders the value
+   itself as abstain_note() text (e.g. "not loaded") instead of a number,
+   for a KPI with nothing to report yet. #}
+{% macro kpi_tile(label, value, delta=None, sparkline_svg=None, href=None, abstain=False) %}
+{% if href %}<a class="kpi-tile" href="{{ href }}">{% else %}<div class="kpi-tile">{% endif %}
+  <span class="kpi-tile-label">{{ label }}</span>
+  <div class="kpi-tile-row">
+    {% if abstain %}
+    <span class="kpi-tile-value abstain-note">{{ value }}</span>
+    {% else %}
+    <span class="kpi-tile-value">{{ value }}</span>
+    {% if delta %}<span class="kpi-tile-delta {{ delta.direction }}">{{ delta.label }}</span>{% endif %}
+    {% endif %}
+  </div>
+  {% if sparkline_svg %}{{ sparkline_svg | safe }}{% endif %}
+{% if href %}</a>{% else %}</div>{% endif %}
+{% endmacro %}
+
+{# A horizontal strip of kpi_tile()s -- the richer counterpart to
+   kpi_strip() above, for a page whose numbers have real trend/delta
+   behind them (Reports, the Weekly Brief) rather than a live count. #}
+{% macro kpi_tile_strip(tiles) %}
+<div class="kpi-strip-row">
+  {% for t in tiles %}
+  {{ kpi_tile(t.label, t.value, t.get('delta'), t.get('sparkline_svg'), t.get('href'), t.get('abstain', False)) }}
+  {% endfor %}
+</div>
+{% endmacro %}

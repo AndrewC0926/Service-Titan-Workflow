@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DMG SCOUT — Signals</title>
+<link rel="stylesheet" href="http://testserver/static/app.css">
+<link rel="preload" href="http://testserver/static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="http://testserver/static/fonts/JetBrainsMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+<script>
+// Theme resolves before first paint so the sheet never flashes white then dark.
+(function () {
+  var saved = localStorage.getItem('scout-theme');
+  var dark = saved ? saved === 'dark'
+                   : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+})();
+</script>
+</head>
+<body>
+
+
+
+
+
+<div class="app-shell">
+  
+  <div class="masthead">
+    <div class="mh-identity">
+      <div class="mh-brand">
+        DMG&nbsp;SCOUT
+        <span class="note tracking-normal normal-case">Mechanical opportunity register</span>
+      </div>
+      <div class="mh-freshness">
+        <span class="tracking-normal normal-case">Data as of</span>
+        <span class="mono">—</span>
+      </div>
+    </div>
+    <div class="mh-actions">
+      <button type="button" class="icon-btn" onclick="openPalette()" aria-label="Search everywhere (Cmd/Ctrl+K)" title="Search everywhere (Cmd/Ctrl+K)"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg></button>
+      <button type="button" class="icon-btn" onclick="toggleTheme()" id="theme-btn" aria-label="Toggle dark mode">
+        <span class="theme-icon-light"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg></span>
+        <span class="theme-icon-dark"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg></span>
+      </button>
+    </div>
+  </div>
+
+  <div class="app-body">
+    
+    <nav class="rail" aria-label="Sections">
+      
+      <a href="/" class="rail-item" >Today</a>
+      
+      <a href="/pipeline" class="rail-item" >Pipeline</a>
+      
+      <a href="/accounts" class="rail-item" >Accounts</a>
+      
+      <a href="/signals" class="rail-item" aria-current="page">Signals</a>
+      
+      <a href="/deadlines" class="rail-item" >Deadlines</a>
+      
+      <a href="/reports" class="rail-item" >Reports</a>
+      
+      
+      <a href="/settings" class="rail-item rail-item-settings" >Settings</a>
+      
+    </nav>
+
+    <div class="main-col">
+      <main class="p-4 overflow-x-auto">
+
+<nav class="tabs mb-4" aria-label="Sub-sections">
+  
+  <a href="/signals" class="tab" aria-current="page">Signals</a>
+  
+  <a href="/signals/entitlement" class="tab" >Entitlement (Board)</a>
+  
+  <a href="/signals/permit-gap" class="tab" >Permit gap (Retrofit)</a>
+  
+  <a href="/signals/replacement-leads" class="tab" >Replacement leads</a>
+  
+  <a href="/signals/map" class="tab" >Map</a>
+  
+  <a href="/settings/intel" class="tab" >Field intel</a>
+  
+  <a href="/signals/saved-searches" class="tab" >Saved searches</a>
+  
+  <a href="/signals/add" class="tab" >Add signal</a>
+  
+</nav>
+
+<div class="sec-head">
+  <div class="sec-title">Signals</div>
+  <span class="note">One feed, seven trigger types. A card's Promote button is disabled and names
+    exactly what's missing when the four-part filter fails (named reachable contact, sellable
+    account or building, dated reason, eligible fitting line) -- or when no Signal record exists
+    yet for that source. Permit gap alone is 0too
+    large to browse card-by-card -- use its own list-builder at /signals/permit-gap instead;
+    cards here are capped at 200 regardless of filter.</span>
+</div>
+
+<div class="kpi-strip">
+  
+</div>
+
+
+<div class="mb-3 flex flex-wrap items-center gap-1.5">
+  <a class="chip active" href="/signals">All</a>
+  
+</div>
+
+
+
+
+<div class="empty">
+  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+  <p>No signals match this filter.</p>
+  
+</div>
+
+
+</main>
+
+      
+      <footer class="pagefoot">
+        <span>0 projects</span>
+        <span>0 signals</span>
+        <span>0 documents</span>
+      </footer>
+    </div>
+  </div>
+</div>
+
+
+
+<script type="application/json" id="nav-items">[{"href": "/", "key": "today", "label": "Today"}, {"href": "/pipeline", "key": "pipeline", "label": "Pipeline"}, {"href": "/accounts", "key": "accounts", "label": "Accounts"}, {"href": "/signals", "key": "signals", "label": "Signals"}, {"href": "/deadlines", "key": "deadlines", "label": "Deadlines"}, {"href": "/reports", "key": "reports", "label": "Reports"}, {"href": "/settings", "key": "settings", "label": "Settings"}]</script>
+<div class="palette-overlay" id="palette-overlay" onclick="if(event.target===this) closePalette()">
+  <div class="palette" role="dialog" aria-modal="true" aria-label="Search everywhere">
+    <div class="palette-input-row">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+      <input type="text" id="palette-input" name="q" placeholder="Go to, or search accounts and projects…" autocomplete="off" spellcheck="false"
+             hx-get="/search" hx-trigger="input changed delay:200ms" hx-target="#palette-data-results" hx-swap="innerHTML">
+    </div>
+    <div class="palette-results" id="palette-results"></div>
+    <div class="palette-results palette-data-results" id="palette-data-results"></div>
+  </div>
+</div>
+
+<script>
+function toggleTheme() {
+  var root = document.documentElement;
+  var next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+  root.dataset.theme = next;
+  localStorage.setItem('scout-theme', next);
+}
+
+// ---- Command palette ------------------------------------------------------
+var NAV_ITEMS = JSON.parse(document.getElementById('nav-items').textContent);
+var paletteActive = 0, paletteMatches = [];
+
+function openPalette() {
+  document.getElementById('palette-overlay').classList.add('open');
+  var input = document.getElementById('palette-input');
+  input.value = '';
+  renderPaletteResults('');
+  document.getElementById('palette-data-results').innerHTML = '';
+  input.focus();
+}
+function closePalette() {
+  document.getElementById('palette-overlay').classList.remove('open');
+}
+function renderPaletteResults(query) {
+  var q = query.trim().toLowerCase();
+  paletteMatches = NAV_ITEMS.filter(function (it) { return it.label.toLowerCase().indexOf(q) !== -1; });
+  paletteActive = 0;
+  var list = document.getElementById('palette-results');
+  list.innerHTML = '';
+  if (!paletteMatches.length) {
+    return;
+  }
+  paletteMatches.forEach(function (it, i) {
+    var row = document.createElement('a');
+    row.href = it.href;
+    row.className = 'palette-row' + (i === 0 ? ' active' : '');
+    row.textContent = it.label;
+    list.appendChild(row);
+  });
+}
+function movePaletteActive(delta) {
+  var rows = document.querySelectorAll('.palette-row');
+  if (!rows.length) return;
+  rows[paletteActive] && rows[paletteActive].classList.remove('active');
+  paletteActive = (paletteActive + delta + rows.length) % rows.length;
+  rows[paletteActive].classList.add('active');
+  rows[paletteActive].scrollIntoView({block: 'nearest'});
+}
+
+document.getElementById('palette-input').addEventListener('input', function (e) {
+  renderPaletteResults(e.target.value);
+});
+document.getElementById('palette-input').addEventListener('keydown', function (e) {
+  if (e.key === 'ArrowDown') { e.preventDefault(); movePaletteActive(1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); movePaletteActive(-1); }
+  else if (e.key === 'Enter') {
+    e.preventDefault();
+    var rows = document.querySelectorAll('.palette-row');
+    if (rows[paletteActive]) window.location = rows[paletteActive].href;
+  } else if (e.key === 'Escape') { closePalette(); }
+});
+document.addEventListener('keydown', function (e) {
+  var isK = e.key === 'k' || e.key === 'K';
+  if (isK && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    var overlay = document.getElementById('palette-overlay');
+    overlay.classList.contains('open') ? closePalette() : openPalette();
+  } else if (e.key === 'Escape') {
+    closePalette();
+  }
+});
+</script>
+</body>
+</html>

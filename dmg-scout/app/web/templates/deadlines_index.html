@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import hub_subtabs, kpi_strip, empty_state %}
+{% from "_macros.html" import hub_subtabs, kpi_strip, empty_state, abstain_note %}
 {% block title %}Deadlines{% endblock %}
 {% block content %}
 {{ hub_subtabs([
@@ -31,9 +31,9 @@
     {% for row in rows %}
     <tr>
       <td><a href="{{ row.detail_url }}">{{ row.account_or_building }}</a></td>
-      <td class="mono">{{ row.date.strftime('%Y-%m-%d') if row.date else '' }}{% if not row.date %}<span class="chip">ABSTAIN</span>{% endif %}</td>
+      <td class="mono">{{ row.date.strftime('%Y-%m-%d') if row.date else '' }}{% if not row.date %}{{ abstain_note() }}{% endif %}</td>
       <td>{{ row.exposure }}</td>
-      <td>{{ row.eligible_line if row.eligible_line else '' }}{% if not row.eligible_line %}<span class="chip">ABSTAIN</span>{% endif %}</td>
+      <td>{{ row.eligible_line if row.eligible_line else '' }}{% if not row.eligible_line %}{{ abstain_note() }}{% endif %}</td>
       <td>{{ row.osp_status if row.osp_status else '' }}{% if not row.osp_status %}<span class="chip">n/a</span>{% endif %}</td>
     </tr>
     {% endfor %}

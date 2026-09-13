@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import hub_subtabs, kpi_strip, empty_state %}
+{% from "_macros.html" import hub_subtabs, kpi_strip, empty_state, abstain_note %}
 {% block title %}Pipeline{% endblock %}
 {% block content %}
 {{ hub_subtabs([
@@ -28,8 +28,8 @@
     {% for r in rows %}
     <tr id="opp-{{ r.opportunity.id }}">
       <td>{{ r.account_or_building }}</td>
-      <td><span class="chip">{{ r.weakest_why.value if r.weakest_why else 'ABSTAIN' }}</span></td>
-      <td>{{ r.line_name or '' }}{% if not r.line_name %}<span class="chip">ABSTAIN</span>{% endif %}</td>
+      <td>{% if r.weakest_why %}<span class="chip">{{ r.weakest_why.value }}</span>{% else %}{{ abstain_note() }}{% endif %}</td>
+      <td>{{ r.line_name or '' }}{% if not r.line_name %}{{ abstain_note() }}{% endif %}</td>
       <td>{{ r.opportunity.stage.value }}</td>
       <td>{{ r.opportunity.pen_holder.value }}</td>
       <td class="mono">{{ r.opportunity.last_touch.strftime('%Y-%m-%d') if r.opportunity.last_touch else '' }}</td>
@@ -66,13 +66,13 @@
           <summary class="note">Reason Block</summary>
           {% for rb in r.reason_blocks %}
           <div class="mb-2">
-            <strong>{{ rb.why_kind.value }}</strong> -- <span class="chip">{{ rb.strength.value }}</span>
+            <strong>{{ rb.why_kind.value }}</strong> -- {% if rb.strength.value != 'ABSTAIN' %}<span class="chip">{{ rb.strength.value }}</span>{% else %}{{ abstain_note() }}{% endif %}
             <p>{{ rb.evidence }}</p>
             {% if rb.source %}<span class="note">source: {{ rb.source }}{% if rb.source_url %} ({{ rb.source_url }}){% endif %}</span>{% endif %}
           </div>
           {% endfor %}
-          {% if rows and r.reason_blocks and r.reason_blocks[0].do_person %}
-          <p><strong>Do:</strong> {{ r.reason_blocks[0].do_person }} -- {{ r.reason_blocks[0].do_ask }}</p>
+          {% if rows and r.reason_blocks and r.reason_blocks[0].one_sentence %}
+          <p>{{ r.reason_blocks[0].one_sentence }}</p>
           {% endif %}
           <a href="/notes?anchor_type=opportunity&anchor_id={{ r.opportunity.id }}">+ Note</a>
         </details>

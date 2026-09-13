@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import hub_subtabs, kpi_strip, empty_state %}
+{% from "_macros.html" import hub_subtabs, kpi_strip, empty_state, abstain_note %}
 {% block title %}Signals{% endblock %}
 {% block content %}
 {{ hub_subtabs([
@@ -35,9 +35,9 @@
 {% for c in cards %}
 <div class="scout-card mb-3">
   <div class="scout-card-title">{{ c.fs.trigger_type.value.replace('_', ' ') }} -- {{ c.fs.source.replace('_', ' ') }}</div>
-  <div class="mono note">{{ c.fs.trigger_date.strftime('%Y-%m-%d') if c.fs.trigger_date else 'ABSTAIN date' }}</div>
+  <div class="mono note">{% if c.fs.trigger_date %}{{ c.fs.trigger_date.strftime('%Y-%m-%d') }}{% else %}{{ abstain_note('date: unknown, not guessed') }}{% endif %}</div>
   <p>{{ c.fs.evidence }}</p>
-  <span class="chip">{{ 'confidence %.2f' % c.fs.confidence if c.fs.confidence is not none else 'ABSTAIN confidence' }}</span>
+  {% if c.fs.confidence is not none %}<span class="chip">confidence {{ '%.2f' % c.fs.confidence }}</span>{% else %}{{ abstain_note('confidence: unknown, not guessed') }}{% endif %}
   {% if c.can_promote %}
   <form method="post" action="/signals/promote" class="mt-2">
     <input type="hidden" name="source" value="{{ c.fs.source }}">

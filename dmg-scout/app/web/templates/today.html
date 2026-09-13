@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_icon.html" import icon %}
+{% from "_macros.html" import abstain_note %}
 {% block title %}Today{% endblock %}
 {% block sheet_no %}S-00{% endblock %}
 {% block content %}
@@ -66,7 +67,7 @@
         </div>
         {% endif %}
         <div class="call-project">
-          Opportunity #{{ o.id }} <span class="chip">weakest why: {{ c.weakest_why.value }}</span>
+          Opportunity #{{ o.id }} <span class="chip">weakest why: {{ c.weakest_why.value if c.weakest_why.value != 'ABSTAIN' else 'unknown, not guessed' }}</span>
         </div>
         <form class="call-action" hx-post="/pipeline/{{ o.id }}/outcome" hx-target="this" hx-swap="outerHTML">
           <input type="hidden" name="disposition" value="connected">

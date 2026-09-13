@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DMG SCOUT — Notes</title>
+<link rel="stylesheet" href="http://testserver/static/app.css">
+<link rel="preload" href="http://testserver/static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="http://testserver/static/fonts/JetBrainsMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+<script>
+// Theme resolves before first paint so the sheet never flashes white then dark.
+(function () {
+  var saved = localStorage.getItem('scout-theme');
+  var dark = saved ? saved === 'dark'
+                   : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+})();
+</script>
+</head>
+<body>
+
+
+
+
+
+<div class="app-shell">
+  
+  <div class="masthead">
+    <div class="mh-identity">
+      <div class="mh-brand">
+        DMG&nbsp;SCOUT
+        <span class="note tracking-normal normal-case">Mechanical opportunity register</span>
+      </div>
+      <div class="mh-freshness">
+        <span class="tracking-normal normal-case">Data as of</span>
+        <span class="mono">—</span>
+      </div>
+    </div>
+    <div class="mh-actions">
+      <button type="button" class="icon-btn" onclick="openPalette()" aria-label="Search everywhere (Cmd/Ctrl+K)" title="Search everywhere (Cmd/Ctrl+K)"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg></button>
+      <button type="button" class="icon-btn" onclick="toggleTheme()" id="theme-btn" aria-label="Toggle dark mode">
+        <span class="theme-icon-light"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg></span>
+        <span class="theme-icon-dark"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg></span>
+      </button>
+    </div>
+  </div>
+
+  <div class="app-body">
+    
+    <nav class="rail" aria-label="Sections">
+      
+      <a href="/" class="rail-item" >Today</a>
+      
+      <a href="/pipeline" class="rail-item" >Pipeline</a>
+      
+      <a href="/accounts" class="rail-item" >Accounts</a>
+      
+      <a href="/signals" class="rail-item" >Signals</a>
+      
+      <a href="/deadlines" class="rail-item" >Deadlines</a>
+      
+      <a href="/reports" class="rail-item" >Reports</a>
+      
+      
+      <a href="/settings" class="rail-item rail-item-settings" >Settings</a>
+      
+    </nav>
+
+    <div class="main-col">
+      <main class="p-4 overflow-x-auto">
+<div class="sec-head">
+  <div class="sec-title">Decision Notes</div>
+  <span class="note">The smallest unit of institutional memory: who decided, what, why, and what it
+    was worth. Attaches to an Opportunity, Project, Building, Account, Signal, or a NetSuite
+    reference -- so a deal that never touched Scout still counts.</span>
+</div>
+
+<div class="sec-head mt-4"><div class="sec-title">Three deals, tell us why</div>
+  <span class="note">Open opportunities older than <FRESHNESS>. Not yet per-user -- Scout has no
+    owner/rep assignment field on Opportunity today.</span>
+</div>
+
+
+
+<div class="empty">
+  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+  <p>No open opportunities older than <FRESHNESS>.</p>
+  
+</div>
+
+
+
+<div class="sec-head mt-4"><div class="sec-title">Add a note</div></div>
+<form method="post" action="/notes" class="mb-4">
+  <div class="kv mb-3">
+    <div><div class="k">Note type</div>
+      <select name="note_type" required>
+        <option value="won">Won</option><option value="lost">Lost</option><option value="quote_lost">Quote lost</option><option value="intel">Intel</option><option value="decision">Decision</option>
+      </select>
+    </div>
+    <div><div class="k">Lead source</div>
+      <select name="lead_source" required>
+        <option value="scout_signal">Scout signal</option><option value="relationship">Relationship</option><option value="inbound">Inbound</option><option value="rep_originated">Rep originated</option><option value="inside_sales">Inside sales</option>
+      </select>
+    </div>
+    <div><div class="k">Pen holder</div>
+      <select name="pen_holder">
+        <option value="engineer">Engineer</option><option value="contractor">Contractor</option><option value="owner">Owner</option><option value="gc">GC</option><option value="unknown">Unknown</option>
+      </select>
+    </div>
+    <div><div class="k">Basis of design</div>
+      <select name="basis_of_design">
+        <option value="ours">Ours</option><option value="competitor_named">Competitor named</option><option value="open">Open</option><option value="none">None</option>
+      </select>
+    </div>
+    <div><div class="k">Reason (if lost)</div>
+      <select name="reason_code">
+        <option value="">--</option>
+        <option value="price">Price</option><option value="lost_to_competitor">Lost to competitor</option><option value="no_decision_budget">No decision or budget</option><option value="timing_deferred">Timing or deferred</option><option value="specd_out_not_our_line">Spec&#39;d out (not our line)</option><option value="wrong_contact_no_reach">Wrong contact or no reach</option><option value="not_eligible_osp_ahri">Not eligible (OSP or AHRI)</option><option value="other">Other</option>
+      </select>
+    </div>
+    <div><div class="k">Line</div><input type="text" name="line"></div>
+    <div><div class="k">Competitor line</div><input type="text" name="competitor_line"></div>
+    <div><div class="k">Dollars</div><input type="number" step="0.01" name="dollars"></div>
+  </div>
+
+  <div class="kv mb-3">
+    <div><div class="k">Opportunity ID</div>
+      <input type="number" name="opportunity_id" value="">
+    </div>
+    <div><div class="k">Project ID</div>
+      <input type="number" name="project_id" value="">
+    </div>
+    <div><div class="k">Building ID</div>
+      <input type="number" name="building_id" value="">
+    </div>
+    <div><div class="k">Account ID</div>
+      <input type="number" name="account_id" value="">
+    </div>
+    <div><div class="k">Signal ID</div>
+      <input type="number" name="signal_id" value="">
+    </div>
+    <div><div class="k">NetSuite ref type</div>
+      <select name="netsuite_ref_type">
+        <option value="">--</option>
+        <option value="opportunity">Opportunity</option>
+        <option value="project">Project</option>
+        <option value="sales_order">Sales order</option>
+      </select>
+    </div>
+    <div><div class="k">NetSuite ref (text)</div><input type="text" name="netsuite_ref"></div>
+  </div>
+
+  <div class="mb-3"><textarea name="free_text" placeholder="One line: what happened, why" style="width:100%"></textarea></div>
+  <input type="hidden" name="role" value="">
+  <button type="submit">Add note</button>
+</form>
+
+<div class="sec-head mt-4"><div class="sec-title">Recent notes</div></div>
+
+
+
+<div class="empty">
+  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+  <p>No notes logged yet.</p>
+  
+</div>
+
+
+</main>
+
+      
+      <footer class="pagefoot">
+        <span>0 projects</span>
+        <span>0 signals</span>
+        <span>0 documents</span>
+      </footer>
+    </div>
+  </div>
+</div>
+
+
+
+<script type="application/json" id="nav-items">[{"href": "/", "key": "today", "label": "Today"}, {"href": "/pipeline", "key": "pipeline", "label": "Pipeline"}, {"href": "/accounts", "key": "accounts", "label": "Accounts"}, {"href": "/signals", "key": "signals", "label": "Signals"}, {"href": "/deadlines", "key": "deadlines", "label": "Deadlines"}, {"href": "/reports", "key": "reports", "label": "Reports"}, {"href": "/settings", "key": "settings", "label": "Settings"}]</script>
+<div class="palette-overlay" id="palette-overlay" onclick="if(event.target===this) closePalette()">
+  <div class="palette" role="dialog" aria-modal="true" aria-label="Search everywhere">
+    <div class="palette-input-row">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+      <input type="text" id="palette-input" name="q" placeholder="Go to, or search accounts and projects…" autocomplete="off" spellcheck="false"
+             hx-get="/search" hx-trigger="input changed delay:200ms" hx-target="#palette-data-results" hx-swap="innerHTML">
+    </div>
+    <div class="palette-results" id="palette-results"></div>
+    <div class="palette-results palette-data-results" id="palette-data-results"></div>
+  </div>
+</div>
+
+<script>
+function toggleTheme() {
+  var root = document.documentElement;
+  var next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+  root.dataset.theme = next;
+  localStorage.setItem('scout-theme', next);
+}
+
+// ---- Command palette ------------------------------------------------------
+var NAV_ITEMS = JSON.parse(document.getElementById('nav-items').textContent);
+var paletteActive = 0, paletteMatches = [];
+
+function openPalette() {
+  document.getElementById('palette-overlay').classList.add('open');
+  var input = document.getElementById('palette-input');
+  input.value = '';
+  renderPaletteResults('');
+  document.getElementById('palette-data-results').innerHTML = '';
+  input.focus();
+}
+function closePalette() {
+  document.getElementById('palette-overlay').classList.remove('open');
+}
+function renderPaletteResults(query) {
+  var q = query.trim().toLowerCase();
+  paletteMatches = NAV_ITEMS.filter(function (it) { return it.label.toLowerCase().indexOf(q) !== -1; });
+  paletteActive = 0;
+  var list = document.getElementById('palette-results');
+  list.innerHTML = '';
+  if (!paletteMatches.length) {
+    return;
+  }
+  paletteMatches.forEach(function (it, i) {
+    var row = document.createElement('a');
+    row.href = it.href;
+    row.className = 'palette-row' + (i === 0 ? ' active' : '');
+    row.textContent = it.label;
+    list.appendChild(row);
+  });
+}
+function movePaletteActive(delta) {
+  var rows = document.querySelectorAll('.palette-row');
+  if (!rows.length) return;
+  rows[paletteActive] && rows[paletteActive].classList.remove('active');
+  paletteActive = (paletteActive + delta + rows.length) % rows.length;
+  rows[paletteActive].classList.add('active');
+  rows[paletteActive].scrollIntoView({block: 'nearest'});
+}
+
+document.getElementById('palette-input').addEventListener('input', function (e) {
+  renderPaletteResults(e.target.value);
+});
+document.getElementById('palette-input').addEventListener('keydown', function (e) {
+  if (e.key === 'ArrowDown') { e.preventDefault(); movePaletteActive(1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); movePaletteActive(-1); }
+  else if (e.key === 'Enter') {
+    e.preventDefault();
+    var rows = document.querySelectorAll('.palette-row');
+    if (rows[paletteActive]) window.location = rows[paletteActive].href;
+  } else if (e.key === 'Escape') { closePalette(); }
+});
+document.addEventListener('keydown', function (e) {
+  var isK = e.key === 'k' || e.key === 'K';
+  if (isK && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    var overlay = document.getElementById('palette-overlay');
+    overlay.classList.contains('open') ? closePalette() : openPalette();
+  } else if (e.key === 'Escape') {
+    closePalette();
+  }
+});
+</script>
+</body>
+</html>
