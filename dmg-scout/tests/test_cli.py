@@ -287,3 +287,70 @@ class TestPromoteTopSignalsCmd:
     def test_requires_owner_user(self, db_session):
         result = CliRunner().invoke(cli_app, ["promote-top-signals"])
         assert result.exit_code != 0
+
+
+class TestRecomputeOpportunityLinesCmd:
+    def test_updates_line_id_when_the_map_changed(self, db_session):
+        from app.models import Contact, Contractor, Opportunity, PenState, RetrofitBuilding, Signal, SignalType
+
+        b = RetrofitBuilding(apn="recompute-1", population="recently_active", equipment_type="split_dx")
+        old_line = ProductLine(name="Old Wrong Line", name_norm="old wrong line", category="vrf_split",
+                               building_role="cooling_generation")
+        new_line = ProductLine(name="LG", name_norm="lg", category="vrf_split", building_role="cooling_generation")
+        signal = Signal(signal_type=SignalType.ceqa_nop)
+        db_session.add(b)
+        db_session.add(old_line)
+        db_session.add(new_line)
+        db_session.add(signal)
+        db_session.commit()
+        opp = Opportunity(building_id=b.id, signal_id=signal.id, line_id=old_line.id,
+                          pen_state=PenState.not_moved, owner_user="andrew")
+        db_session.add(opp)
+        db_session.commit()
+
+        result = CliRunner().invoke(cli_app, ["recompute-opportunity-lines"])
+        assert result.exit_code == 0
+        report = json.loads(result.output)
+        assert report["considered"] == 1
+        assert len(report["changed"]) == 1
+        assert report["changed"][0]["opportunity_id"] == opp.id
+        assert report["changed"][0]["new_line_id"] == new_line.id
+
+        db_session.refresh(opp)
+        assert opp.line_id == new_line.id
+
+    def test_leaves_an_already_correct_line_untouched(self, db_session):
+        from app.models import Opportunity, PenState, RetrofitBuilding, Signal, SignalType
+
+        b = RetrofitBuilding(apn="recompute-2", population="recently_active", equipment_type="packaged_rooftop")
+        line = ProductLine(name="AAON", name_norm="aaon", category="rooftop_units", building_role="air_handling")
+        signal = Signal(signal_type=SignalType.ceqa_nop)
+        db_session.add(b)
+        db_session.add(line)
+        db_session.add(signal)
+        db_session.commit()
+        opp = Opportunity(building_id=b.id, signal_id=signal.id, line_id=line.id,
+                          pen_state=PenState.not_moved, owner_user="andrew")
+        db_session.add(opp)
+        db_session.commit()
+
+        result = CliRunner().invoke(cli_app, ["recompute-opportunity-lines"])
+        assert result.exit_code == 0
+        report = json.loads(result.output)
+        assert report["changed"] == []
+
+    def test_account_anchored_opportunities_are_never_touched(self, db_session):
+        from app.models import Opportunity, PenState, Signal, SignalType
+
+        signal = Signal(signal_type=SignalType.ceqa_nop)
+        db_session.add(signal)
+        db_session.commit()
+        opp = Opportunity(account_id=1, signal_id=signal.id, line_id=None,
+                          pen_state=PenState.not_moved, owner_user="andrew")
+        db_session.add(opp)
+        db_session.commit()
+
+        result = CliRunner().invoke(cli_app, ["recompute-opportunity-lines"])
+        assert result.exit_code == 0
+        report = json.loads(result.output)
+        assert report["considered"] == 0

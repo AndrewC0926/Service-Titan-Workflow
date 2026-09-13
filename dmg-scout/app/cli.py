@@ -2031,6 +2031,50 @@ def promote_top_signals_cmd(
     typer.echo(json.dumps(report))
 
 
+@app.command("recompute-opportunity-lines")
+def recompute_opportunity_lines_cmd() -> None:
+    """Block 4B-prep-3 Item 2 correction: re-run eligible-line resolution
+    against the CURRENT EQUIPMENT_CLASS_TO_LINE_NAMES map for every
+    building-anchored Opportunity and update Opportunity.line_id in
+    place, for when that map itself is corrected after real Opportunities
+    already exist (as it was here -- split_dx moving from ClimateMaster
+    to LG). Scoped to building_id-anchored Opportunities only (the only
+    kind that exist today, and the only kind whose eligible line is
+    equipment-class-derived rather than Category-derived) -- an
+    account_id-anchored (project-sourced) Opportunity's line came from
+    app.accounts.line_offering_by_role, a different path this command
+    does not touch, on principle, not oversight: it would need the
+    original FeedSignal's Category/facility_type, which nothing persists
+    on Opportunity itself, so recomputing it here would mean guessing at
+    inputs rather than the same input the original promotion actually
+    used.
+
+    No ReasonBlock evidence text references the eligible line by name
+    (checked directly), so this never touches reason_blocks -- only
+    Opportunity.line_id itself changes."""
+    from app.models import Opportunity, RetrofitBuilding
+    from app.pipeline.equipment_eligibility import (
+        eligible_lines_for_equipment_class, equipment_class_from_retrofit_type,
+    )
+
+    with session_scope() as session:
+        opps = session.exec(select(Opportunity).where(Opportunity.building_id.is_not(None))).all()
+        changed = []
+        for opp in opps:
+            building = session.get(RetrofitBuilding, opp.building_id)
+            if building is None:
+                continue
+            equipment_class = equipment_class_from_retrofit_type(building.equipment_type)
+            lines = eligible_lines_for_equipment_class(session, equipment_class)
+            new_line_id = lines[0].id if lines else None
+            if new_line_id != opp.line_id:
+                changed.append({"opportunity_id": opp.id, "old_line_id": opp.line_id, "new_line_id": new_line_id})
+                opp.line_id = new_line_id
+                session.add(opp)
+        session.commit()
+    typer.echo(json.dumps({"considered": len(opps), "changed": changed}))
+
+
 @app.command("account-join-report")
 def account_join_report_cmd(
     limit: int = typer.Option(25, help="Max accounts to print (report is per-account, can get long)"),
