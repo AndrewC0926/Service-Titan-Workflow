@@ -734,6 +734,19 @@ def specs_pilot_cmd(
     typer.echo(report_text(result))
 
 
+@app.command("changelog")
+def changelog_cmd() -> None:
+    """Block 4C Item 3: regenerate docs/CHANGELOG.md from this repo's own
+    commit history and the hand-written, per-block plain-language summary
+    in app/changelog.py -- see that module's own docstring. Safe to
+    re-run any time; the commit list is always resolved fresh."""
+    from app.changelog import _repo_root, generate_changelog, render_markdown
+    blocks = generate_changelog()
+    out_path = _repo_root() / "dmg-scout" / "docs" / "CHANGELOG.md"
+    out_path.write_text(render_markdown(blocks))
+    typer.echo(f"wrote {out_path} ({sum(len(b['commits']) for b in blocks)} commits across {len(blocks)} blocks)")
+
+
 @app.command("cslb")
 def cslb_cmd(
     geocode_batch_limit: int = typer.Option(

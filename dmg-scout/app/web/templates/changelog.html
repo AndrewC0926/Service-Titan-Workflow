@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Changelog{% endblock %}
+{% block sheet_no %}S-05{% endblock %}
+{% block content %}
+<div class="sec-head">
+  <div class="sec-title">What's new</div>
+  <span class="note">Generated from this repo's own commit history (Block 4C Item 3) -- plain language,
+    written for what it means to you, not for an engineer. Newest block first.</span>
+</div>
+{% for b in blocks | reverse %}
+<div class="mb-4" style="padding-bottom:0.75rem;border-bottom:1px solid var(--color-rule)">
+  <h2 style="margin-bottom:0.15rem">{{ b.title }}</h2>
+  <div class="note mono" style="margin-bottom:0.5rem">{{ b.date }}</div>
+  <p>{{ b.summary }}</p>
+  {% if b.commits %}
+  <details style="margin-top:0.4rem">
+    <summary class="note">{{ b.commits | length }} commit{{ 's' if b.commits | length != 1 }}</summary>
+    <table style="max-width:820px;margin-top:0.4rem">
+      <tbody>
+      {% for c in b.commits %}
+        <tr><td class="mono num">{{ c.date }}</td><td class="mono">{{ c.hash }}</td><td>{{ c.subject }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% else %}
+  <p class="note">Research and verification work -- no shippable commits; see docs/BUILD-PLAN.md.</p>
+  {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

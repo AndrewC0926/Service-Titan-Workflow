@@ -844,6 +844,20 @@ def _sparkline(session: Session, metric_key: str, dimensions: dict | None = None
     return sparkline_svg(weekly_series(session, metric_key, dimensions))
 
 
+@app.get("/changelog", response_class=HTMLResponse)
+def changelog_page(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
+    """Block 4C Item 3: "a /changelog page users can read." Any
+    authenticated user, not operator-only -- unlike /settings/health,
+    this is written for a rep, not an ops question. Renders the SAME
+    app.changelog.generate_changelog() structure docs/CHANGELOG.md is
+    built from (see that module's own docstring), so the two can never
+    disagree -- just a different format (HTML here, Markdown there)."""
+    from app.changelog import generate_changelog
+    return templates.TemplateResponse(request, "changelog.html", {
+        "blocks": generate_changelog(), "tb": _title_block(session), "active": "changelog",
+    })
+
+
 @app.get("/reports", response_class=HTMLResponse)
 def reports_index(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
     """Block 4B Item 2 (Master Plan v3.6 sections 30/34/38): the funnel

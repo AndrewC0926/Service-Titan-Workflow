@@ -444,3 +444,30 @@ class TestRecomputeDoFieldsCmd:
         assert result.exit_code == 0
         report = json.loads(result.output)
         assert report["changed"] == []
+
+
+def test_changelog_cmd_writes_the_real_file(tmp_path, monkeypatch):
+    """Block 4C Item 3: `scout changelog` writes docs/CHANGELOG.md fresh
+    every run -- points _repo_root at a throwaway git repo (with a real
+    Block 3 commit in it) rather than touching this actual repo's own
+    CHANGELOG.md as a side effect of running the test suite."""
+    import subprocess
+
+    (tmp_path / "dmg-scout" / "docs").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
+    (tmp_path / "f.txt").write_text("x")
+    subprocess.run(["git", "add", "f.txt"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "Block 3 Item 1: fake commit for this test"], cwd=tmp_path,
+                   check=True)
+
+    monkeypatch.setattr("app.changelog._repo_root", lambda: tmp_path)
+    result = CliRunner().invoke(cli_app, ["changelog"])
+    assert result.exit_code == 0
+
+    out_path = tmp_path / "dmg-scout" / "docs" / "CHANGELOG.md"
+    assert out_path.exists()
+    content = out_path.read_text()
+    assert "Block 3 Item 1: fake commit for this test" in content
+    assert "# Changelog" in content
