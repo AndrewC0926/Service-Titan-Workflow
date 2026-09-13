@@ -1908,6 +1908,21 @@ def import_contacts_cmd(
     typer.echo(json.dumps(stats))
 
 
+@app.command("backfill-contact-ids")
+def backfill_contact_ids_cmd() -> None:
+    """Block 4B-prep-2 Item 1 follow-up: re-parse the leading NetSuite
+    customer-id prefix out of already-imported Contact.customer_ref_name/
+    company (rows imported before app.importers.netsuite_contacts'
+    _parse_company_field existed). Idempotent -- safe to re-run. See that
+    function's own docstring for the evidence this prefix is an id, not
+    part of any company's real name."""
+    from app.importers.netsuite_contacts import backfill_company_id_prefix
+
+    with session_scope() as session:
+        stats = backfill_company_id_prefix(session)
+    typer.echo(json.dumps(stats))
+
+
 @app.command("match-contractors")
 def match_contractors_cmd() -> None:
     """Block 4B-prep-2 Item 1: match Contact.customer_ref_name to the CSLB

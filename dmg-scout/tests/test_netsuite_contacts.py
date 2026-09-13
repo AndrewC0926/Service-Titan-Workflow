@@ -3,7 +3,13 @@
 import pytest
 from sqlmodel import select
 
-from app.importers.netsuite_contacts import _parse_name_field, _split_first_last, import_netsuite_contacts
+from app.importers.netsuite_contacts import (
+    _parse_company_field,
+    _parse_name_field,
+    _split_first_last,
+    backfill_company_id_prefix,
+    import_netsuite_contacts,
+)
 from app.models import Account, Contact
 
 HEADER = "Internal ID,Internal ID,Name,Company,Job Title,Email,Phone,Mobile Phone,Inactive,Date Created"
@@ -40,6 +46,28 @@ class TestParseNameField:
         dash has no surrounding spaces -- not the ' - ' shape."""
         cust_id, cust_name, person = _parse_name_field("14101 TRI T Technology-Kevin Chang")
         assert cust_id is None and cust_name is None
+
+
+class TestParseCompanyField:
+    def test_strips_leading_id(self):
+        assert _parse_company_field("58 XCEL MECHANICAL SYSTEMS INC") == ("58", "XCEL MECHANICAL SYSTEMS INC")
+
+    def test_verified_real_entity_id(self):
+        """Matches the same entity id Contact.customer_ref_id's own
+        docstring already verified by hand against the real NetSuite
+        customer master for this exact company."""
+        assert _parse_company_field("14006 RDK Mechanical") == ("14006", "RDK Mechanical")
+
+    def test_no_leading_digits_passes_through_unchanged(self):
+        assert _parse_company_field("ACCO Engineered Systems") == (None, "ACCO Engineered Systems")
+
+    def test_no_space_after_digits_is_not_an_id(self):
+        """A real CSLB-roster-shaped name like "5858 CONSTRUCTION COMPANY"
+        still parses as an id here (Company column, not the Contractor
+        roster) -- but a value with no separating space at all, e.g. a
+        pure numeric company code, is left alone since there is no
+        remaining text to be the customer name."""
+        assert _parse_company_field("12345") == (None, "12345")
 
 
 class TestSplitFirstLast:
@@ -156,6 +184,20 @@ class TestImportNetsuiteContacts:
         contact = db_session.exec(select(Contact).where(Contact.netsuite_internal_id == 301)).one()
         assert contact.email == "new@x.com"
 
+    def test_company_column_leading_id_is_stripped_and_wins_over_name_field_id(self, db_session):
+        account = Account(name="Xcel Mechanical Systems Inc", name_norm="xcel mechanical systems",
+                          netsuite_entity_id="58")
+        db_session.add(account)
+        db_session.commit()
+        stats = import_netsuite_contacts(db_session, _csv(
+            "205,205,Jane Smith,58 XCEL MECHANICAL SYSTEMS INC,,jane@xcel.com,,,No,1/1/2020"))
+        assert stats["matched_by_id"] == 1
+        contact = db_session.exec(select(Contact).where(Contact.netsuite_internal_id == 205)).one()
+        assert contact.customer_ref_id == "58"
+        assert contact.customer_ref_name == "XCEL MECHANICAL SYSTEMS INC"
+        assert contact.company == "XCEL MECHANICAL SYSTEMS INC"
+        assert contact.account_id == account.id
+
     def test_report_totals_add_up(self, db_session):
         account = Account(name="Vision Mechanical Services", name_norm="vision mechanical services",
                           netsuite_entity_id="1364")
@@ -167,3 +209,81 @@ class TestImportNetsuiteContacts:
         ))
         assert stats["rows"] == 2
         assert stats["matched_by_id"] + stats["matched_by_company_name"] + stats["unmatched"] == 2
+
+
+class TestBackfillCompanyIdPrefix:
+    def test_strips_prefix_from_an_already_imported_row(self, db_session):
+        contact = Contact(netsuite_internal_id=500, name="Jane Smith", source="netsuite",
+                          customer_ref_name="58 XCEL MECHANICAL SYSTEMS INC",
+                          company="58 XCEL MECHANICAL SYSTEMS INC")
+        db_session.add(contact)
+        db_session.commit()
+
+        stats = backfill_company_id_prefix(db_session)
+        assert stats == {"considered": 1, "fixed": 1, "newly_matched_by_id": 0,
+                         "newly_matched_by_company_name": 0}
+        db_session.refresh(contact)
+        assert contact.customer_ref_name == "XCEL MECHANICAL SYSTEMS INC"
+        assert contact.company == "XCEL MECHANICAL SYSTEMS INC"
+        assert contact.customer_ref_id == "58"
+
+    def test_newly_resolves_an_account_that_id_based_matching_could_not_before(self, db_session):
+        account = Account(name="RDK Mechanical", name_norm="rdk mechanical", netsuite_entity_id="14006")
+        db_session.add(account)
+        contact = Contact(netsuite_internal_id=501, name="Someone", source="netsuite",
+                          customer_ref_name="14006 RDK Mechanical", company="14006 RDK Mechanical")
+        db_session.add(contact)
+        db_session.commit()
+
+        stats = backfill_company_id_prefix(db_session)
+        assert stats["newly_matched_by_id"] == 1
+        db_session.refresh(contact)
+        assert contact.account_id == account.id
+
+    def test_already_clean_row_is_untouched(self, db_session):
+        contact = Contact(netsuite_internal_id=502, name="Someone", source="netsuite",
+                          customer_ref_name="ACCO Engineered Systems", company="ACCO Engineered Systems")
+        db_session.add(contact)
+        db_session.commit()
+
+        stats = backfill_company_id_prefix(db_session)
+        assert stats == {"considered": 1, "fixed": 0, "newly_matched_by_id": 0,
+                         "newly_matched_by_company_name": 0}
+
+    def test_non_netsuite_contact_is_never_considered(self, db_session):
+        contact = Contact(name="Someone", source="manual", customer_ref_name="58 XCEL MECHANICAL SYSTEMS INC")
+        db_session.add(contact)
+        db_session.commit()
+
+        stats = backfill_company_id_prefix(db_session)
+        assert stats["considered"] == 0
+
+    def test_idempotent_rerun_finds_nothing_further(self, db_session):
+        contact = Contact(netsuite_internal_id=503, name="Jane Smith", source="netsuite",
+                          customer_ref_name="58 XCEL MECHANICAL SYSTEMS INC",
+                          company="58 XCEL MECHANICAL SYSTEMS INC")
+        db_session.add(contact)
+        db_session.commit()
+
+        backfill_company_id_prefix(db_session)
+        stats = backfill_company_id_prefix(db_session)
+        assert stats["fixed"] == 0
+
+    def test_row_with_an_existing_account_link_is_not_re_matched(self, db_session):
+        existing_account = Account(name="Some Other Account", name_norm="some other account")
+        rdk = Account(name="RDK Mechanical", name_norm="rdk mechanical", netsuite_entity_id="14006")
+        db_session.add(existing_account)
+        db_session.add(rdk)
+        contact = Contact(netsuite_internal_id=504, name="Someone", source="netsuite",
+                          customer_ref_name="14006 RDK Mechanical", company="14006 RDK Mechanical",
+                          account_id=None)
+        db_session.add(contact)
+        db_session.commit()
+        contact.account_id = existing_account.id
+        db_session.add(contact)
+        db_session.commit()
+
+        backfill_company_id_prefix(db_session)
+        db_session.refresh(contact)
+        assert contact.account_id == existing_account.id  # unchanged, never overwritten
+        assert contact.customer_ref_name == "RDK Mechanical"  # prefix still stripped
