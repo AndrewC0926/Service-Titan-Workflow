@@ -25,13 +25,18 @@ HEALTHCHECK_ENV = "HEALTHCHECK_URL"  # e.g. https://hc-ping.com/<uuid>
 DEFAULT_STALE_HOURS = 36
 
 
-def stale_cutoff(cfg, name: str, now: datetime | None = None) -> datetime:
+def stale_cutoff(cfg, name: str, now: datetime | None = None, *,
+                 default_hours: float = DEFAULT_STALE_HOURS) -> datetime:
     """The per-source staleness cutoff: a source's own config entry may set
-    `sources.<name>.stale_hours` to override the 36-hour default -- added
-    for sources that update on a cadence other than daily (a weekly fetch,
-    a manual import), where 36 hours would flag every single run as stale
+    `sources.<name>.stale_hours` to override the default -- added for
+    sources that update on a cadence other than daily (a weekly fetch, a
+    manual import), where 36 hours would flag every single run as stale
     almost immediately after a perfectly healthy one. Every source that
-    doesn't set this keeps the exact prior 36-hour behavior.
+    doesn't set this keeps `default_hours` (36 unless a caller overrides
+    it -- see app.pipeline_health's Block 4C Item 2 alert, which uses 72h
+    (3 days) instead of this function's own 36h default, per that item's
+    own wording, while still respecting the exact same per-source
+    stale_hours override every other caller here does).
 
     Shared by `scout doctor` (below) and the digest's own staleness check
     (app.pipeline.notify._stale_sources) specifically so the two cannot
@@ -42,7 +47,7 @@ def stale_cutoff(cfg, name: str, now: datetime | None = None) -> datetime:
     days despite a clean, on-schedule, zero-error run every single week."""
     if now is None:
         now = utcnow()
-    hours = cfg.get(f"sources.{name}.stale_hours", DEFAULT_STALE_HOURS)
+    hours = cfg.get(f"sources.{name}.stale_hours", default_hours)
     return now - timedelta(hours=hours)
 
 

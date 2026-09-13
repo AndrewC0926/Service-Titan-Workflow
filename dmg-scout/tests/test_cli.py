@@ -112,6 +112,43 @@ def test_match_contractors_steps_run_on_a_matching_weekly_day_after_the_rebuild(
     assert result.exit_code == 0
 
 
+def test_alert_check_runs_last_every_day_not_just_the_weekly_day(db_session, monkeypatch):
+    """Block 4C Item 2: the nightly alert check must run every night
+    (unlike the retrofit/match-contractors steps, which are Sundays-only),
+    positioned after snapshot-metrics and diff-sources so it sees THIS
+    run's own results."""
+    calls = []
+    _patch_stages(monkeypatch, calls)
+    monkeypatch.setattr(cli_mod, "alert_check_cmd", _recorder(calls, "alert_check_cmd"))
+    other_day = (utcnow().weekday() + 1) % 7
+    monkeypatch.setattr(cli_mod, "RETROFIT_WEEKLY_WEEKDAY", other_day)  # not the weekly day
+
+    result = CliRunner().invoke(cli_app, ["pipeline"])
+
+    assert "alert_check_cmd" in calls  # ran even though today isn't the weekly day
+    assert calls[-1] == "alert_check_cmd"  # runs last
+    assert result.exit_code == 0
+
+
+def test_alert_check_failure_does_not_abort_or_fail_the_run(db_session, monkeypatch):
+    """Same try/except-per-step discipline as every other stage: if
+    alert_check_cmd itself raises, the run still finishes and is marked
+    failed the same way any other stage failure marks it -- not a special
+    exemption, and not a crash of `scout pipeline` itself."""
+    calls = []
+    _patch_stages(monkeypatch, calls)
+
+    def _raiser(*a, **k):
+        calls.append("alert_check_cmd")
+        raise RuntimeError("resend is down")
+    monkeypatch.setattr(cli_mod, "alert_check_cmd", _raiser)
+
+    result = CliRunner().invoke(cli_app, ["pipeline"])
+
+    assert "alert_check_cmd" in calls
+    assert result.exit_code == 1
+
+
 # --- collision guards: Render's own schedule, the GitHub Actions backup   -
 # --- trigger, and a human running `scout pipeline` by hand must never    -
 # --- run two pipelines at once, or re-run a cycle that already succeeded -

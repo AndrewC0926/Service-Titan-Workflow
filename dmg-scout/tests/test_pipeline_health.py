@@ -3,24 +3,29 @@ Resend alert, plus the CLI equivalent (`scout check-freshness`). See
 app/pipeline_health.py for why this is separate from app.ops's
 healthchecks.io dead man's switch."""
 import base64
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import select
 
 from app.access_log import KNOWN_IPS
+from app.config import Config
 from app.db import get_session
-from app.models import PipelineRun, PipelineStageRun, RetrofitBuilding, StalenessAlert, utcnow
+from app.models import PipelineRun, PipelineStageRun, RetrofitBuilding, SourceRun, StalenessAlert, utcnow
 from app.pipeline_health import (
+    ALERT_SLO_DEFAULT_HOURS,
     CRON_MEMORY_LIMIT_BYTES,
     HEARTBEAT_STALE_MINUTES,
     MEMORY_WARN_FRACTION,
     RETROFIT_STALE_THRESHOLD_HOURS,
     check_and_alert_staleness,
+    cron_last_run_failed,
     memory_pressure_status,
     reap_stale_runs,
     retrofit_population_hours_stale,
+    snapshot_last_run,
+    source_slo_breaches,
 )
 from app.web.main import app
 from tests.conftest import assert_no_orm_objects, call_via_closing_session
@@ -376,3 +381,240 @@ def test_check_and_alert_staleness_survives_a_closed_session(db_session, no_emai
     assert result["stale"] is True  # memory pressure alone trips it
     assert len(no_email) == 1
     assert "memory pressure" in no_email[0][1]["json"]["subject"].lower()
+
+
+# ---- Block 4C Item 2: cron failure, source freshness SLO, zero-row
+# snapshot -- three more independent axes on the same alert, same email,
+# same rate limit. Fake clocks throughout: every helper below takes an
+# explicit `now` (or builds SourceRun.started_at from a fixed timedelta),
+# never real sleeps or wall-clock waits. ---------------------------------
+
+def test_cron_last_run_failed_is_none_when_latest_run_succeeded(db_session):
+    _run(db_session, hours_ago=1, status="success")
+    assert cron_last_run_failed(db_session) is None
+
+
+def test_cron_last_run_failed_catches_a_same_night_failure(db_session):
+    """The exact gap axis (1) alone leaves: a run that failed an hour ago is
+    nowhere near threshold_hours (36h) of no-success, so pipeline_is_stale
+    would stay False all night -- this axis is independent of that one."""
+    _run(db_session, hours_ago=1, status="failed")
+    failed = cron_last_run_failed(db_session)
+    assert failed is not None
+    assert failed.status == "failed"
+
+
+def test_cron_last_run_failed_ignores_an_older_failure_once_a_newer_run_succeeds(db_session):
+    _run(db_session, hours_ago=5, status="failed")
+    _run(db_session, hours_ago=1, status="success")
+    assert cron_last_run_failed(db_session) is None
+
+
+def test_check_and_alert_staleness_trips_on_cron_failure_alone(db_session, no_email, monkeypatch):
+    monkeypatch.setenv("RESEND_API_KEY", "test-key")
+    _run(db_session, hours_ago=1, status="failed")
+    _fresh_retrofit(db_session)
+    result = check_and_alert_staleness(db_session, _cfg())
+    assert result["stale"] is True
+    assert result["cron_failed"] == {"id": 1, "error": None}
+    assert len(no_email) == 1
+    assert "ended in failure" in no_email[0][1]["json"]["text"]
+
+
+def _fake_cfg(source_name: str, *, stale_hours: float | None = None) -> Config:
+    entry = {"enabled": True}
+    if stale_hours is not None:
+        entry["stale_hours"] = stale_hours
+    return Config({"sources": {source_name: entry}})
+
+
+class TestSourceSloBreaches:
+    def test_skips_a_source_with_no_run_at_all(self, db_session):
+        """Same "don't nag about a setup question" skip as
+        app.pipeline.notify._stale_sources -- a never-run source is absent
+        from the dict entirely, not flagged."""
+        assert source_slo_breaches(db_session, _fake_cfg("nevernrun")) == {}
+
+    def test_skips_a_disabled_source_even_with_runs(self, db_session):
+        db_session.add(SourceRun(source="disabledsrc", ok=True, started_at=utcnow()))
+        db_session.commit()
+        cfg = Config({"sources": {"disabledsrc": {"enabled": False}}})
+        assert source_slo_breaches(db_session, cfg) == {}
+
+    def test_default_slo_is_72_hours(self, db_session):
+        now = datetime(2026, 9, 13, 12, 0, 0)
+        db_session.add(SourceRun(source="ceqanet", ok=True, started_at=now - timedelta(hours=71)))
+        db_session.commit()
+        info = source_slo_breaches(db_session, _fake_cfg("ceqanet"), now=now)["ceqanet"]
+        assert info["stale"] is False
+        assert info["threshold_hours"] == ALERT_SLO_DEFAULT_HOURS == 72
+
+    def test_breaches_the_default_slo(self, db_session):
+        now = datetime(2026, 9, 13, 12, 0, 0)
+        db_session.add(SourceRun(source="ceqanet", ok=True, started_at=now - timedelta(hours=73)))
+        db_session.commit()
+        info = source_slo_breaches(db_session, _fake_cfg("ceqanet"), now=now)["ceqanet"]
+        assert info["stale"] is True
+        assert 72.9 <= info["hours_stale"] <= 73.1
+
+    def test_per_source_override_is_respected_over_the_default(self, db_session):
+        """A weekly source's own stale_hours override (e.g. 216h, matching
+        la_ebewe_benchmarking's real config) must win over the 72h alert
+        default -- otherwise every weekly source would falsely trip this
+        alert on 6 of every 7 days, the exact la_ebewe_benchmarking bug
+        app.ops.stale_cutoff's own docstring already documents fixing once."""
+        now = datetime(2026, 9, 13, 12, 0, 0)
+        db_session.add(SourceRun(source="weeklysrc", ok=True, started_at=now - timedelta(hours=100)))
+        db_session.commit()
+        info = source_slo_breaches(db_session, _fake_cfg("weeklysrc", stale_hours=216), now=now)["weeklysrc"]
+        assert info["stale"] is False
+        assert info["threshold_hours"] == 216
+
+    def test_a_source_that_only_ever_failed_is_stale(self, db_session):
+        now = datetime(2026, 9, 13, 12, 0, 0)
+        db_session.add(SourceRun(source="alwaysfails", ok=False, started_at=now - timedelta(hours=1)))
+        db_session.commit()
+        info = source_slo_breaches(db_session, _fake_cfg("alwaysfails"), now=now)["alwaysfails"]
+        assert info["stale"] is True
+        assert info["hours_stale"] is None
+
+    def test_backfill_suffixed_runs_count_toward_the_bare_source_name(self, db_session):
+        now = datetime(2026, 9, 13, 12, 0, 0)
+        db_session.add(SourceRun(source="ceqanet:backfill", ok=True, started_at=now - timedelta(hours=1)))
+        db_session.commit()
+        info = source_slo_breaches(db_session, _fake_cfg("ceqanet"), now=now)["ceqanet"]
+        assert info["stale"] is False
+
+
+def test_source_slo_breach_trips_the_combined_alert(db_session, no_email, monkeypatch):
+    monkeypatch.setenv("RESEND_API_KEY", "test-key")
+    _run(db_session, hours_ago=1, status="success")
+    _fresh_retrofit(db_session)
+    db_session.add(SourceRun(source="myfakesource", ok=True, started_at=utcnow() - timedelta(hours=100)))
+    db_session.commit()
+
+    result = check_and_alert_staleness(db_session, _fake_cfg("myfakesource"))
+    assert result["stale"] is True
+    assert result["source_freshness"]["myfakesource"]["stale"] is True
+    assert len(no_email) == 1
+    assert "myfakesource" in no_email[0][1]["json"]["text"]
+
+
+class TestSnapshotZeroRows:
+    def test_none_when_never_run(self, db_session):
+        assert snapshot_last_run(db_session) is None
+
+    def test_reads_back_the_most_recent_run(self, db_session):
+        db_session.add(SourceRun(source="metric_snapshot", ok=True, records_fetched=0,
+                                 started_at=utcnow() - timedelta(hours=2)))
+        db_session.add(SourceRun(source="metric_snapshot", ok=True, records_fetched=40,
+                                 started_at=utcnow() - timedelta(minutes=1)))
+        db_session.commit()
+        latest = snapshot_last_run(db_session)
+        assert latest.records_fetched == 40
+
+    def test_never_run_does_not_trip_the_alarm(self, db_session, no_email):
+        """A fresh database (every test fixture, and any deploy before its
+        first-ever nightly run) has no metric_snapshot SourceRun at all --
+        that is a bootstrapping gap, not the incident this axis exists to
+        catch, same distinction axis (5) draws for a never-run source."""
+        _run(db_session, hours_ago=1)
+        _fresh_retrofit(db_session)
+        result = check_and_alert_staleness(db_session, _cfg())
+        assert result["snapshot_zero_rows"] is False
+        assert result["stale"] is False
+        assert no_email == []
+
+    def test_zero_rows_trips_the_alarm(self, db_session, no_email, monkeypatch):
+        monkeypatch.setenv("RESEND_API_KEY", "test-key")
+        _run(db_session, hours_ago=1)
+        _fresh_retrofit(db_session)
+        db_session.add(SourceRun(source="metric_snapshot", ok=True, records_fetched=0, started_at=utcnow()))
+        db_session.commit()
+        result = check_and_alert_staleness(db_session, _cfg())
+        assert result["stale"] is True
+        assert result["snapshot_zero_rows"] is True
+        assert len(no_email) == 1
+        assert "metric_snapshot" in no_email[0][1]["json"]["text"]
+
+    def test_nonzero_rows_does_not_trip_the_alarm(self, db_session, no_email):
+        _run(db_session, hours_ago=1)
+        _fresh_retrofit(db_session)
+        db_session.add(SourceRun(source="metric_snapshot", ok=True, records_fetched=40, started_at=utcnow()))
+        db_session.commit()
+        result = check_and_alert_staleness(db_session, _cfg())
+        assert result["stale"] is False
+        assert no_email == []
+
+
+def test_check_freshness_cli_exits_nonzero_and_reports_new_axes(db_session, monkeypatch, no_email):
+    """`scout check-freshness` (app/cli.py) prints the same three new axes
+    and exits 1 when any trips, exactly as it already did for the
+    pre-existing axes."""
+    from typer.testing import CliRunner
+
+    from app.cli import app as cli_app
+
+    monkeypatch.setenv("RESEND_API_KEY", "test-key")
+    _run(db_session, hours_ago=1, status="failed")
+    _fresh_retrofit(db_session)
+    db_session.commit()
+
+    monkeypatch.setattr("app.cli.session_scope", lambda: _ClosingSessionFromExisting(db_session))
+
+    result = CliRunner().invoke(cli_app, ["check-freshness"])
+    assert result.exit_code == 1
+    assert "ended in failure" in result.output
+
+
+class _ClosingSessionFromExisting:
+    """A session_scope() stand-in that hands back the SAME test db_session
+    instead of opening a new one against a throwaway sqlite file -- so
+    `scout check-freshness`, invoked in-process via CliRunner, sees the rows
+    this test already committed."""
+    def __init__(self, session):
+        self._session = session
+
+    def __enter__(self):
+        return self._session
+
+    def __exit__(self, *exc):
+        return False
+
+
+class TestHealthPageContent:
+    """The /health page itself (Block 4C Item 2): last cron run, last
+    snapshot date, last brief date, open alerts."""
+
+    def test_clean_state_shows_no_open_alerts(self, client, db_session, no_email):
+        _run(db_session, hours_ago=1)
+        _fresh_retrofit(db_session)
+        db_session.add(SourceRun(source="metric_snapshot", ok=True, records_fetched=12, started_at=utcnow()))
+        db_session.commit()
+        resp = client.get("/settings/health", headers=AUTH)
+        assert resp.status_code == 200
+        assert "No open alerts" in resp.text
+        assert no_email == []
+
+    def test_tripped_state_shows_the_reason(self, client, db_session, no_email, monkeypatch):
+        monkeypatch.setenv("RESEND_API_KEY", "test-key")
+        _run(db_session, hours_ago=1, status="failed")
+        _fresh_retrofit(db_session)
+        resp = client.get("/settings/health", headers=AUTH)
+        assert resp.status_code == 200
+        assert "ended in failure" in resp.text
+        assert len(no_email) == 1  # the page load itself triggers the same check
+
+    def test_shows_last_brief_date(self, client, db_session, no_email):
+        from app.models import WeeklyBrief
+
+        _run(db_session, hours_ago=1)
+        _fresh_retrofit(db_session)
+        db_session.add(SourceRun(source="metric_snapshot", ok=True, records_fetched=1, started_at=utcnow()))
+        db_session.add(WeeklyBrief(
+            snapshot_date=datetime(2026, 9, 12, 5, 0), week_start=datetime(2026, 9, 5),
+            week_end=datetime(2026, 9, 12), generated_by="andrew", payload={},
+        ))
+        db_session.commit()
+        resp = client.get("/settings/health", headers=AUTH)
+        assert "2026-09-12" in resp.text

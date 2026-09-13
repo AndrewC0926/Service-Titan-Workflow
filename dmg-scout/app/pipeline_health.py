@@ -32,7 +32,10 @@ import httpx
 from sqlmodel import func, or_, select
 
 from app.config import Config, load_config
-from app.models import PipelineRun, PipelineStageRun, RawDocument, RetrofitBuilding, StalenessAlert, utcnow
+from app.models import (
+    PipelineRun, PipelineStageRun, RawDocument, RetrofitBuilding, SourceRun, StalenessAlert, utcnow,
+)
+from app.ops import stale_cutoff
 
 log = logging.getLogger(__name__)
 
@@ -333,6 +336,87 @@ def send_staleness_alert(cfg: Config, reasons: list[str], *, subject: str = "[DM
         return False
 
 
+ALERT_SLO_DEFAULT_HOURS = 72  # Block 4C Item 2: "any source's freshness exceeds its
+                              # SLO (config per source, default 3 days)" -- a
+                              # DIFFERENT default from app.ops.DEFAULT_STALE_HOURS
+                              # (36h), which governs a different, older check (the
+                              # on-page staleness banner, source_is_stale). Both
+                              # still respect the SAME per-source stale_hours
+                              # override where a source sets one.
+
+
+def cron_last_run_failed(session) -> PipelineRun | None:
+    """The most recent PipelineRun if its own status is "failed" -- distinct
+    from hours_stale()/pipeline_is_stale above, which only trips after
+    threshold_hours of no SUCCESS at all. A run that failed last night but
+    is still inside that window (e.g. it failed at 1am and it's now 6am)
+    would otherwise say nothing until the window itself expires -- this
+    catches it the same morning instead."""
+    run = latest_pipeline_run(session)
+    return run if run is not None and run.status == "failed" else None
+
+
+def source_slo_breaches(session, cfg: Config, *, default_hours: float = ALERT_SLO_DEFAULT_HOURS,
+                        now=None) -> dict[str, dict]:
+    """Every enabled config.yaml source with at least one SourceRun ever
+    recorded, and whether its latest SUCCESSFUL run is older than its own
+    freshness SLO (sources.<name>.stale_hours, default_hours if unset --
+    see ALERT_SLO_DEFAULT_HOURS). Mirrors app.pipeline.notify._stale_sources
+    exactly (same skip-if-never-run, same "manual" catch-all exclusion, same
+    app.ops.stale_cutoff underneath) but returns full detail per source
+    instead of a bare list of names, for /health and for building this
+    alert's own reasons list.
+
+    Deliberately does NOT cover the five sources app.pipeline.notify.
+    manual_recadence_status tracks by their own model timestamp instead of
+    SourceRun (hcai_projects, ab869_compliance_plans, iepr,
+    bpelsg_mechanical_roster, ahj_a2l_guidance) -- see that function, called
+    separately by check_and_alert_staleness below. A handful of remaining
+    enabled sources (competitor_lines, ab802_benchmarking,
+    opsc_school_facility, scaqmd_facility, hcai_seismic_ratings) write
+    neither a SourceRun under their own name nor a tracked model timestamp
+    today, so there is genuinely nothing to measure their freshness against
+    yet -- they are silently absent from this dict rather than guessed at,
+    same "unknown, not guessed" discipline as everywhere else in this app."""
+    from app.models import run_name_source
+
+    now = now or utcnow()
+    all_runs = session.exec(select(SourceRun)).all()
+    by_source: dict[str, list[SourceRun]] = {}
+    for run in all_runs:
+        by_source.setdefault(run_name_source(run.source), []).append(run)
+
+    out: dict[str, dict] = {}
+    for name in [n for n in cfg.data.get("sources", {}) if cfg.source_enabled(n)]:
+        if name == "manual":
+            continue
+        runs = by_source.get(name, [])
+        if not runs:
+            continue
+        oks = [r for r in runs if r.ok]
+        last_ok = max((r.started_at for r in oks), default=None)
+        threshold_hours = cfg.get(f"sources.{name}.stale_hours", default_hours)
+        stale = last_ok is None or last_ok < stale_cutoff(cfg, name, now, default_hours=default_hours)
+        out[name] = {
+            "last_ok": last_ok,
+            "hours_stale": None if last_ok is None else (now - last_ok).total_seconds() / 3600,
+            "threshold_hours": threshold_hours,
+            "stale": stale,
+        }
+    return out
+
+
+def snapshot_last_run(session) -> SourceRun | None:
+    """The most recent `scout snapshot-metrics` run -- written as its own
+    SourceRun(source="metric_snapshot") by that command (app/cli.py) purely
+    so this alert (and /health's "last snapshot date") has something to
+    read; metric_snapshot rows themselves carry no run-level metadata."""
+    return session.exec(
+        select(SourceRun).where(SourceRun.source == "metric_snapshot")
+        .order_by(SourceRun.started_at.desc()).limit(1)
+    ).first()
+
+
 def check_and_alert_staleness(session, cfg: Config, *, threshold_hours: float = STALE_THRESHOLD_HOURS,
                               cooldown_hours: float = ALERT_COOLDOWN_HOURS) -> dict:
     """Shared by the root dashboard view and `scout check-freshness` -- one
@@ -344,22 +428,38 @@ def check_and_alert_staleness(session, cfg: Config, *, threshold_hours: float = 
     first so a dead run (external kill, no heartbeat) can't masquerade as
     still in progress.
 
-    Checks three independent axes, any of which alone trips the alarm: (1)
+    Checks six independent axes, any of which alone trips the alarm: (1)
     has `scout pipeline` itself succeeded recently (stale_hours, unchanged
     behavior/keys from before retrofit coverage existed), (2) has EVERY
     RetrofitBuilding population been rebuilt within its own cadence (see
     RETROFIT_STALE_THRESHOLD_HOURS) -- returned under the `retrofit` key,
-    keyed by population, and (3) did the most recent `scout pipeline` run's
+    keyed by population, (3) did the most recent `scout pipeline` run's
     peak memory cross MEMORY_WARN_FRACTION of CRON_MEMORY_LIMIT_BYTES --
-    returned under the `memory` key, see memory_pressure_status(). Before
-    the second axis existed, a pipeline that ran fetch through notify
-    successfully every night still reported fresh even if
+    returned under the `memory` key, see memory_pressure_status() -- and,
+    added for Block 4C Item 2 ("alerts when the nightly cron fails, or any
+    source's freshness exceeds its SLO, or the snapshot step writes zero
+    rows"): (4) did the MOST RECENT pipeline run itself end status="failed"
+    (cron_failed key -- distinct from axis 1, which only trips after
+    threshold_hours of no success at all, so a same-night failure inside
+    that window would otherwise go unmentioned until the window expired),
+    (5) has any enabled, SourceRun-tracked source's own freshness SLO been
+    breached (source_freshness key -- source_slo_breaches()), and (6) did
+    the last `scout snapshot-metrics` run write zero total rows, or never
+    run at all (snapshot key). manual_freshness (the five sources tracked
+    by model timestamp instead of SourceRun) is ALSO returned, for
+    /health's display, but deliberately does not feed the alarm itself --
+    see that variable's own inline comment for why.
+
+    Before the second axis existed, a pipeline that ran fetch through
+    notify successfully every night still reported fresh even if
     build-retrofit-buildings/find-replacement-candidates had been silently
     broken or removed from the schedule for weeks; before the third, this
     alert path had nothing to say about a run that succeeded but crept
     towards the same OOM ceiling that has already killed one run for
     real (2026-08-13) -- it only spoke up after the kill, via axis (1) on
     the next check, never before."""
+    from app.pipeline.notify import manual_recadence_status
+
     reap_stale_runs(session)
     run = last_successful_run(session)
     stale_hours = hours_stale(session)
@@ -374,7 +474,35 @@ def check_and_alert_staleness(session, cfg: Config, *, threshold_hours: float = 
             "stale": hrs is None or hrs > pop_threshold,
         }
     mem = memory_pressure_status(session)
-    is_stale = pipeline_is_stale or any(v["stale"] for v in retrofit.values()) or mem["warn"]
+
+    failed_run = cron_last_run_failed(session)
+    source_freshness = source_slo_breaches(session, cfg)
+    # manual_freshness is shown on /health (Item 2's "per-source freshness")
+    # but deliberately does NOT feed is_stale/the alert email below: unlike
+    # source_slo_breaches (which SKIPS a source with zero runs, same as
+    # app.pipeline.notify._stale_sources), manual_recadence_status flags
+    # "never imported" as stale unconditionally -- correct for its own
+    # caller (the daily digest's separate nag, already shipped, already
+    # tuned for that cadence) but wrong for a 24h-cooldown alert email,
+    # which would otherwise page someone every single day a source that
+    # imports twice a year (iepr) or quarterly (ahj_a2l_guidance) simply
+    # hasn't been re-imported yet -- a setup/reminder question, not an
+    # incident, same distinction _stale_sources' own docstring draws.
+    manual_freshness = {row["name"]: row for row in manual_recadence_status(session, cfg)}
+    snapshot = snapshot_last_run(session)
+    # Same "skip a thing that has never run, don't alarm on it" discipline
+    # as source_slo_breaches above: a database that has genuinely never had
+    # `scout snapshot-metrics` run against it (every fresh test fixture,
+    # and any deploy before its very first nightly run) is a bootstrapping
+    # gap, not an incident -- this only fires once a run has actually
+    # happened and written nothing, which is what the item's own wording
+    # ("the snapshot step writes zero rows") describes. snapshot itself
+    # (None or not) is still returned below for /health's own display.
+    snapshot_zero_rows = snapshot is not None and snapshot.records_fetched == 0
+
+    is_stale = (pipeline_is_stale or any(v["stale"] for v in retrofit.values()) or mem["warn"]
+               or failed_run is not None or any(v["stale"] for v in source_freshness.values())
+               or snapshot_zero_rows)
 
     alert_sent = False
     if is_stale:
@@ -384,6 +512,9 @@ def check_and_alert_staleness(session, cfg: Config, *, threshold_hours: float = 
                 "No successful pipeline run has ever been recorded." if stale_hours is None
                 else f"{stale_hours:.0f} hours since the last successful pipeline run "
                     f"(threshold {threshold_hours:.0f}h).")
+        if failed_run is not None:
+            reasons.append(f"Pipeline run #{failed_run.id} ended in failure"
+                          f"{f': {failed_run.error}' if failed_run.error else ''}.")
         for population, info in retrofit.items():
             if not info["stale"]:
                 continue
@@ -391,15 +522,26 @@ def check_and_alert_staleness(session, cfg: Config, *, threshold_hours: float = 
                 f"retrofit_buildings population {population!r} has never been built." if info["hours_stale"] is None
                 else f"retrofit_buildings population {population!r} last rebuilt {info['hours_stale']:.0f} hours "
                     f"ago (threshold {info['threshold_hours']:.0f}h).")
+        for name, info in source_freshness.items():
+            if not info["stale"]:
+                continue
+            reasons.append(
+                f"source {name!r} has never run successfully." if info["hours_stale"] is None
+                else f"source {name!r} freshness is {info['hours_stale']:.0f} hours "
+                    f"(SLO {info['threshold_hours']:.0f}h).")
+        if snapshot_zero_rows:
+            reasons.append("The last metric_snapshot run wrote zero rows.")
         if mem["warn"]:
             reasons.append(
                 f"pipeline run #{mem['run_id']} peak memory {mem['peak_bytes'] / 2**20:.0f} MB is "
                 f"{mem['fraction'] * 100:.0f}% of the {mem['limit_bytes'] / 2**20:.0f} MB instance limit "
                 f"(warn threshold {MEMORY_WARN_FRACTION * 100:.0f}%) -- next run may OOM.")
         log.warning("staleness alarm tripped: %s", " ".join(reasons))
-        subject = ("[DMG Scout] Pipeline memory pressure warning"
-                   if mem["warn"] and not pipeline_is_stale and not any(v["stale"] for v in retrofit.values())
-                   else "[DMG Scout] Pipeline data is stale")
+        only_memory = (mem["warn"] and not pipeline_is_stale and failed_run is None
+                      and not any(v["stale"] for v in retrofit.values())
+                      and not any(v["stale"] for v in source_freshness.values())
+                      and not snapshot_zero_rows)
+        subject = "[DMG Scout] Pipeline memory pressure warning" if only_memory else "[DMG Scout] Pipeline data is stale"
         try:
             if not _last_alert_within(session, cooldown_hours):
                 if send_staleness_alert(cfg, reasons, subject=subject):
@@ -409,8 +551,18 @@ def check_and_alert_staleness(session, cfg: Config, *, threshold_hours: float = 
         except Exception:  # noqa: BLE001 — the staleness CHECK must never break the page it's on
             log.exception("staleness alert bookkeeping failed")
 
+    # Plain values below, not the ORM rows themselves -- a caller reading
+    # this after its own session has closed (call_via_closing_session, the
+    # same contract memory_pressure_status already has to honor) must never
+    # touch a live SQLModel instance. See assert_no_orm_objects's docstring
+    # for the exact production bug this discipline exists to prevent.
     return {
         "stale": is_stale, "hours_stale": stale_hours, "threshold_hours": threshold_hours,
         "last_success_at": run.finished_at if run else None, "alert_sent": alert_sent,
         "retrofit": retrofit, "memory": mem,
+        "cron_failed": {"id": failed_run.id, "error": failed_run.error} if failed_run else None,
+        "source_freshness": source_freshness, "manual_freshness": manual_freshness,
+        "snapshot_last_run": {"started_at": snapshot.started_at, "records_fetched": snapshot.records_fetched}
+                            if snapshot else None,
+        "snapshot_zero_rows": snapshot_zero_rows,
     }

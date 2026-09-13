@@ -3378,9 +3378,17 @@ def assumptions_register(request: Request, session: Session = Depends(get_sessio
 
 
 @app.get("/settings/health", response_class=HTMLResponse)
-def source_health(request: Request, session: Session = Depends(get_session), _: str = Depends(auth)):
-    from app.models import PipelineRun
-    from app.pipeline_health import memory_pressure_status, stage_peak_memory
+def source_health(request: Request, session: Session = Depends(get_session), _: str = Depends(operator)):
+    """Block 4C Item 2: "A /health page (operator only)". Was auth()-gated
+    only (any logged-in user, despite the /settings/ prefix) until this --
+    tightened to match every other /settings/* route (see operator()
+    above) rather than left as the one exception."""
+    from app.models import PipelineRun, WeeklyBrief
+    from app.pipeline_health import check_and_alert_staleness, memory_pressure_status, stage_peak_memory
+
+    cfg = load_config()
+    alerts = check_and_alert_staleness(session, cfg)
+    last_brief = session.exec(select(WeeklyBrief).order_by(WeeklyBrief.snapshot_date.desc()).limit(1)).first()
 
     # `scout pipeline` run history, peak memory alongside it: Render exposes
     # no instance metrics for one-off cron jobs (confirmed 2026-08-15), so
@@ -3439,7 +3447,7 @@ def source_health(request: Request, session: Session = Depends(get_session), _: 
         "sources": sources, "recent_runs": runs[:50], "budget": budget_status(),
         "chart": chart, "tb": _title_block(session), "active": "settings", "subview": "health",
         "pipeline_runs": pipeline_runs, "memory": mem, "latest_stage_peaks": latest_stage_peaks,
-        "precall": precall_cost_report(),
+        "precall": precall_cost_report(), "alerts": alerts, "last_brief": last_brief,
     })
 
 

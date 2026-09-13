@@ -4,6 +4,70 @@
 {% block sheet_no %}S-07{% endblock %}
 {% block content %}
 
+{# Block 4C Item 2: "last cron run, per-source freshness, last snapshot
+   date, last brief date, and open alerts" -- the reason this page exists
+   as a distinct /health, not just a rename of the source-run table below
+   it. Everything here reads the SAME check_and_alert_staleness() result
+   the nightly alert email is built from, so this page can never disagree
+   with what actually got emailed. #}
+<h2>Open alerts</h2>
+{% if alerts.stale %}
+<div class="callout callout-bad" style="margin-bottom:14px">
+  {{ icon('triangle-alert') }}
+  <span><strong>Alert conditions tripped</strong>
+    <span class="body">
+      {% if alerts.cron_failed %}<div>Pipeline run #{{ alerts.cron_failed.id }} ended in failure{% if alerts.cron_failed.error %}: {{ alerts.cron_failed.error }}{% endif %}.</div>{% endif %}
+      {% if alerts.hours_stale is none %}<div>No successful pipeline run has ever been recorded.</div>
+      {% elif alerts.hours_stale > alerts.threshold_hours %}<div>{{ '%.0f'|format(alerts.hours_stale) }} hours since the last successful pipeline run (threshold {{ '%.0f'|format(alerts.threshold_hours) }}h).</div>{% endif %}
+      {% for population, info in alerts.retrofit.items() if info.stale %}<div>retrofit_buildings population {{ population }}: {% if info.hours_stale is none %}never built{% else %}last rebuilt {{ '%.0f'|format(info.hours_stale) }}h ago (threshold {{ '%.0f'|format(info.threshold_hours) }}h){% endif %}.</div>{% endfor %}
+      {% for name, info in alerts.source_freshness.items() if info.stale %}<div>source {{ name }}: {% if info.hours_stale is none %}never run successfully{% else %}{{ '%.0f'|format(info.hours_stale) }}h since last success (SLO {{ '%.0f'|format(info.threshold_hours) }}h){% endif %}.</div>{% endfor %}
+      {% for name, info in alerts.manual_freshness.items() if info.is_stale %}<div>{{ name }}: {% if info.last_pull is none %}never imported{% else %}{{ '%.1f'|format(info.days_since) }}d since last import (cadence {{ '%.0f'|format(info.cadence_days) }}d){% endif %}.</div>{% endfor %}
+      {% if alerts.snapshot_zero_rows %}<div>The last metric_snapshot run wrote zero rows.</div>{% endif %}
+      {% if alerts.memory.warn %}<div>pipeline run #{{ alerts.memory.run_id }} peak memory is {{ '%.0f'|format(alerts.memory.fraction * 100) }}% of the instance limit -- next run may OOM.</div>{% endif %}
+    </span>
+  </span>
+</div>
+{% else %}
+<p class="ok" style="margin-bottom:14px">{{ icon('check') }} No open alerts.</p>
+{% endif %}
+
+<table style="max-width:720px;margin-bottom:18px">
+<tr><th>Last cron run</th><th>Last snapshot</th><th>Last brief</th></tr>
+<tr>
+  <td class="num">{% if pipeline_runs %}{{ pipeline_runs[0].started_at.strftime('%Y-%m-%d %H:%M') }} ({{ pipeline_runs[0].status }}){% else %}<span class="dim">never</span>{% endif %}</td>
+  <td class="num">{% if alerts.snapshot_last_run %}{{ alerts.snapshot_last_run.started_at.strftime('%Y-%m-%d %H:%M') }} ({{ alerts.snapshot_last_run.records_fetched }} rows){% else %}<span class="dim">never</span>{% endif %}</td>
+  <td class="num">{% if last_brief %}{{ last_brief.snapshot_date.strftime('%Y-%m-%d %H:%M') }}{% else %}<span class="dim">never</span>{% endif %}</td>
+</tr>
+</table>
+
+<h2>Source freshness (SLO)</h2>
+<table style="max-width:820px;margin-bottom:18px">
+<thead><tr><th>Source</th><th class="num">Hours since success</th><th class="num">SLO (hours)</th><th>Status</th></tr></thead>
+<tbody>
+{% for name, info in alerts.source_freshness.items() %}
+<tr>
+  <td class="mono">{{ name }}</td>
+  <td class="num">{{ '%.1f'|format(info.hours_stale) if info.hours_stale is not none else '—' }}</td>
+  <td class="num">{{ '%.0f'|format(info.threshold_hours) }}</td>
+  <td>{% if info.stale %}<span class="bad">STALE</span>{% else %}<span class="ok">OK</span>{% endif %}</td>
+</tr>
+{% else %}
+<tr><td colspan="4" class="dim">No SourceRun-tracked, enabled source has any run recorded yet.</td></tr>
+{% endfor %}
+{% for name, info in alerts.manual_freshness.items() %}
+<tr>
+  <td class="mono">{{ name }}</td>
+  <td class="num">{{ '%.1f'|format(info.days_since * 24) if info.days_since is not none else '—' }}</td>
+  <td class="num">{{ '%.0f'|format(info.cadence_days * 24) if info.cadence_days is not none else '—' }}</td>
+  <td>{% if info.is_stale %}<span class="bad">STALE</span>{% else %}<span class="ok">OK</span>{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+<p class="note">A handful of enabled sources (competitor_lines, ab802_benchmarking, opsc_school_facility,
+  scaqmd_facility, hcai_seismic_ratings) write no run timestamp of any kind today, so they cannot appear
+  above -- not silently marked OK.</p>
+
 {# ── The first chart in the system, and it earns its place.
      "Has this source been running, and when did it stop" is a shape over time: a
      gap is instantly visible on a timeline and invisible in a list of the last

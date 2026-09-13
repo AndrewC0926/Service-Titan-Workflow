@@ -231,3 +231,24 @@ class TestAccessLogRole:
         assert row is not None
         assert row.username is None
         assert row.role is None
+
+
+class TestHealthPageIsOperatorOnly:
+    """Block 4C Item 2: "A /health page (operator only)" -- /settings/health
+    was auth()-gated only until this (any logged-in user, despite living
+    under /settings/), the one exception to every other /settings/* route.
+    A rep or exec can log in fine; only /settings/health (and every other
+    /settings/* page) is closed to them."""
+
+    def test_a_rep_gets_403(self, client, db_session, monkeypatch):
+        cfg = load_config()
+        monkeypatch.setenv("DASHBOARD_PASSWORD_REP", "reppw")
+        monkeypatch.setattr(
+            "app.web.main.load_config",
+            lambda: _cfg_with_users(cfg, [("rep1", "DASHBOARD_PASSWORD_REP", "rep")], operators=[]),
+        )
+        rep_auth = {"Authorization": "Basic " + base64.b64encode(b"rep1:reppw").decode()}
+        assert client.get("/settings/health", headers=rep_auth).status_code == 403
+
+    def test_the_operator_gets_200(self, client, db_session):
+        assert client.get("/settings/health", headers=AUTH).status_code == 200

@@ -239,10 +239,20 @@ def snapshot_metrics_cmd() -> None:
     distribution, earliness rate, deadline exposure by regulation,
     outcomes/notes per user, ABSTAIN rates, source freshness. Idempotent
     -- safe to re-run the same day. Runs right after `notify` in `scout
-    pipeline` (see that command's own docstring)."""
+    pipeline` (see that command's own docstring).
+
+    Also writes its own SourceRun(source="metric_snapshot") row (Block 4C
+    Item 2) -- metric_snapshot rows carry no run-level metadata of their
+    own, so this is the only record of "did the last snapshot run write
+    anything," which app.pipeline_health.snapshot_last_run reads back for
+    the "snapshot step writes zero rows" alert and /health's "last
+    snapshot date"."""
+    from app.models import SourceRun, utcnow
     from app.pipeline.metrics import run_metric_snapshot
     with session_scope() as session:
         written = run_metric_snapshot(session)
+        total = sum(len(v) for v in written.values())
+        session.add(SourceRun(source="metric_snapshot", finished_at=utcnow(), ok=True, records_fetched=total))
     typer.echo(json.dumps({k: len(v) for k, v in written.items()}))
 
 
@@ -265,10 +275,11 @@ def pipeline(force: bool = typer.Option(
 )) -> None:
     """Run the full pipeline: fetch → triage → extract → resolve → score →
     notify → diff-sources → snapshot-metrics → fetch-ebewe-benchmarks →
-    build-retrofit-buildings → find-replacement-candidates (the last two --
-    ebewe and replacement-candidates -- Sundays only, see
-    RETROFIT_WEEKLY_WEEKDAY above; diff-sources and snapshot-metrics run
-    daily, see their own docstrings). Pings the
+    build-retrofit-buildings → find-replacement-candidates → match-contractors
+    → match-contractors-overdue → alert-check (the middle four -- ebewe,
+    replacement-candidates, match-contractors, match-contractors-overdue --
+    Sundays only, see RETROFIT_WEEKLY_WEEKDAY above; everything else,
+    alert-check included, runs daily, see their own docstrings). Pings the
     dead man's switch (HEALTHCHECK_URL) on completion, and records a
     pipeline_run row for the in-app staleness alarm (`scout check-freshness`
     / the root dashboard banner) — see app.pipeline_health, which also now
@@ -412,7 +423,7 @@ def pipeline(force: bool = typer.Option(
                     snapshot_metrics_cmd,
                     fetch_ebewe_benchmarks_cmd, fetch_local250_cmd, fetch_ownership_recency_cmd,
                     build_retrofit_buildings_cmd, find_replacement_candidates_cmd,
-                    match_contractors_cmd, match_contractors_overdue_cmd):
+                    match_contractors_cmd, match_contractors_overdue_cmd, alert_check_cmd):
             if (step in (find_replacement_candidates_cmd, fetch_ebewe_benchmarks_cmd,
                         fetch_local250_cmd, fetch_ownership_recency_cmd,
                         match_contractors_cmd, match_contractors_overdue_cmd)
@@ -552,10 +563,53 @@ def check_freshness_cmd() -> None:
         stream(f"[{mark}] peak memory: run #{mem['run_id']} used {mem['peak_bytes'] / 2**20:.0f} MB "
                f"of {mem['limit_bytes'] / 2**20:.0f} MB ({mem['fraction'] * 100:.0f}%)")
 
+    # Block 4C Item 2
+    if result["cron_failed"] is not None:
+        typer.echo(f"[FAIL ] pipeline run #{result['cron_failed']['id']} ended in failure", err=True)
+    for name, info in result["source_freshness"].items():
+        mark = "STALE" if info["stale"] else "OK   "
+        detail = ("never run successfully" if info["hours_stale"] is None
+                  else f"{info['hours_stale']:.1f}h since last success (SLO {info['threshold_hours']:.0f}h)")
+        stream = typer.echo if not info["stale"] else lambda s: typer.echo(s, err=True)
+        stream(f"[{mark}] source {name!r}: {detail}")
+    for name, info in result["manual_freshness"].items():
+        mark = "STALE" if info["is_stale"] else "OK   "
+        detail = ("never imported" if info["last_pull"] is None
+                  else f"{info['days_since']:.1f}d since last import (cadence {info['cadence_days']:.0f}d)")
+        stream = typer.echo if not info["is_stale"] else lambda s: typer.echo(s, err=True)
+        stream(f"[{mark}] {name}: {detail}")
+    if result["snapshot_zero_rows"]:
+        typer.echo("[STALE] metric_snapshot: last run wrote zero rows", err=True)
+    elif result["snapshot_last_run"] is not None:
+        typer.echo(f"[OK   ] metric_snapshot: last run wrote "
+                   f"{result['snapshot_last_run']['records_fetched']} rows "
+                   f"({result['snapshot_last_run']['started_at']:%Y-%m-%d %H:%M} UTC)")
+
     if not result["stale"]:
         return
     typer.echo(f"alert email sent this check: {result['alert_sent']}")
     raise typer.Exit(1)
+
+
+@app.command("alert-check")
+def alert_check_cmd() -> None:
+    """Block 4C Item 2: the nightly, non-interactive twin of
+    `scout check-freshness` -- same check_and_alert_staleness() call, same
+    rate-limited Resend email, but never raises typer.Exit(1). That exit
+    code is for a human or a monitoring script deciding whether to page on
+    THIS invocation; a step inside `scout pipeline` (see that command's own
+    STEPS tuple) must never abort the run just because ITS OWN alert
+    tripped -- the alert email already fired, and every other loop step is
+    request to keep going after a failure of its own for the exact same
+    reason. Runs last in the nightly pipeline, after snapshot-metrics and
+    diff-sources, so "did today's snapshot write rows" and "is every
+    source's freshness current" both reflect THIS run's own results, not
+    last night's."""
+    from app.pipeline_health import check_and_alert_staleness
+    cfg = load_config()
+    with session_scope() as session:
+        result = check_and_alert_staleness(session, cfg)
+    typer.echo(json.dumps({"stale": result["stale"], "alert_sent": result["alert_sent"]}))
 
 
 @app.command("sam-gov")
