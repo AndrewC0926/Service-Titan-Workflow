@@ -10,7 +10,7 @@ from app.models import (
     ReasonStrength, RetrofitBuilding, Signal, SignalType, TriggerType, WhyKind,
 )
 from app.pipeline.signals_feed import (
-    FeedSignal, four_part_filter, promote_to_opportunity, unified_signals,
+    FeedSignal, _owner_evidence_from_fields, four_part_filter, promote_to_opportunity, unified_signals,
 )
 
 
@@ -290,6 +290,61 @@ class TestFourPartFilter:
         result = four_part_filter(db_session, fs)
         assert "named_reachable_contact" in result.missing
 
+    def test_confirmed_project_contact_with_no_phone_mobile_or_email_does_not_satisfy_the_part(self, db_session):
+        """Block 4B-prep-3 Item 1: reach_status='confirmed' alone is not
+        enough -- a real, disclosed bug found against production data,
+        where NetSuite-imported contacts always carry 'confirmed' whether
+        or not a phone/mobile/email actually exists on the record."""
+        p = _project()
+        db_session.add(p)
+        db_session.flush()
+        confirmed_but_unreachable = Contact(name="Confirmed On Paper Only", reach_status="confirmed")
+        db_session.add(confirmed_but_unreachable)
+        db_session.flush()
+        db_session.add(ProjectContact(project_id=p.id, contact_id=confirmed_but_unreachable.id, role="gc"))
+        db_session.commit()
+
+        fs = FeedSignal(source="project", source_id=str(p.id), trigger_type=TriggerType.entitlement_milestone,
+                        trigger_date=None, evidence="x", confidence=None, project_id=p.id)
+        result = four_part_filter(db_session, fs)
+        assert "named_reachable_contact" in result.missing
+
+    def test_confirmed_project_contact_with_only_a_mobile_number_still_satisfies_the_part(self, db_session):
+        p = _project()
+        db_session.add(p)
+        db_session.flush()
+        contact = Contact(name="Mobile Only", reach_status="confirmed", mobile="555-9999")
+        db_session.add(contact)
+        db_session.flush()
+        db_session.add(ProjectContact(project_id=p.id, contact_id=contact.id, role="gc"))
+        db_session.commit()
+
+        fs = FeedSignal(source="project", source_id=str(p.id), trigger_type=TriggerType.entitlement_milestone,
+                        trigger_date=None, evidence="x", confidence=None, project_id=p.id)
+        result = four_part_filter(db_session, fs)
+        assert "named_reachable_contact" not in result.missing
+
+    def test_named_reachable_contact_via_nearby_contractor_yard_requires_a_real_contact_method(self, db_session):
+        """Same bug, via the Item 2 contractor-proximity path: a nearby
+        contractor-linked contact with reach_status='confirmed' but no
+        phone/mobile/email must not satisfy the part."""
+        b = RetrofitBuilding(apn="2-2-5", population="replacement_candidate",
+                             latitude=34.00, longitude=-118.00)
+        contractor = Contractor(license_no="C6", business_name="Confirmed On Paper Mechanical",
+                                latitude=34.02, longitude=-118.02)
+        db_session.add(b)
+        db_session.add(contractor)
+        db_session.flush()
+        db_session.add(Contact(name="No Real Contact Method", reach_status="confirmed",
+                               contractor_id=contractor.id))
+        db_session.commit()
+
+        fs = FeedSignal(source="retrofit_building", source_id=str(b.id),
+                        trigger_type=TriggerType.permit_gap, trigger_date=None,
+                        evidence="x", confidence=None, building_id=b.id)
+        result = four_part_filter(db_session, fs)
+        assert "named_reachable_contact" in result.missing
+
     def test_named_reachable_contact_via_nearby_contractor_yard(self, db_session):
         """Block 4B-prep-2 Item 2: a building-anchored signal with no
         Project link at all can still satisfy named_reachable_contact via
@@ -398,16 +453,31 @@ class TestFourPartFilter:
         """Block 4B-prep Item 3: a retrofit_building signal has no
         Category (opsc/ab869/hcai/retrofit never do), so it falls through
         to the new equipment-class path rather than ABSTAINing outright."""
-        b = RetrofitBuilding(apn="9-9-9", population="recently_active", equipment_type="boiler")
+        b = RetrofitBuilding(apn="9-9-9", population="recently_active", equipment_type="split_dx")
         db_session.add(b)
-        db_session.add(ProductLine(name="Test Boiler Line", name_norm="test boiler line",
-                                   category="heaters", building_role="heating_specialty"))
+        db_session.add(ProductLine(name="LG", name_norm="lg", category="vrf_split",
+                                   building_role="cooling_generation"))
         db_session.commit()
 
         fs = FeedSignal(source="retrofit_building", source_id=str(b.id), trigger_type=TriggerType.permit_gap,
                         trigger_date=None, evidence="x", confidence=None, building_id=b.id)
         result = four_part_filter(db_session, fs)
         assert "eligible_fitting_line" not in result.missing
+
+    def test_retrofit_building_with_boiler_equipment_type_still_abstains(self, db_session):
+        """Block 4B-prep-3 Item 2: boiler -> ABSTAIN until a boiler line
+        is confirmed on the card -- a heating_specialty-role line does NOT
+        stand in for one just because it shares that role tag."""
+        b = RetrofitBuilding(apn="9-9-10", population="recently_active", equipment_type="boiler")
+        db_session.add(b)
+        db_session.add(ProductLine(name="Cambridge", name_norm="cambridge",
+                                   category="heaters", building_role="heating_specialty"))
+        db_session.commit()
+
+        fs = FeedSignal(source="retrofit_building", source_id=str(b.id), trigger_type=TriggerType.permit_gap,
+                        trigger_date=None, evidence="x", confidence=None, building_id=b.id)
+        result = four_part_filter(db_session, fs)
+        assert "eligible_fitting_line" in result.missing
 
     def test_retrofit_building_with_no_equipment_type_still_abstains(self, db_session):
         """The replacement_candidate population's own permanently-null
@@ -494,6 +564,43 @@ class TestPromoteToOpportunity:
             select(ReasonBlock).where(ReasonBlock.opportunity_id == opp.id, ReasonBlock.why_kind == WhyKind.them)
         ).first()
         assert them_block.strength == ReasonStrength.Weak
+        assert "owner unknown" in them_block.evidence
+        assert "RetrofitBuilding" in them_block.evidence  # Block 4B-prep-3 Item 3: names which table would carry it
+
+    def test_do_fields_are_composed_when_a_real_contact_resolves(self, db_session):
+        """Block 4B-prep-3 Item 4, end to end through promote_to_opportunity."""
+        p = _project()
+        db_session.add(p)
+        db_session.flush()
+        contact = Contact(name="Jane PE", phone="555-1234", reach_status="confirmed")
+        db_session.add(contact)
+        db_session.flush()
+        db_session.add(ProjectContact(project_id=p.id, contact_id=contact.id, role="engineer_of_record"))
+        signal = Signal(signal_type=SignalType.ceqa_nop, event_date=datetime(2026, 1, 1))
+        db_session.add(signal)
+        db_session.commit()
+
+        fs = FeedSignal(source="project", source_id=str(p.id), trigger_type=TriggerType.entitlement_milestone,
+                        trigger_date=datetime(2026, 1, 1), evidence="x", confidence=None,
+                        project_id=p.id, account_id=1, pen_state=PenState.moving)
+        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id, owner_user="andrew")
+        blocks = db_session.exec(select(ReasonBlock).where(ReasonBlock.opportunity_id == opp.id)).all()
+        assert len(blocks) == 3
+        for b in blocks:
+            assert b.do_person == "Jane PE"
+            assert b.do_ask == "who is writing the basis of design"
+            assert b.one_sentence == b.one_sentence  # same value on all three, checked next
+        assert len({b.one_sentence for b in blocks}) == 1  # written to all three together
+
+    def test_do_fields_stay_null_when_no_contact_resolves(self, db_session):
+        signal = Signal(signal_type=SignalType.ceqa_nop, event_date=datetime(2026, 1, 1))
+        db_session.add(signal)
+        db_session.commit()
+        fs = FeedSignal(source="project", source_id="1", trigger_type=TriggerType.entitlement_milestone,
+                        trigger_date=datetime(2026, 1, 1), evidence="x", confidence=None, account_id=1)
+        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id, owner_user="andrew")
+        blocks = db_session.exec(select(ReasonBlock).where(ReasonBlock.opportunity_id == opp.id)).all()
+        assert all(b.do_person is None and b.do_ask is None and b.one_sentence is None for b in blocks)
 
     def test_origin_is_scout_signal_for_a_non_relationship_trigger(self, db_session):
         from app.models import Origin
@@ -516,3 +623,82 @@ class TestPromoteToOpportunity:
                         trigger_date=datetime(2026, 1, 1), evidence="x", confidence=None, account_id=1)
         opp = promote_to_opportunity(db_session, fs, signal_id=signal.id, owner_user="andrew")
         assert opp.origin == Origin.relationship_intro
+
+
+class TestOwnerEvidenceFromFields:
+    """Block 4B-prep-3 Item 3: the pure decision _building_owner_them_
+    evidence delegates to -- tested directly since no owner-bearing field
+    exists on RetrofitBuilding yet to exercise the Strong branch through
+    the real model (see that function's own docstring)."""
+
+    def test_owner_name_present_is_strong(self):
+        strength, evidence = _owner_evidence_from_fields(42, "Acme Holdings LLC", None)
+        assert strength == ReasonStrength.Strong
+        assert "Acme Holdings LLC" in evidence
+        assert "building_id=42" in evidence
+
+    def test_owner_mailing_address_alone_is_also_strong(self):
+        strength, evidence = _owner_evidence_from_fields(42, None, "123 Main St, Los Angeles CA")
+        assert strength == ReasonStrength.Strong
+        assert "123 Main St" in evidence
+
+    def test_neither_field_present_is_weak_and_names_the_table(self):
+        strength, evidence = _owner_evidence_from_fields(42, None, None)
+        assert strength == ReasonStrength.Weak
+        assert "owner unknown" in evidence
+        assert "RetrofitBuilding" in evidence
+
+
+class TestWinEvidenceContractorDmgCustomerStatus:
+    """Block 4B-prep-3 Item 5, end to end through promote_to_opportunity."""
+
+    def test_unknown_when_roster_not_loaded(self, db_session):
+        signal = Signal(signal_type=SignalType.ceqa_nop, event_date=datetime(2026, 1, 1))
+        db_session.add(signal)
+        b = RetrofitBuilding(apn="3-3-1", population="replacement_candidate",
+                             latitude=34.00, longitude=-118.00)
+        contractor = Contractor(license_no="W1", business_name="Win Test Mechanical",
+                                latitude=34.01, longitude=-118.01)
+        db_session.add(b)
+        db_session.add(contractor)
+        db_session.flush()
+        db_session.add(Contact(name="Someone", phone="555-8888", reach_status="confirmed",
+                               contractor_id=contractor.id))
+        db_session.commit()
+
+        fs = FeedSignal(source="retrofit_building", source_id=str(b.id),
+                        trigger_type=TriggerType.permit_gap, trigger_date=None,
+                        evidence="x", confidence=None, building_id=b.id, pen_state=PenState.not_moved)
+        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id, owner_user="andrew")
+        win_block = db_session.exec(
+            select(ReasonBlock).where(ReasonBlock.opportunity_id == opp.id, ReasonBlock.why_kind == WhyKind.win)
+        ).first()
+        assert "unknown, customer master not loaded" in win_block.evidence
+
+    def test_reports_customer_and_rep_once_roster_is_loaded(self, db_session):
+        from app.models import DmgCustomerRoster
+
+        signal = Signal(signal_type=SignalType.ceqa_nop, event_date=datetime(2026, 1, 1))
+        db_session.add(signal)
+        b = RetrofitBuilding(apn="3-3-2", population="replacement_candidate",
+                             latitude=34.00, longitude=-118.00)
+        contractor = Contractor(license_no="W2", business_name="Win Test Mechanical Two",
+                                latitude=34.01, longitude=-118.01)
+        db_session.add(b)
+        db_session.add(contractor)
+        db_session.add(DmgCustomerRoster(company_name="Win Test Mechanical Two",
+                                         name_norm="win test mechanical two", assigned_rep="Pat Rivera"))
+        db_session.flush()
+        db_session.add(Contact(name="Someone", phone="555-7777", reach_status="confirmed",
+                               contractor_id=contractor.id))
+        db_session.commit()
+
+        fs = FeedSignal(source="retrofit_building", source_id=str(b.id),
+                        trigger_type=TriggerType.permit_gap, trigger_date=None,
+                        evidence="x", confidence=None, building_id=b.id, pen_state=PenState.not_moved)
+        opp = promote_to_opportunity(db_session, fs, signal_id=signal.id, owner_user="andrew")
+        win_block = db_session.exec(
+            select(ReasonBlock).where(ReasonBlock.opportunity_id == opp.id, ReasonBlock.why_kind == WhyKind.win)
+        ).first()
+        assert "yes, assigned rep Pat Rivera" in win_block.evidence
+        assert win_block.strength == ReasonStrength.ABSTAIN  # contractor status is context, not win evidence itself

@@ -2846,3 +2846,39 @@ line_card:
     Navac: [NAVAC]
     Climacool: [CLIMACOOL]
     Amiad Water Systems: [AMIAD - PEP FILTERS, AMIAD WATER SYSTEMS]
+
+# =============================================================================
+# REASON BLOCK "DO" SYNTHESIS (Block 4B-prep-3 Item 4) -- config-driven, no
+# LLM. app.pipeline.reason_block.compose_do_fields composes do_person/
+# do_ask/one_sentence at PROMOTE TIME from these two templates: by_trigger_
+# type gives the topic/ask ("Do: call X about {topic} and ask {ask}"),
+# by_pen_state gives the urgency note in parentheses. Both dimensions must
+# have an entry for the signal's actual trigger_type/pen_state or
+# compose_do_fields ABSTAINs (all three fields null) rather than guessing
+# at an unconfigured combination -- see that function's own docstring.
+# =============================================================================
+reason_block_do:
+  by_trigger_type:
+    entitlement_milestone:
+      topic: "the project's entitlement/design timeline"
+      ask: "who is writing the basis of design"
+    permit_gap:
+      topic: "the building's overdue mechanical replacement"
+      ask: "whether they've budgeted a replacement or are waiting on a failure"
+    permit_activity:
+      topic: "the building's mechanical service life"
+      ask: "whether the installed equipment is already due for replacement"
+    deadline:
+      topic: "the outstanding regulatory deadline"
+      ask: "what their compliance timeline looks like"
+    public_work:
+      topic: "the open public-works application"
+      ask: "who is writing the spec and whether it's locked yet"
+    relationship_intro:
+      topic: "the introduction"
+      ask: "how they'd like to be introduced to the opportunity"
+  by_pen_state:
+    not_moved: "no contractor has a hold on this yet"
+    moving: "a decision is already moving -- worth a fast call"
+    moved: "a contractor may already be engaged -- confirm before investing time"
+    ABSTAIN: "pen status unknown -- treat as unconfirmed"

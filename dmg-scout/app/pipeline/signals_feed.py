@@ -24,7 +24,7 @@ import weakref
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from sqlmodel import Session, select
+from sqlmodel import Session, or_, select
 
 from app.config import load_config
 from app.contractors import default_radius_miles, haversine_miles
@@ -52,7 +52,9 @@ from app.models import (
     TriggerType,
     WhyKind,
 )
+from app.pipeline.dmg_customer_roster import dmg_customer_status_evidence
 from app.pipeline.opsc import OpscStatusClass, classify_opsc_status
+from app.pipeline.reason_block import compose_do_fields
 
 # NPC ratings HCAI itself publishes that mean "fully compliant" -- everything
 # else real (not None/"N/A"/"NYA", which mean unknown, not outstanding) is
@@ -60,6 +62,23 @@ from app.pipeline.opsc import OpscStatusClass, classify_opsc_status
 # code, kept verbatim.
 _NPC_COMPLIANT = {"5", "5s"}
 _NPC_UNKNOWN = {None, "N/A", "NYA"}
+
+
+def _has_a_real_contact_method(*columns):
+    """Block 4B-prep-3 Item 1: "requires phone, mobile or email present,
+    not reach_status alone." Contact.reach_status='confirmed' does NOT
+    imply this for a NetSuite-imported row (see Contact's own docstring:
+    those always get 'confirmed' regardless of whether a phone/email
+    exists) -- confirmed directly against the real local restore, where 6
+    of 10 contacts Block 4B-prep-2's own Item 2 promoted through had
+    reach_status='confirmed' with no phone, mobile, OR email on file at
+    all. Contact.reachable is NOT a substitute either: only
+    app.importers.netsuite_contacts sets it (the rest of Contact's write
+    paths, e.g. app.enrichment.import_enriched_contact, never touch it,
+    even though that function refuses to write a contact with no phone
+    and no email) -- so this checks the three real columns directly, the
+    one thing every write path actually populates honestly."""
+    return or_(*[c.is_not(None) for c in columns])
 
 
 @dataclass
@@ -437,7 +456,11 @@ def _build_contractor_contact_grid(session: Session) -> dict[tuple[int, int], li
     rows = session.exec(
         select(Contact.id, Contractor.latitude, Contractor.longitude)
         .join(Contractor, Contractor.id == Contact.contractor_id)
-        .where(Contact.reach_status == "confirmed", Contractor.latitude.is_not(None))
+        .where(
+            Contact.reach_status == "confirmed",
+            _has_a_real_contact_method(Contact.phone, Contact.mobile, Contact.email),
+            Contractor.latitude.is_not(None),
+        )
     ).all()
     grid: dict[tuple[int, int], list[tuple[int, float, float]]] = {}
     for contact_id, lat, lon in rows:
@@ -472,8 +495,10 @@ def _contractor_backed_contact_near(session: Session, lat: float | None, lon: fl
 
 
 def _named_reachable_contact(session: Session, fs: FeedSignal) -> int | None:
-    """A Contact row with reach_status='confirmed' (phone or email
-    populated -- see Contact's own docstring), reachable one of two ways:
+    """A Contact row with reach_status='confirmed' AND a real phone,
+    mobile, or email on file (Block 4B-prep-3 Item 1 -- see
+    _has_a_real_contact_method's own docstring for why reach_status alone
+    is not enough), reachable one of two ways:
 
     1. Linked to this signal's Project via ProjectContact -- project-
        sourced signals only (unchanged from Block 3 Item 2).
@@ -497,7 +522,11 @@ def _named_reachable_contact(session: Session, fs: FeedSignal) -> int | None:
     if fs.project_id is not None:
         rows = session.exec(
             select(Contact).join(ProjectContact, ProjectContact.contact_id == Contact.id)
-            .where(ProjectContact.project_id == fs.project_id, Contact.reach_status == "confirmed")
+            .where(
+                ProjectContact.project_id == fs.project_id,
+                Contact.reach_status == "confirmed",
+                _has_a_real_contact_method(Contact.phone, Contact.mobile, Contact.email),
+            )
         ).all()
         if rows:
             return rows[0].id
@@ -702,6 +731,56 @@ def four_part_filter(session: Session, fs: FeedSignal) -> FourPartResult:
     return FourPartResult(passed=not missing, missing=missing, contact_id=contact_id, line_id=line_id)
 
 
+# RetrofitBuilding field names an assessor owner join would populate, IF
+# one is ever added -- neither exists on the model today (checked
+# directly with getattr, never assumed), so this always falls through to
+# the "say which table would" branch for now. Named here, not inline,
+# so a future migration adding either field needs no change to
+# _building_owner_them_evidence itself -- it starts surfacing real data
+# the moment the column exists.
+_RETROFIT_OWNER_NAME_FIELD = "owner_name"
+_RETROFIT_OWNER_ADDRESS_FIELD = "owner_mailing_address"
+
+
+def _owner_evidence_from_fields(
+    building_id: int, owner_name: str | None, owner_address: str | None,
+) -> tuple[ReasonStrength, str]:
+    """The pure decision _building_owner_them_evidence delegates to,
+    factored out so the "owner IS known" branch is directly testable
+    without needing a real owner-bearing column on RetrofitBuilding
+    (which does not exist yet -- see that function's own docstring).
+    Strong (not Weak) when a real owner IS surfaced -- a named owner is
+    the same caliber of "who exactly is the buyer" as a known Account."""
+    if owner_name or owner_address:
+        owner_bits = ", ".join(x for x in (owner_name, owner_address) if x)
+        return ReasonStrength.Strong, f"Building identified (building_id={building_id}), assessor owner: {owner_bits}"
+    return ReasonStrength.Weak, (
+        f"Building identified (building_id={building_id}), owner unknown -- RetrofitBuilding carries no "
+        f"assessor owner-name/mailing-address field (verified: no free, bulk-queryable source exposes "
+        f"ownership for LA County parcels, see that model's own docstring). A future owner join would "
+        f"belong on RetrofitBuilding itself, keyed by apn -- the same way OwnershipRecency already "
+        f"rejoins last_sale_date onto it at build time."
+    )
+
+
+def _building_owner_them_evidence(session: Session, building_id: int) -> tuple[ReasonStrength, str]:
+    """Block 4B-prep-3 Item 3: "if RetrofitBuilding carries an assessor
+    owner name or mailing address, surface it in the Reason Block
+    evidence; if not, say which table would." Checked directly: neither
+    field exists on RetrofitBuilding today (see that model's own
+    docstring -- verified live that no free, bulk-queryable LA County
+    assessor source exposes ownership fields at all, so this was a
+    deliberate omission, not an oversight) -- _RETROFIT_OWNER_NAME_FIELD/
+    _RETROFIT_OWNER_ADDRESS_FIELD are read via getattr precisely so a
+    future migration adding either column needs no change here at all;
+    this starts surfacing real data (via _owner_evidence_from_fields'
+    Strong branch) the moment the column exists, with zero code change."""
+    building = session.get(RetrofitBuilding, building_id)
+    owner_name = getattr(building, _RETROFIT_OWNER_NAME_FIELD, None) if building else None
+    owner_address = getattr(building, _RETROFIT_OWNER_ADDRESS_FIELD, None) if building else None
+    return _owner_evidence_from_fields(building_id, owner_name, owner_address)
+
+
 # ---------------------------------------------------------------------------
 # Promote to Opportunity
 # ---------------------------------------------------------------------------
@@ -749,22 +828,48 @@ def promote_to_opportunity(session: Session, fs: FeedSignal, signal_id: int, own
     if fs.account_id is not None:
         them_strength, them_evidence = ReasonStrength.Strong, f"Known account (account_id={fs.account_id})"
     elif fs.building_id is not None:
-        them_strength, them_evidence = ReasonStrength.Weak, f"Building identified (building_id={fs.building_id}), owner unknown"
+        them_strength, them_evidence = _building_owner_them_evidence(session, fs.building_id)
     elif fs.facility_perm_id is not None:
         them_strength, them_evidence = ReasonStrength.Weak, f"Facility identified (perm_id={fs.facility_perm_id}), owner unknown"
     else:
         them_strength, them_evidence = ReasonStrength.ABSTAIN, "No account or building identified"
 
     now_strength = ReasonStrength.Strong if fs.trigger_date else ReasonStrength.ABSTAIN
-    win_strength, win_evidence = ReasonStrength.ABSTAIN, "No DMG relationship/pairing evidence available (Block 3: public data only)"
+    # Block 4B-prep-3 Item 5: the matched contact's own Contractor firm
+    # (Block 4B-prep-2 Item 1's contractor_id), checked against DMG's own
+    # customer roster -- "unknown, customer master not loaded" until
+    # Andrew loads it (see app.pipeline.dmg_customer_roster's own module
+    # docstring for why this session never loads it itself). win_strength
+    # stays ABSTAIN regardless -- a contractor relationship is not DMG
+    # pairing/win evidence for the actual buyer (the building owner), so
+    # this is added context on the same evidence line, not a strength
+    # upgrade.
+    contractor = None
+    if result.contact_id is not None:
+        contact_for_contractor = session.get(Contact, result.contact_id)
+        if contact_for_contractor is not None and contact_for_contractor.contractor_id is not None:
+            contractor = session.get(Contractor, contact_for_contractor.contractor_id)
+    win_strength = ReasonStrength.ABSTAIN
+    win_evidence = (
+        "No DMG relationship/pairing evidence available (Block 3: public data only). "
+        + dmg_customer_status_evidence(session, contractor)
+    )
+
+    # Block 4B-prep-3 Item 4: composed once, written to all three rows
+    # together (ReasonBlock's own docstring: "a human is never left
+    # looking at three different actions for one opportunity").
+    do_person, do_ask, one_sentence = compose_do_fields(session, fs.trigger_type, fs.pen_state, result.contact_id)
 
     rows = [
         ReasonBlock(opportunity_id=opp.id, why_kind=WhyKind.them, strength=them_strength,
-                   evidence=them_evidence, source=fs.source),
+                   evidence=them_evidence, source=fs.source,
+                   do_person=do_person, do_ask=do_ask, one_sentence=one_sentence),
         ReasonBlock(opportunity_id=opp.id, why_kind=WhyKind.now, strength=now_strength,
-                   evidence=fs.evidence, source=fs.source),
+                   evidence=fs.evidence, source=fs.source,
+                   do_person=do_person, do_ask=do_ask, one_sentence=one_sentence),
         ReasonBlock(opportunity_id=opp.id, why_kind=WhyKind.win, strength=win_strength,
-                   evidence=win_evidence, source=fs.source),
+                   evidence=win_evidence, source=fs.source,
+                   do_person=do_person, do_ask=do_ask, one_sentence=one_sentence),
     ]
     for row in rows:
         session.add(row)

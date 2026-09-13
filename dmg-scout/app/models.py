@@ -2922,6 +2922,40 @@ class Contractor(SQLModel, table=True):
     ua_local_250_checked_at: datetime | None = None
 
 
+class DmgCustomerRoster(SQLModel, table=True):
+    """Block 4B-prep-3 Item 5: a MINIMAL snapshot of DMG's own NetSuite
+    customer master (company name, NetSuite internal id, category,
+    assigned rep only -- the four fields a Reason Block's "win" evidence
+    needs to say whether a contractor is already a DMG account and who
+    holds it, nothing else from the real master file). Empty until Andrew
+    loads it separately, when authorized -- this session/migration never
+    imports the real file itself (see app.pipeline.dmg_customer_roster's
+    own module docstring for why, and for
+    contractor_dmg_customer_status()'s "unknown, customer master not
+    loaded" rendering while it is).
+
+    No uniqueness constraint on name_norm: the real master file has been
+    directly observed to carry more than one row for the exact same
+    company name under distinct NetSuite internal ids (e.g. two rows both
+    named "GLM Heating and Air Conditioning Inc.", one with an assigned
+    rep and one without) -- a real data quirk, not something a
+    constraint should refuse to load.
+
+    Exact match only, via normalize_company_name against Contractor.
+    business_name/full_business_name -- same never-fuzzy discipline as
+    app.pipeline.contact_contractor_match (a wrong fuzzy match here would
+    misattribute a real sales relationship to the wrong CSLB firm)."""
+    __tablename__ = "dmg_customer_roster"
+
+    id: int | None = Field(default=None, primary_key=True)
+    company_name: str
+    name_norm: str = Field(index=True)
+    netsuite_internal_id: str | None = Field(default=None, index=True)
+    category: str | None = None
+    assigned_rep: str | None = None
+    imported_at: datetime = Field(default_factory=utcnow, index=True)
+
+
 class RetrofitGeocode(SQLModel, table=True):
     """Geocoded coordinates for a retrofit building's APN -- lives in its
     own table for the exact reason ServiceFrequencyReport does (see that

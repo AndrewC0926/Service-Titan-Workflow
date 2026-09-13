@@ -1923,19 +1923,112 @@ def backfill_contact_ids_cmd() -> None:
     typer.echo(json.dumps(stats))
 
 
-@app.command("match-contractors")
-def match_contractors_cmd() -> None:
+@app.command("match-contacts-to-contractors")
+def match_contacts_to_contractors_cmd() -> None:
     """Block 4B-prep-2 Item 1: match Contact.customer_ref_name to the CSLB
     Contractor roster by exact normalize_company_name, storing
     contractor_id on Contact. Idempotent -- safe to re-run after either
     Contacts or the Contractor roster changes. See
     app.pipeline.contact_contractor_match's module docstring for the
-    exact-only match policy."""
+    exact-only match policy.
+
+    Block 4B-prep-3 Item 6 finding, fixed here: this command and its
+    underlying function were originally both named match_contractors_cmd/
+    "match-contractors" -- an exact collision with the PRE-EXISTING command
+    of that name a few hundred lines above (the geocoded-contractor
+    nearby-replacement-candidate-count precompute, `fetch_and_match_
+    contractors`). A module-level function redefinition silently rebinds
+    the name at import time, so `app.cli.match_contractors_cmd` resolved
+    to THIS function everywhere, including inside `pipeline_cmd`'s own
+    weekly-step dispatch, which calls it as `step(radius_miles=None)` --
+    a real, reproducible TypeError (this function takes no arguments at
+    all), confirmed by calling it directly before this fix. That would
+    have crashed every Sunday `scout pipeline` cron run the next time one
+    fired, not just left the original command unreachable from the CLI.
+    Renamed to remove the collision entirely rather than pick a
+    disambiguating flag or option."""
     from app.pipeline.contact_contractor_match import match_contacts_to_contractors
 
     with session_scope() as session:
         stats = match_contacts_to_contractors(session)
     typer.echo(json.dumps(stats))
+
+
+@app.command("promote-top-signals")
+def promote_top_signals_cmd(
+    top_n: int = typer.Option(10, help="How many all-four-pass signals to promote"),
+    owner_user: str = typer.Option(..., help="owner_user for every Opportunity this creates"),
+) -> None:
+    """Block 4B-prep-3 Item 6: rerun unified_signals()/four_part_filter()
+    against the real database and promote the top `top_n` signals that
+    pass all four parts AND have a real signal-record path
+    (can_promote_signal -- the same fifth gate the /signals page's own
+    Promote button checks). Ranked by trigger_date descending (most
+    recent dated reason first, source/source_id as a deterministic
+    tie-break) -- the only ordering available for a pre-promotion
+    FeedSignal; no other ranking function exists for one yet.
+
+    NOT idempotent against re-running on an already-promoted signal:
+    ensure_signal_for_promotion creates a fresh `signals` row for a
+    retrofit_building/ab869_plan-sourced signal every time (resolve_
+    signal_id only ever resolves an EXISTING row for project-sourced
+    signals -- see that function's own docstring), and promote_to_
+    opportunity has no guard against a second Opportunity for the same
+    source. Re-running this against a database that already has real
+    Opportunities from a prior run will create duplicates for any signal
+    both runs picked -- clean those up first if that matters for the
+    run at hand; this command does not do it automatically, since a
+    general "delete opportunities" behavior baked into a promotion
+    command is its own real risk this item didn't ask for."""
+    from app.pipeline.signals_feed import (
+        FOUR_PARTS, can_promote_signal, ensure_signal_for_promotion, four_part_filter,
+        promote_to_opportunity, unified_signals,
+    )
+
+    with session_scope() as session:
+        signals = unified_signals(session)
+        part_pass = {p: 0 for p in FOUR_PARTS}
+        by_trigger_total: dict[str, int] = {}
+        by_trigger_all_four: dict[str, int] = {}
+        all_four_pass = []
+        for fs in signals:
+            result = four_part_filter(session, fs)
+            trig = fs.trigger_type.value
+            by_trigger_total[trig] = by_trigger_total.get(trig, 0) + 1
+            for part in FOUR_PARTS:
+                if part not in result.missing:
+                    part_pass[part] += 1
+            if result.passed:
+                all_four_pass.append(fs)
+                by_trigger_all_four[trig] = by_trigger_all_four.get(trig, 0) + 1
+
+        promotable = [fs for fs in all_four_pass if can_promote_signal(fs)]
+        promotable.sort(key=lambda fs: (
+            fs.trigger_date is None,
+            -(fs.trigger_date.timestamp() if fs.trigger_date else 0),
+            fs.source, fs.source_id,
+        ))
+        top = promotable[:top_n]
+
+        promoted = []
+        for fs in top:
+            signal_id = ensure_signal_for_promotion(session, fs)
+            if signal_id is None:
+                continue
+            opp = promote_to_opportunity(session, fs, signal_id, owner_user=owner_user)
+            promoted.append({"opportunity_id": opp.id, "source": fs.source, "source_id": fs.source_id,
+                             "trigger_type": fs.trigger_type.value})
+
+        report = {
+            "total_signals": len(signals),
+            "part_pass": part_pass,
+            "pass_all_four": len(all_four_pass),
+            "by_trigger_total": by_trigger_total,
+            "by_trigger_all_four": by_trigger_all_four,
+            "promotable_count": len(promotable),
+            "promoted": promoted,
+        }
+    typer.echo(json.dumps(report))
 
 
 @app.command("account-join-report")

@@ -34,42 +34,89 @@ class TestEquipmentClassFromRetrofitType:
         assert equipment_class_from_retrofit_type("some_new_type_ladbs_never_saw_before") == EquipmentClass.unknown
 
 
+def _line(name, category, role, osp=None):
+    return ProductLine(name=name, name_norm=name.lower(), category=category, building_role=role, oshpd_osp=osp)
+
+
 class TestEligibleLinesForEquipmentClass:
     def test_unknown_never_returns_a_line(self, db_session):
-        db_session.add(ProductLine(name="Test AHU", name_norm="test ahu", category="air_handling",
-                                   building_role="air_handling"))
+        db_session.add(_line("AAON", "rooftop_units", "air_handling"))
         db_session.commit()
         assert eligible_lines_for_equipment_class(db_session, EquipmentClass.unknown) == []
 
-    def test_ahu_returns_an_air_handling_role_line(self, db_session):
-        db_session.add(ProductLine(name="Test AHU", name_norm="test ahu", category="air_handling",
-                                   building_role="air_handling"))
-        db_session.add(ProductLine(name="Test Boiler", name_norm="test boiler", category="heaters",
-                                   building_role="heating_specialty"))
+    def test_boiler_never_returns_a_line_yet(self, db_session):
+        """ABSTAIN until a boiler line is confirmed -- never falls back to
+        a heating_specialty-role line like Cambridge/Suburban/Markel/IEC
+        just because it shares a role tag with real boiler equipment."""
+        db_session.add(_line("Cambridge", "heaters", "heating_specialty"))
         db_session.commit()
-        lines = eligible_lines_for_equipment_class(db_session, EquipmentClass.ahu)
-        assert [l.name for l in lines] == ["Test AHU"]
+        assert eligible_lines_for_equipment_class(db_session, EquipmentClass.boiler) == []
 
-    def test_vrf_and_split_dx_and_chiller_all_share_cooling_generation(self, db_session):
-        db_session.add(ProductLine(name="Test VRF Line", name_norm="test vrf line", category="vrf_split",
-                                   building_role="cooling_generation"))
+    def test_ahu_returns_exactly_energy_labs_aaon_climatecraft(self, db_session):
+        db_session.add(_line("Energy Labs", "air_handling", "air_handling", osp=True))
+        db_session.add(_line("AAON", "rooftop_units", "air_handling", osp=True))
+        db_session.add(_line("ClimateCraft", "air_handling", "air_handling", osp=True))
+        db_session.add(_line("BASX", "air_handling", "air_handling"))  # a real air_handling line NOT on this list
         db_session.commit()
-        for equipment_class in (EquipmentClass.vrf, EquipmentClass.split_dx, EquipmentClass.chiller):
-            lines = eligible_lines_for_equipment_class(db_session, equipment_class)
-            assert [l.name for l in lines] == ["Test VRF Line"]
+        names = {l.name for l in eligible_lines_for_equipment_class(db_session, EquipmentClass.ahu)}
+        assert names == {"Energy Labs", "AAON", "ClimateCraft"}
 
-    def test_osp_required_excludes_a_line_with_no_current_osp(self, db_session):
-        db_session.add(ProductLine(name="No OSP Chiller", name_norm="no osp chiller", category="chillers_cooling",
-                                   building_role="cooling_generation", oshpd_osp=False))
+    def test_rooftop_packaged_returns_exactly_aaon_lg(self, db_session):
+        db_session.add(_line("AAON", "rooftop_units", "air_handling", osp=True))
+        db_session.add(_line("LG", "vrf_split", "cooling_generation"))
+        db_session.commit()
+        names = {l.name for l in eligible_lines_for_equipment_class(db_session, EquipmentClass.rooftop_packaged)}
+        assert names == {"AAON", "LG"}
+
+    def test_split_dx_returns_lg_and_the_other_vrf_split_lines_not_climacool(self, db_session):
+        """The bug this replaces: split_dx and chiller both shared
+        "cooling_generation" under the old role-based lookup, so
+        ClimaCool (a chiller line) was wrongly offered for a split-DX
+        replacement -- confirmed on 6 of Block 4B-prep-2's ten real
+        promotions."""
+        db_session.add(_line("LG", "vrf_split", "cooling_generation"))
+        db_session.add(_line("ClimateMaster", "vrf_split", "cooling_generation"))
+        db_session.add(_line("Islandaire", "vrf_split", "cooling_generation"))
+        db_session.add(_line("Hitachi", "vrf_split", "cooling_generation"))
+        db_session.add(_line("Engineered Comfort", "vrf_split", "cooling_generation", osp=True))
+        db_session.add(_line("ClimaCool", "chillers_cooling", "cooling_generation", osp=False))
+        db_session.commit()
+        names = {l.name for l in eligible_lines_for_equipment_class(db_session, EquipmentClass.split_dx)}
+        assert names == {"LG", "ClimateMaster", "Islandaire", "Hitachi", "Engineered Comfort"}
+        assert "ClimaCool" not in names
+
+    def test_vrf_gets_the_same_lines_as_split_dx(self, db_session):
+        db_session.add(_line("LG", "vrf_split", "cooling_generation"))
+        db_session.commit()
+        names = {l.name for l in eligible_lines_for_equipment_class(db_session, EquipmentClass.vrf)}
+        assert names == {"LG"}
+
+    def test_cooling_tower_returns_marley_not_recold(self, db_session):
+        db_session.add(_line("Marley", "cooling_towers", "heat_rejection", osp=True))
+        db_session.add(_line("Recold", "cooling_towers", "heat_rejection"))  # same role, not the named line
+        db_session.commit()
+        names = {l.name for l in eligible_lines_for_equipment_class(db_session, EquipmentClass.cooling_tower)}
+        assert names == {"Marley"}
+
+    def test_chiller_returns_climacool_when_osp_not_required(self, db_session):
+        db_session.add(_line("ClimaCool", "chillers_cooling", "cooling_generation", osp=False))
+        db_session.commit()
+        names = {l.name for l in eligible_lines_for_equipment_class(db_session, EquipmentClass.chiller)}
+        assert names == {"ClimaCool"}
+
+    def test_chiller_excludes_climacool_when_osp_required(self, db_session):
+        """"chiller -> ClimaCool only where OSP is not required" --
+        ClimaCool's own oshpd_osp=False makes this fall out of the
+        existing OSP filter with no special case."""
+        db_session.add(_line("ClimaCool", "chillers_cooling", "cooling_generation", osp=False))
         db_session.commit()
         assert eligible_lines_for_equipment_class(db_session, EquipmentClass.chiller, osp_required=True) == []
 
-    def test_osp_required_includes_a_line_with_a_current_osp(self, db_session):
-        db_session.add(ProductLine(name="OSP Chiller", name_norm="osp chiller", category="chillers_cooling",
-                                   building_role="cooling_generation", oshpd_osp=True))
+    def test_osp_required_includes_a_named_line_with_a_current_osp(self, db_session):
+        db_session.add(_line("AAON", "rooftop_units", "air_handling", osp=True))
         db_session.commit()
-        lines = eligible_lines_for_equipment_class(db_session, EquipmentClass.chiller, osp_required=True)
-        assert [l.name for l in lines] == ["OSP Chiller"]
+        lines = eligible_lines_for_equipment_class(db_session, EquipmentClass.rooftop_packaged, osp_required=True)
+        assert [l.name for l in lines] == ["AAON"]
 
 
 class TestEquipmentClassCoverageReport:

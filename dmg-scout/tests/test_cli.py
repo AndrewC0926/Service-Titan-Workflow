@@ -2,11 +2,13 @@
 themselves (each has its own test module), but the orchestration: does a
 failing retrofit step still let the rest of the run finish, and does the
 weekly gate around find-replacement-candidates actually gate."""
+import json
+
 from typer.testing import CliRunner
 
 import app.cli as cli_mod
 from app.cli import app as cli_app
-from app.models import utcnow
+from app.models import ProductLine, utcnow
 
 
 def _recorder(calls, name):
@@ -200,3 +202,88 @@ def test_snapshot_metrics_cmd_runs_and_prints_a_count_per_metric(db_session):
     output = json.loads(result.output)
     assert "qualified_opportunities" in output
     assert output["qualified_opportunities"] == 1  # one dimensionless row: {} -> value
+
+
+def test_no_duplicate_command_names_registered():
+    """Block 4B-prep-3 Item 6 finding: a second @app.command("match-
+    contractors") (Block 4B-prep-2 Item 1's Contact-to-Contractor match)
+    silently shadowed the pre-existing "match-contractors" command (the
+    geocoded-contractor nearby-replacement-candidate-count precompute) --
+    Python module-level function redefinition rebinds the name, so
+    app.cli.match_contractors_cmd resolved to the wrong one everywhere,
+    including inside pipeline_cmd's own weekly-step dispatch, which calls
+    it as step(radius_miles=None) -- a real TypeError against the
+    zero-argument function that name actually pointed to, confirmed by
+    calling it directly. This guards against any future accidental
+    duplicate command name doing the same thing silently."""
+    from typer.main import get_command_name
+
+    names = [c.name or get_command_name(c.callback.__name__) for c in cli_app.registered_commands]
+    duplicates = {n for n in names if names.count(n) > 1}
+    assert duplicates == set(), f"duplicate @app.command name(s): {duplicates}"
+
+
+def test_match_contractors_cmd_is_the_nearby_count_precompute_not_the_contact_match():
+    """The specific collision test_no_duplicate_command_names_registered
+    guards against generically -- this pins down which function the name
+    must resolve to."""
+    import inspect
+
+    assert "radius_miles" in inspect.signature(cli_mod.match_contractors_cmd).parameters
+    assert cli_mod.match_contractors_cmd is not cli_mod.match_contacts_to_contractors_cmd
+
+
+class TestPromoteTopSignalsCmd:
+    def test_promotes_up_to_top_n_all_four_pass_signals(self, db_session):
+        from datetime import datetime
+
+        from app.models import Contact, Contractor, RetrofitBuilding
+
+        b = RetrofitBuilding(apn="cli-1", population="recently_active", equipment_type="split_dx",
+                            latitude=34.0, longitude=-118.0, latest_install_year=2010,
+                            service_life_status="overdue")
+        contractor = Contractor(license_no="CLI1", business_name="CLI Test Mechanical",
+                                latitude=34.01, longitude=-118.01)
+        db_session.add(b)
+        db_session.add(contractor)
+        db_session.add(ProductLine(name="LG", name_norm="lg", category="vrf_split",
+                                   building_role="cooling_generation"))
+        db_session.flush()
+        db_session.add(Contact(name="CLI Contact", phone="555-0001", reach_status="confirmed",
+                               contractor_id=contractor.id))
+        db_session.commit()
+
+        result = CliRunner().invoke(cli_app, ["promote-top-signals", "--owner-user", "andrew"])
+        assert result.exit_code == 0
+        report = json.loads(result.output)
+        assert report["pass_all_four"] == 1
+        assert len(report["promoted"]) == 1
+        assert report["promoted"][0]["source"] == "retrofit_building"
+
+    def test_respects_top_n(self, db_session):
+        from app.models import Contact, Contractor, RetrofitBuilding
+
+        for i in range(3):
+            b = RetrofitBuilding(apn=f"cli-top-{i}", population="recently_active", equipment_type="split_dx",
+                                latitude=34.0 + i * 0.01, longitude=-118.0, latest_install_year=2010,
+                                service_life_status="overdue")
+            contractor = Contractor(license_no=f"CLITOP{i}", business_name=f"CLI Top Mechanical {i}",
+                                    latitude=34.0 + i * 0.01, longitude=-118.01)
+            db_session.add(b)
+            db_session.add(contractor)
+            db_session.flush()
+            db_session.add(Contact(name=f"Contact {i}", phone="555-0002", reach_status="confirmed",
+                                   contractor_id=contractor.id))
+        db_session.add(ProductLine(name="LG", name_norm="lg", category="vrf_split",
+                                   building_role="cooling_generation"))
+        db_session.commit()
+
+        result = CliRunner().invoke(cli_app, ["promote-top-signals", "--top-n", "2", "--owner-user", "andrew"])
+        assert result.exit_code == 0
+        report = json.loads(result.output)
+        assert report["pass_all_four"] == 3
+        assert len(report["promoted"]) == 2
+
+    def test_requires_owner_user(self, db_session):
+        result = CliRunner().invoke(cli_app, ["promote-top-signals"])
+        assert result.exit_code != 0

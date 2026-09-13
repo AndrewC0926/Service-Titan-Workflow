@@ -1,11 +1,15 @@
-"""Block 4B-prep Item 3: eligible lines for buildings and facilities.
+"""Block 4B-prep Item 3 (line map rewritten in Block 4B-prep-3 Item 2):
+eligible lines for buildings and facilities.
 
-A config map from a building's EQUIPMENT CLASS to the line-card roles it can
-plausibly be sold into, reusing the SAME role/OSP eligibility engine the
-rest of Scout already uses (app.accounts.ROLE_ORDER / ProductLine.
-building_role / ProductLine.oshpd_osp) -- not a second one. For an
-HCAI-governed (hospital) facility, "eligible" means a line with a current
-OSP, not just a line that exists in the right role -- same rule
+A direct, named map from a building's EQUIPMENT CLASS to the specific
+line(s) DMG's own real card assigns to it (EQUIPMENT_CLASS_TO_LINE_NAMES,
+matched by ProductLine.name_norm) -- NOT a role/category lookup, which the
+real card measurably breaks (see that map's own comment: split_dx and
+chiller sharing a "cooling_generation" role tag let a chiller line get
+offered as a split-DX replacement). The OSP register is still reused
+exactly as the rest of Scout already uses it (ProductLine.oshpd_osp): for
+an HCAI-governed (hospital) facility, "eligible" means a line with a
+current OSP, not just a line named for the class -- same rule
 app.accounts.line_offering_by_role and app.pipeline.hcai.
 hospital_capability_gaps already enforce for project-sourced signals.
 
@@ -98,23 +102,51 @@ def equipment_class_from_retrofit_type(equipment_type: str | None) -> EquipmentC
     return RETROFIT_TYPE_TO_CLASS.get(equipment_type, EquipmentClass.unknown)
 
 
-# EquipmentClass -> the app.accounts.ROLE_ORDER role(s) it is plausibly sold
-# into -- built from the SAME CATEGORY_TO_ROLE table the rest of the line
-# card already uses (app/accounts.py), not a new, second judgment call:
-# rooftop_units/air_handling -> air_handling, vrf_split/chillers_cooling ->
-# cooling_generation, cooling_towers -> heat_rejection, heaters ->
-# heating_specialty. vrf and split_dx share cooling_generation on the same
-# "vrf_split rolls up to cooling_generation" precedent app.pipeline.hcai.
-# hospital_capability_gaps already established. `unknown` maps to no role
-# at all -- ABSTAIN, never a guessed role.
-EQUIPMENT_CLASS_TO_ROLES: dict[EquipmentClass, tuple[str, ...]] = {
-    EquipmentClass.rooftop_packaged: ("air_handling",),
-    EquipmentClass.split_dx: ("cooling_generation",),
-    EquipmentClass.vrf: ("cooling_generation",),
-    EquipmentClass.chiller: ("cooling_generation",),
-    EquipmentClass.cooling_tower: ("heat_rejection",),
-    EquipmentClass.boiler: ("heating_specialty",),
-    EquipmentClass.ahu: ("air_handling",),
+# Block 4B-prep-3 Item 2: DMG's own real line card, named directly by
+# Andrew -- NOT the generic building_role/category lookup this map
+# replaces (kept as EQUIPMENT_CLASS_TO_ROLES's own history below this
+# comment for context on what changed and why). The old role-based lookup
+# was measurably wrong on the real card: split_dx and chiller both
+# resolved to "cooling_generation" and so both matched EVERY line tagged
+# that role, including ClimaCool -- a chillers_cooling line -- being
+# offered as a split-DX replacement it has no business being offered for
+# (confirmed directly: 6 of Block 4B-prep-2's ten promoted Opportunities
+# had a split_dx building matched to "ClimaCool" as its eligible line).
+# name_norm-matched, never role-matched, going forward.
+#
+# split_dx: LG plus the other lines actually tagged category='vrf_split'
+# on the real card today (ClimateMaster, Islandaire, Hitachi, Engineered
+# Comfort) -- DMG's own mini-split/VRF category bucket, not literally
+# named one-by-one in the instruction beyond LG; inferred from that shared
+# category tag and disclosed here so any of the four can be pulled out
+# directly if it doesn't actually belong on this list.
+# vrf: no retrofit permit today ever classifies as vrf (see module
+# docstring), so this has no real effect either way -- given the same
+# lines as split_dx on the view that VRF and mini-split are the same
+# physical equipment family on this card (both category='vrf_split'),
+# not a second, inconsistent judgment call.
+# rooftop_packaged: AAON, LG -- named directly.
+# chiller: ClimaCool -- named directly, "only where OSP is not required."
+# ClimaCool's own oshpd_osp=False on the real card makes that fall out of
+# the existing osp_required filter below automatically; no special case
+# needed, and no second chiller line is added just to have one for the
+# OSP-required branch (that branch correctly returns empty -- ABSTAIN --
+# until DMG actually confirms an OSP-registered chiller line).
+# cooling_tower: Marley -- "SPX/Marley" in the instruction; Marley is the
+# catalog line, SPX is that line's parent company, not a separate card
+# entry, so this maps to the one real row.
+# boiler: no lines -- ABSTAIN until a boiler line is confirmed on the
+# card, never guessed at Cambridge/Suburban/Markel/IEC (heating_specialty)
+# standing in for one just because they share a role tag.
+# ahu: Energy Labs, AAON, ClimateCraft -- named directly.
+EQUIPMENT_CLASS_TO_LINE_NAMES: dict[EquipmentClass, tuple[str, ...]] = {
+    EquipmentClass.rooftop_packaged: ("aaon", "lg"),
+    EquipmentClass.split_dx: ("lg", "climatemaster", "islandaire", "hitachi", "engineered comfort"),
+    EquipmentClass.vrf: ("lg", "climatemaster", "islandaire", "hitachi", "engineered comfort"),
+    EquipmentClass.chiller: ("climacool",),
+    EquipmentClass.cooling_tower: ("marley",),
+    EquipmentClass.boiler: (),
+    EquipmentClass.ahu: ("energy labs", "aaon", "climatecraft"),
     EquipmentClass.unknown: (),
 }
 
@@ -122,18 +154,21 @@ EQUIPMENT_CLASS_TO_ROLES: dict[EquipmentClass, tuple[str, ...]] = {
 def eligible_lines_for_equipment_class(
     session: Session, equipment_class: EquipmentClass, osp_required: bool = False,
 ) -> list[ProductLine]:
-    """Lines whose building_role matches this equipment class's role(s),
-    reusing the OSP register (ProductLine.oshpd_osp) exactly as
-    app.accounts.line_offering_by_role already does for project-sourced
-    signals: for an OSP-required (hospital) facility, "eligible" means a
-    line with a CURRENT OSP, not merely a line in the right role. `unknown`
-    always returns an empty list -- ABSTAIN, never a guess at what role an
-    unclassified building's equipment might occupy."""
-    roles = EQUIPMENT_CLASS_TO_ROLES.get(equipment_class, ())
-    if not roles:
+    """Lines DMG's own real card assigns to this equipment class (see
+    EQUIPMENT_CLASS_TO_LINE_NAMES -- matched by name_norm, not by a shared
+    building_role/category tag). `unknown` and `boiler` (no confirmed
+    boiler line on the card yet) both always return an empty list --
+    ABSTAIN, never a guess. For an OSP-required (hospital) facility,
+    "eligible" still means a line with a CURRENT OSP (ProductLine.
+    oshpd_osp), same rule app.accounts.line_offering_by_role already
+    enforces for project-sourced signals -- ClimaCool's own oshpd_osp=
+    False is what makes "chiller -> ClimaCool only where OSP is not
+    required" true, with no special case in this function for it."""
+    names = EQUIPMENT_CLASS_TO_LINE_NAMES.get(equipment_class, ())
+    if not names:
         return []
     lines = session.exec(
-        select(ProductLine).where(ProductLine.building_role.in_(roles))
+        select(ProductLine).where(ProductLine.name_norm.in_(names))
         .order_by(ProductLine.value_tier, ProductLine.name)
     ).all()
     if osp_required:
