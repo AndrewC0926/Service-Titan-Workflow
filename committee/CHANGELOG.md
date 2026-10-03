@@ -76,3 +76,10 @@ All notable changes, one entry per build phase (DESIGN 12).
 - `data/prices.py` (Massive with Finnhub fallback, back-adjusted closes, corporate actions), `macro.py` (FRED/ALFRED vintages), `news.py` (Finnhub), `factors.py` (Ken French), `risk_indexes.py` (GPR, EPU; Excel via openpyxl/xlrd).
 - `data/quality.py`: freshness by source in business days, price sanity with corporate-action matching, Form 4 completeness; journaled `dq_report`. `tests/test_lookahead_lint.py` fails the build on any PIT query without `as_of`.
 - CLI: `committee ingest {securities,edgar,prices,macro,news,factors,risk-indexes}`, `committee data check`.
+
+## phase-06/07: LLM infrastructure and the eleven agents
+- `agents/llm.py`: Anthropic client wrapper with pinned models, prompt caching on preamble and packet, retries, cost accounting; temperature is sent only to models that accept it (current SDK/models reject it — determinism rests on pinned ids, fixed prompts, canonical packets and the journal). `budget.py`: monthly guard with the 80% downgrade.
+- `agents/packets.py`: as-of evidence packets with [E#] ids, anonymized ids, scrubbed names, `<untrusted_content>` wrapping, relative dates, no balances or account data.
+- `prompts/`: shared preamble, schema and all eleven prompts copied verbatim from DESIGN 7 (a test enforces it), content-hashed and registered as trials.
+- `agents/schemas.py`: strict output models (citations must exist in the packet, probability bounds and sums, explainers cannot change engine numbers, severity ↔ cooling-off). `gates.py`: Chair gates in code (downgrade to WATCH/PASS, clamp size). One repair retry, then fail closed.
+- Base-rate reference-class table from PIT prices; Bear sees anonymized, shuffled analyst outputs on a different tier from the Chair; recall probe with a binomial test; eval harness over 5 fixtures. `committee agents dry-run | eval-harness | recall-probe`.
