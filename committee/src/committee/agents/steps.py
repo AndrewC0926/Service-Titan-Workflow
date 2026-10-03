@@ -99,10 +99,14 @@ def run_analysts(
     *,
     max_workers: int = 4,
 ) -> dict[str, AgentResult[AnalystOutput]]:
-    """Run the four analysts in parallel; journal on this thread in a fixed order."""
+    """Run the four analysts in parallel; journal on this thread in a fixed order.
+
+    Every completed call is journaled (with its cost) even when a sibling fails,
+    so the budget guard and the audit trail never miss a paid call.
+    """
     rt.check_budget()
     results: dict[str, AgentResult[AnalystOutput]] = {}
-    errors: list[AgentOutputInvalid] = []
+    errors: list[Exception] = []
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {
             a: pool.submit(run_analyst, rt, a, review, base_rate, journal=False)
@@ -113,6 +117,9 @@ def run_analysts(
                 res = futures[agent].result()
             except AgentOutputInvalid as e:
                 rt.journal_records(e.records)
+                errors.append(e)
+                continue
+            except Exception as e:  # e.g. LLMCallFailed: keep journaling the others
                 errors.append(e)
                 continue
             rt.journal_records(res.records)

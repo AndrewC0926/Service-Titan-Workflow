@@ -94,8 +94,8 @@ def _date(s: str | None, field: str) -> dt.date:
 
 
 def parse_xml(body: bytes) -> ET.Element:
-    head = body[:4096].upper()
-    if b"<!DOCTYPE" in head or b"<!ENTITY" in head:
+    upper = body.upper()  # the whole body: a long prolog must not hide a DTD
+    if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
         raise Form4ParseError("DTD/entity declarations are not allowed")
     try:
         root = ET.fromstring(body)  # noqa: S314 - DTDs rejected above; SEC ownership XML

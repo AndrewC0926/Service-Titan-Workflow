@@ -31,7 +31,7 @@ Real money follows only after every gate passes. Research, not advice.
 
 1. `eval quarterly`: allocator recommendation (frozen for the first 36 live months), agent reweighting (shrunk, ≤2x ratio), scenario refresh.
 2. `ops restore-test` on the latest backup — must report the journal verifies.
-3. Review pending config changes (`config pending`); any limit change takes effect 7 days after it is journaled.
+3. Review pending config changes (`config pending`); any limit change takes effect 7 days after it is journaled. Controlled files: `risk_limits.yaml`, `policy_portfolio.yaml` and `app.yaml` (broker order caps, approval-gate settings). Tightening a cap applies at once; loosening waits the 7 days.
 4. Read the scorecards with the sample-size warnings. Nothing short proves skill.
 
 ## Annually
@@ -56,14 +56,14 @@ Tax report (`tax realized-report --year YYYY`) for the CPA; update `config/tax_c
 
 | Level | Examples | Action |
 |---|---|---|
-| P1 | journal verification failure; order without approval record; executed limit breach; secret exposure | `kill-switch` (cancels open orders, blocks submission, read-only). Root-cause write-up (journal `note`) before `kill-switch --release`. |
+| P1 | journal verification failure; order without approval record; executed limit breach; secret exposure | `kill-switch` (cancels open orders, blocks submission, read-only). Root-cause write-up before `kill-switch --release --reason "..."`; the journaled reason is the write-up (at least 20 characters). |
 | P2 | a source stale > 2 days; agent schema failures > 5%; budget exhausted | Reviews pause; the core continues. |
 | P3 | single parse failures, minor DQ warnings | Logged; fix in the next maintenance window. |
 
 ### Drills
 
 - **Journal break:** `journal verify` exits 1, sets `var/flags/frozen.json`, journals a P1. Restore the journal from the last backup (`ops restore-test` first), compare with the off-site anchors, then remove the freeze flag only after the write-up.
-- **Broker down mid-order:** the gateway journals the rejected order and raises; re-run `orders place` later — completed tranches are not repeated.
+- **Broker down mid-order:** the gateway journals the rejected order and raises; re-run `orders place` later — completed tranches are not repeated. The retry reuses the same client order id and first asks the broker whether that order already exists (the failure may have come after the broker accepted it); if so it is journaled as `recovered` instead of being sent twice. While the broker cannot be reached, the retry refuses to send anything.
 - **Budget exhausted:** the LLM client refuses calls; reviews pause; the digest says so.
 - **Lost secret:** rotate the key at the provider, update the keychain, journal a P1 note.
 

@@ -24,6 +24,17 @@ class FetchError(Exception):
         self.status = status
 
 
+def _redact(text: str, params: Mapping[str, str] | None) -> str:
+    """Remove query-parameter values (API keys, tokens) an error body may echo back.
+
+    Error messages end up in ingest summaries in the journal (REVIEW R-07).
+    """
+    for v in (params or {}).values():
+        if len(v) >= 8:
+            text = text.replace(v, "***")
+    return text
+
+
 class Fetcher(Protocol):
     def get(self, url: str, params: Mapping[str, str] | None = None) -> bytes: ...
 
@@ -80,7 +91,7 @@ class HttpFetcher:
                 if r.status_code == 200:
                     return r.content
                 if r.status_code not in RETRY_STATUSES:
-                    raise FetchError(url, r.status_code, r.text[:200])
+                    raise FetchError(url, r.status_code, _redact(r.text, params)[:200])
                 last = FetchError(url, r.status_code, "retryable")
             if attempt < self.max_retries:
                 self.sleep(self.backoff_base_s * (2**attempt))

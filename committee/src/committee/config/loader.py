@@ -23,7 +23,9 @@ CONFIG_FILES: dict[str, str] = {
 }
 
 # Files whose changes go through the 7-day change-control delay (DESIGN 11).
-CONTROLLED_FILES: tuple[str, ...] = ("risk_limits.yaml", "policy_portfolio.yaml")
+# app.yaml holds the broker order caps and the approval-gate settings, which are
+# limits too (REVIEW R-03).
+CONTROLLED_FILES: tuple[str, ...] = ("risk_limits.yaml", "policy_portfolio.yaml", "app.yaml")
 
 
 class ConfigError(Exception):

@@ -228,7 +228,7 @@ def test_kill_switch_blocks_and_cancels(env) -> None:  # type: ignore[no-untyped
     assert n == 1
     with pytest.raises(OrderBlocked, match="kill_switch"):
         env.gw.place(a, 100_000)
-    release_kill_switch(env.j, env.flags, "drill over")
+    release_kill_switch(env.j, env.flags, "drill over; root cause: scheduled drill")
     env.flags.set("frozen", "journal verify failed")
     with pytest.raises(OrderBlocked, match="frozen"):
         env.gw.place(a, 100_000)
