@@ -88,14 +88,14 @@ def format_shortlist(result: ScreenResult) -> str:
 @app.command("screen")
 def screen_command(
     asof: str = typer.Option(..., "--asof", help="As-of date (YYYY-MM-DD) or ISO timestamp."),
-    root: Path | None = typer.Option(None, "--root", help="Project root."),  # noqa: B008
-    holding: list[str] = typer.Option(  # noqa: B008
+    root: Path | None = typer.Option(None, "--root", help="Project root."),
+    holding: list[str] = typer.Option(
         [], "--holding-under-review", help="security_id or ticker to remove (repeatable)."
     ),
-    wash_sale: list[str] = typer.Option(  # noqa: B008
+    wash_sale: list[str] = typer.Option(
         [], "--wash-sale-block", help="security_id or ticker on the wash-sale block list."
     ),
-    mna: list[str] = typer.Option([], "--active-mna", help="security_id or ticker in an M&A deal."),  # noqa: B008
+    mna: list[str] = typer.Option([], "--active-mna", help="security_id or ticker in an M&A deal."),
     persist: bool = typer.Option(True, "--persist/--no-persist", help="Write signals + journal."),
 ) -> None:
     """Run the weekly screen as of ASOF and print the shortlist with contributing signals."""

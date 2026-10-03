@@ -175,6 +175,8 @@ def check_buy(s: PortfolioState, p: Proposal, m: float) -> None:
         <= conc.max_sector_pct_satellite / 100 * S + tol
     )
     for t, f in p.themes.items():
+        if f <= 0:
+            continue  # a trade with no exposure to the theme cannot breach its cap
         assert book.theme_sat_mv.get(t, 0.0) + x * f <= conc.max_theme_pct_satellite / 100 * S + tol
         assert r.theme_exposure[t].satellite_pct <= conc.max_theme_pct_satellite + 1e-6
     assert x <= LIMITS.liquidity.max_position_pct_of_adv / 100 * p.adv_usd + tol

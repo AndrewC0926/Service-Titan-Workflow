@@ -82,6 +82,12 @@ def build_digest(
             d.triggers.append(
                 f"{e.payload.get('symbol', e.payload.get('review_id'))}: {e.payload['reason'][8:]}"
             )
+        elif (
+            e.entry_type == "note"
+            and e.payload.get("kind") == "rereview_trigger"
+            and e.created_at >= since
+        ):
+            d.triggers.append(f"{e.payload.get('symbol')}: {e.payload.get('reason')}")
         elif e.entry_type == "incident" and e.created_at >= since:
             d.incidents.append(
                 f"{e.payload.get('level')} {e.payload.get('kind')}: {e.payload.get('job', '')}".strip()

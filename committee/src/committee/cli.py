@@ -122,6 +122,25 @@ def journal_tail(n: int = 20, entry_type: str | None = None, root: Path | None =
         )
 
 
+def _register() -> None:
+    from committee import commands
+    from committee.agents.cli import app as agents_app
+    from committee.data.cli import data_app, ingest_app
+    from committee.engines.scenario.cli import app as scenarios_app
+    from committee.engines.tax.cli import app as tax_app
+
+    ingest_app.command("nightly")(commands.ingest_nightly)
+    app.add_typer(ingest_app, name="ingest")
+    app.add_typer(data_app, name="data")
+    app.add_typer(agents_app, name="agents")
+    app.add_typer(scenarios_app, name="scenarios")
+    app.add_typer(tax_app, name="tax")
+    commands.register(app)
+
+
+_register()
+
+
 def main() -> None:  # pragma: no cover
     app()
 

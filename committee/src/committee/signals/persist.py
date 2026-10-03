@@ -75,6 +75,7 @@ def _brief(r: ScreenRow) -> dict[str, Any]:
         "bucket": r.bucket,
         "composite": round(r.composite, 6),
         "reason": r.shortlist_reason,
+        "lottery_pass": r.lottery.passed if r.lottery is not None else None,
         "contributions": {k: round(v, 6) for k, v in r.contributions.items() if v != 0.0},
         "flags": {
             k: r.flags[k] for k in ("cluster_buy", "recent_cluster_buy", "high_short_interest")
