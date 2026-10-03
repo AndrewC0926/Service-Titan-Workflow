@@ -1,0 +1,2344 @@
+{
+ "asof": "2026-09-27",
+ "context": {
+  "benchmark": "SPY",
+  "position_weight_pct": 0.0
+ },
+ "description": "Asymmetric bet that passes every gate; news analyst flags contamination",
+ "engines": {
+  "bucket_tag": "ASYMMETRIC_BET",
+  "lottery_filter_pass": true,
+  "risk": {
+   "binding_constraints": [
+    "asymmetric default size"
+   ],
+   "max_size_pct_total": 1.0,
+   "scenario_losses_pct": {
+    "rate_shock": -0.2
+   },
+   "verdict": "PASS",
+   "veto_rule": null
+  },
+  "risk_budget_modifier": 1.0,
+  "tax": {
+   "after_tax_hurdle_pct": 0.0,
+   "cpa_flags": [],
+   "holding_period_warnings": [],
+   "recommended_account": "ira",
+   "wash_sale_blocked": false
+  }
+ },
+ "evidence": {
+  "base_rate_table": [
+   {
+    "computed_by": "code (point-in-time prices)",
+    "match_level": "sector+size+signals",
+    "n_samples": 175,
+    "n_securities": 163,
+    "outcomes": [
+     {
+      "event": "beats_benchmark",
+      "frequency": 0.4857,
+      "horizon_months": 3,
+      "n": 175
+     },
+     {
+      "event": "beats_benchmark",
+      "frequency": 0.4514,
+      "horizon_months": 6,
+      "n": 175
+     },
+     {
+      "event": "beats_benchmark",
+      "frequency": 0.4286,
+      "horizon_months": 12,
+      "n": 175
+     },
+     {
+      "event": "drawdown_exceeds_30pct",
+      "frequency": 0.3429,
+      "horizon_months": 12,
+      "n": 175
+     }
+    ],
+    "reference_class": "Health Care / small cap / signals: cluster_buy+momentum"
+   }
+  ],
+  "exposures": [
+   {
+    "beta": -0.6,
+    "factor": "rates_10y"
+   }
+  ],
+  "filing_diffs": [
+   {
+    "added": "Revenue from the second product line exceeded expectations.",
+    "form": "10-Q",
+    "item": "7",
+    "removed": "",
+    "similarity": 0.91
+   }
+  ],
+  "fundamentals": [
+   {
+    "fiscal_period": "2023Q3",
+    "metric": "revenue",
+    "period_end": "2023-09-01",
+    "value": 60.0
+   },
+   {
+    "fiscal_period": "2023Q3",
+    "metric": "gross_profit",
+    "period_end": "2023-09-01",
+    "value": 38.0
+   },
+   {
+    "fiscal_period": "2023Q3",
+    "metric": "cfo",
+    "period_end": "2023-09-01",
+    "value": -4.0
+   },
+   {
+    "fiscal_period": "2023Q3",
+    "metric": "cash",
+    "period_end": "2023-09-01",
+    "value": 420.0
+   },
+   {
+    "fiscal_period": "2023Q3",
+    "metric": "shares_outstanding",
+    "period_end": "2023-09-01",
+    "value": 88.0
+   },
+   {
+    "fiscal_period": "2023Q4",
+    "metric": "revenue",
+    "period_end": "2023-12-01",
+    "value": 64.2
+   },
+   {
+    "fiscal_period": "2023Q4",
+    "metric": "gross_profit",
+    "period_end": "2023-12-01",
+    "value": 41.0
+   },
+   {
+    "fiscal_period": "2023Q4",
+    "metric": "cfo",
+    "period_end": "2023-12-01",
+    "value": -3.8
+   },
+   {
+    "fiscal_period": "2023Q4",
+    "metric": "cash",
+    "period_end": "2023-12-01",
+    "value": 415.8
+   },
+   {
+    "fiscal_period": "2023Q4",
+    "metric": "shares_outstanding",
+    "period_end": "2023-12-01",
+    "value": 88.5
+   },
+   {
+    "fiscal_period": "2024Q1",
+    "metric": "revenue",
+    "period_end": "2024-03-01",
+    "value": 68.7
+   },
+   {
+    "fiscal_period": "2024Q1",
+    "metric": "gross_profit",
+    "period_end": "2024-03-01",
+    "value": 44.3
+   },
+   {
+    "fiscal_period": "2024Q1",
+    "metric": "cfo",
+    "period_end": "2024-03-01",
+    "value": -3.6
+   },
+   {
+    "fiscal_period": "2024Q1",
+    "metric": "cash",
+    "period_end": "2024-03-01",
+    "value": 411.6
+   },
+   {
+    "fiscal_period": "2024Q1",
+    "metric": "shares_outstanding",
+    "period_end": "2024-03-01",
+    "value": 89.1
+   },
+   {
+    "fiscal_period": "2024Q2",
+    "metric": "revenue",
+    "period_end": "2024-05-31",
+    "value": 73.5
+   },
+   {
+    "fiscal_period": "2024Q2",
+    "metric": "gross_profit",
+    "period_end": "2024-05-31",
+    "value": 47.9
+   },
+   {
+    "fiscal_period": "2024Q2",
+    "metric": "cfo",
+    "period_end": "2024-05-31",
+    "value": -3.4
+   },
+   {
+    "fiscal_period": "2024Q2",
+    "metric": "cash",
+    "period_end": "2024-05-31",
+    "value": 407.5
+   },
+   {
+    "fiscal_period": "2024Q2",
+    "metric": "shares_outstanding",
+    "period_end": "2024-05-31",
+    "value": 89.6
+   },
+   {
+    "fiscal_period": "2024Q3",
+    "metric": "revenue",
+    "period_end": "2024-08-30",
+    "value": 78.6
+   },
+   {
+    "fiscal_period": "2024Q3",
+    "metric": "gross_profit",
+    "period_end": "2024-08-30",
+    "value": 51.7
+   },
+   {
+    "fiscal_period": "2024Q3",
+    "metric": "cfo",
+    "period_end": "2024-08-30",
+    "value": -3.3
+   },
+   {
+    "fiscal_period": "2024Q3",
+    "metric": "cash",
+    "period_end": "2024-08-30",
+    "value": 403.5
+   },
+   {
+    "fiscal_period": "2024Q3",
+    "metric": "shares_outstanding",
+    "period_end": "2024-08-30",
+    "value": 90.1
+   },
+   {
+    "fiscal_period": "2024Q4",
+    "metric": "revenue",
+    "period_end": "2024-11-29",
+    "value": 84.2
+   },
+   {
+    "fiscal_period": "2024Q4",
+    "metric": "gross_profit",
+    "period_end": "2024-11-29",
+    "value": 55.8
+   },
+   {
+    "fiscal_period": "2024Q4",
+    "metric": "cfo",
+    "period_end": "2024-11-29",
+    "value": -3.1
+   },
+   {
+    "fiscal_period": "2024Q4",
+    "metric": "cash",
+    "period_end": "2024-11-29",
+    "value": 399.4
+   },
+   {
+    "fiscal_period": "2024Q4",
+    "metric": "shares_outstanding",
+    "period_end": "2024-11-29",
+    "value": 90.7
+   },
+   {
+    "fiscal_period": "2025Q1",
+    "metric": "revenue",
+    "period_end": "2025-02-28",
+    "value": 90.0
+   },
+   {
+    "fiscal_period": "2025Q1",
+    "metric": "gross_profit",
+    "period_end": "2025-02-28",
+    "value": 60.3
+   },
+   {
+    "fiscal_period": "2025Q1",
+    "metric": "cfo",
+    "period_end": "2025-02-28",
+    "value": -2.9
+   },
+   {
+    "fiscal_period": "2025Q1",
+    "metric": "cash",
+    "period_end": "2025-02-28",
+    "value": 395.4
+   },
+   {
+    "fiscal_period": "2025Q1",
+    "metric": "shares_outstanding",
+    "period_end": "2025-02-28",
+    "value": 91.2
+   },
+   {
+    "fiscal_period": "2025Q2",
+    "metric": "revenue",
+    "period_end": "2025-05-30",
+    "value": 96.3
+   },
+   {
+    "fiscal_period": "2025Q2",
+    "metric": "gross_profit",
+    "period_end": "2025-05-30",
+    "value": 65.1
+   },
+   {
+    "fiscal_period": "2025Q2",
+    "metric": "cfo",
+    "period_end": "2025-05-30",
+    "value": -2.8
+   },
+   {
+    "fiscal_period": "2025Q2",
+    "metric": "cash",
+    "period_end": "2025-05-30",
+    "value": 391.5
+   },
+   {
+    "fiscal_period": "2025Q2",
+    "metric": "shares_outstanding",
+    "period_end": "2025-05-30",
+    "value": 91.8
+   },
+   {
+    "fiscal_period": "2025Q3",
+    "metric": "revenue",
+    "period_end": "2025-08-29",
+    "value": 103.1
+   },
+   {
+    "fiscal_period": "2025Q3",
+    "metric": "gross_profit",
+    "period_end": "2025-08-29",
+    "value": 70.3
+   },
+   {
+    "fiscal_period": "2025Q3",
+    "metric": "cfo",
+    "period_end": "2025-08-29",
+    "value": -2.7
+   },
+   {
+    "fiscal_period": "2025Q3",
+    "metric": "cash",
+    "period_end": "2025-08-29",
+    "value": 387.6
+   },
+   {
+    "fiscal_period": "2025Q3",
+    "metric": "shares_outstanding",
+    "period_end": "2025-08-29",
+    "value": 92.3
+   },
+   {
+    "fiscal_period": "2025Q4",
+    "metric": "revenue",
+    "period_end": "2025-11-28",
+    "value": 110.3
+   },
+   {
+    "fiscal_period": "2025Q4",
+    "metric": "gross_profit",
+    "period_end": "2025-11-28",
+    "value": 76.0
+   },
+   {
+    "fiscal_period": "2025Q4",
+    "metric": "cfo",
+    "period_end": "2025-11-28",
+    "value": -2.5
+   },
+   {
+    "fiscal_period": "2025Q4",
+    "metric": "cash",
+    "period_end": "2025-11-28",
+    "value": 383.7
+   },
+   {
+    "fiscal_period": "2025Q4",
+    "metric": "shares_outstanding",
+    "period_end": "2025-11-28",
+    "value": 92.9
+   },
+   {
+    "fiscal_period": "2026Q1",
+    "metric": "revenue",
+    "period_end": "2026-02-27",
+    "value": 118.0
+   },
+   {
+    "fiscal_period": "2026Q1",
+    "metric": "gross_profit",
+    "period_end": "2026-02-27",
+    "value": 82.0
+   },
+   {
+    "fiscal_period": "2026Q1",
+    "metric": "cfo",
+    "period_end": "2026-02-27",
+    "value": -2.4
+   },
+   {
+    "fiscal_period": "2026Q1",
+    "metric": "cash",
+    "period_end": "2026-02-27",
+    "value": 379.8
+   },
+   {
+    "fiscal_period": "2026Q1",
+    "metric": "shares_outstanding",
+    "period_end": "2026-02-27",
+    "value": 93.4
+   },
+   {
+    "fiscal_period": "2026Q2",
+    "metric": "revenue",
+    "period_end": "2026-05-29",
+    "value": 126.3
+   },
+   {
+    "fiscal_period": "2026Q2",
+    "metric": "gross_profit",
+    "period_end": "2026-05-29",
+    "value": 88.6
+   },
+   {
+    "fiscal_period": "2026Q2",
+    "metric": "cfo",
+    "period_end": "2026-05-29",
+    "value": -2.3
+   },
+   {
+    "fiscal_period": "2026Q2",
+    "metric": "cash",
+    "period_end": "2026-05-29",
+    "value": 376.0
+   },
+   {
+    "fiscal_period": "2026Q2",
+    "metric": "shares_outstanding",
+    "period_end": "2026-05-29",
+    "value": 94.0
+   }
+  ],
+  "insider_txns": [
+   {
+    "classification": "opportunistic",
+    "filed_at": "2026-09-20",
+    "insider_role": "director",
+    "is_10b5_1": false,
+    "price": 14.1,
+    "shares": 20000,
+    "txn_code": "P",
+    "txn_date": "2026-09-18"
+   },
+   {
+    "classification": "opportunistic",
+    "filed_at": "2026-09-17",
+    "insider_role": "director",
+    "is_10b5_1": false,
+    "price": 14.1,
+    "shares": 15000,
+    "txn_code": "P",
+    "txn_date": "2026-09-15"
+   },
+   {
+    "classification": "opportunistic",
+    "filed_at": "2026-09-15",
+    "insider_role": "officer (CEO)",
+    "is_10b5_1": false,
+    "price": 14.1,
+    "shares": 30000,
+    "txn_code": "P",
+    "txn_date": "2026-09-13"
+   }
+  ],
+  "macro": [
+   {
+    "obs_date": "2026-09-24",
+    "series_id": "DGS10",
+    "value": 4.62
+   },
+   {
+    "obs_date": "2026-06-25",
+    "series_id": "DGS10",
+    "value": 4.48
+   },
+   {
+    "obs_date": "2026-09-24",
+    "series_id": "T10YIE",
+    "value": 2.41
+   },
+   {
+    "obs_date": "2026-06-25",
+    "series_id": "T10YIE",
+    "value": 2.37
+   },
+   {
+    "obs_date": "2026-09-24",
+    "series_id": "PCEPILFE",
+    "value": 2.9
+   },
+   {
+    "obs_date": "2026-06-25",
+    "series_id": "PCEPILFE",
+    "value": 3.0
+   },
+   {
+    "obs_date": "2026-09-24",
+    "series_id": "DCOILBRENTEU",
+    "value": 88.0
+   },
+   {
+    "obs_date": "2026-06-25",
+    "series_id": "DCOILBRENTEU",
+    "value": 79.5
+   },
+   {
+    "obs_date": "2026-09-24",
+    "series_id": "DFF",
+    "value": 4.33
+   },
+   {
+    "obs_date": "2026-06-25",
+    "series_id": "DFF",
+    "value": 4.33
+   },
+   {
+    "obs_date": "2026-09-24",
+    "series_id": "T10Y3M",
+    "value": 0.21
+   },
+   {
+    "obs_date": "2026-06-25",
+    "series_id": "T10Y3M",
+    "value": -0.05
+   },
+   {
+    "obs_date": "2026-09-24",
+    "series_id": "THREEFYTP10",
+    "value": 0.78
+   },
+   {
+    "obs_date": "2026-06-25",
+    "series_id": "THREEFYTP10",
+    "value": 0.65
+   }
+  ],
+  "news": [
+   {
+    "headline": "Bluefin expands label for lead therapy",
+    "published_at": "2026-09-21",
+    "publisher": "Example Wire",
+    "source_url": "https://news.example.com/b1",
+    "summary": "Regulators approved an expanded indication."
+   }
+  ],
+  "prices": [
+   {
+    "adj_close": 11.08,
+    "date": "2025-08-25"
+   },
+   {
+    "adj_close": 10.92,
+    "date": "2025-08-26"
+   },
+   {
+    "adj_close": 10.79,
+    "date": "2025-08-27"
+   },
+   {
+    "adj_close": 10.02,
+    "date": "2025-08-28"
+   },
+   {
+    "adj_close": 10.57,
+    "date": "2025-08-29"
+   },
+   {
+    "adj_close": 10.94,
+    "date": "2025-09-01"
+   },
+   {
+    "adj_close": 10.85,
+    "date": "2025-09-02"
+   },
+   {
+    "adj_close": 11.11,
+    "date": "2025-09-03"
+   },
+   {
+    "adj_close": 11.22,
+    "date": "2025-09-04"
+   },
+   {
+    "adj_close": 11.05,
+    "date": "2025-09-05"
+   },
+   {
+    "adj_close": 11.39,
+    "date": "2025-09-08"
+   },
+   {
+    "adj_close": 11.29,
+    "date": "2025-09-09"
+   },
+   {
+    "adj_close": 11.2,
+    "date": "2025-09-10"
+   },
+   {
+    "adj_close": 10.94,
+    "date": "2025-09-11"
+   },
+   {
+    "adj_close": 11.11,
+    "date": "2025-09-12"
+   },
+   {
+    "adj_close": 11.09,
+    "date": "2025-09-15"
+   },
+   {
+    "adj_close": 11.28,
+    "date": "2025-09-16"
+   },
+   {
+    "adj_close": 11.09,
+    "date": "2025-09-17"
+   },
+   {
+    "adj_close": 11.14,
+    "date": "2025-09-18"
+   },
+   {
+    "adj_close": 10.86,
+    "date": "2025-09-19"
+   },
+   {
+    "adj_close": 11.15,
+    "date": "2025-09-22"
+   },
+   {
+    "adj_close": 11.22,
+    "date": "2025-09-23"
+   },
+   {
+    "adj_close": 11.35,
+    "date": "2025-09-24"
+   },
+   {
+    "adj_close": 11.5,
+    "date": "2025-09-25"
+   },
+   {
+    "adj_close": 11.17,
+    "date": "2025-09-26"
+   },
+   {
+    "adj_close": 11.44,
+    "date": "2025-09-29"
+   },
+   {
+    "adj_close": 12.16,
+    "date": "2025-09-30"
+   },
+   {
+    "adj_close": 11.58,
+    "date": "2025-10-01"
+   },
+   {
+    "adj_close": 10.99,
+    "date": "2025-10-02"
+   },
+   {
+    "adj_close": 10.51,
+    "date": "2025-10-03"
+   },
+   {
+    "adj_close": 10.79,
+    "date": "2025-10-06"
+   },
+   {
+    "adj_close": 10.84,
+    "date": "2025-10-07"
+   },
+   {
+    "adj_close": 11.2,
+    "date": "2025-10-08"
+   },
+   {
+    "adj_close": 11.46,
+    "date": "2025-10-09"
+   },
+   {
+    "adj_close": 11.55,
+    "date": "2025-10-10"
+   },
+   {
+    "adj_close": 11.66,
+    "date": "2025-10-13"
+   },
+   {
+    "adj_close": 11.61,
+    "date": "2025-10-14"
+   },
+   {
+    "adj_close": 11.93,
+    "date": "2025-10-15"
+   },
+   {
+    "adj_close": 11.54,
+    "date": "2025-10-16"
+   },
+   {
+    "adj_close": 11.41,
+    "date": "2025-10-17"
+   },
+   {
+    "adj_close": 11.51,
+    "date": "2025-10-20"
+   },
+   {
+    "adj_close": 12.14,
+    "date": "2025-10-21"
+   },
+   {
+    "adj_close": 11.88,
+    "date": "2025-10-22"
+   },
+   {
+    "adj_close": 11.51,
+    "date": "2025-10-23"
+   },
+   {
+    "adj_close": 11.33,
+    "date": "2025-10-24"
+   },
+   {
+    "adj_close": 11.67,
+    "date": "2025-10-27"
+   },
+   {
+    "adj_close": 11.6,
+    "date": "2025-10-28"
+   },
+   {
+    "adj_close": 12.08,
+    "date": "2025-10-29"
+   },
+   {
+    "adj_close": 11.41,
+    "date": "2025-10-30"
+   },
+   {
+    "adj_close": 11.81,
+    "date": "2025-10-31"
+   },
+   {
+    "adj_close": 12.19,
+    "date": "2025-11-03"
+   },
+   {
+    "adj_close": 11.69,
+    "date": "2025-11-04"
+   },
+   {
+    "adj_close": 11.76,
+    "date": "2025-11-05"
+   },
+   {
+    "adj_close": 12.2,
+    "date": "2025-11-06"
+   },
+   {
+    "adj_close": 12.25,
+    "date": "2025-11-07"
+   },
+   {
+    "adj_close": 12.63,
+    "date": "2025-11-10"
+   },
+   {
+    "adj_close": 13.54,
+    "date": "2025-11-11"
+   },
+   {
+    "adj_close": 13.67,
+    "date": "2025-11-12"
+   },
+   {
+    "adj_close": 13.57,
+    "date": "2025-11-13"
+   },
+   {
+    "adj_close": 13.27,
+    "date": "2025-11-14"
+   },
+   {
+    "adj_close": 13.55,
+    "date": "2025-11-17"
+   },
+   {
+    "adj_close": 13.48,
+    "date": "2025-11-18"
+   },
+   {
+    "adj_close": 13.43,
+    "date": "2025-11-19"
+   },
+   {
+    "adj_close": 13.4,
+    "date": "2025-11-20"
+   },
+   {
+    "adj_close": 13.68,
+    "date": "2025-11-21"
+   },
+   {
+    "adj_close": 13.26,
+    "date": "2025-11-24"
+   },
+   {
+    "adj_close": 12.67,
+    "date": "2025-11-25"
+   },
+   {
+    "adj_close": 11.76,
+    "date": "2025-11-26"
+   },
+   {
+    "adj_close": 12.19,
+    "date": "2025-11-27"
+   },
+   {
+    "adj_close": 12.23,
+    "date": "2025-11-28"
+   },
+   {
+    "adj_close": 12.8,
+    "date": "2025-12-01"
+   },
+   {
+    "adj_close": 12.82,
+    "date": "2025-12-02"
+   },
+   {
+    "adj_close": 12.55,
+    "date": "2025-12-03"
+   },
+   {
+    "adj_close": 12.74,
+    "date": "2025-12-04"
+   },
+   {
+    "adj_close": 12.73,
+    "date": "2025-12-05"
+   },
+   {
+    "adj_close": 12.26,
+    "date": "2025-12-08"
+   },
+   {
+    "adj_close": 11.95,
+    "date": "2025-12-09"
+   },
+   {
+    "adj_close": 12.6,
+    "date": "2025-12-10"
+   },
+   {
+    "adj_close": 12.75,
+    "date": "2025-12-11"
+   },
+   {
+    "adj_close": 12.92,
+    "date": "2025-12-12"
+   },
+   {
+    "adj_close": 12.83,
+    "date": "2025-12-15"
+   },
+   {
+    "adj_close": 12.58,
+    "date": "2025-12-16"
+   },
+   {
+    "adj_close": 12.93,
+    "date": "2025-12-17"
+   },
+   {
+    "adj_close": 12.91,
+    "date": "2025-12-18"
+   },
+   {
+    "adj_close": 12.63,
+    "date": "2025-12-19"
+   },
+   {
+    "adj_close": 12.59,
+    "date": "2025-12-22"
+   },
+   {
+    "adj_close": 12.27,
+    "date": "2025-12-23"
+   },
+   {
+    "adj_close": 12.35,
+    "date": "2025-12-24"
+   },
+   {
+    "adj_close": 12.78,
+    "date": "2025-12-25"
+   },
+   {
+    "adj_close": 12.48,
+    "date": "2025-12-26"
+   },
+   {
+    "adj_close": 13.03,
+    "date": "2025-12-29"
+   },
+   {
+    "adj_close": 12.78,
+    "date": "2025-12-30"
+   },
+   {
+    "adj_close": 12.86,
+    "date": "2025-12-31"
+   },
+   {
+    "adj_close": 12.55,
+    "date": "2026-01-01"
+   },
+   {
+    "adj_close": 12.48,
+    "date": "2026-01-02"
+   },
+   {
+    "adj_close": 12.51,
+    "date": "2026-01-05"
+   },
+   {
+    "adj_close": 12.37,
+    "date": "2026-01-06"
+   },
+   {
+    "adj_close": 12.12,
+    "date": "2026-01-07"
+   },
+   {
+    "adj_close": 11.89,
+    "date": "2026-01-08"
+   },
+   {
+    "adj_close": 11.61,
+    "date": "2026-01-09"
+   },
+   {
+    "adj_close": 11.08,
+    "date": "2026-01-12"
+   },
+   {
+    "adj_close": 11.0,
+    "date": "2026-01-13"
+   },
+   {
+    "adj_close": 11.15,
+    "date": "2026-01-14"
+   },
+   {
+    "adj_close": 11.47,
+    "date": "2026-01-15"
+   },
+   {
+    "adj_close": 11.7,
+    "date": "2026-01-16"
+   },
+   {
+    "adj_close": 12.58,
+    "date": "2026-01-19"
+   },
+   {
+    "adj_close": 12.71,
+    "date": "2026-01-20"
+   },
+   {
+    "adj_close": 12.56,
+    "date": "2026-01-21"
+   },
+   {
+    "adj_close": 13.28,
+    "date": "2026-01-22"
+   },
+   {
+    "adj_close": 12.87,
+    "date": "2026-01-23"
+   },
+   {
+    "adj_close": 13.26,
+    "date": "2026-01-26"
+   },
+   {
+    "adj_close": 12.9,
+    "date": "2026-01-27"
+   },
+   {
+    "adj_close": 13.05,
+    "date": "2026-01-28"
+   },
+   {
+    "adj_close": 12.3,
+    "date": "2026-01-29"
+   },
+   {
+    "adj_close": 12.64,
+    "date": "2026-01-30"
+   },
+   {
+    "adj_close": 12.6,
+    "date": "2026-02-02"
+   },
+   {
+    "adj_close": 12.25,
+    "date": "2026-02-03"
+   },
+   {
+    "adj_close": 12.88,
+    "date": "2026-02-04"
+   },
+   {
+    "adj_close": 13.19,
+    "date": "2026-02-05"
+   },
+   {
+    "adj_close": 13.22,
+    "date": "2026-02-06"
+   },
+   {
+    "adj_close": 12.94,
+    "date": "2026-02-09"
+   },
+   {
+    "adj_close": 12.94,
+    "date": "2026-02-10"
+   },
+   {
+    "adj_close": 12.9,
+    "date": "2026-02-11"
+   },
+   {
+    "adj_close": 13.19,
+    "date": "2026-02-12"
+   },
+   {
+    "adj_close": 13.52,
+    "date": "2026-02-13"
+   },
+   {
+    "adj_close": 13.27,
+    "date": "2026-02-16"
+   },
+   {
+    "adj_close": 13.07,
+    "date": "2026-02-17"
+   },
+   {
+    "adj_close": 12.87,
+    "date": "2026-02-18"
+   },
+   {
+    "adj_close": 12.37,
+    "date": "2026-02-19"
+   },
+   {
+    "adj_close": 12.16,
+    "date": "2026-02-20"
+   },
+   {
+    "adj_close": 12.14,
+    "date": "2026-02-23"
+   },
+   {
+    "adj_close": 12.41,
+    "date": "2026-02-24"
+   },
+   {
+    "adj_close": 12.92,
+    "date": "2026-02-25"
+   },
+   {
+    "adj_close": 12.62,
+    "date": "2026-02-26"
+   },
+   {
+    "adj_close": 12.84,
+    "date": "2026-02-27"
+   },
+   {
+    "adj_close": 12.69,
+    "date": "2026-03-02"
+   },
+   {
+    "adj_close": 13.49,
+    "date": "2026-03-03"
+   },
+   {
+    "adj_close": 13.49,
+    "date": "2026-03-04"
+   },
+   {
+    "adj_close": 13.71,
+    "date": "2026-03-05"
+   },
+   {
+    "adj_close": 13.34,
+    "date": "2026-03-06"
+   },
+   {
+    "adj_close": 13.03,
+    "date": "2026-03-09"
+   },
+   {
+    "adj_close": 13.12,
+    "date": "2026-03-10"
+   },
+   {
+    "adj_close": 12.99,
+    "date": "2026-03-11"
+   },
+   {
+    "adj_close": 13.14,
+    "date": "2026-03-12"
+   },
+   {
+    "adj_close": 12.54,
+    "date": "2026-03-13"
+   },
+   {
+    "adj_close": 12.81,
+    "date": "2026-03-16"
+   },
+   {
+    "adj_close": 12.48,
+    "date": "2026-03-17"
+   },
+   {
+    "adj_close": 13.14,
+    "date": "2026-03-18"
+   },
+   {
+    "adj_close": 13.04,
+    "date": "2026-03-19"
+   },
+   {
+    "adj_close": 13.48,
+    "date": "2026-03-20"
+   },
+   {
+    "adj_close": 12.93,
+    "date": "2026-03-23"
+   },
+   {
+    "adj_close": 13.12,
+    "date": "2026-03-24"
+   },
+   {
+    "adj_close": 12.78,
+    "date": "2026-03-25"
+   },
+   {
+    "adj_close": 12.61,
+    "date": "2026-03-26"
+   },
+   {
+    "adj_close": 12.64,
+    "date": "2026-03-27"
+   },
+   {
+    "adj_close": 12.53,
+    "date": "2026-03-30"
+   },
+   {
+    "adj_close": 12.65,
+    "date": "2026-03-31"
+   },
+   {
+    "adj_close": 12.94,
+    "date": "2026-04-01"
+   },
+   {
+    "adj_close": 13.21,
+    "date": "2026-04-02"
+   },
+   {
+    "adj_close": 13.19,
+    "date": "2026-04-03"
+   },
+   {
+    "adj_close": 12.67,
+    "date": "2026-04-06"
+   },
+   {
+    "adj_close": 12.38,
+    "date": "2026-04-07"
+   },
+   {
+    "adj_close": 12.32,
+    "date": "2026-04-08"
+   },
+   {
+    "adj_close": 11.55,
+    "date": "2026-04-09"
+   },
+   {
+    "adj_close": 11.83,
+    "date": "2026-04-10"
+   },
+   {
+    "adj_close": 11.76,
+    "date": "2026-04-13"
+   },
+   {
+    "adj_close": 11.68,
+    "date": "2026-04-14"
+   },
+   {
+    "adj_close": 12.03,
+    "date": "2026-04-15"
+   },
+   {
+    "adj_close": 12.28,
+    "date": "2026-04-16"
+   },
+   {
+    "adj_close": 12.38,
+    "date": "2026-04-17"
+   },
+   {
+    "adj_close": 12.02,
+    "date": "2026-04-20"
+   },
+   {
+    "adj_close": 12.15,
+    "date": "2026-04-21"
+   },
+   {
+    "adj_close": 12.29,
+    "date": "2026-04-22"
+   },
+   {
+    "adj_close": 11.98,
+    "date": "2026-04-23"
+   },
+   {
+    "adj_close": 12.37,
+    "date": "2026-04-24"
+   },
+   {
+    "adj_close": 12.57,
+    "date": "2026-04-27"
+   },
+   {
+    "adj_close": 11.84,
+    "date": "2026-04-28"
+   },
+   {
+    "adj_close": 11.9,
+    "date": "2026-04-29"
+   },
+   {
+    "adj_close": 11.46,
+    "date": "2026-04-30"
+   },
+   {
+    "adj_close": 11.87,
+    "date": "2026-05-01"
+   },
+   {
+    "adj_close": 12.17,
+    "date": "2026-05-04"
+   },
+   {
+    "adj_close": 11.78,
+    "date": "2026-05-05"
+   },
+   {
+    "adj_close": 11.48,
+    "date": "2026-05-06"
+   },
+   {
+    "adj_close": 11.53,
+    "date": "2026-05-07"
+   },
+   {
+    "adj_close": 11.46,
+    "date": "2026-05-08"
+   },
+   {
+    "adj_close": 12.0,
+    "date": "2026-05-11"
+   },
+   {
+    "adj_close": 12.28,
+    "date": "2026-05-12"
+   },
+   {
+    "adj_close": 12.19,
+    "date": "2026-05-13"
+   },
+   {
+    "adj_close": 12.42,
+    "date": "2026-05-14"
+   },
+   {
+    "adj_close": 11.68,
+    "date": "2026-05-15"
+   },
+   {
+    "adj_close": 11.8,
+    "date": "2026-05-18"
+   },
+   {
+    "adj_close": 12.12,
+    "date": "2026-05-19"
+   },
+   {
+    "adj_close": 12.07,
+    "date": "2026-05-20"
+   },
+   {
+    "adj_close": 11.83,
+    "date": "2026-05-21"
+   },
+   {
+    "adj_close": 12.04,
+    "date": "2026-05-22"
+   },
+   {
+    "adj_close": 12.76,
+    "date": "2026-05-25"
+   },
+   {
+    "adj_close": 12.86,
+    "date": "2026-05-26"
+   },
+   {
+    "adj_close": 12.44,
+    "date": "2026-05-27"
+   },
+   {
+    "adj_close": 13.0,
+    "date": "2026-05-28"
+   },
+   {
+    "adj_close": 12.28,
+    "date": "2026-05-29"
+   },
+   {
+    "adj_close": 12.48,
+    "date": "2026-06-01"
+   },
+   {
+    "adj_close": 12.28,
+    "date": "2026-06-02"
+   },
+   {
+    "adj_close": 12.63,
+    "date": "2026-06-03"
+   },
+   {
+    "adj_close": 12.33,
+    "date": "2026-06-04"
+   },
+   {
+    "adj_close": 12.83,
+    "date": "2026-06-05"
+   },
+   {
+    "adj_close": 12.96,
+    "date": "2026-06-08"
+   },
+   {
+    "adj_close": 12.31,
+    "date": "2026-06-09"
+   },
+   {
+    "adj_close": 11.59,
+    "date": "2026-06-10"
+   },
+   {
+    "adj_close": 11.5,
+    "date": "2026-06-11"
+   },
+   {
+    "adj_close": 11.96,
+    "date": "2026-06-12"
+   },
+   {
+    "adj_close": 12.02,
+    "date": "2026-06-15"
+   },
+   {
+    "adj_close": 12.05,
+    "date": "2026-06-16"
+   },
+   {
+    "adj_close": 11.98,
+    "date": "2026-06-17"
+   },
+   {
+    "adj_close": 12.26,
+    "date": "2026-06-18"
+   },
+   {
+    "adj_close": 12.42,
+    "date": "2026-06-19"
+   },
+   {
+    "adj_close": 12.54,
+    "date": "2026-06-22"
+   },
+   {
+    "adj_close": 12.18,
+    "date": "2026-06-23"
+   },
+   {
+    "adj_close": 12.63,
+    "date": "2026-06-24"
+   },
+   {
+    "adj_close": 13.16,
+    "date": "2026-06-25"
+   },
+   {
+    "adj_close": 12.66,
+    "date": "2026-06-26"
+   },
+   {
+    "adj_close": 13.55,
+    "date": "2026-06-29"
+   },
+   {
+    "adj_close": 13.86,
+    "date": "2026-06-30"
+   },
+   {
+    "adj_close": 13.68,
+    "date": "2026-07-01"
+   },
+   {
+    "adj_close": 12.91,
+    "date": "2026-07-02"
+   },
+   {
+    "adj_close": 13.18,
+    "date": "2026-07-03"
+   },
+   {
+    "adj_close": 13.42,
+    "date": "2026-07-06"
+   },
+   {
+    "adj_close": 13.19,
+    "date": "2026-07-07"
+   },
+   {
+    "adj_close": 12.5,
+    "date": "2026-07-08"
+   },
+   {
+    "adj_close": 12.94,
+    "date": "2026-07-09"
+   },
+   {
+    "adj_close": 12.72,
+    "date": "2026-07-10"
+   },
+   {
+    "adj_close": 12.56,
+    "date": "2026-07-13"
+   },
+   {
+    "adj_close": 13.65,
+    "date": "2026-07-14"
+   },
+   {
+    "adj_close": 14.53,
+    "date": "2026-07-15"
+   },
+   {
+    "adj_close": 14.97,
+    "date": "2026-07-16"
+   },
+   {
+    "adj_close": 14.78,
+    "date": "2026-07-17"
+   },
+   {
+    "adj_close": 15.09,
+    "date": "2026-07-20"
+   },
+   {
+    "adj_close": 14.07,
+    "date": "2026-07-21"
+   },
+   {
+    "adj_close": 14.13,
+    "date": "2026-07-22"
+   },
+   {
+    "adj_close": 13.83,
+    "date": "2026-07-23"
+   },
+   {
+    "adj_close": 13.31,
+    "date": "2026-07-24"
+   },
+   {
+    "adj_close": 12.7,
+    "date": "2026-07-27"
+   },
+   {
+    "adj_close": 12.91,
+    "date": "2026-07-28"
+   },
+   {
+    "adj_close": 12.96,
+    "date": "2026-07-29"
+   },
+   {
+    "adj_close": 13.04,
+    "date": "2026-07-30"
+   },
+   {
+    "adj_close": 13.38,
+    "date": "2026-07-31"
+   },
+   {
+    "adj_close": 13.06,
+    "date": "2026-08-03"
+   },
+   {
+    "adj_close": 12.59,
+    "date": "2026-08-04"
+   },
+   {
+    "adj_close": 11.94,
+    "date": "2026-08-05"
+   },
+   {
+    "adj_close": 11.83,
+    "date": "2026-08-06"
+   },
+   {
+    "adj_close": 12.11,
+    "date": "2026-08-07"
+   },
+   {
+    "adj_close": 12.08,
+    "date": "2026-08-10"
+   },
+   {
+    "adj_close": 12.32,
+    "date": "2026-08-11"
+   },
+   {
+    "adj_close": 11.9,
+    "date": "2026-08-12"
+   },
+   {
+    "adj_close": 11.75,
+    "date": "2026-08-13"
+   },
+   {
+    "adj_close": 11.49,
+    "date": "2026-08-14"
+   },
+   {
+    "adj_close": 11.07,
+    "date": "2026-08-17"
+   },
+   {
+    "adj_close": 11.71,
+    "date": "2026-08-18"
+   },
+   {
+    "adj_close": 12.02,
+    "date": "2026-08-19"
+   },
+   {
+    "adj_close": 11.76,
+    "date": "2026-08-20"
+   },
+   {
+    "adj_close": 11.5,
+    "date": "2026-08-21"
+   },
+   {
+    "adj_close": 11.5,
+    "date": "2026-08-24"
+   },
+   {
+    "adj_close": 11.01,
+    "date": "2026-08-25"
+   },
+   {
+    "adj_close": 11.17,
+    "date": "2026-08-26"
+   },
+   {
+    "adj_close": 10.75,
+    "date": "2026-08-27"
+   },
+   {
+    "adj_close": 10.64,
+    "date": "2026-08-28"
+   },
+   {
+    "adj_close": 10.33,
+    "date": "2026-08-31"
+   },
+   {
+    "adj_close": 10.19,
+    "date": "2026-09-01"
+   },
+   {
+    "adj_close": 9.8,
+    "date": "2026-09-02"
+   },
+   {
+    "adj_close": 9.35,
+    "date": "2026-09-03"
+   },
+   {
+    "adj_close": 9.09,
+    "date": "2026-09-04"
+   },
+   {
+    "adj_close": 8.91,
+    "date": "2026-09-07"
+   },
+   {
+    "adj_close": 8.84,
+    "date": "2026-09-08"
+   },
+   {
+    "adj_close": 8.87,
+    "date": "2026-09-09"
+   },
+   {
+    "adj_close": 9.29,
+    "date": "2026-09-10"
+   },
+   {
+    "adj_close": 9.53,
+    "date": "2026-09-11"
+   },
+   {
+    "adj_close": 9.47,
+    "date": "2026-09-14"
+   },
+   {
+    "adj_close": 9.69,
+    "date": "2026-09-15"
+   },
+   {
+    "adj_close": 9.5,
+    "date": "2026-09-16"
+   },
+   {
+    "adj_close": 9.92,
+    "date": "2026-09-17"
+   },
+   {
+    "adj_close": 10.1,
+    "date": "2026-09-18"
+   },
+   {
+    "adj_close": 9.7,
+    "date": "2026-09-21"
+   },
+   {
+    "adj_close": 9.93,
+    "date": "2026-09-22"
+   },
+   {
+    "adj_close": 10.18,
+    "date": "2026-09-23"
+   },
+   {
+    "adj_close": 9.38,
+    "date": "2026-09-24"
+   },
+   {
+    "adj_close": 9.18,
+    "date": "2026-09-25"
+   }
+  ],
+  "proposal": [
+   {
+    "action": "BUY",
+    "bucket": "asymmetric_bet",
+    "origin": "cluster buy",
+    "position_weight_pct": 0.0
+   }
+  ],
+  "scenarios": [
+   {
+    "definition": "10-year to 6.0%",
+    "id": "rate_shock",
+    "probability": 0.1
+   },
+   {
+    "definition": "Brent to $130 for 6 months",
+    "id": "oil_spike",
+    "probability": 0.1
+   },
+   {
+    "definition": "Hyperscaler capex down 30%",
+    "id": "ai_capex_reversal",
+    "probability": 0.15
+   }
+  ],
+  "signals": [
+   {
+    "asof": "2026-09-27",
+    "signal_name": "cluster_buy",
+    "value": 3,
+    "zscore": 2.4
+   },
+   {
+    "asof": "2026-09-27",
+    "signal_name": "momentum",
+    "value": 0.31,
+    "zscore": 1.1
+   }
+  ],
+  "valuation": [
+   {
+    "discount_rate": 0.11,
+    "ev_sales": 5.1,
+    "ev_sales_10y_percentile": 0.42,
+    "implied_revenue_cagr_10y": 0.17,
+    "sector_median_ev_sales": 6.0
+   }
+  ]
+ },
+ "fixture_id": "fx_002",
+ "responses": {
+  "base_rate": [
+   {
+    "adjustments": [
+     {
+      "delta_pp": 3.0,
+      "evidence_ids": [
+       "E1"
+      ],
+      "reason": "Cluster of three opportunistic buyers"
+     }
+    ],
+    "agent": "base_rate",
+    "anon_id": "SEC-3A05",
+    "bucket": "asymmetric_bet",
+    "falsifiers": [],
+    "flags": [],
+    "forecasts": [
+     {
+      "event": "beats_benchmark",
+      "horizon_months": 3,
+      "probability": 0.46
+     },
+     {
+      "event": "beats_benchmark",
+      "horizon_months": 6,
+      "probability": 0.45
+     },
+     {
+      "event": "beats_benchmark",
+      "horizon_months": 12,
+      "probability": 0.44
+     },
+     {
+      "event": "drawdown_exceeds_30pct",
+      "horizon_months": 12,
+      "probability": 0.22
+     },
+     {
+      "event": "doubles",
+      "horizon_months": 36,
+      "probability": 0.16
+     },
+     {
+      "event": "loses_50pct",
+      "horizon_months": 36,
+      "probability": 0.12
+     }
+    ],
+    "insufficient_evidence": [],
+    "key_uncertainties": [],
+    "reference_class": "Small-cap health care with insider cluster buys",
+    "scenario_payoffs": [
+     {
+      "probability": 0.4,
+      "return_36m": -0.5,
+      "scenario": "bear"
+     },
+     {
+      "probability": 0.4,
+      "return_36m": 0.1,
+      "scenario": "base"
+     },
+     {
+      "probability": 0.2,
+      "return_36m": 1.4,
+      "scenario": "bull"
+     }
+    ],
+    "thesis_points": [
+     {
+      "claim": "Small health-care names rarely beat the benchmark at 12 months",
+      "direction": "negative",
+      "evidence_ids": [
+       "E3"
+      ],
+      "strength": 2
+     }
+    ]
+   }
+  ],
+  "bear": [
+   {
+    "agent": "bear",
+    "anon_id": "SEC-3A05",
+    "bucket": "asymmetric_bet",
+    "falsifiers": [],
+    "flags": [],
+    "forecasts": [
+     {
+      "event": "beats_benchmark",
+      "horizon_months": 3,
+      "probability": 0.42
+     },
+     {
+      "event": "beats_benchmark",
+      "horizon_months": 6,
+      "probability": 0.42
+     },
+     {
+      "event": "beats_benchmark",
+      "horizon_months": 12,
+      "probability": 0.42
+     },
+     {
+      "event": "drawdown_exceeds_30pct",
+      "horizon_months": 12,
+      "probability": 0.3
+     },
+     {
+      "event": "doubles",
+      "horizon_months": 36,
+      "probability": 0.15
+     },
+     {
+      "event": "loses_50pct",
+      "horizon_months": 36,
+      "probability": 0.14
+     }
+    ],
+    "insufficient_evidence": [],
+    "key_uncertainties": [],
+    "kill_criteria": [
+     {
+      "observable": "share count",
+      "threshold": "rises more than 10% in 12 months"
+     }
+    ],
+    "premortem": "It is 12 months later and the position lost 30%. Launch costs rose and a dilutive raise followed.",
+    "scenario_payoffs": [
+     {
+      "probability": 0.45,
+      "return_36m": -0.55,
+      "scenario": "bear"
+     },
+     {
+      "probability": 0.35,
+      "return_36m": 0.1,
+      "scenario": "base"
+     },
+     {
+      "probability": 0.2,
+      "return_36m": 1.3,
+      "scenario": "bull"
+     }
+    ],
+    "shared_evidence": [
+     "E10"
+    ],
+    "thesis_points": [
+     {
+      "claim": "Bull case depends on cash runway; burn could accelerate with launch costs",
+      "direction": "negative",
+      "evidence_ids": [
+       "E5"
+      ],
+      "strength": 3
+     }
+    ]
+   }
+  ],
+  "behavioral_auditor": [
+   {
+    "agent": "behavioral_auditor",
+    "anon_id": "SEC-3A05",
+    "cooling_off_hours": 0,
+    "flags": [],
+    "insufficient_evidence": [
+     "no decision history yet (empty)"
+    ],
+    "requires_written_justification": false,
+    "severity": "none"
+   }
+  ],
+  "chair": [
+   {
+    "adjustments": [
+     {
+      "delta_pp": 3.0,
+      "evidence_ids": [
+       "E10"
+      ],
+      "reason": "Cluster buy"
+     }
+    ],
+    "agent": "chair",
+    "anon_id": "SEC-3A05",
+    "bear_response": "Cash covers more than 24 months of burn at the current rate, so a forced raise is not the base case.",
+    "bucket_tag": "ASYMMETRIC_BET",
+    "closing_line": "Research, not advice. The human decides.",
+    "evidence_ids": [
+     "E10",
+     "E7"
+    ],
+    "falsifiers": [
+     {
+      "check_by": "2027-03-26",
+      "observable": "quarterly revenue growth",
+      "threshold": "below 3% for two quarters"
+     }
+    ],
+    "flags": [],
+    "forecasts": {
+     "p_beat_12m": 0.47,
+     "p_beat_3m": 0.46,
+     "p_beat_6m": 0.46,
+     "p_doubles_36m": 0.2,
+     "p_drawdown_30pct_12m": 0.25,
+     "p_loses_50pct_36m": 0.11
+    },
+    "kill_criteria": [
+     "Dilution above 10% in 12 months"
+    ],
+    "recommendation": "BUY",
+    "scenario_payoffs": [
+     {
+      "probability": 0.4,
+      "return_36m": -0.48,
+      "scenario": "bear"
+     },
+     {
+      "probability": 0.4,
+      "return_36m": 0.15,
+      "scenario": "base"
+     },
+     {
+      "probability": 0.2,
+      "return_36m": 1.5,
+      "scenario": "bull"
+     }
+    ],
+    "size_pct_total": 1.0,
+    "thesis": "Three insiders bought as a second product scaled. The skew is favorable even though the hit rate is low."
+   }
+  ],
+  "filings_insiders": [
+   {
+    "agent": "filings_insiders",
+    "anon_id": "SEC-3A05",
+    "bucket": "asymmetric_bet",
+    "falsifiers": [],
+    "flags": [],
+    "forecasts": [
+     {
+      "event": "beats_benchmark",
+      "horizon_months": 3,
+      "probability": 0.48
+     },
+     {
+      "event": "beats_benchmark",
+      "horizon_months": 6,
+      "probability": 0.48
+     },
+     {
+      "event": "beats_benchmark",
+      "horizon_months": 12,
+      "probability": 0.48
+     },
+     {
+      "event": "drawdown_exceeds_30pct",
+      "horizon_months": 12,
+      "probability": 0.22
+     },
+     {
+      "event": "doubles",
+      "horizon_months": 36,
+      "probability": 0.21
+     },
+     {
+      "event": "loses_50pct",
+      "horizon_months": 36,
+      "probability": 0.1
+     }
+    ],
+    "insufficient_evidence": [],
+    "key_uncertainties": [],
+    "scenario_payoffs": [
+     {
+      "probability": 0.38,
+      "return_36m": -0.45,
+      "scenario": "bear"
+     },
+     {
+      "probability": 0.4,
+      "return_36m": 0.2,
+      "scenario": "base"
+     },
+     {
+      "probability": 0.22,
+      "return_36m": 1.6,
+      "scenario": "bull"
+     }
+    ],
+    "thesis_points": [
+     {
+      "claim": "Three opportunistic insiders bought within 30 days (cluster)",
+      "direction": "positive",
+      "evidence_ids": [
+       "E10",
+       "E11",
+       "E12"
+      ],
+      "strength": 4
+     },
+     {
+      "claim": "MD&A adds positive language on the second product",
+      "direction": "positive",
+      "evidence_ids": [
+       "E13"
+      ],
+      "strength": 1
+     }
+    ]
+   }
+  ],
+  "fundamentals": [
+   {
+    "agent": "fundamentals",
+    "anon_id": "SEC-3A05",
+    "bucket": "asymmetric_bet",
+    "falsifiers": [],
+    "flags": [],
+    "forecasts": [
+     {
+      "event": "beats_benchmark",
+      "horizon_months": 3,
+      "probability": 0.47
+     },
+     {
+      "event": "beats_benchmark",
+      "horizon_months": 6,
+      "probability": 0.47
+     },
+     {
+      "event": "beats_benchmark",
+      "horizon_months": 12,
+      "probability": 0.47
+     },
+     {
+      "event": "drawdown_exceeds_30pct",
+      "horizon_months": 12,
+      "probability": 0.25
+     },
+     {
+      "event": "doubles",
+      "horizon_months": 36,
+      "probability": 0.2
+     },
+     {
+      "event": "loses_50pct",
+      "horizon_months": 36,
+      "probability": 0.1
+     }
+    ],
+    "insufficient_evidence": [],
+    "key_uncertainties": [],
+    "scenario_payoffs": [
+     {
+      "probability": 0.4,
+      "return_36m": -0.45,
+      "scenario": "bear"
+     },
+     {
+      "probability": 0.4,
+      "return_36m": 0.2,
+      "scenario": "base"
+     },
+     {
+      "probability": 0.2,
+      "return_36m": 1.6,
+      "scenario": "bull"
+     }
+    ],
+    "thesis_points": [
+     {
+      "claim": "Revenue growing about 7% a quarter with improving gross margin",
+      "direction": "positive",
+      "evidence_ids": [
+       "E7",
+       "E6"
+      ],
+      "strength": 3
+     },
+     {
+      "claim": "Operating cash flow still negative but cash covers years of burn",
+      "direction": "neutral",
+      "evidence_ids": [
+       "E5",
+       "E4"
+      ],
+      "strength": 2
+     }
+    ]
+   }
+  ],
+  "macro_scenario": [
+   {
+    "agent": "macro_scenario",
+    "anon_id": "SEC-3A05",
+    "exposures": [
+     {
+      "direction": "negative",
+      "evidence_ids": [
+       "E25",
+       "E22"
+      ],
+      "magnitude": "high",
+      "scenario_id": "rate_shock"
+     }
+    ],
+    "flags": [],
+    "insufficient_evidence": []
+   }
+  ],
+  "news_narrative": [
+   {
+    "agent": "news_narrative",
+    "anon_id": "SEC-3A05",
+    "bucket": "asymmetric_bet",
+    "falsifiers": [],
+    "flags": [
+     "CONTAMINATION_RISK"
+    ],
+    "forecasts": [
+     {
+      "event": "beats_benchmark",
+      "horizon_months": 3,
+      "probability": 0.46
+     },
+     {
+      "event": "beats_benchmark",
+      "horizon_months": 6,
+      "probability": 0.45
+     },
+     {
+      "event": "beats_benchmark",
+      "horizon_months": 12,
+      "probability": 0.45
+     },
+     {
+      "event": "drawdown_exceeds_30pct",
+      "horizon_months": 12,
+      "probability": 0.23
+     },
+     {
+      "event": "doubles",
+      "horizon_months": 36,
+      "probability": 0.17
+     },
+     {
+      "event": "loses_50pct",
+      "horizon_months": 36,
+      "probability": 0.12
+     }
+    ],
+    "insufficient_evidence": [],
+    "key_uncertainties": [],
+    "rereview_triggers": [
+     "label restriction",
+     "manufacturing warning letter"
+    ],
+    "scenario_payoffs": [
+     {
+      "probability": 0.4,
+      "return_36m": -0.5,
+      "scenario": "bear"
+     },
+     {
+      "probability": 0.4,
+      "return_36m": 0.1,
+      "scenario": "base"
+     },
+     {
+      "probability": 0.2,
+      "return_36m": 1.4,
+      "scenario": "bull"
+     }
+    ],
+    "thesis_points": [
+     {
+      "claim": "Expanded label is the dominant story",
+      "direction": "positive",
+      "evidence_ids": [
+       "E14"
+      ],
+      "strength": 2
+     }
+    ]
+   }
+  ],
+  "risk_explainer": [
+   {
+    "agent": "risk_explainer",
+    "anon_id": "SEC-3A05",
+    "explanation": "The risk engine returned PASS. The maximum size allowed is 1.0% of the account. Binding limits: asymmetric default size. The largest scenario loss comes from the rate shock. This explanation cannot change any number.",
+    "flags": [],
+    "max_size_pct_total": 1.0,
+    "verdict": "PASS",
+    "veto_rule": null
+   }
+  ],
+  "tax_explainer": [
+   {
+    "after_tax_hurdle_pct": 0.0,
+    "agent": "tax_explainer",
+    "anon_id": "SEC-3A05",
+    "cpa_flags": [],
+    "explanation": "Buy in the IRA account; it keeps satellite turnover out of taxable income. After-tax hurdle: 0.0%. No wash-sale window applies. Not tax advice; confirm with a CPA.",
+    "flags": [],
+    "recommended_account": "ira",
+    "wash_sale_blocked": false
+   }
+  ],
+  "valuation": [
+   {
+    "agent": "valuation",
+    "anon_id": "SEC-3A05",
+    "bucket": "asymmetric_bet",
+    "falsifiers": [],
+    "flags": [],
+    "forecasts": [
+     {
+      "event": "beats_benchmark",
+      "horizon_months": 3,
+      "probability": 0.46
+     },
+     {
+      "event": "beats_benchmark",
+      "horizon_months": 6,
+      "probability": 0.46
+     },
+     {
+      "event": "beats_benchmark",
+      "horizon_months": 12,
+      "probability": 0.46
+     },
+     {
+      "event": "drawdown_exceeds_30pct",
+      "horizon_months": 12,
+      "probability": 0.24
+     },
+     {
+      "event": "doubles",
+      "horizon_months": 36,
+      "probability": 0.19
+     },
+     {
+      "event": "loses_50pct",
+      "horizon_months": 36,
+      "probability": 0.11
+     }
+    ],
+    "insufficient_evidence": [],
+    "key_uncertainties": [],
+    "scenario_payoffs": [
+     {
+      "probability": 0.4,
+      "return_36m": -0.5,
+      "scenario": "bear"
+     },
+     {
+      "probability": 0.4,
+      "return_36m": 0.15,
+      "scenario": "base"
+     },
+     {
+      "probability": 0.2,
+      "return_36m": 1.5,
+      "scenario": "bull"
+     }
+    ],
+    "thesis_points": [
+     {
+      "claim": "EV/sales below sector median despite faster growth",
+      "direction": "positive",
+      "evidence_ids": [
+       "E9"
+      ],
+      "strength": 2
+     }
+    ]
+   }
+  ]
+ },
+ "review_id": "rv-fx_002",
+ "security": {
+  "aliases": [
+   "Bluefin"
+  ],
+  "name": "Bluefin Therapeutics Corp.",
+  "sector": "Health Care",
+  "security_id": "CIK0000900002",
+  "size_bucket": "small",
+  "ticker": "BLFN"
+ }
+}

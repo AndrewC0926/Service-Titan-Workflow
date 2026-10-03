@@ -1,0 +1,15 @@
+{
+  "agent": "string",
+  "anon_id": "string",
+  "bucket": "core_pick|asymmetric_bet",
+  "thesis_points": [{"claim": "string", "evidence_ids": ["E1"], "direction": "positive|negative|neutral", "strength": 1}],
+  "forecasts": [{"event": "beats_benchmark", "horizon_months": 12, "probability": 0.0},
+                {"event": "drawdown_exceeds_30pct", "horizon_months": 12, "probability": 0.0},
+                {"event": "doubles", "horizon_months": 36, "probability": 0.0},
+                {"event": "loses_50pct", "horizon_months": 36, "probability": 0.0}],
+  "scenario_payoffs": [{"scenario": "bear|base|bull", "probability": 0.0, "return_36m": 0.0}],
+  "key_uncertainties": ["string"],
+  "falsifiers": [{"observable": "string", "threshold": "string", "check_by": "YYYY-MM-DD"}],
+  "insufficient_evidence": ["string"],
+  "flags": ["CONTAMINATION_RISK|DATA_GAP|ACCOUNTING_RED_FLAG|LOTTERY_PROFILE|..."]
+}

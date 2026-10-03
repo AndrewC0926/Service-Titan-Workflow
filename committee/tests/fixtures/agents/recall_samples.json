@@ -1,0 +1,165 @@
+{
+ "description": "Synthetic recall-probe sample; the recorded answer recalls 10/12 directions",
+ "items": [
+  {
+   "company": "Test Company 0",
+   "end": "2026-06-30",
+   "realized_return": 0.0685,
+   "security_id": "CIK0000910000",
+   "start": "2026-01-02",
+   "ticker": "TST0"
+  },
+  {
+   "company": "Test Company 1",
+   "end": "2026-06-30",
+   "realized_return": -0.39990000000000003,
+   "security_id": "CIK0000910001",
+   "start": "2026-01-02",
+   "ticker": "TST1"
+  },
+  {
+   "company": "Test Company 2",
+   "end": "2026-06-30",
+   "realized_return": 0.3662,
+   "security_id": "CIK0000910002",
+   "start": "2026-01-02",
+   "ticker": "TST2"
+  },
+  {
+   "company": "Test Company 3",
+   "end": "2026-06-30",
+   "realized_return": -0.0876,
+   "security_id": "CIK0000910003",
+   "start": "2026-01-02",
+   "ticker": "TST3"
+  },
+  {
+   "company": "Test Company 4",
+   "end": "2026-06-30",
+   "realized_return": 0.0345,
+   "security_id": "CIK0000910004",
+   "start": "2026-01-02",
+   "ticker": "TST4"
+  },
+  {
+   "company": "Test Company 5",
+   "end": "2026-06-30",
+   "realized_return": -0.09179999999999999,
+   "security_id": "CIK0000910005",
+   "start": "2026-01-02",
+   "ticker": "TST5"
+  },
+  {
+   "company": "Test Company 6",
+   "end": "2026-06-30",
+   "realized_return": 0.2024,
+   "security_id": "CIK0000910006",
+   "start": "2026-01-02",
+   "ticker": "TST6"
+  },
+  {
+   "company": "Test Company 7",
+   "end": "2026-06-30",
+   "realized_return": -0.046,
+   "security_id": "CIK0000910007",
+   "start": "2026-01-02",
+   "ticker": "TST7"
+  },
+  {
+   "company": "Test Company 8",
+   "end": "2026-06-30",
+   "realized_return": 0.2467,
+   "security_id": "CIK0000910008",
+   "start": "2026-01-02",
+   "ticker": "TST8"
+  },
+  {
+   "company": "Test Company 9",
+   "end": "2026-06-30",
+   "realized_return": -0.4218,
+   "security_id": "CIK0000910009",
+   "start": "2026-01-02",
+   "ticker": "TST9"
+  },
+  {
+   "company": "Test Company 10",
+   "end": "2026-06-30",
+   "realized_return": 0.4516,
+   "security_id": "CIK0000910010",
+   "start": "2026-01-02",
+   "ticker": "TST10"
+  },
+  {
+   "company": "Test Company 11",
+   "end": "2026-06-30",
+   "realized_return": -0.0359,
+   "security_id": "CIK0000910011",
+   "start": "2026-01-02",
+   "ticker": "TST11"
+  }
+ ],
+ "recorded_response": {
+  "answers": [
+   {
+    "direction": "up",
+    "id": "P1",
+    "return_estimate": 0.07
+   },
+   {
+    "direction": "down",
+    "id": "P2",
+    "return_estimate": -0.4
+   },
+   {
+    "direction": "up",
+    "id": "P3",
+    "return_estimate": 0.37
+   },
+   {
+    "direction": "up",
+    "id": "P4",
+    "return_estimate": -0.09
+   },
+   {
+    "direction": "up",
+    "id": "P5",
+    "return_estimate": 0.03
+   },
+   {
+    "direction": "down",
+    "id": "P6",
+    "return_estimate": -0.09
+   },
+   {
+    "direction": "up",
+    "id": "P7",
+    "return_estimate": 0.2
+   },
+   {
+    "direction": "down",
+    "id": "P8",
+    "return_estimate": -0.05
+   },
+   {
+    "direction": "down",
+    "id": "P9",
+    "return_estimate": 0.25
+   },
+   {
+    "direction": "down",
+    "id": "P10",
+    "return_estimate": -0.42
+   },
+   {
+    "direction": "up",
+    "id": "P11",
+    "return_estimate": 0.45
+   },
+   {
+    "direction": "down",
+    "id": "P12",
+    "return_estimate": -0.04
+   }
+  ]
+ }
+}
