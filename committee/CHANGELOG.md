@@ -66,3 +66,7 @@ All notable changes, one entry per build phase (DESIGN 12).
 - Deterministic bucket tagging and the six-rule lottery filter (one function and one test per rule).
 - `run_screen`: universe filter, weighted composite, top 25 + recent cluster buys, minus holdings under review and the wash-sale block list; signal rows persisted, screen journaled. `committee screen --asof DATE`.
 - Fix: `PIT.latest` quotes key columns (`asof` is a DuckDB keyword).
+
+## phase-08/10: Risk and scenario engines
+- `engines/risk/`: pure `evaluate(proposal, state, limits)` → PASS/RESIZE/VETO with max order size (%, $, whole shares), every cap evaluated, binding constraints, exact veto rule, theme look-through (satellite and total), marginal satellite vol (constant 0.3 correlation), flags. Sizing: min(discrete log-optimal Kelly, closed form) × 0.5, then default initial size, bucket/satellite/asymmetric-bucket/sector/theme/name-count/ADV/speculative caps, vol scaling (never up), risk-budget modifier. Prohibited instruments, shorts, min holding period and turnover budget veto. Hypothesis: no output ever exceeds any limit.
+- `engines/scenario/`: per-holding sensitivities (OLS estimator with known-beta tests, documented sector/sleeve defaults), theme and ETF look-through shocks, portfolio and satellite loss per scenario, risk-budget modifier (floored 0.5, never above 1), weekly regime snapshot for the Macro agent. `committee scenarios run`.
