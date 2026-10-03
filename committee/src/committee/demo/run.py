@@ -17,9 +17,9 @@ from committee import services
 from committee.agents.prompts import PromptRegistry
 from committee.agents.runtime import AgentRuntime
 from committee.broker.approval import approve
+from committee.broker.factory import make_broker
 from committee.broker.gateway import Caps, OrderGateway
 from committee.broker.models import ApprovedLeg
-from committee.broker.sim import SimBroker
 from committee.context import AppContext
 from committee.core.drift import compute_drift
 from committee.core.holdings import HoldingsStore, Position
@@ -150,7 +150,7 @@ def run_demo(
             say("5. paper orders on the offline simulator, then reconcile fills into tax lots")
             gw = OrderGateway(
                 j,
-                SimBroker(ctx.var_dir / "sim_broker.json"),
+                make_broker(ctx, j),
                 ctx.flags(),
                 Caps(),
                 services.price_lookup(p, asof),

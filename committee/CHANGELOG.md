@@ -95,3 +95,8 @@ All notable changes, one entry per build phase (DESIGN 12).
 ## demo: offline end-to-end run
 - `committee demo --root DIR`: synthetic point-in-time lake (fictional companies), holdings, screen, reviews by a deterministic SIMULATED committee (always flagged `SIMULATED`), approval on a simulated clock, paper orders on the offline simulator, fills into tax lots and holdings, drift, digest, journal verify, gate check.
 - Fixes found by the demo: the base-rate signal query quoted `asof`; reconciled fills now update holdings (shares and cash) as well as tax lots.
+
+## phase-17: Red-team and hardening review
+- docs/REVIEW.md: 17 findings (5 high, 5 medium, 7 low), all closed with tests. Highlights: every free-text field from news/filings/Form 4 wrapped as untrusted and the models told what that means (new prompt hashes → new cohort); `app.yaml` (order caps, approval settings) under the 7-day change control with tighten-now/loosen-later; the gateway re-validates approvals against the briefing, verifies the journal chain before every order and never duplicates an order after a broker timeout; paid sibling agent calls journaled even when one fails; lint now catches SQL built across statements; differential look-ahead audit; HTTP error bodies redacted; Form 4 DTD guard scans the whole body; kill-switch release needs a root-cause reason; model text escaped in the dashboard.
+- R-17: the LLM response cache serves only replies whose hash is in the journal (or fetched live by the same process); a tampered cache row is a miss.
+- Every CLAUDE.md non-negotiable and every DESIGN failure drill has a test that fails if violated.

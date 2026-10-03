@@ -153,7 +153,7 @@ def scenario_report(ctx: AppContext, state: PortfolioState) -> ScenarioReport | 
 
 def runtime(ctx: AppContext, journal: Journal, run_id: str | None = None) -> AgentRuntime:
     key = ctx.secrets.require("ANTHROPIC_API_KEY")
-    client = CachingClient(AnthropicClient(api_key=key), ctx.var_dir / "llm_cache.sqlite")
+    client = CachingClient(AnthropicClient(api_key=key), ctx.var_dir / "llm_cache.sqlite", journal)
     budget = BudgetGuard(journal, ctx.config.models.budget)
     return AgentRuntime(
         client,

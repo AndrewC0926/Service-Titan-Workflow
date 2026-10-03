@@ -207,16 +207,32 @@ def test_invalid_output_parks_in_needs_attention(tmp_path: Path) -> None:
     assert current_state(j, FX["review_id"]) == "NEEDS_ATTENTION"
 
 
-def test_cache_reuses_responses(tmp_path: Path) -> None:
+def test_cache_reuses_only_journal_backed_responses(tmp_path: Path) -> None:
+    import sqlite3
+
     j1 = Journal(tmp_path / "a.sqlite")
     inner = EchoingClient(FX["responses"])
-    cache = CachingClient(inner, tmp_path / "cache.sqlite")
+    cache = CachingClient(inner, tmp_path / "cache.sqlite", j1)
     make(j1, cache).review(inputs(), FX["review_id"])
     n = inner.calls
-    j2 = Journal(tmp_path / "b.sqlite")  # a fresh journal: the stage reruns, served from cache
-    out = make(j2, cache).review(inputs(), FX["review_id"])
-    assert out.state == "AWAITING_APPROVAL" and inner.calls == n and cache.hits >= 11
-    assert out.cost_usd == 0.0
+    req = inner.inner.requests[0]  # the base_rate request
+    # Resume against the same journal: served from cache, no API call.
+    resumed = CachingClient(inner, tmp_path / "cache.sqlite", j1)
+    resumed.complete(req)
+    assert inner.calls == n and resumed.hits == 1
+    # A fresh journal does not vouch for the cached reply: it is a miss.
+    fresh = CachingClient(
+        EchoingClient(FX["responses"]), tmp_path / "cache.sqlite", Journal(tmp_path / "b.sqlite")
+    )
+    fresh.complete(req)
+    assert fresh.hits == 0 and fresh.rejected == 1
+    # A tampered cache row is never served, even with the original journal.
+    con = sqlite3.connect(tmp_path / "cache.sqlite")
+    con.execute("UPDATE llm_cache SET text = '{\"forged\": true}'")
+    con.commit()
+    tampered = CachingClient(EchoingClient(FX["responses"]), tmp_path / "cache.sqlite", j1)
+    tampered.complete(req)
+    assert tampered.hits == 0 and tampered.rejected == 1
 
 
 def test_transitions_are_enforced(tmp_path: Path) -> None:
