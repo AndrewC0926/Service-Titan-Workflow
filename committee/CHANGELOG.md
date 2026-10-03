@@ -27,3 +27,8 @@ All notable changes, one entry per build phase (DESIGN 12).
 - `broker/gateway.py`: the only path to a broker. Kill-switch/freeze flags, approval → briefing chain check, limit orders at last close ± band, per-order (2%) and daily (5%) notional caps independent of the risk engine, tranche execution, deterministic client order ids (idempotent), broker errors journaled, nightly fill reconciliation (deduped, callback for tax lots). Live mode routes only taxable orders to the broker; IRA/401(k) become manual tickets.
 - `broker/alpaca.py` (alpaca-py, paper by default), `broker/fake.py`, `broker/live_gate.py` (env flag AND a journaled, human-signed gate file hash).
 - Kill switch: cancels open orders, sets the flag, journals it. Property test: caps never exceeded.
+
+## phase-13: Core portfolio manager
+- `core/holdings.py`: append-only position snapshots per account in the state DB; manual CSV import for IRA/401(k) (`account,symbol,qty[,cost_per_share,acquired_on]`, CASH pseudo-symbol); shorts rejected.
+- `core/drift.py`: sleeve weights across all accounts vs the policy portfolio; band breaches; non-policy symbols counted as satellite and reported.
+- `core/rebalance.py`: on any breach, close gaps with new cash first, then tax-free swaps inside IRA/401(k), then taxable sales ranked by tax cost; every buy respects the sleeve's location table; the satellite is never rebalanced here. Proposals carry the approval-gate fields and are journaled as `core_proposal`.
