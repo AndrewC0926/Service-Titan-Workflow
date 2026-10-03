@@ -46,3 +46,10 @@ All notable changes, one entry per build phase (DESIGN 12).
 - `ops/backup.py`: encrypted (scrypt → Fernet) tar of var/ with consistent SQLite copies; restore and a restore test that verifies the journal chain; pruning.
 - `ops/alerts.py` (SMTP, ntfy), `ops/health.py` (journal, order flags, ingest freshness, P1s in 60 days, disk).
 - docs/RUNBOOK.md; Dockerfile + docker-compose (scheduler, dashboard, Caddy basic auth).
+
+## phase-15: Dashboard and daily digest
+- `ui/app.py` (Streamlit): Today (approval queue with cooling-off status, incidents, DQ), Briefing (briefing, agent outputs, approve smaller-or-equal / reject with reason, STOP justification, approval disabled during cooling-off), Portfolio (sleeves vs policy), Scorecards, Journal (search, verify, anchors), Costs, Settings (active limits, pending config changes, kill switch).
+- `ui/views.py` page data as plain functions; `ui/digest.py` morning digest (awaiting briefings, re-review triggers, wash-sale windows, DQ, incidents, blocked-orders banner).
+- `orchestration/briefing.py`: one-screen briefing contract + Markdown/HTML renderer.
+- `broker/sim.py` offline paper broker; `broker/factory.py` (live only through the gate, else Alpaca paper, else simulator).
+- Every page is smoke-tested with Streamlit's AppTest, including an approval from the dashboard.
