@@ -32,3 +32,11 @@ All notable changes, one entry per build phase (DESIGN 12).
 - `core/holdings.py`: append-only position snapshots per account in the state DB; manual CSV import for IRA/401(k) (`account,symbol,qty[,cost_per_share,acquired_on]`, CASH pseudo-symbol); shorts rejected.
 - `core/drift.py`: sleeve weights across all accounts vs the policy portfolio; band breaches; non-policy symbols counted as satellite and reported.
 - `core/rebalance.py`: on any breach, close gaps with new cash first, then tax-free swaps inside IRA/401(k), then taxable sales ranked by tax cost; every buy respects the sleeve's location table; the satellite is never rebalanced here. Proposals carry the approval-gate fields and are journaled as `core_proposal`.
+
+## phase-14: Evaluation, scorecards and capital allocator
+- `evaluation/forecasts.py`: Brier, Brier skill vs the Base-Rate agent (paired on the same theses) and vs climatology, reliability bins and Murphy decomposition, per agent × model cohort × event; event resolution from price paths; quarterly agent reweighting with shrinkage and a 2x best/worst cap.
+- `evaluation/cohorts.py`: BUY / PASS / VETO / OVERRIDE cohorts at 3/6/12 months with plain-English sample-size warnings; override-underperformance check.
+- `evaluation/portfolio.py`: max drawdown, information ratio, years-to-significance (t ≈ IR·√T), PSR, deflated Sharpe with total trial count, minimum track record length, PBO via CSCV, factor regression and NNLS factor-matched ETF benchmark, turnover and after-cost returns.
+- `evaluation/trials.py`: journaled trial registry.
+- `engines/allocator/rules.py`: DESIGN 3 exactly — 36-month freeze, +5 only if all evidence holds, −5 if any guardrail trips (decrease wins), cap 35 / floor 10; journaled with inputs; human approval required.
+- Tests on synthetic data with known answers.
