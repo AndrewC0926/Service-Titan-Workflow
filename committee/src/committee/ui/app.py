@@ -36,7 +36,7 @@ def now() -> dt.datetime:
     return dt.datetime.now(dt.UTC)
 
 
-C = ctx()
+C = ctx(os.environ.get("COMMITTEE_ROOT"))
 page = st.sidebar.radio(
     "Page", ["Today", "Briefing", "Portfolio", "Scorecards", "Journal", "Costs", "Settings"]
 )
