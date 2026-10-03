@@ -68,7 +68,7 @@ class PIT:
         """Latest version of each key in ``table`` knowable at ``asof``."""
         if not self.has(table):
             return pd.DataFrame()
-        keys = ", ".join(TABLE_KEYS[table])
+        keys = ", ".join(f'"{k}"' for k in TABLE_KEYS[table])
         sql = (
             f"SELECT * FROM {table} WHERE as_of(known_time, $asof) AND ({where}) "
             f"QUALIFY row_number() OVER (PARTITION BY {keys} ORDER BY known_time DESC, ingest_id DESC) = 1"

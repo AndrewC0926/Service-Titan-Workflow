@@ -60,3 +60,9 @@ All notable changes, one entry per build phase (DESIGN 12).
 ## phase-09: Tax engine and lot accounting
 - `engines/tax/`: specific-identification lot ledger across taxable, IRA and 401(k) (SQLite event store, replayed in date order); calendar-anniversary holding periods (Feb 29 handled); cross-account wash-sale guard with retroactive detection, partial-lot matching, basis/holding-period tacking in taxable and permanent disallowance in IRA/401(k); shared block list for the screen; lowest-tax lot selection and harvest mode; 60-day long-term warning (default WAIT unless the thesis is broken); location recommender; monthly harvest scan into pre-mapped replacements (journaled as `harvest_proposal`); after-tax hurdle with deferral; realized-gains CSV for the CPA. Every output says "Not tax advice. Confirm with a CPA."
 - Substantially-identical groups now live in `tax_config.yaml` (`equivalence_groups`), validated to never overlap the replacement map.
+
+## phase-05: Signal library and weekly screen
+- `signals/`: Cohen-Malloy-Pomorski routine/opportunistic insider classifier, opportunistic purchase score `log1p(bps of market cap)`, cluster buys; Lazy Prices TF-IDF similarity of Item 1A / MD&A vs the prior-year same filing with structured diffs (negative-only); value, quality, 12-1 momentum and low-risk composites z-scored within sector and winsorized at ±3; earnings revision behind its flag; short interest and 13F crowding as flags only.
+- Deterministic bucket tagging and the six-rule lottery filter (one function and one test per rule).
+- `run_screen`: universe filter, weighted composite, top 25 + recent cluster buys, minus holdings under review and the wash-sale block list; signal rows persisted, screen journaled. `committee screen --asof DATE`.
+- Fix: `PIT.latest` quotes key columns (`asof` is a DuckDB keyword).

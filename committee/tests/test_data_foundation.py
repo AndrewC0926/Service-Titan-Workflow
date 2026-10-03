@@ -164,3 +164,18 @@ def test_rate_limiter() -> None:
 def test_fixture_fetcher_missing_route() -> None:
     with pytest.raises(FetchError):
         FixtureFetcher({}).get("https://nothing")
+
+
+def test_latest_quotes_reserved_key_names(tmp_path: Path) -> None:
+    lake = Lake(tmp_path)
+    row = {
+        "security_id": "S",
+        "signal_name": "momentum",
+        "asof": dt.date(2026, 9, 1),
+        "value": 1.0,
+        "zscore": 0.5,
+        "event_time": T1,
+    }
+    lake.write("signals", [{**row, "known_time": T1}], source="t", ingest_id="a")
+    lake.write("signals", [{**row, "value": 2.0, "known_time": T2}], source="t", ingest_id="b")
+    assert PIT(lake).latest("signals", T2)["value"].tolist() == [2.0]
