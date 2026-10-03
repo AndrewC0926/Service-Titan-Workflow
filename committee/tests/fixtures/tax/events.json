@@ -1,0 +1,8 @@
+[
+  {"kind": "buy", "lot_id": "V1", "account": "taxable", "symbol": "VTI", "qty": 100, "cost_per_share": 300.0, "acquired_on": "2026-01-05"},
+  {"kind": "buy", "lot_id": "E1", "account": "taxable", "symbol": "VEA", "qty": 400, "cost_per_share": 60.0, "acquired_on": "2026-02-02"},
+  {"kind": "buy", "lot_id": "N1", "account": "ira", "symbol": "NVDA", "qty": 10, "cost_per_share": 150.0, "acquired_on": "2026-03-01"},
+  {"kind": "sell", "sale_id": "S1", "account": "taxable", "symbol": "VTI", "sold_on": "2026-09-15", "price": 270.0, "picks": [{"lot_id": "V1", "qty": 40}]},
+  {"kind": "buy", "lot_id": "V4", "account": "ira", "symbol": "VTI", "qty": 10, "cost_per_share": 272.0, "acquired_on": "2026-09-25"},
+  {"kind": "buy", "lot_id": "V3", "account": "taxable", "symbol": "VTI", "qty": 50, "cost_per_share": 250.0, "acquired_on": "2025-11-20"}
+]
