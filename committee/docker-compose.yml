@@ -1,0 +1,27 @@
+# Small-VPS deployment: scheduler + dashboard behind basic auth (Caddy).
+# Secrets come from .env (never committed). var/ is the persistent volume.
+services:
+  scheduler:
+    build: .
+    command: ["committee", "ops", "scheduler"]
+    env_file: .env
+    volumes: ["./var:/app/var", "./config:/app/config"]
+    restart: unless-stopped
+  dashboard:
+    build: .
+    command: ["streamlit", "run", "src/committee/ui/app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]
+    env_file: .env
+    volumes: ["./var:/app/var", "./config:/app/config:ro"]
+    restart: unless-stopped
+  proxy:
+    image: caddy:2
+    ports: ["443:443"]
+    environment:
+      DASHBOARD_USER: ${DASHBOARD_USER:?set DASHBOARD_USER}
+      DASHBOARD_HASH: ${DASHBOARD_HASH:?set DASHBOARD_HASH (caddy hash-password)}
+      DOMAIN: ${DOMAIN:?set DOMAIN}
+    volumes: ["./ops/Caddyfile:/etc/caddy/Caddyfile:ro", "caddy_data:/data"]
+    depends_on: [dashboard]
+    restart: unless-stopped
+volumes:
+  caddy_data:

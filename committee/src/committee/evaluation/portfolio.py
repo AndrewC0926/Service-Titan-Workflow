@@ -122,9 +122,7 @@ def turnover(trades_notional: Floats, avg_value: float) -> float:
     return float(sum(abs(x) for x in trades_notional) / 2 / avg_value) if avg_value > 0 else 0.0
 
 
-def after_cost_returns(
-    gross: Floats, turnover_per_period: Floats, cost_bps: float
-) -> np.ndarray:
+def after_cost_returns(gross: Floats, turnover_per_period: Floats, cost_bps: float) -> np.ndarray:
     g = np.asarray(gross, dtype=float)
     tv = np.asarray(turnover_per_period, dtype=float)
     return g - tv * 2 * cost_bps / 10_000

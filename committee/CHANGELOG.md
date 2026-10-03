@@ -40,3 +40,9 @@ All notable changes, one entry per build phase (DESIGN 12).
 - `evaluation/trials.py`: journaled trial registry.
 - `engines/allocator/rules.py`: DESIGN 3 exactly — 36-month freeze, +5 only if all evidence holds, −5 if any guardrail trips (decrease wins), cap 35 / floor 10; journaled with inputs; human approval required.
 - Tests on synthetic data with known answers.
+
+## phase-16: Scheduling, monitoring and operations
+- `ops/scheduler.py`: the full DESIGN 13 cadence as APScheduler cron jobs (America/New_York); each job runs a `committee` subcommand in a subprocess; failures journal an incident at the job's level and alert.
+- `ops/backup.py`: encrypted (scrypt → Fernet) tar of var/ with consistent SQLite copies; restore and a restore test that verifies the journal chain; pruning.
+- `ops/alerts.py` (SMTP, ntfy), `ops/health.py` (journal, order flags, ingest freshness, P1s in 60 days, disk).
+- docs/RUNBOOK.md; Dockerfile + docker-compose (scheduler, dashboard, Caddy basic auth).

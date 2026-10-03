@@ -1,0 +1,6 @@
+{$DOMAIN} {
+	basic_auth {
+		{$DASHBOARD_USER} {$DASHBOARD_HASH}
+	}
+	reverse_proxy dashboard:8501
+}
