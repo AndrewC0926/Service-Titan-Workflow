@@ -1,0 +1,24 @@
+# Paths, broker caps and operational settings.
+paths:
+  data_dir: var/data
+  raw_dir: var/raw
+  journal_db: var/journal.sqlite
+  state_db: var/state.sqlite
+  anchor_dir: var/anchors
+  backup_dir: var/backups
+  reports_dir: var/reports
+broker:
+  provider: alpaca
+  per_order_notional_cap_pct: 2.0
+  daily_notional_cap_pct: 5.0
+  limit_band_pct: 0.5
+  time_in_force: day
+  live_gate_file: var/LIVE_GATE.signed.json
+approval:
+  expiry_days: 7
+  min_reason_chars: 10
+sec:
+  max_requests_per_second: 8
+timezone: America/New_York
+digest:
+  send_at_local: "07:30"

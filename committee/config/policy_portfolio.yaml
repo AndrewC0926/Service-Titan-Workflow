@@ -1,0 +1,23 @@
+# Illustrative policy portfolio (DESIGN 3). Set final weights with an adviser.
+sleeves:
+  - {id: us_total, kind: core_equity, holding: VTI, target_pct: 33.0, band_pct: 4.0, location: [taxable]}
+  - {id: us_scv, kind: core_tilt, holding: AVUV, target_pct: 10.0, band_pct: 3.0, location: [ira]}
+  - {id: dev_exus, kind: core_equity, holding: VEA, target_pct: 15.0, band_pct: 3.0, location: [taxable]}
+  - {id: intl_scv, kind: core_tilt, holding: AVDV, target_pct: 5.0, band_pct: 2.0, location: [ira]}
+  - {id: em, kind: core_equity, holding: VWO, target_pct: 10.0, band_pct: 3.0, location: [taxable, ira]}
+  - {id: trend, kind: diversifier, holding: DBMF, target_pct: 5.0, band_pct: 2.0, location: [ira]}
+  - {id: tbills, kind: liquidity, holding: SGOV, target_pct: 2.0, band_pct: 1.0, location: [taxable]}
+  - {id: satellite, kind: satellite, holding: null, target_pct: 20.0, band_pct: null, location: [ira, taxable]}
+speculative_sleeve:
+  max_pct: 3.0
+  carved_from: satellite
+  location: [taxable]
+# Look-through theme weights of core ETFs (fraction of each fund), refreshed by hand quarterly.
+lookthrough:
+  VTI: {ai_capex_chain: 0.22, taiwan_supply_chain: 0.06, china_revenue: 0.04, energy_price: 0.04}
+  AVUV: {ai_capex_chain: 0.03, energy_price: 0.10}
+  VEA: {ai_capex_chain: 0.05, taiwan_supply_chain: 0.02, china_revenue: 0.06, energy_price: 0.06}
+  AVDV: {energy_price: 0.07, china_revenue: 0.04}
+  VWO: {ai_capex_chain: 0.12, taiwan_supply_chain: 0.18, china_revenue: 0.28, energy_price: 0.06}
+  DBMF: {}
+  SGOV: {}

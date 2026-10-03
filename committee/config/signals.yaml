@@ -1,0 +1,20 @@
+# Starting weights in the screen composite (DESIGN 6). Reweighted only from the forward scorecard.
+# Published effects are haircut by at least 50% (P3); these weights already embed that.
+weights:
+  insider_opportunistic: 0.20
+  lazy_prices: 0.10          # negative side only
+  value: 0.15
+  quality: 0.15
+  momentum: 0.20
+  low_risk: 0.0              # sizing input only
+  earnings_revision: 0.10    # used only when PIT estimates are configured
+  call_tone_change: 0.05
+  news: 0.0
+cluster_buy_bonus: 0.05
+winsorize_z: 3.0
+earnings_revision_enabled: false
+insider:
+  routine_lookback_years: 3
+  score_window_days: 90
+  cluster_min_insiders: 3
+  cluster_window_days: 30

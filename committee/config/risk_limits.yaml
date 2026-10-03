@@ -1,0 +1,46 @@
+profile: aggressive
+account:
+  satellite_target_pct: 20.0        # set only by the capital allocator
+  satellite_min_pct: 10.0
+  satellite_max_pct: 35.0
+  speculative_sleeve_max_pct: 3.0
+buckets:
+  core_pick:
+    min_market_cap_usd: 2000000000
+    min_adv_usd: 20000000
+    max_pct_total: 6.0
+    max_pct_satellite: 30.0
+    default_initial_pct_total: 3.0
+    max_name_annual_vol: 0.70
+  asymmetric_bet:
+    max_bucket_pct_satellite: 40.0
+    max_names: 10
+    min_market_cap_usd: 300000000
+    min_adv_usd: 3000000
+    max_pct_total: 2.0
+    default_initial_pct_total: 1.0
+    max_name_annual_vol: 1.00
+    lottery_filter: true
+position:
+  kelly_fraction_cap: 0.5
+  min_names_satellite: 8
+  max_names_satellite: 25
+concentration:
+  max_sector_pct_satellite: 40.0
+  max_theme_pct_satellite: 35.0
+  flag_theme_lookthrough_pct_total: 35.0   # core ETFs + satellite
+  themes: [ai_capex_chain, taiwan_supply_chain, china_revenue, energy_price]
+liquidity:
+  max_position_pct_of_adv: 1.0
+volatility:
+  vol_scale_new_positions: true      # risk control, not return source
+portfolio:
+  max_satellite_drawdown_review_pct: 30.0   # triggers full review, not auto-sell
+  max_total_drawdown_review_pct: 35.0       # triggers IPS review with adviser
+  turnover_budget_satellite_annual_pct: 50.0
+  min_holding_days: 90                # unless thesis-break logged
+prohibited: [margin, leverage, short_selling, options]
+cooling_off_hours:
+  default: 24
+  behavioral_stop: 72
+  drawdown_over_25pct: 72             # any sell during a deep drawdown

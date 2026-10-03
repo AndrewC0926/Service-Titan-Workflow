@@ -1,0 +1,41 @@
+# Pinned model IDs per tier. Never use "latest" aliases (DESIGN 11).
+# Bear and Risk explainer must sit on a different tier or family from the Chair (DESIGN 7).
+tiers:
+  top:
+    model: claude-opus-5-5
+    temperature: 0.0
+    max_tokens: 4096
+  top_alt:
+    model: claude-sonnet-5-5
+    temperature: 0.0
+    max_tokens: 4096
+  mid:
+    model: claude-sonnet-5-5
+    temperature: 0.0
+    max_tokens: 3072
+  small:
+    model: claude-haiku-4-5-20251001
+    temperature: 0.0
+    max_tokens: 1024
+agents:
+  base_rate: mid
+  fundamentals: top
+  valuation: top
+  filings_insiders: top
+  news_narrative: mid
+  macro_scenario: top
+  bear: top_alt
+  risk_explainer: small
+  tax_explainer: small
+  behavioral_auditor: mid
+  chair: top
+# USD per million tokens, used for cost accounting and the budget guard.
+pricing:
+  claude-opus-5-5: {input: 15.0, output: 75.0, cache_read: 1.5, cache_write: 18.75}
+  claude-sonnet-5-5: {input: 3.0, output: 15.0, cache_read: 0.3, cache_write: 3.75}
+  claude-haiku-4-5-20251001: {input: 1.0, output: 5.0, cache_read: 0.1, cache_write: 1.25}
+budget:
+  monthly_usd: 150.0
+  downgrade_at_fraction: 0.8      # fewer reviews per week once 80% is used
+  reviews_per_week_normal: 6
+  reviews_per_week_downgraded: 3

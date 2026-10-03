@@ -1,0 +1,54 @@
+# Maintained scenarios (DESIGN 9). Shocks are instantaneous returns or factor moves.
+# Probabilities are market-implied inputs to risk budgets only, never trades.
+scenarios:
+  - id: oil_spike
+    name: Oil spike
+    definition: Brent to $130 for 6 months; CPI +1.5 pts
+    probability: 0.10
+    shocks: {market: -0.12, oil: 0.60, rates_10y_bp: 40, dollar: 0.02}
+    theme_shocks: {energy_price: 0.15}
+  - id: oil_collapse
+    name: Oil collapse
+    definition: Brent to $65 (Hormuz fully reopens, reserves released)
+    probability: 0.15
+    shocks: {market: 0.02, oil: -0.35, rates_10y_bp: -15, dollar: 0.0}
+    theme_shocks: {energy_price: -0.20}
+  - id: rate_shock
+    name: Rate shock
+    definition: 10-year to 6.0%; equity-bond correlation positive
+    probability: 0.10
+    shocks: {market: -0.18, oil: 0.0, rates_10y_bp: 150, dollar: 0.04}
+    theme_shocks: {ai_capex_chain: -0.10}
+  - id: disinflation_rally
+    name: Disinflation rally
+    definition: 10-year to 4.0%; Fed cuts
+    probability: 0.20
+    shocks: {market: 0.08, oil: -0.05, rates_10y_bp: -100, dollar: -0.03}
+    theme_shocks: {}
+  - id: ai_capex_reversal
+    name: AI capex reversal
+    definition: Hyperscaler 2027 capex down 30%
+    probability: 0.15
+    shocks: {market: -0.15, oil: -0.05, rates_10y_bp: -30, dollar: 0.0}
+    theme_shocks: {ai_capex_chain: -0.35}
+  - id: taiwan_supply_freeze
+    name: Taiwan supply freeze
+    definition: Taiwan-dependent revenue goes to zero for 12 months
+    probability: 0.03
+    shocks: {market: -0.25, oil: 0.10, rates_10y_bp: -40, dollar: 0.05}
+    theme_shocks: {taiwan_supply_chain: -0.45, ai_capex_chain: -0.20}
+  - id: us_china_truce_lapses
+    name: U.S.-China truce lapses
+    definition: Tariffs and mineral export controls reinstated after the January 2027 expiry
+    probability: 0.25
+    shocks: {market: -0.07, oil: -0.03, rates_10y_bp: 10, dollar: 0.02}
+    theme_shocks: {china_revenue: -0.20}
+  - id: fiscal_standoff
+    name: Fiscal standoff
+    definition: Shutdown or debt-limit brinkmanship under divided government; term premium +50 bps
+    probability: 0.20
+    shocks: {market: -0.06, oil: 0.0, rates_10y_bp: 50, dollar: -0.01}
+    theme_shocks: {}
+# Loss above this multiple of the satellite's normal 1-year expected vol reduces the modifier.
+loss_vol_multiple: 2.0
+modifier_floor: 0.5

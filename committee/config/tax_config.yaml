@@ -1,0 +1,42 @@
+# Dated tax configuration. Update every year with a CPA. Not tax advice.
+effective_year: 2026
+filing_status: married_joint
+# Placeholder brackets: confirm with a CPA before relying on any number.
+ordinary_brackets:
+  - {up_to: 23850, rate: 0.10}
+  - {up_to: 96950, rate: 0.12}
+  - {up_to: 206700, rate: 0.22}
+  - {up_to: 394600, rate: 0.24}
+  - {up_to: 501050, rate: 0.32}
+  - {up_to: 751600, rate: 0.35}
+  - {up_to: null, rate: 0.37}
+assumed_ordinary_rate: 0.24
+assumed_ltcg_rate: 0.15
+niit_rate: 0.038
+apply_niit: false
+state_rate: 0.05
+long_term_days: 365          # held more than one year
+long_term_warning_days: 60
+wash_sale_window_days: 30
+harvest:
+  min_loss_usd: 1000
+  min_loss_pct_of_basis: 5.0
+# Pre-mapped replacements: correlated, not substantially identical.
+replacements:
+  VTI: ITOT
+  ITOT: VTI
+  VEA: IEFA
+  IEFA: VEA
+  VWO: IEMG
+  IEMG: VWO
+  AVUV: DFSV
+  DFSV: AVUV
+  AVDV: DISV
+  DISV: AVDV
+location_preference:
+  satellite: [ira, taxable]
+  core_equity: [taxable, ira]
+  core_tilt: [ira, taxable]
+  diversifier: [ira, k401, taxable]
+  bonds: [ira, k401, taxable]
+  liquidity: [taxable]

@@ -1,0 +1,16 @@
+# Satellite universe filters (DESIGN 1, 6).
+core_pick:
+  min_market_cap_usd: 2000000000
+  min_adv_usd: 20000000
+asymmetric_bet:
+  min_market_cap_usd: 300000000
+  max_market_cap_usd: 10000000000
+  min_adv_usd: 3000000
+adv_window_days: 60
+min_price_usd: 5.0
+exclude_active_mna: true
+shortlist_size: 25
+cluster_buy_lookback_days: 30
+committee_reviews_per_week: {min: 3, max: 6}
+# Small universe used for demos and integration tests.
+test_universe: [AAPL, MSFT, JPM, XOM, JNJ, PG, NVDA, AMZN, GOOGL, META]
