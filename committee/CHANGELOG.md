@@ -53,3 +53,6 @@ All notable changes, one entry per build phase (DESIGN 12).
 - `orchestration/briefing.py`: one-screen briefing contract + Markdown/HTML renderer.
 - `broker/sim.py` offline paper broker; `broker/factory.py` (live only through the gate, else Alpaca paper, else simulator).
 - Every page is smoke-tested with Streamlit's AppTest, including an approval from the dashboard.
+
+## phase-18: Live-trading gate check
+- `ops/gates.py`: evaluates G0 (red-team findings closed, CI-green note), G1 (90 days paper, 100% fill reconciliation, zero P1 in 60 days, journal verifies with daily anchors, ≥ 30 reviews) and G2 (IPS signed, adviser + CPA review noted) from journal evidence; writes docs/LIVE_GATE.md with PASS/FAIL per criterion. Only when all pass does it write an unsigned gate file; `sign` journals the human signature over its hash. A failing check deletes any stale gate file. Never enables live trading — the env flag stays manual.
