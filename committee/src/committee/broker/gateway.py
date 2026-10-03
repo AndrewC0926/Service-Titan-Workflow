@@ -1,9 +1,17 @@
 """Order gateway: the ONLY path from an approval to a broker.
 
-Checks, in order: kill switch / freeze flags, a journaled approval referencing a
-journaled briefing, per-order and daily notional caps (independent of the risk
-engine), and idempotency. Large approvals execute in tranches under the caps.
+Checks, in order: kill switch / freeze flags, an intact journal hash chain, a
+journaled approval referencing a journaled briefing (re-checked against the
+briefing's leg ceilings), per-order and daily notional caps (independent of the
+risk engine), and idempotency. Large approvals execute in tranches under the caps.
 Orders are limit orders priced from the last close plus/minus a band.
+
+Client order ids are deterministic per (approval, symbol, side, tranche) and a
+rejected attempt does not advance the tranche number, so a retry after a broker
+failure reuses the same id. Before resubmitting it, the gateway asks the broker
+whether that id already exists (the failure may have happened after the broker
+accepted the order) and journals the existing order instead of sending a
+duplicate.
 """
 
 from __future__ import annotations
@@ -15,7 +23,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from committee.broker.base import BrokerAdapter
-from committee.broker.models import ApprovalRecord, Fill, OrderRequest
+from committee.broker.models import (
+    APPROVABLE_ENTRY_TYPES,
+    Approvable,
+    ApprovalRecord,
+    BrokerOrder,
+    Fill,
+    OrderRequest,
+)
 from committee.journal.store import Journal, JournalEntry
 from committee.ops.flags import Flags
 
@@ -96,6 +111,11 @@ class OrderGateway:
         blocked = self.flags.orders_blocked()
         if blocked:
             raise OrderBlocked(f"order submission blocked ({blocked})")
+        report = self.journal.verify()
+        if not report.ok:
+            reason = f"journal verification failed: {report.first_break}"
+            self.flags.set("frozen", reason)
+            raise OrderBlocked(f"order submission frozen ({reason})")
         entry = self.journal.find_by_hash(approval_hash)
         if entry is None or entry.entry_type != "approval":
             raise OrderBlocked("no journaled approval with that hash")
@@ -103,11 +123,17 @@ class OrderGateway:
         briefing = self.journal.find_by_hash(rec.briefing_hash)
         if briefing is None or briefing.seq != rec.briefing_seq:
             raise OrderBlocked("approval does not reference a journaled briefing")
+        if briefing.entry_type not in APPROVABLE_ENTRY_TYPES or briefing.seq >= entry.seq:
+            raise OrderBlocked("approval does not reference an approvable briefing")
+        self._check_legs(rec, briefing.payload)
         if now - entry.created_at > dt.timedelta(days=TRANCHE_WINDOW_DAYS):
             raise OrderBlocked("approval is older than the tranche window; re-brief")
         prior = self._orders_for(approval_hash)
-        per_order_cap = account_value_usd * self.caps.per_order_pct / 100
-        daily_left = account_value_usd * self.caps.daily_pct / 100 - self.notional_today(now)
+        # Caps use the smaller of the account value now and at approval time, so an
+        # inflated --account-value cannot widen them.
+        cap_base = min(account_value_usd, rec.account_value_usd)
+        per_order_cap = cap_base * self.caps.per_order_pct / 100
+        daily_left = cap_base * self.caps.daily_pct / 100 - self.notional_today(now)
         placed: list[PlacedOrder] = []
         for leg in rec.legs:
             target = rec.account_value_usd * leg.pct_total / 100
@@ -131,7 +157,18 @@ class OrderGateway:
             if qty <= 0:
                 continue
             notional = qty * limit
-            n = len([e for e in prior if e.payload["symbol"] == leg.symbol]) + len(placed) + 1
+            n = (
+                len(
+                    [
+                        e
+                        for e in prior
+                        if e.payload["symbol"] == leg.symbol
+                        and e.payload["side"] == leg.side
+                        and e.payload.get("status") != "rejected"
+                    ]
+                )
+                + 1
+            )
             req = OrderRequest(
                 client_order_id=_cid(approval_hash, leg.symbol, leg.side, n),
                 symbol=leg.symbol,
@@ -161,8 +198,14 @@ class OrderGateway:
                     "order", {**base, "status": "manual_ticket", "broker_order_id": None}
                 )
             else:
+                retry = any(
+                    e.payload.get("client_order_id") == req.client_order_id
+                    and e.payload.get("status") == "rejected"
+                    for e in prior
+                )
+                existing = self._existing_order(req.client_order_id) if retry else None
                 try:
-                    bo = self.broker.submit_limit_order(req)
+                    bo = existing or self.broker.submit_limit_order(req)
                 except Exception as exc:
                     self.journal.append(
                         "order",
@@ -175,7 +218,13 @@ class OrderGateway:
                     )
                     raise OrderBlocked(f"broker error for {leg.symbol}: {exc}") from exc
                 e = self.journal.append(
-                    "order", {**base, "status": bo.status, "broker_order_id": bo.broker_order_id}
+                    "order",
+                    {
+                        **base,
+                        "status": bo.status,
+                        "broker_order_id": bo.broker_order_id,
+                        **({"recovered": True} if existing else {}),
+                    },
                 )
             daily_left -= notional
             placed.append(
@@ -186,6 +235,30 @@ class OrderGateway:
             if daily_left <= 1.0:
                 break
         return placed
+
+    def _check_legs(self, rec: ApprovalRecord, briefing_payload: dict[str, object]) -> None:
+        """Defense in depth: every approved leg must sit within the briefing's ceilings."""
+        try:
+            ap = Approvable.model_validate(
+                {k: briefing_payload[k] for k in Approvable.model_fields if k in briefing_payload}
+            )
+        except ValueError:
+            raise OrderBlocked("briefing has no approvable legs") from None
+        ceilings = {(g.symbol, g.side, g.account): g.max_pct_total for g in ap.legs}
+        for leg in rec.legs:
+            cap = ceilings.get((leg.symbol, leg.side, leg.account))
+            if cap is None or leg.pct_total > cap + 1e-9:
+                raise OrderBlocked(f"approved {leg.side} {leg.symbol} exceeds the briefing")
+
+    def _existing_order(self, client_order_id: str) -> BrokerOrder | None:
+        """The broker's order with this client id, if a failed attempt actually reached it."""
+        try:
+            orders = self.broker.list_orders("all")
+        except Exception as exc:
+            raise OrderBlocked(
+                f"broker unavailable; cannot confirm the earlier attempt {client_order_id}: {exc}"
+            ) from exc
+        return next((o for o in orders if o.client_order_id == client_order_id), None)
 
     # -------------------------------------------------------------- reconcile
     def reconcile(self, on_fill: Callable[[Fill], None] | None = None) -> list[Fill]:
@@ -249,6 +322,16 @@ def kill_switch(journal: Journal, broker: BrokerAdapter, flags: Flags, reason: s
     return n
 
 
+MIN_RELEASE_REASON_CHARS = 20
+
+
 def release_kill_switch(journal: Journal, flags: Flags, reason: str) -> None:
+    """Release after a root-cause write-up (DESIGN 13): the journaled reason is that
+    write-up, so it must be at least a real sentence."""
+    if len(reason.strip()) < MIN_RELEASE_REASON_CHARS:
+        raise OrderBlocked(
+            f"releasing the kill switch needs a root-cause reason of at least "
+            f"{MIN_RELEASE_REASON_CHARS} characters"
+        )
     flags.clear("kill_switch")
-    journal.append("kill_switch", {"action": "released", "reason": reason})
+    journal.append("kill_switch", {"action": "released", "reason": reason.strip()})

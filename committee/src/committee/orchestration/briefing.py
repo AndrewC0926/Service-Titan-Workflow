@@ -74,6 +74,18 @@ def _pct(x: float) -> str:
     return f"{100 * x:.0f}%"
 
 
+_MD_SPECIAL = str.maketrans({c: "\\" + c for c in "\\[]<>"})
+
+
+def _md(text: str) -> str:
+    """Model-written text as inert markdown: no links, images or HTML (REVIEW R-16).
+
+    Agent text can echo injected news; an image link would make the dashboard
+    fetch an attacker URL. Backslash escapes keep citations like [E3] readable.
+    """
+    return text.translate(_MD_SPECIAL)
+
+
 def render_markdown(b: BriefingPayload) -> str:
     f = {(x.event, x.horizon_months): x.probability for x in b.forecasts}
     lines = [
@@ -81,7 +93,7 @@ def render_markdown(b: BriefingPayload) -> str:
         f"As of {b.asof} · size {b.size_pct_total:.2f}% of account (risk max {b.risk_max_size_pct:.2f}%) · "
         f"risk {b.risk_verdict} · cooling-off {b.cooling_off_hours}h",
         "",
-        f"**Thesis.** {b.thesis}",
+        f"**Thesis.** {_md(b.thesis)}",
         "",
         "| Forecast | 3m | 6m | 12m | 36m |",
         "|---|---|---|---|---|",
@@ -108,21 +120,23 @@ def render_markdown(b: BriefingPayload) -> str:
             f"{s.scenario} {_pct(s.probability)} → {s.return_36m:+.0%}" for s in b.scenario_payoffs
         ),
         "",
-        f"**Bear's strongest point.** {b.bear_strongest_point}",
-        f"**Pre-mortem.** {b.bear_premortem}",
+        f"**Bear's strongest point.** {_md(b.bear_strongest_point)}",
+        f"**Pre-mortem.** {_md(b.bear_premortem)}",
         "",
-        f"**Risk.** {b.risk_text}",
-        f"**Tax.** {b.tax_text}",
-        f"**Behavior ({b.behavioral_severity}).** {b.behavioral_text}",
+        f"**Risk.** {_md(b.risk_text)}",
+        f"**Tax.** {_md(b.tax_text)}",
+        f"**Behavior ({b.behavioral_severity}).** {_md(b.behavioral_text)}",
         "",
         "**Falsifiers:** "
-        + "; ".join(f"{x.observable} {x.threshold} by {x.check_by}" for x in b.falsifiers),
-        "**Kill criteria:** " + "; ".join(b.kill_criteria),
+        + "; ".join(
+            f"{_md(x.observable)} {_md(x.threshold)} by {x.check_by}" for x in b.falsifiers
+        ),
+        "**Kill criteria:** " + "; ".join(_md(k) for k in b.kill_criteria),
     ]
     if b.gate_notes:
         lines += ["", "**Code gate notes:** " + "; ".join(b.gate_notes)]
     if b.flags:
-        lines += ["**Flags:** " + ", ".join(b.flags)]
+        lines += ["**Flags:** " + ", ".join(_md(f) for f in b.flags)]
     lines += ["", f"_{FOOTER}_"]
     return "\n".join(lines)
 

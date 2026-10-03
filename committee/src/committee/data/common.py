@@ -69,8 +69,8 @@ def to_date(v: Any) -> dt.date | None:
 
 def norm_key(v: Any) -> str:
     """Canonical string for dedupe keys (dates, timestamps and numbers from DuckDB or Python)."""
-    if v is None or (isinstance(v, float) and pd.isna(v)):
-        return ""
+    if v is None or v is pd.NA or v is pd.NaT or (isinstance(v, float) and pd.isna(v)):
+        return ""  # pd.NA comes back for all-null nullable columns (REVIEW R-09)
     if isinstance(v, dt.date | pd.Timestamp):
         ts = pd.Timestamp(v)
         if ts.tzinfo is not None:

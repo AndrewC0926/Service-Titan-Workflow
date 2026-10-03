@@ -324,9 +324,7 @@ def approve_cmd(
             p = services.pit(ctx)
             account_value = services.portfolio_state(ctx, j, p, now().date())[0].total_value
         try:
-            gate = GateSettings(
-                ctx.config.app.approval.expiry_days, ctx.config.app.approval.min_reason_chars
-            )
+            gate = gate_settings(ctx, j)
             _, a = approve(
                 j,
                 briefing_hash,
@@ -358,22 +356,38 @@ def reject_cmd(
 
 
 # ------------------------------------------------------------------- orders
+def gate_settings(ctx: AppContext, j: Journal) -> GateSettings:
+    """Approval-gate settings: the stricter of the journaled (active) and on-disk values.
+
+    Loosening waits out the 7-day change-control delay; tightening applies at once.
+    """
+    act, disk = ctx.active_config(j).app.approval, ctx.config.app.approval
+    return GateSettings(
+        min(act.expiry_days, disk.expiry_days), max(act.min_reason_chars, disk.min_reason_chars)
+    )
+
+
+def order_caps(ctx: AppContext, j: Journal) -> Caps:
+    """Broker caps: the stricter of the journaled (active) and on-disk values (REVIEW R-03)."""
+    act, disk = ctx.active_config(j).app.broker, ctx.config.app.broker
+    return Caps(
+        min(act.per_order_notional_cap_pct, disk.per_order_notional_cap_pct),
+        min(act.daily_notional_cap_pct, disk.daily_notional_cap_pct),
+        min(act.limit_band_pct, disk.limit_band_pct),
+        act.time_in_force,
+    )
+
+
 def gateway(ctx: AppContext, j: Journal) -> OrderGateway:
     from committee import services
 
-    b = ctx.config.app.broker
     p = services.pit(ctx)
     price = services.price_lookup(p, now().date())
     return OrderGateway(
         j,
         make_broker(ctx, j),
         ctx.flags(),
-        Caps(
-            b.per_order_notional_cap_pct,
-            b.daily_notional_cap_pct,
-            b.limit_band_pct,
-            b.time_in_force,
-        ),
+        order_caps(ctx, j),
         last_close=price,
         live=is_live(ctx, j),
     )
@@ -431,7 +445,10 @@ def kill_switch_cmd(
     ctx = ctx_of(root)
     with ctx.journal() as j:
         if release:
-            release_kill_switch(j, ctx.flags(), reason)
+            try:
+                release_kill_switch(j, ctx.flags(), reason)
+            except OrderBlocked as e:
+                raise fail(str(e)) from None
             typer.echo("kill switch released")
         else:
             n = kill_switch(j, make_broker(ctx, j), ctx.flags(), reason)

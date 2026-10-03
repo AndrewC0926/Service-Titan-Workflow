@@ -71,7 +71,9 @@ TABLE_KEYS: dict[str, tuple[str, ...]] = {
 
 
 def new_ingest_id() -> str:
-    return dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:8]
+    """Sortable run id. ``PIT.latest`` breaks known_time ties by ingest_id, so ids must
+    increase between runs; microseconds keep two runs in one second ordered (REVIEW R-09)."""
+    return dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%S%f") + "-" + uuid.uuid4().hex[:8]
 
 
 def _utc(t: dt.datetime) -> dt.datetime:

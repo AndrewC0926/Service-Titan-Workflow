@@ -2,7 +2,7 @@
 they are journaled. Until then the previously journaled values stay active.
 
 The journal is the source of truth for controlled files (risk_limits.yaml,
-policy_portfolio.yaml). Editing the YAML only *requests* a change.
+policy_portfolio.yaml, app.yaml). Editing the YAML only *requests* a change.
 """
 
 from __future__ import annotations

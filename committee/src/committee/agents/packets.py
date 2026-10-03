@@ -6,8 +6,9 @@ Code, not the model, decides what each agent sees. The builder:
 2. assigns evidence ids E1..En once per review, so every agent cites the same ids;
 3. replaces the ticker and company names with an anonymous id and scrubs them
    from all text;
-4. wraps every news and filing text field in <untrusted_content> delimiters,
-   escaping any delimiter inside the text (prompt-injection defense);
+4. wraps every free-text field of news, filings and Form 4 rows in
+   <untrusted_content> delimiters, escaping any delimiter inside the text
+   (prompt-injection defense);
 5. shifts dates to relative terms ("T-34d") relative to the as-of date;
 6. drops account numbers, balances and dollar holdings (position weights only).
 
@@ -52,8 +53,16 @@ SOURCE_KINDS: tuple[str, ...] = (
     "tax_engine",
 )
 
-UNTRUSTED_KINDS = frozenset({"news", "filing_diffs", "filings_8k"})
-UNTRUSTED_FIELDS = frozenset({"headline", "summary", "text", "added", "removed", "excerpt", "body"})
+# Third-party text: news, filings and Form 4 free-text fields (e.g. officerTitle).
+# In these kinds EVERY string value is wrapped as untrusted, except the short
+# structural fields below, which are parsed codes rather than prose.
+UNTRUSTED_KINDS = frozenset({"news", "filing_diffs", "filings_8k", "insider_txns"})
+STRUCTURAL_FIELDS = frozenset(
+    {"form", "item", "items", "txn_code", "acquired_disposed", "role", "computed_by"}
+)
+# A structural value (or a label built from source rows) is shown bare only if it
+# looks like a code; anything else is treated as untrusted text.
+_CODE_LIKE = re.compile(r"[A-Za-z0-9 .,/()_:\-]{0,40}")
 
 _ANALYST_KINDS = (
     "signals",
@@ -342,7 +351,7 @@ def _clean(value: Any, *, key: str, asof: dt.date, scrub: Scrubber, untrusted: b
         return None
     if isinstance(value, str):
         text = _shift_text_dates(scrub(value), asof)
-        if untrusted and key in UNTRUSTED_FIELDS:
+        if untrusted and not (key in STRUCTURAL_FIELDS and _CODE_LIKE.fullmatch(text)):
             return wrap_untrusted(text)
         return text
     return value
@@ -494,7 +503,11 @@ def build_review_packet(
         for label, data in _group(kind, rows, asof):
             n += 1
             clean = _clean(data, key="", asof=asof, scrub=scrub, untrusted=kind in UNTRUSTED_KINDS)
-            items.append(EvidenceItem(id=f"E{n}", kind=kind, label=scrub(label), data=clean))
+            label = scrub(label)
+            if kind in UNTRUSTED_KINDS and not _CODE_LIKE.fullmatch(label):
+                # labels interpolate source fields; never let them carry free text
+                label = kind.replace("_", " ")
+            items.append(EvidenceItem(id=f"E{n}", kind=kind, label=label, data=clean))
     ctx: dict[str, Any] = {"sector": info.sector, "size_bucket": info.size_bucket}
     if context:
         ctx.update(_clean(dict(context), key="", asof=asof, scrub=scrub, untrusted=False))

@@ -31,6 +31,7 @@ from committee.data.common import (
     RunStats,
     drop_known,
     existing_keys,
+    norm_key,
     ny_time,
     resolve_universe,
     utcnow,
@@ -277,6 +278,11 @@ def ingest_prices(
         known_a = existing_keys(pit, "corporate_actions", ACTION_KEY)
     finally:
         pit.close()
+    first_stored: dict[str, dt.date] = {}
+    for k in known_p:
+        d0 = dt.date.fromisoformat(k[1][:10])
+        if k[0] not in first_stored or d0 < first_stored[k[0]]:
+            first_stored[k[0]] = d0
     batch, ok = Batch(), 0
     for ticker, sid in resolved.items():
         try:
@@ -296,6 +302,22 @@ def ingest_prices(
             except (FetchError, ValueError, KeyError) as e:
                 stats.error(f"{ticker} corporate actions: {e}")
         prices, acts = price_rows(sid, bars, actions, today)
+        first = first_stored.get(sid)
+        new_action = any(tuple(norm_key(a.get(c)) for c in ACTION_KEY) not in known_a for a in acts)
+        if new_action and first is not None and first < since:
+            # A new split/dividend changes adj_close for ALL earlier dates. Re-adjust the
+            # whole stored history, or the latest-version read would mix adjustment
+            # bases and show a spurious jump at ``since`` (REVIEW R-09).
+            try:
+                bars, _ = fetch_bars(
+                    fetcher, raw, ticker, first, until or today,
+                    massive_key=massive_key, finnhub_key=finnhub_key,
+                )  # fmt: skip
+            except PriceSourceError as e:
+                stats.error(f"{ticker}: history refetch for a new corporate action failed: {e}")
+                continue  # write nothing; the action stays new and is retried next run
+            prices, acts = price_rows(sid, bars, actions, today)
+            stats.counts["readjusted_history"] += 1
         prices = drop_known(prices, known_p, PRICE_KEY)
         acts = drop_known(acts, known_a, ACTION_KEY)
         batch.add("prices_daily", prices)
