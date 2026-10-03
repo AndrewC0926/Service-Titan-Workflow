@@ -1,0 +1,10 @@
+This file was created using the 202408 Bloomberg database.
+Missing data are indicated by -99.99.
+
+,Mkt-RF,SMB,HML,RMW,CMA,RF
+20240826,  -0.36,   0.40,   0.60,  -0.21,   0.35,   0.022
+20240827,   0.15,  -0.33,  -0.14,   0.09,  -0.03,   0.022
+20240828,  -0.71,   0.52,   0.73,   0.21,   0.42,   0.022
+20240829,  -0.02,   0.27,   0.18,  -0.10, -99.99,   0.022
+
+Copyright 2024 Eugene F. Fama and Kenneth R. French
