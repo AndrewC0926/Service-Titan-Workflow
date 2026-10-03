@@ -111,3 +111,21 @@ def test_ingest_risk_indexes_release_date_and_revision(tmp_path: Path) -> None:
     assert pit.latest("risk_indexes", NOW, where=q)["value"].tolist() == [121.70]
     assert pit.latest("risk_indexes", later, where=q)["value"].tolist() == [125.00]
     pit.close()
+
+
+def test_decode_xlsx_spreadsheet() -> None:
+    import io
+
+    import openpyxl
+
+    from committee.data.risk_indexes import decode_csv
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.append(["month", "GPR"])
+    ws.append(["2026-08-01", 101.5])
+    buf = io.BytesIO()
+    wb.save(buf)
+    text = decode_csv(buf.getvalue())
+    assert "GPR" in text and "101.5" in text

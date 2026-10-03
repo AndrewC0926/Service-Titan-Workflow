@@ -55,6 +55,7 @@ SCHEMAS: dict[str, dict[str, str]] = {
         "url": "str",
         "items": "str|null  comma-separated 8-K item numbers e.g. '2.02,9.01'",
         "sections_hash": "str|null",
+        "n_txns": "Int64|null  Form 3/4/5 transaction rows parsed; 0 = holdings-only",
     },
     "filing_sections": {
         "accession": "str",
