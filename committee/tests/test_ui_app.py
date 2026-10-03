@@ -7,7 +7,9 @@ import pytest
 APP = str(Path(__file__).resolve().parents[1] / "src" / "committee" / "ui" / "app.py")
 
 
-@pytest.mark.parametrize("page", ["Today", "Briefing", "Portfolio", "Scorecards", "Journal", "Costs", "Settings"])
+@pytest.mark.parametrize(
+    "page", ["Today", "Briefing", "Portfolio", "Scorecards", "Journal", "Costs", "Settings"]
+)
 def test_every_page_renders(project: Path, monkeypatch: pytest.MonkeyPatch, page: str) -> None:
     from streamlit.testing.v1 import AppTest
 
@@ -15,8 +17,15 @@ def test_every_page_renders(project: Path, monkeypatch: pytest.MonkeyPatch, page
 
     monkeypatch.setenv("COMMITTEE_ROOT", str(project))
     j = Journal(project / "var" / "journal.sqlite")
-    j.append("briefing", {"symbol": "ABC", "recommendation": "BUY", "cooling_off_hours": 0,
-                          "legs": [{"symbol": "ABC", "side": "buy", "account": "ira", "max_pct_total": 2}]})
+    j.append(
+        "briefing",
+        {
+            "symbol": "ABC",
+            "recommendation": "BUY",
+            "cooling_off_hours": 0,
+            "legs": [{"symbol": "ABC", "side": "buy", "account": "ira", "max_pct_total": 2}],
+        },
+    )
     j.close()
     at = AppTest.from_file(APP, default_timeout=30)
     at.run()
@@ -31,8 +40,15 @@ def test_approve_from_dashboard(project: Path, monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setenv("COMMITTEE_ROOT", str(project))
     j = Journal(project / "var" / "journal.sqlite")
-    j.append("briefing", {"symbol": "ABC", "recommendation": "BUY", "cooling_off_hours": 0,
-                          "legs": [{"symbol": "ABC", "side": "buy", "account": "ira", "max_pct_total": 2}]})
+    j.append(
+        "briefing",
+        {
+            "symbol": "ABC",
+            "recommendation": "BUY",
+            "cooling_off_hours": 0,
+            "legs": [{"symbol": "ABC", "side": "buy", "account": "ira", "max_pct_total": 2}],
+        },
+    )
     j.close()
     at = AppTest.from_file(APP, default_timeout=30)
     at.run()

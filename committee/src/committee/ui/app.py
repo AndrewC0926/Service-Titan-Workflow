@@ -26,10 +26,8 @@ st.set_page_config(page_title="Committee", layout="wide")
 
 
 @st.cache_resource
-def ctx() -> AppContext:
-    return AppContext.load(
-        Path(os.environ["COMMITTEE_ROOT"]) if "COMMITTEE_ROOT" in os.environ else None
-    )
+def ctx(root: str | None) -> AppContext:
+    return AppContext.load(Path(root) if root else None)
 
 
 def now() -> dt.datetime:
