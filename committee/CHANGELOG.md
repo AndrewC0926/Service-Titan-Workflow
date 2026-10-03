@@ -14,3 +14,16 @@ All notable changes, one entry per build phase (DESIGN 12).
 - `append`, `verify` (seq gaps, broken links, altered rows, non-canonical payloads), `export_anchor`; dated anchor files plus an email hook (stub until ops).
 - `committee journal verify` freezes order submission (var/flags/frozen.json) and journals a P1 incident on any break; `committee journal anchor`, `committee journal tail`.
 - Config change control: the journal is the source of truth for risk_limits.yaml and policy_portfolio.yaml. Edits are journaled as pending and take effect 7 days later; invalid edits are never journaled. `committee config pending`.
+
+## phase-03a: Point-in-time foundation
+- `data/lake.py`: immutable raw zone (gzip, read-only files, keyed by source/entity/known_time) and Parquet PIT lake (`<table>/known_date=…/part-<ingest>.parquet`, lineage columns on every row).
+- `data/pit.py`: DuckDB views with the `as_of(known_time, $asof)` macro (DESIGN's `asof`; ASOF is reserved in DuckDB) and `PIT.latest` for latest-version-as-of reads.
+- `data/http.py`: fetcher with rate limit, exponential backoff on 429/5xx, timeouts; `FixtureFetcher` for recorded responses.
+- `data/security_master.py`: CIK-keyed security master with ticker history; delisted names kept; SIC → sector.
+- `data/schemas.py`: column contracts for every PIT table; `domain.py`: shared Lot/Holding/Trade types.
+
+## phase-12: Approval gate and broker
+- `broker/approval.py`: approvals reference a journaled briefing/proposal hash; cooling-off (24h, 72h on Behavioral "stop" plus written justification), 7-day expiry, one-sentence reason, approve smaller never larger, only recommended legs; reject and expire are journaled decisions.
+- `broker/gateway.py`: the only path to a broker. Kill-switch/freeze flags, approval → briefing chain check, limit orders at last close ± band, per-order (2%) and daily (5%) notional caps independent of the risk engine, tranche execution, deterministic client order ids (idempotent), broker errors journaled, nightly fill reconciliation (deduped, callback for tax lots). Live mode routes only taxable orders to the broker; IRA/401(k) become manual tickets.
+- `broker/alpaca.py` (alpaca-py, paper by default), `broker/fake.py`, `broker/live_gate.py` (env flag AND a journaled, human-signed gate file hash).
+- Kill switch: cancels open orders, sets the flag, journals it. Property test: caps never exceeded.
