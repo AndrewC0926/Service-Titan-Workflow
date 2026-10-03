@@ -1,0 +1,12 @@
+account,symbol,qty,price,sleeve,bucket,sector,themes,annual_vol,opened_on
+taxable,VTI,1650,200,us_total,,,,,
+ira,AVUV,500,100,us_scv,,,,,
+taxable,VEA,1500,50,dev_exus,,,,,
+ira,AVDV,500,50,intl_scv,,,,,
+taxable,VWO,1000,50,em,,,,,
+ira,DBMF,1000,25,trend,,,,,
+taxable,SGOV,200,100,tbills,,,,,
+ira,SEMI,100,200,satellite,core_pick,Information Technology,ai_capex_chain:0.8;taiwan_supply_chain:0.5,0.45,2026-01-15
+ira,OILCO,200,100,satellite,core_pick,Energy,energy_price:1.0,0.30,2026-03-02
+ira,UTIL,250,80,satellite,core_pick,Utilities,ai_capex_chain:0.3,0.20,2025-11-20
+ira,SMALLAI,400,25,satellite,asymmetric_bet,Technology,ai_capex_chain:0.6,,2026-06-01
