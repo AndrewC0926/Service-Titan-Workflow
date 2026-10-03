@@ -56,3 +56,7 @@ All notable changes, one entry per build phase (DESIGN 12).
 
 ## phase-18: Live-trading gate check
 - `ops/gates.py`: evaluates G0 (red-team findings closed, CI-green note), G1 (90 days paper, 100% fill reconciliation, zero P1 in 60 days, journal verifies with daily anchors, ≥ 30 reviews) and G2 (IPS signed, adviser + CPA review noted) from journal evidence; writes docs/LIVE_GATE.md with PASS/FAIL per criterion. Only when all pass does it write an unsigned gate file; `sign` journals the human signature over its hash. A failing check deletes any stale gate file. Never enables live trading — the env flag stays manual.
+
+## phase-09: Tax engine and lot accounting
+- `engines/tax/`: specific-identification lot ledger across taxable, IRA and 401(k) (SQLite event store, replayed in date order); calendar-anniversary holding periods (Feb 29 handled); cross-account wash-sale guard with retroactive detection, partial-lot matching, basis/holding-period tacking in taxable and permanent disallowance in IRA/401(k); shared block list for the screen; lowest-tax lot selection and harvest mode; 60-day long-term warning (default WAIT unless the thesis is broken); location recommender; monthly harvest scan into pre-mapped replacements (journaled as `harvest_proposal`); after-tax hurdle with deferral; realized-gains CSV for the CPA. Every output says "Not tax advice. Confirm with a CPA."
+- Substantially-identical groups now live in `tax_config.yaml` (`equivalence_groups`), validated to never overlap the replacement map.

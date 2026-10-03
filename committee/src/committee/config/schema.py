@@ -309,6 +309,8 @@ class TaxConfig(Strict):
     wash_sale_window_days: int = Field(ge=30)
     harvest: HarvestSettings
     replacements: dict[str, str]
+    # Substantially identical groups (e.g. share classes). Replacements are never in here.
+    equivalence_groups: list[list[str]] = Field(default_factory=list)
     location_preference: dict[str, list[AccountKind]]
 
 

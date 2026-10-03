@@ -46,7 +46,8 @@ def _ctx(root: Path | None) -> AppContext:
 
 
 def _store(ctx: AppContext, equivalence: Path | None) -> TaxLedgerStore:
-    eq = Equivalence()
+    groups = ctx.config.tax.equivalence_groups
+    eq = Equivalence.from_lists(groups) if groups else Equivalence()
     if equivalence is not None:
         eq = Equivalence.from_lists(json.loads(equivalence.read_text(encoding="utf-8")))
     return TaxLedgerStore(ctx.state_db, ctx.config.tax.wash_sale_window_days, eq)

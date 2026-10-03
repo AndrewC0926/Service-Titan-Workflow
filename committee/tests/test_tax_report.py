@@ -305,3 +305,16 @@ def test_cli_bad_root(tmp_path: Path) -> None:
     (tmp_path / "config" / "models.yaml").write_text("tiers: {}\n")
     res = runner.invoke(app, ["wash-sale-blocks", "--root", str(tmp_path)])
     assert res.exit_code == 2
+
+
+def test_config_equivalence_groups_are_not_replacements() -> None:
+    from pathlib import Path
+
+    from committee.config.loader import load_config
+    from committee.engines.tax.equivalence import Equivalence
+
+    cfg = load_config(Path(__file__).resolve().parents[1] / "config").tax
+    eq = Equivalence.from_lists(cfg.equivalence_groups)
+    assert "GOOG" in eq.members("GOOGL")
+    for a, b in cfg.replacements.items():
+        assert b not in eq.members(a)

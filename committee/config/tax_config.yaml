@@ -33,6 +33,12 @@ replacements:
   DFSV: AVUV
   AVDV: DISV
   DISV: AVDV
+# Substantially identical for wash-sale purposes (share classes). Never put replacements here.
+equivalence_groups:
+  - [GOOG, GOOGL]
+  - [BRK.A, BRK.B]
+  - [FOX, FOXA]
+  - [NWS, NWSA]
 location_preference:
   satellite: [ira, taxable]
   core_equity: [taxable, ira]
