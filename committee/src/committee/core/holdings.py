@@ -132,3 +132,39 @@ class HoldingsStore:
                         Position(acct, sym, qty, cps, dt.date.fromisoformat(acq) if acq else None)  # type: ignore[arg-type]
                     )
         return out
+
+
+def apply_fill(
+    store: HoldingsStore,
+    account: AccountKind,
+    symbol: str,
+    side: str,
+    qty: float,
+    price: float,
+    on: dt.date,
+    now: dt.datetime,
+) -> str:
+    """New snapshot of ``account`` after a fill: shares and CASH move together."""
+    cur = [p for p in store.current() if p.account == account]
+    sign = 1.0 if side == "buy" else -1.0
+    out: list[Position] = []
+    found = False
+    for p in cur:
+        if p.symbol == symbol:
+            found = True
+            q = p.qty + sign * qty
+            if q < -1e-9:
+                raise ValueError(
+                    f"fill would make {symbol} negative in {account} (short selling is prohibited)"
+                )
+            if q > 1e-9:
+                out.append(Position(account, symbol, q, p.cost_per_share, p.acquired_on))
+        elif p.symbol != CASH:
+            out.append(p)
+    if not found:
+        if side == "sell":
+            raise ValueError(f"sell fill for {symbol} not held in {account}")
+        out.append(Position(account, symbol, qty, price, on))
+    cash = sum(p.qty for p in cur if p.symbol == CASH) - sign * qty * price
+    out.append(Position(account, CASH, cash))
+    return store.snapshot(account, out, f"fill:{symbol}", now)

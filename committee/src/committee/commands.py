@@ -845,7 +845,22 @@ def ingest_nightly(root: Path | None = ROOT) -> None:
         raise typer.Exit(code=1)
 
 
+def demo(
+    root: Path = typer.Option(..., "--root", help="An empty directory for the demo project."),
+    asof: str = typer.Option("today", "--asof"),
+    reviews: int = typer.Option(3, "--reviews"),
+) -> None:
+    """Offline end-to-end demo on synthetic data with a SIMULATED committee (no network, no API key)."""
+    from committee.demo.run import run_demo
+
+    try:
+        run_demo(root, parse_day(asof), reviews, say=typer.echo)
+    except FileExistsError as e:
+        raise fail(str(e)) from None
+
+
 def register(app: typer.Typer) -> None:
+    app.command("demo")(demo)
     app.command("screen")(screen)
     app.add_typer(review_app, name="review")
     app.add_typer(briefings_app, name="briefings")

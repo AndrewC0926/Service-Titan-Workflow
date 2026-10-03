@@ -309,7 +309,7 @@ def load_samples_from_pit(
     outcomes["size_bucket"] = caps
     signals = (
         pit.query(
-            "SELECT security_id, asof, signal_name, zscore "
+            'SELECT security_id, "asof", signal_name, zscore '
             "FROM signals WHERE as_of(known_time, $asof) AND zscore IS NOT NULL",
             asof,
         )

@@ -23,7 +23,7 @@ from committee.agents.prompts import PromptRegistry
 from committee.agents.runtime import AgentRuntime
 from committee.broker.models import Fill
 from committee.context import AppContext
-from committee.core.holdings import CASH, HoldingsStore, Position
+from committee.core.holdings import CASH, HoldingsStore, Position, apply_fill
 from committee.data.lake import Lake, RawZone
 from committee.data.pit import PIT
 from committee.data.security_master import resolve
@@ -297,6 +297,20 @@ def fill_to_ledger(ctx: AppContext) -> Callable[[Fill], None]:
     rates = TaxRates.from_config(ctx.config.tax)
 
     def apply(f: Fill) -> None:
+        store = HoldingsStore(ctx.state_db)
+        try:
+            apply_fill(
+                store,
+                f.account,
+                f.symbol,
+                f.side,
+                f.qty,
+                f.price,
+                f.filled_at.date(),
+                dt.datetime.now(dt.UTC),
+            )
+        finally:
+            store.close()
         with tax_store(ctx) as ts:
             day = f.filled_at.date()
             if f.side == "buy":

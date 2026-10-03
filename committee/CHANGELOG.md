@@ -91,3 +91,7 @@ All notable changes, one entry per build phase (DESIGN 12).
 - `orchestration/triggers.py`: falsifier dates, 8-K 4.01/4.02/5.02, −20% from entry (review, never auto-sell), quarterly reviews; journaled once and shown in the digest.
 - `evaluation/resolve.py`: resolves due forecasts from prices (never early).
 - `services.py` + `commands.py`: the full CLI — `screen`, `review run|batch|triggers`, `briefings list|show|expire`, `approve`, `reject`, `orders place|reconcile` (fills become tax lots), `kill-switch`, `core import|drift|propose`, `eval monthly|quarterly`, `digest send`, `ops backup|restore-test|health|scheduler|jobs`, `gate check|sign`, `ingest nightly`, plus the agents, scenarios, tax, ingest and data groups. A test asserts every scheduled job maps to a real command.
+
+## demo: offline end-to-end run
+- `committee demo --root DIR`: synthetic point-in-time lake (fictional companies), holdings, screen, reviews by a deterministic SIMULATED committee (always flagged `SIMULATED`), approval on a simulated clock, paper orders on the offline simulator, fills into tax lots and holdings, drift, digest, journal verify, gate check.
+- Fixes found by the demo: the base-rate signal query quoted `asof`; reconciled fills now update holdings (shares and cash) as well as tax lots.

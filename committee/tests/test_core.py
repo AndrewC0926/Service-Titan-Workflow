@@ -174,3 +174,20 @@ def test_csv_errors(tmp_path: Path, body: str, msg: str) -> None:
     p.write_text(body)
     with pytest.raises(ImportError_, match=msg):
         parse_positions_csv(p)
+
+
+def test_apply_fill_moves_shares_and_cash(tmp_path: Path) -> None:
+    from committee.core.holdings import apply_fill
+
+    store = HoldingsStore(tmp_path / "s.sqlite")
+    store.snapshot("ira", [Position("ira", CASH, 10_000.0), Position("ira", "AVUV", 5)], "t", NOW)
+    apply_fill(store, "ira", "ABC", "buy", 10, 100.0, NOW.date(), NOW + dt.timedelta(seconds=1))
+    cur = {p.symbol: p.qty for p in store.current() if p.account == "ira"}
+    assert cur == {"CASH": 9_000.0, "AVUV": 5, "ABC": 10}
+    apply_fill(store, "ira", "ABC", "sell", 10, 110.0, NOW.date(), NOW + dt.timedelta(seconds=2))
+    cur = {p.symbol: p.qty for p in store.current() if p.account == "ira"}
+    assert cur == {"CASH": 10_100.0, "AVUV": 5}
+    with pytest.raises(ValueError, match="not held"):
+        apply_fill(store, "ira", "XYZ", "sell", 1, 1.0, NOW.date(), NOW + dt.timedelta(seconds=3))
+    with pytest.raises(ValueError, match="short"):
+        apply_fill(store, "ira", "AVUV", "sell", 6, 1.0, NOW.date(), NOW + dt.timedelta(seconds=4))
