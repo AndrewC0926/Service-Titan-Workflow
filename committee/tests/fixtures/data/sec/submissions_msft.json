@@ -1,0 +1,20 @@
+{
+  "cik": "0000789019",
+  "name": "MICROSOFT CORP",
+  "tickers": ["MSFT"],
+  "filings": {
+    "recent": {
+      "accessionNumber": ["0000950170-24-087843"],
+      "filingDate": ["2024-07-30"],
+      "reportDate": ["2024-07-30"],
+      "acceptanceDateTime": ["2024-07-30T16:06:12.000Z"],
+      "form": ["8-K"],
+      "items": ["5.02"],
+      "primaryDocument": ["msft-8k_20240730.htm"]
+    },
+    "files": [
+      {"name": "CIK0000789019-submissions-001.json", "filingCount": 1, "filingFrom": "2023-01-01", "filingTo": "2023-12-31"},
+      {"name": "CIK0000789019-submissions-000.json", "filingCount": 1, "filingFrom": "1994-01-01", "filingTo": "2010-12-31"}
+    ]
+  }
+}

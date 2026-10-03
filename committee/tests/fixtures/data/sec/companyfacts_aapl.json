@@ -1,0 +1,82 @@
+{
+  "cik": 320193,
+  "entityName": "Apple Inc.",
+  "facts": {
+    "dei": {
+      "EntityCommonStockSharesOutstanding": {
+        "label": "Entity Common Stock, Shares Outstanding",
+        "units": {
+          "shares": [
+            {"end": "2024-10-18", "val": 15115823000, "accn": "0000320193-24-000123", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2024-11-01", "frame": "CY2024Q3I"}
+          ]
+        }
+      }
+    },
+    "us-gaap": {
+      "SalesRevenueNet": {
+        "label": "Revenues (legacy)",
+        "units": {
+          "USD": [
+            {"start": "2016-09-25", "end": "2017-09-30", "val": 229234000000, "accn": "0000320193-17-000070", "fy": 2017, "fp": "FY", "form": "10-K", "filed": "2017-11-03"}
+          ]
+        }
+      },
+      "RevenueFromContractWithCustomerExcludingAssessedTax": {
+        "label": "Revenue from Contract with Customer, Excluding Assessed Tax",
+        "units": {
+          "USD": [
+            {"start": "2022-09-25", "end": "2023-09-30", "val": 383285000000, "accn": "0000320193-23-000106", "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2023-11-03", "frame": "CY2023"},
+            {"start": "2022-09-25", "end": "2023-09-30", "val": 383285000000, "accn": "0000320193-24-000123", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2024-11-01"},
+            {"start": "2023-09-29", "end": "2024-09-28", "val": 391035000000, "accn": "0000320193-24-000123", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2024-11-01", "frame": "CY2024"},
+            {"start": "2024-03-31", "end": "2024-06-29", "val": 85777000000, "accn": "0000320193-24-000081", "fy": 2024, "fp": "Q3", "form": "10-Q", "filed": "2024-08-02", "frame": "CY2024Q2"},
+            {"start": "2023-10-01", "end": "2024-06-29", "val": 296105000000, "accn": "0000320193-24-000081", "fy": 2024, "fp": "Q3", "form": "10-Q", "filed": "2024-08-02"},
+            {"start": "2024-03-31", "end": "2024-06-29", "val": 85777000000, "accn": "0000320193-24-000069", "fy": 2024, "fp": "Q3", "form": "8-K", "filed": "2024-08-01"}
+          ]
+        }
+      },
+      "NetIncomeLoss": {
+        "label": "Net Income (Loss)",
+        "units": {
+          "USD": [
+            {"start": "2022-09-25", "end": "2023-09-30", "val": 96995000000, "accn": "0000320193-23-000106", "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2023-11-03"},
+            {"start": "2022-09-25", "end": "2023-09-30", "val": 97000000000, "accn": "0000320193-24-000123", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2024-11-01"},
+            {"start": "2023-09-29", "end": "2024-09-28", "val": 93736000000, "accn": "0000320193-24-000123", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2024-11-01"}
+          ]
+        }
+      },
+      "OperatingIncomeLoss": {
+        "label": "Operating Income (Loss)",
+        "units": {
+          "USD": [
+            {"start": "2023-09-29", "end": "2024-09-28", "val": 123216000000, "accn": "0000320193-24-000123", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2024-11-01"}
+          ]
+        }
+      },
+      "DepreciationDepletionAndAmortization": {
+        "label": "D&A",
+        "units": {
+          "USD": [
+            {"start": "2023-09-29", "end": "2024-09-28", "val": 11445000000, "accn": "0000320193-24-000123", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2024-11-01"}
+          ]
+        }
+      },
+      "Assets": {
+        "label": "Assets",
+        "units": {
+          "USD": [
+            {"end": "2024-06-29", "val": 331612000000, "accn": "0000320193-24-000081", "fy": 2024, "fp": "Q3", "form": "10-Q", "filed": "2024-08-02"},
+            {"end": "2024-09-28", "val": 364980000000, "accn": "0000320193-24-000123", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2024-11-01"}
+          ]
+        }
+      },
+      "StockholdersEquity": {
+        "label": "Stockholders' Equity",
+        "units": {
+          "USD": [
+            {"end": "2024-09-28", "val": 56950000000, "accn": "0000320193-24-000123", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2024-11-01"}
+          ]
+        }
+      }
+    }
+  }
+}

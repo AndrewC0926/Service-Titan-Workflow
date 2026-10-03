@@ -1,0 +1,30 @@
+{
+ "results": [
+  {
+   "cash_amount": 0.25,
+   "currency": "USD",
+   "declaration_date": "2024-08-01",
+   "dividend_type": "CD",
+   "ex_dividend_date": "2024-09-03",
+   "frequency": 4,
+   "id": "D1",
+   "pay_date": "2024-09-12",
+   "record_date": "2024-09-03",
+   "ticker": "AAPL"
+  },
+  {
+   "cash_amount": 0.26,
+   "currency": "USD",
+   "declaration_date": "2030-01-01",
+   "dividend_type": "CD",
+   "ex_dividend_date": "2030-02-01",
+   "frequency": 4,
+   "id": "D2",
+   "pay_date": "2030-02-12",
+   "record_date": "2030-02-01",
+   "ticker": "AAPL"
+  }
+ ],
+ "status": "OK",
+ "request_id": "r3"
+}

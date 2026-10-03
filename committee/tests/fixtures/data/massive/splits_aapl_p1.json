@@ -1,0 +1,14 @@
+{
+ "results": [
+  {
+   "execution_date": "2024-08-29",
+   "id": "E1",
+   "split_from": 1,
+   "split_to": 4,
+   "ticker": "AAPL"
+  }
+ ],
+ "status": "OK",
+ "request_id": "r1",
+ "next_url": "https://api.massive.com/v3/reference/splits?cursor=YWN0aXZlPXRydWU"
+}

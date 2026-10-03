@@ -1,0 +1,13 @@
+{
+ "results": [
+  {
+   "execution_date": "2020-08-31",
+   "id": "E0",
+   "split_from": 1,
+   "split_to": 4,
+   "ticker": "AAPL"
+  }
+ ],
+ "status": "OK",
+ "request_id": "r2"
+}
